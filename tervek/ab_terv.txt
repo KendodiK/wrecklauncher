@@ -1,0 +1,36 @@
+TÁBLA user:
+	-id
+	-name
+	-password
+	-pfp
+	-steam_id
+TÁBLA platform_user:
+	-id
+	-user_id
+	-platform_profile_id
+	-platform_name
+	-platform_user_id
+	-platform_password
+TÁBLA steam_game:
+	-id
+	-name
+	-banner_img
+	-profile
+	-cost
+TÁBLA friends:
+	-user_id1
+	-user_id2
+	-chat_id
+TÁBLA messages:
+	-id
+	-messages
+	-sender
+
+helyileg tároljuk:
+	saját játékokat (frissül új játékok letöltésekor/naponta)
+steamről le kérdezzük:
+	a játék részletes adatait a játékra kattintás után
+
+	
+
+

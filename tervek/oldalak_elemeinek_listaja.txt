@@ -1,0 +1,23 @@
+HOME PAGE:
+-lancher-ek listája
+-libary
+-tool bar
+-új kiadások naptára
+-whis list
+-side bar menü
++felugró ablakban massage-k
+
+PROFIL:
+-profilkép
+-név
+-online/nem
+-leírás
+-acchigmentek/játék specifikus adatok
+-közös friendek
+-whis list
+
+STORE:
+-reccomendations     }
+-launcher exclusive  } játékok kategóriái
+-leárazott           }
+-wish list           }
