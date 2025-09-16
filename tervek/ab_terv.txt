@@ -1,36 +1,35 @@
 TÁBLA user:
-	-id
-	-name
-	-password
-	-pfp
-	-steam_id
+	-id (uuid)
+	-name 
+	-password 
+	-pfp (link/img???)
 TÁBLA platform_user:
 	-id
-	-user_id
-	-platform_profile_id
+	-user_id (uuid)
+	-platform_profile_id (ezekre idk mi legyen a felső határ)
 	-platform_name
 	-platform_user_id
-	-platform_password
+	-platform_password 
 TÁBLA steam_game:
-	-id
-	-name
-	-banner_img
-	-profile
-	-cost
+	-id (asszem 13 számjegyes int max)
+	-name (256???)
+	-banner_img (link)
+	-profile (link???)
+	-cost (dollár vagy vmi egységes)
 TÁBLA friends:
-	-user_id1
-	-user_id2
-	-chat_id
+	-user_id1 (uuid)
+	-user_id2 (uuid)
+	-chat_id (uai)
 TÁBLA messages:
-	-id
-	-messages
-	-sender
+	-id (ai)
+	-messages (nagyság hossz kell majd)
+	-sender (uuid)
 
 helyileg tároljuk:
 	saját játékokat (frissül új játékok letöltésekor/naponta)
 steamről le kérdezzük:
 	a játék részletes adatait a játékra kattintás után
 
-	
+MIDDLEWARE használata!!!!
 
 
