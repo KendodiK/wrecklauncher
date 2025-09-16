@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:sys="clr-namespace:System;assembly=mscorlib">
+  <sys:String x:Key="LOCHumbleSettingsImportInstalledLabel">Importer installerede spil</sys:String>
+  <sys:String x:Key="LOCHumbleSettingsImportUninstalledLabel">Importer ikke installerede spil</sys:String>
+  <sys:String x:Key="LOCHumbleSettingsConnectAccount">Forbind konto</sys:String>
+  <sys:String x:Key="LOCHumbleLoginChecking">Tjekker godkendelsesstatus…</sys:String>
+  <sys:String x:Key="LOCHumbleLoggedIn">Brugeren er verificeret</sys:String>
+  <sys:String x:Key="LOCHumbleNotLoggedIn">Kræver verificering</sys:String>
+  <sys:String x:Key="LOCHumbleNotLoggedInError">Det lykkedes ikke at verificere brugeren</sys:String>
+  <sys:String x:Key="LOCHumbleAuthenticateLabel">Verificering</sys:String>
+  <sys:String x:Key="LOCHumbleSettingsStartGameDirectly">Start spil direkte uden at køre officiel klient</sys:String>
+  <sys:String x:Key="LOCHumbleTroubleShootingAccountLink">Fejlfinding for konto synkroniserings problemer</sys:String>
+  <sys:String x:Key="LOCHumbleSettingsImportLibraryLabel">Importer alle spil</sys:String>
+  <sys:String x:Key="LOCHumblePrivateAccount">Privat konto</sys:String>
+  <sys:String x:Key="LOCHumblePublicAccount">Offentlig Konto</sys:String>
+  <sys:String x:Key="LOCHumbleAPIKey">API Nøgle</sys:String>
+  <sys:String x:Key="LOCHumbleStartUsingClient">Begynd at bruge {0} klient</sys:String>
+  <sys:String x:Key="LOCHumbleImportPlaytime">Importer spilletid</sys:String>
+  <sys:String x:Key="LOCHumbleAccountID">Konto ID</sys:String>
+  <sys:String x:Key="LOCHumbleMetadataLanguageLabel">Metadata sprog:</sys:String>
+  <!--Humble-->
+</ResourceDictionary>
