@@ -1,0 +1,46 @@
+CREATE TABLE native_users(
+    id BINARY(16) DEFAULT (UUID_TO_BIN(UUID())) PRIMARY KEY,
+    name VARCHAR(32) NOT NULL,
+    user_password VARCHAR(100) NOT NULL,
+    pfp VARCHAR(516)
+);
+CREATE TABLE platforms(
+    id TINYINT AUTO_INCREMENT PRIMARY KEY,
+    platform_name VARCHAR(10)
+);
+CREATE TABLE platform_users(
+    id SMALLINT AUTO_INCREMENT PRIMARY KEY,
+    user_id BINARY(16) NOT NULL, INDEX(user_id),
+    platform_id SMALLINT NOT NULL, INDEX(platform_id),
+    platform_profile_id VARCHAR(17) NOT NULL,
+    platform_name VARCHAR(32),
+    platform_password VARCHAR(64)
+);
+CREATE TABLE pirate_sites(
+    id TINYINT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(10) NOT NULL
+);
+CREATE TABLE games(
+    id SMALLINT AUTO_INCREMENT PRIMARY KEY,
+    platform_id SMALLINT, INDEX(platform_id),
+    name VARCHAR(256) NOT NULL,
+    banner_img VARCHAR(516),
+    pfp VARCHAR(516),
+    cost SMALLINT(3)
+);
+CREATE TABLE game_pirate(
+    game_id SMALLINT NOT NULL, INDEX(game_id),
+    site_id TINYINT NOT NULL, INDEX(site_id),
+    link VARCHAR(516) NOT NULL
+);
+CREATE TABLE friends(
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user1_id BINARY(16) NOT NULL, INDEX(user1_id),
+    user2_id BINARY(16) NOT NULL, INDEX(user2_id)
+);
+CREATE TABLE chats(
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    friends_id INT NOT NULL, INDEX(friends_id),
+    message VARCHAR(1000) NOT NULL, 
+    sender_id BINARY(16) NOT NULL, INDEX(sender_id)
+);
