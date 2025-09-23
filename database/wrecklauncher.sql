@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1:3306
--- Generation Time: Sep 18, 2025 at 09:19 AM
+-- Generation Time: Sep 23, 2025 at 09:14 AM
 -- Server version: 9.1.0
 -- PHP Version: 8.3.14
 
@@ -36,6 +36,20 @@ CREATE TABLE IF NOT EXISTS `chats` (
   PRIMARY KEY (`id`),
   KEY `friends_id` (`friends_id`),
   KEY `sender_id` (`sender_id`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `connect_genre`
+--
+
+DROP TABLE IF EXISTS `connect_genre`;
+CREATE TABLE IF NOT EXISTS `connect_genre` (
+  `genre_id` smallint DEFAULT NULL,
+  `game_id` smallint DEFAULT NULL,
+  KEY `genre_id` (`genre_id`),
+  KEY `game_id` (`game_id`)
 ) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- --------------------------------------------------------
@@ -85,6 +99,19 @@ CREATE TABLE IF NOT EXISTS `game_pirate` (
   `link` varchar(516) NOT NULL,
   KEY `game_id` (`game_id`),
   KEY `site_id` (`site_id`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `genre`
+--
+
+DROP TABLE IF EXISTS `genre`;
+CREATE TABLE IF NOT EXISTS `genre` (
+  `id` smallint NOT NULL AUTO_INCREMENT,
+  `genre` varchar(32) NOT NULL,
+  PRIMARY KEY (`id`)
 ) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- --------------------------------------------------------

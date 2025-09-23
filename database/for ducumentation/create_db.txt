@@ -44,3 +44,11 @@ CREATE TABLE chats(
     message VARCHAR(1000) NOT NULL, 
     sender_id BINARY(16) NOT NULL, INDEX(sender_id)
 );
+CREATE TABLE genre(
+	id SMALLINT AUTO_INCREMENT PRIMARY KEY,
+    genre VARCHAR(32) NOT NULL
+);
+CREATE TABLE connect_genre(
+	genre_id SMALLINT, INDEX(genre_id),
+    game_id SMALLINT, INDEX(game_id)
+);

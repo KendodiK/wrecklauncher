@@ -30,6 +30,12 @@ TÁBLA game_pirate:
 	-game_id
 	-site_id
 	-link
+TÁBLA genres:
+	-id
+	-genre
+TÁBLA connect_genre:
+	-genre_id
+	-game_id
 TÁBLA friends:
 	-id
 	-chat_id 
