@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:sys="clr-namespace:System;assembly=mscorlib">
+  <sys:String x:Key="LOCHumbleSettingsImportInstalledLabel">Impordi paigaldatud mängud</sys:String>
+  <sys:String x:Key="LOCHumbleSettingsImportUninstalledLabel">Impordi paigaldamata mängud</sys:String>
+  <sys:String x:Key="LOCHumbleSettingsConnectAccount">Ühenda konto</sys:String>
+  <sys:String x:Key="LOCHumbleLoginChecking">Autentimise oleku kontrollimine…</sys:String>
+  <sys:String x:Key="LOCHumbleLoggedIn">Kasutaja on autenditud</sys:String>
+  <sys:String x:Key="LOCHumbleNotLoggedIn">Vajalik on autentimine</sys:String>
+  <sys:String x:Key="LOCHumbleNotLoggedInError">Kasutaja autentimine ebaõnnestus.</sys:String>
+  <sys:String x:Key="LOCHumbleAuthenticateLabel">Autendi</sys:String>
+  <sys:String x:Key="LOCHumbleSettingsStartGameDirectly">Käivita mängud otseselt, ilma ametlikku klienti avamata</sys:String>
+  <sys:String x:Key="LOCHumbleTroubleShootingAccountLink">Konto sünkroonimise probleemide tõrkeotsing</sys:String>
+  <sys:String x:Key="LOCHumbleTroubleShootingIssues">Probleemide tõrkeotsing</sys:String>
+  <sys:String x:Key="LOCHumbleSettingsImportLibraryLabel">Impordi kõik mängud</sys:String>
+  <sys:String x:Key="LOCHumblePrivateAccount">Privaatne konto</sys:String>
+  <sys:String x:Key="LOCHumblePublicAccount">Avalik konto</sys:String>
+  <sys:String x:Key="LOCHumbleAPIKey">API võti</sys:String>
+  <sys:String x:Key="LOCHumbleStartUsingClient">Käivita klienti {0} kasutades</sys:String>
+  <sys:String x:Key="LOCHumbleImportPlaytime">Impordi mänguaeg</sys:String>
+  <sys:String x:Key="LOCHumbleAccountID">Konto ID</sys:String>
+  <sys:String x:Key="LOCHumbleMetadataLanguageLabel">Metaandmete keel:</sys:String>
+  <!--Humble-->
+  <sys:String x:Key="LOCHumbleIgnoreThirdPartyStoreGames">Eira kolmanda osapoole poe mänge</sys:String>
+  <sys:String x:Key="LOCHumbleImportChoiceGames">Impordi Humble Choice'i mängud</sys:String>
+  <sys:String x:Key="LOCHumbleImportChoiceGamesTooltip">Impordi mängud, mis on osa tellimusest Humble Choice.</sys:String>
+  <sys:String x:Key="LOCHumbleGeneralLibrary">Impordi Humble Library mängud</sys:String>
+  <sys:String x:Key="LOCHumbleGeneralLibraryTooltip">Impordi standardsed Humble poest ostud ja kimpude ostud.</sys:String>
+  <sys:String x:Key="LOCHumbleIgnoreThirdPartyStoreGamesTooltip" xml:space="preserve">Luba, et duplikaatide vältimiseks vahele jätta nende mängude importimine,
+mis nõuavad kolmandate osapoolte kliente, sealhulgas Playnite'is juba hallatud poode.</sys:String>
+  <sys:String x:Key="LOCHumbleImportThirdPartyDrmFree">Impordi, kui DRM-vaba versioon on saadaval</sys:String>
+  <sys:String x:Key="LOCHumbleImportThirdPartyDrmFreeTooltip">Impordi 3. osapoole klienti nõudvad mängud, kui saadaval on ka DRM-vaba versioon.</sys:String>
+  <sys:String x:Key="LOCHumbleAlwaysUseLaucnherToStart">Mängude käivitamiseks kasuta alati rakendust Humble App</sys:String>
+  <sys:String x:Key="LOCHumbleAlwaysUseLaucnherToStartTooltip">Kui keelatud, üritab Playnite mänge käivitada otse, ilma rakendust Humble App kasutamata.</sys:String>
+  <sys:String x:Key="LOCHumbleNonTroveInstallError">Mittetellitavate Humble'i mängude automaatne paigaldamine ja desinstallimine ei ole praegu toetatud.</sys:String>
+</ResourceDictionary>
