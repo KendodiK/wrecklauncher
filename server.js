@@ -169,7 +169,7 @@ app.get('/api/freetp/Search/:gameName', (req, res) => {
 });
 
 
-app.get('/api/pcgamestorrentscom/games/:gameName', async (req, res) => {
+app.get('/api/pcgamestorrentscom/games/:gameName', async (req, res) => { //screenshotok előtt megáll
   const gameSlug = makeTextUrlFriendly(req.params.gameName);
   const url = `https://pcgamestorrents.com/${gameSlug}.html`;
 
@@ -183,20 +183,26 @@ app.get('/api/pcgamestorrentscom/games/:gameName', async (req, res) => {
     const button = await page.$('button');
     await button.evaluate(b => b.scrollIntoView());
     await page.waitForFunction(btn => btn && !btn.disabled && btn.offsetParent !== null, {}, button);
+    await page.screenshot({ path: 'step1-loaded.png', fullPage: true }); // after initial load
     await button.click();
 
     // Poll for magnet input with value
     let magnetLink = null;
+
+    await button.click();
+    await page.screenshot({ path: 'step2-after-click.png', fullPage: true }); // after button click
+    
+    // Inside the magnet polling loop
     for (let i = 0; i < 60; i++) {
       try {
-        magnetLink = await page.$eval('input[type="text"][readonly]', el => el.value);
-        if (magnetLink && magnetLink.startsWith('magnet:?')) break;
-      } catch (e) {
-        // Not ready yet
-      }
+        const magnetLink = await page.$eval('input[type="text"][readonly]', el => el.value);
+        if (magnetLink && magnetLink.startsWith('magnet:?')) {
+          await page.screenshot({ path: 'step3-magnet-found.png', fullPage: true });
+          break;
+        }
+      } catch (e) {}
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
-
     // Debugging: log URL and screenshot
     console.log('Final URL:', page.url());
     await page.screenshot({ path: 'debug.png', fullPage: true });
