@@ -2,10 +2,10 @@
 -- version 5.2.1
 -- https://www.phpmyadmin.net/
 --
--- Gép: 127.0.0.1
--- Létrehozás ideje: 2025. Sze 04. 08:47
--- Kiszolgáló verziója: 10.4.32-MariaDB
--- PHP verzió: 8.0.30
+-- Host: 127.0.0.1:3306
+-- Generation Time: Sep 18, 2025 at 09:19 AM
+-- Server version: 9.1.0
+-- PHP Version: 8.3.14
 
 SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
 START TRANSACTION;
@@ -18,97 +18,134 @@ SET time_zone = "+00:00";
 /*!40101 SET NAMES utf8mb4 */;
 
 --
--- Adatbázis: `wrecklauncher`
+-- Database: `wrecklauncher`
 --
 
 -- --------------------------------------------------------
 
 --
--- Tábla szerkezet ehhez a táblához `steamaccounts`
+-- Table structure for table `chats`
 --
 
-CREATE TABLE `steamaccounts` (
-  `id` int(11) NOT NULL,
-  `username` varchar(32) NOT NULL,
-  `password` varchar(32) NOT NULL,
-  `account_id` varchar(32) NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_hungarian_ci;
-
---
--- A tábla adatainak kiíratása `steamaccounts`
---
-
-INSERT INTO `steamaccounts` (`id`, `username`, `password`, `account_id`) VALUES
-(1, 'freshargetinaccount69912', 'Suguru42!', '76561199194098023');
+DROP TABLE IF EXISTS `chats`;
+CREATE TABLE IF NOT EXISTS `chats` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `friends_id` int NOT NULL,
+  `message` varchar(1000) NOT NULL,
+  `sender_id` binary(16) NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `friends_id` (`friends_id`),
+  KEY `sender_id` (`sender_id`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- --------------------------------------------------------
 
 --
--- Tábla szerkezet ehhez a táblához `steamconnectiontable`
+-- Table structure for table `friends`
 --
 
-CREATE TABLE `steamconnectiontable` (
-  `steamaccounts_id` int(11) NOT NULL,
-  `user_id` int(11) NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_hungarian_ci;
+DROP TABLE IF EXISTS `friends`;
+CREATE TABLE IF NOT EXISTS `friends` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `user1_id` binary(16) NOT NULL,
+  `user2_id` binary(16) NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `user1_id` (`user1_id`),
+  KEY `user2_id` (`user2_id`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- --------------------------------------------------------
 
 --
--- Tábla szerkezet ehhez a táblához `users`
+-- Table structure for table `games`
 --
 
-CREATE TABLE `users` (
-  `id` int(11) NOT NULL,
-  `username` varchar(32) NOT NULL,
-  `password` varchar(32) NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_hungarian_ci;
+DROP TABLE IF EXISTS `games`;
+CREATE TABLE IF NOT EXISTS `games` (
+  `id` smallint NOT NULL AUTO_INCREMENT,
+  `platform_id` smallint DEFAULT NULL,
+  `name` varchar(256) NOT NULL,
+  `banner_img` varchar(516) DEFAULT NULL,
+  `pfp` varchar(516) DEFAULT NULL,
+  `cost` smallint DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `platform_id` (`platform_id`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- --------------------------------------------------------
 
 --
--- A tábla adatainak kiíratása `users`
+-- Table structure for table `game_pirate`
 --
 
-INSERT INTO `users` (`id`, `username`, `password`) VALUES
-(1, 'teszt', 'teszt');
+DROP TABLE IF EXISTS `game_pirate`;
+CREATE TABLE IF NOT EXISTS `game_pirate` (
+  `game_id` smallint NOT NULL,
+  `site_id` tinyint NOT NULL,
+  `link` varchar(516) NOT NULL,
+  KEY `game_id` (`game_id`),
+  KEY `site_id` (`site_id`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- --------------------------------------------------------
 
 --
--- Indexek a kiírt táblákhoz
+-- Table structure for table `native_users`
 --
 
---
--- A tábla indexei `steamaccounts`
---
-ALTER TABLE `steamaccounts`
-  ADD PRIMARY KEY (`id`);
+DROP TABLE IF EXISTS `native_users`;
+CREATE TABLE IF NOT EXISTS `native_users` (
+  `id` binary(16) NOT NULL DEFAULT (uuid_to_bin(uuid())),
+  `name` varchar(32) NOT NULL,
+  `user_password` varchar(100) NOT NULL,
+  `pfp` varchar(516) DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- --------------------------------------------------------
 
 --
--- A tábla indexei `steamconnectiontable`
---
-ALTER TABLE `steamconnectiontable`
-  ADD KEY `steamaccounts_id` (`steamaccounts_id`),
-  ADD KEY `user_id` (`user_id`);
-
---
--- A tábla indexei `users`
---
-ALTER TABLE `users`
-  ADD PRIMARY KEY (`id`);
-
---
--- A kiírt táblák AUTO_INCREMENT értéke
+-- Table structure for table `pirate_sites`
 --
 
---
--- AUTO_INCREMENT a táblához `steamaccounts`
---
-ALTER TABLE `steamaccounts`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+DROP TABLE IF EXISTS `pirate_sites`;
+CREATE TABLE IF NOT EXISTS `pirate_sites` (
+  `id` tinyint NOT NULL AUTO_INCREMENT,
+  `name` varchar(10) NOT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- --------------------------------------------------------
 
 --
--- AUTO_INCREMENT a táblához `users`
+-- Table structure for table `platforms`
 --
-ALTER TABLE `users`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+
+DROP TABLE IF EXISTS `platforms`;
+CREATE TABLE IF NOT EXISTS `platforms` (
+  `id` tinyint NOT NULL AUTO_INCREMENT,
+  `platform_name` varchar(10) DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `platform_users`
+--
+
+DROP TABLE IF EXISTS `platform_users`;
+CREATE TABLE IF NOT EXISTS `platform_users` (
+  `id` smallint NOT NULL AUTO_INCREMENT,
+  `user_id` binary(16) NOT NULL,
+  `platform_id` smallint NOT NULL,
+  `platform_profile_id` varchar(17) NOT NULL,
+  `platform_name` varchar(32) DEFAULT NULL,
+  `platform_password` varchar(64) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `user_id` (`user_id`),
+  KEY `platform_id` (`platform_id`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
