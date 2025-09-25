@@ -1,0 +1,7 @@
+[submodule "PlayniteRepo"]
+	path = PlayniteRepo
+	url = https://github.com/JosefNemec/Playnite.git
+	branch = master
+[submodule "PlayniteBackendRepo"]
+	path = PlayniteBackendRepo
+	url = https://codeberg.org/Playnite/Backend.git
