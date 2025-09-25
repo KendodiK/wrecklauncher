@@ -93,7 +93,7 @@ async function addNewNativeUser(name, password, pfp){
 }
 
 //add new pirate site to 'pirate_sites' table
-async function addNewNativeUser(name){
+async function addNewPirateSite(name){
     const query = 'INSERT INTO `pirate_sites` (name) VALUES (?)'
     try {
         const [result] = await connection.execute(query, [name]);
@@ -105,7 +105,7 @@ async function addNewNativeUser(name){
 }
 
 //add new platform name to 'platforms' table
-async function addNewNativeUser(name){
+async function addNewPlatform(name){
     const query = 'INSERT INTO `platforms` (platform_name) VALUES (?)'
     try {
         const [result] = await connection.execute(query, [name]);
@@ -117,7 +117,7 @@ async function addNewNativeUser(name){
 }
 
 //add new platform user to 'platform_users' table
-async function addNewNativeUser(user_id, platform_id, platform_profile_id, platform_passworld){
+async function addNewPlatformUser(user_id, platform_id, platform_profile_id, platform_passworld){
     const query = 'INSERT INTO `platform_users` (user_id, platform_id, platform_profile_id, platform_passworld) VALUES (?,?,?,?)'
     try {
         const [result] = await connection.execute(query, [user_id, platform_id, platform_profile_id, platform_passworld]);
@@ -125,5 +125,46 @@ async function addNewNativeUser(user_id, platform_id, platform_profile_id, platf
     }
     catch (err) {
         console.log(err)
+    }
+}
+
+//calls all the functions which needed to add a new native user
+//friend_ids is an array which contains all the user's friend's ids
+//platform user is a 2 dimensonal matrix which has the folowing:
+//     [platform_name, platform_profile_id, platform_password]
+async function addNativeUserAllData(nativeUser, nativePassword, pfp, friend_ids, platform_users){
+    addNewNativeUser(nativeUser,nativePassword,pfp); //adding the user
+    const query = 'SELECT id FROM native_user WHERE name = (?)'
+    let nativeUserId;
+    try {
+        const [result] = await connection.execute(query, [nativeUser]);
+        nativeUserId = result;
+    }
+    catch (err) {
+        console.log(err)
+    }
+
+    for (const friendId of friend_ids) {
+        addFriends(nativeUserId,friendId) //idk how we will get the friend idsss; adding the friends one by one
+    }
+
+    for (const platformData in platform_users) {
+        let platformId;
+        do {
+            const query = 'SELECT id FROM platforms WHERE platform_name = (?)'
+            try {
+                const [result] = await connection.execute(query, [platformData[0]]);
+                platformId = result;
+            }
+            catch (err) {
+                console.log(err)
+            }
+            if (platformId == null) {
+                addNewPlatform(platformData[0]); //adding platform if it isn't in the db already
+            }
+        }
+        while (platformId != null)
+
+        addNewPlatformUser(nativeUserId, platformId, platformData[1], platformData[2]) //adding platform user infos
     }
 }
