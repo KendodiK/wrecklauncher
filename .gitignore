@@ -1,1 +1,4 @@
 /node_modules
+/database/beekeeper_studio_data
+database/Beekeeper-Studio-5.4.0-portable.exe
+/database/mysql-9.4.0-winx64
