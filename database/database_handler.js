@@ -1,13 +1,13 @@
-import mysql from 'mysql2/promise';
-
+const mysql = require('mysql2/promise');
+const {env}=require("process");
 // Create the connection to database
-const connection = await mysql.createConnection({
-  host: 'localhost',
-  user: 'root',
-  password: '',
-  database: 'wrecklauncher',
-});
-
+const connection = mysql.createConnection({
+    host: process.env.DB_HOST,
+    port: process.env.DB_PORT,
+    user: process.env.DB_USERNAME,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME
+  });
 //add new chats to 'chats' table
 async function addNewChat(friends_id, sender_id, message){
     const query = 'INSERT INTO `chats` (friends_id, message, sender_id) VALUES (?,?,?)'
@@ -234,3 +234,4 @@ async function getPlatformId(platformName){
         console.log(err)
     }
 }
+module.exports = {addNewGenre, addNewNativeUser, addNewPirateSite, addNewPlatform, addNewPlatformUser, addNativeUserAllData, addGameAllData, getPlatformId}

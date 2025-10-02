@@ -10,6 +10,7 @@ const { env } = require('process');
 const app = express();
 const https = require('https');
 const zlib = require('zlib');
+const databaseHandler = require('./database/database_handler');
 const PORT = 3000;
 const connection = mysql.createConnection({
   host: process.env.DB_HOST,
