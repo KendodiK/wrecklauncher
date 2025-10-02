@@ -33,13 +33,14 @@ window.addEventListener('load', async function getgames() {
   // });
   // const data3 = await response3.json();
   // console.log(data3);
-  const url3 = `${serverurl}/api/pcgamestorrentscom/games/${gamename}`;
-  const response3 = await fetch(url3, {
-    method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-    }
-  });
-  const data3 = await response3.json();
-  console.log(data3);
+  // const url3 = `${serverurl}/api/pcgamestorrentscom/games/${gamename}`;
+  // const response3 = await fetch(url3, {
+  //   method: 'GET',
+  //   headers: {
+  //     'Content-Type': 'application/json',
+  //   }
+  // });
+  // console.log(response3);
+  // const data3 = await response3.json();
+  // console.log(data3);
 })

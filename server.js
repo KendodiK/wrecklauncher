@@ -10,8 +10,6 @@ const { env } = require('process');
 const app = express();
 const https = require('https');
 const zlib = require('zlib');
-const axios = require('axios');
-const cheerio = require('cheerio');
 const PORT = 3000;
 // const connection = mysql.createConnection({
 //   host: process.env.DB_HOST,
