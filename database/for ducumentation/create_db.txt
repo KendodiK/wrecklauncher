@@ -19,13 +19,13 @@ CREATE TABLE pirate_sites(
     id TINYINT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(10) NOT NULL
 );
-CREATE TABLE games(
+CREATE TABLE games (
     id SMALLINT AUTO_INCREMENT PRIMARY KEY,
+    app_id INT UNSIGNED NOT NULL,
     platform_id SMALLINT, INDEX(platform_id),
     name VARCHAR(256) NOT NULL,
     banner_img VARCHAR(516),
-    pfp VARCHAR(516),
-    cost SMALLINT(3)
+    cost VARCHAR(7)
 );
 CREATE TABLE game_pirates(
     game_id SMALLINT NOT NULL, INDEX(game_id),
