@@ -1,11 +1,13 @@
 import mysql from 'mysql2/promise';
+const { env } = require('process');
 
 // Create the connection to database
-const connection = await mysql.createConnection({
-  host: 'localhost',
-  user: 'root',
-  password: '',
-  database: 'wrecklauncher',
+const connection = mysql.createConnection({
+  host: process.env.DB_HOST,
+  port: process.env.DB_PORT,
+  user: process.env.DB_USERNAME,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME
 });
 
 //add new chats to 'chats' table
@@ -127,3 +129,5 @@ async function addNewNativeUser(user_id, platform_id, platform_profile_id, platf
         console.log(err)
     }
 }
+
+module.exports={addNewNativeUser, addNewGame, addGenre, addFriends, addConnectionToConnect_genre, addGamePirateSiteConnection, addNewChat, addNewNativeUser, óó}
