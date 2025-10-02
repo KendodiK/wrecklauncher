@@ -5,20 +5,20 @@ const fetch = require('node-fetch'); // works with v2
 const puppeteer = require('puppeteer');
 const cors = require('cors');
 require('dotenv').config();
-// const mysql = require('mysql2');
+const mysql = require('mysql2');
 const { env } = require('process');
 const app = express();
 const https = require('https');
 const zlib = require('zlib');
-const database = require('./database/database_filler.js');
+const databaseHandler = require('./database/database_handler');
 const PORT = 3000;
-// const connection = mysql.createConnection({
-//   host: process.env.DB_HOST,
-//   port: process.env.DB_PORT,
-//   user: process.env.DB_USERNAME,
-//   password: process.env.DB_PASSWORD,
-//   database: process.env.DB_NAME
-// });
+const connection = mysql.createConnection({
+  host: process.env.DB_HOST,
+  port: process.env.DB_PORT,
+  user: process.env.DB_USERNAME,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME
+});
 // Replace with your actual Steam API key and Steam ID
 const steamApiKey = process.env.STEAM_API_KEY;
 app.use(cors());
@@ -45,13 +45,7 @@ async function getUsersSteamID(username, steamusername){
     });
   });
 }
-function makeTextUrlFriendly(text=String){
-  return text
-    .toLowerCase()                           // Convert to lowercase
-    .replace(/[^a-z0-9]+/g, '-')             // Replace non-alphanumeric characters with hyphen
-    .replace(/^-+|-+$/g, '')                 // Trim leading/trailing hyphens
-    .replace(/-{2,}/g, '-');                 // Replace multiple hyphens with one
-}
+
 app.get('/api/steam/UserID/:username/:steamusername', async (req, res) => {
     const username = req.params.username;
     const steamusername = req.params.steamusername;
@@ -166,83 +160,7 @@ app.get('/api/freetp/Search/:gameName', (req, res) => {
   request.write(postData);
   request.end();
 });
-
-
-app.get('/api/pcgamestorrentscom/games/:gameName', async (req, res) => { //screenshotok előtt megáll
-  const gameSlug = makeTextUrlFriendly(req.params.gameName);
-  const url = `https://pcgamestorrents.com/${gameSlug}.html`;
-
-  try {
-    const browser = await puppeteer.launch({ headless: true });
-    const page = await browser.newPage();
-    await page.goto(url, { waitUntil: 'networkidle2' });
-
-    // Wait for and click the button
-    await page.waitForSelector('button', { timeout: 20000 });
-    const button = await page.$('button');
-    await button.evaluate(b => b.scrollIntoView());
-    await page.waitForFunction(btn => btn && !btn.disabled && btn.offsetParent !== null, {}, button);
-    await page.screenshot({ path: 'step1-loaded.png', fullPage: true }); // after initial load
-    await button.click();
-
-    // Poll for magnet input with value
-    let magnetLink = null;
-
-    await button.click();
-    await page.screenshot({ path: 'step2-after-click.png', fullPage: true }); // after button click
-    
-    // Inside the magnet polling loop
-    for (let i = 0; i < 60; i++) {
-      try {
-        const magnetLink = await page.$eval('input[type="text"][readonly]', el => el.value);
-        if (magnetLink && magnetLink.startsWith('magnet:?')) {
-          await page.screenshot({ path: 'step3-magnet-found.png', fullPage: true });
-          break;
-        }
-      } catch (e) {}
-      await new Promise(resolve => setTimeout(resolve, 1000));
-    }
-    // Debugging: log URL and screenshot
-    console.log('Final URL:', page.url());
-    await page.screenshot({ path: 'debug.png', fullPage: true });
-
-    await browser.close();
-
-    if (!magnetLink) {
-      return res.status(404).json({ error: 'Magnet link not found after waiting' });
-    }
-
-    return res.json({ magnet: magnetLink });
-  } catch (error) {
-    console.error('Error fetching magnet link:', error.message);
-    return res.status(500).json({ error: 'Failed to fetch game data' });
-  }
-
-});
-// app.get('/api/pcgamestorrentscom/games/:gameName', async (req, res) => {
-//   try {
-//     const url = `https://pcgamestorrents.com/${makeTextUrlFriendly(req.params.gameName)}.html`;
-//     const response = await fetch(url);
-//     const html = await response.text();
-//     const $ = cheerio.load(html);
-//     const cards = [];
-//     $('p.uk-card.uk-card-body.uk-card-default.uk-card-hover').each((i, el) => {
-//       cards.push($(el).html()); // or use .text() if you want plain text
-//     });
-//     if(cards.length != 1){
-//       return res.status(500).json({ error: 'Failed to fetch game data' });
-//     }
-//     const link = cards[0].split('href="')[1].split('">')[0]
-//     const redirectPage = await fetch(link);
-//     const redirectHtml = await redirectPage.text();
-
-//     return res.json({ link: link });
-//   } catch (error) {
-//     console.error('Error fetching HTML:', error.message);
-//     return res.status(500).json({ error: 'Failed to fetch game data' });
-//   }
-// });
-//online-fix.me, freetp.org, pcgamestorrents.com, fitgirl-repacks.site
+//online-fix.me, freetp.org
 app.listen(PORT, () => {
   console.log(`Proxy server running at http://localhost:${PORT}`);
 });

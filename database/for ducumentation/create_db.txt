@@ -13,7 +13,6 @@ CREATE TABLE platform_users(
     user_id BINARY(16) NOT NULL, INDEX(user_id),
     platform_id SMALLINT NOT NULL, INDEX(platform_id),
     platform_profile_id VARCHAR(17) NOT NULL,
-    platform_name VARCHAR(32),
     platform_password VARCHAR(64)
 );
 CREATE TABLE pirate_sites(
@@ -28,7 +27,7 @@ CREATE TABLE games(
     pfp VARCHAR(516),
     cost SMALLINT(3)
 );
-CREATE TABLE game_pirate(
+CREATE TABLE game_pirates(
     game_id SMALLINT NOT NULL, INDEX(game_id),
     site_id TINYINT NOT NULL, INDEX(site_id),
     link VARCHAR(516) NOT NULL
@@ -44,11 +43,11 @@ CREATE TABLE chats(
     message VARCHAR(1000) NOT NULL, 
     sender_id BINARY(16) NOT NULL, INDEX(sender_id)
 );
-CREATE TABLE genre(
+CREATE TABLE genres(
 	id SMALLINT AUTO_INCREMENT PRIMARY KEY,
     genre VARCHAR(32) NOT NULL
 );
-CREATE TABLE connect_genre(
+CREATE TABLE connect_genres(
 	genre_id SMALLINT, INDEX(genre_id),
     game_id SMALLINT, INDEX(game_id)
 );
