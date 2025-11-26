@@ -44,10 +44,10 @@ CREATE TABLE chats(
     sender_id BINARY(16) NOT NULL, INDEX(sender_id)
 );
 CREATE TABLE genres(
-	id SMALLINT AUTO_INCREMENT PRIMARY KEY,
+    id SMALLINT AUTO_INCREMENT PRIMARY KEY,
     genre VARCHAR(32) NOT NULL
 );
 CREATE TABLE connect_genres(
-	genre_id SMALLINT, INDEX(genre_id),
+    genre_id SMALLINT, INDEX(genre_id),
     game_id SMALLINT, INDEX(game_id)
 );

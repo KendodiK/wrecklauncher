@@ -175,64 +175,6 @@ async function addNativeUserAllData(nativeUser, nativePassword, pfp, friend_ids,
 //pirateSites is a 2-dimensional matrix which contains all the pirate sites were the game can be downloaded:
 //   [pirateSiteName, link]
 //genres is an array which contains the game's genres
-// async function addGameAllData(platform, name, banner_img, cost, pirateSites, genres){
-//     var platformId;
-//     do {
-//         platformId  = await getPlatformId(platform);
-//         if (platformId == null) {
-//             await addNewPlatform(platform); //adding platform if it isn't in the db already
-//         }
-//     }
-//     while (platformId != null)
-//     await addNewGame(app_id, platformId,name,banner_img, pfp, cost); //adding new game
-
-//     for (const pirateSiteData of pirateSites){
-//         var pirateSiteId;
-//         do {
-//             const query = 'SELECT id FROM pirate_sites WHERE name = (?)'
-//             try {
-//                 const [result] = await connection.query(query, [pirateSiteData[0]]);
-//                 pirateSiteId = result;
-//             }
-//             catch (err) {
-//                 console.log(err)
-//             }
-//             if (pirateSiteId == null){
-//                 await addNewPirateSite(pirateSiteData[0]); //adding new pirate site if not exists
-//             }
-//         }
-//         while (pirateSiteId != null)
-//         var gameId;
-//         const query = 'SELECT id FROM games WHERE name = (?)'
-//         try {
-//             const [result] = await connection.query(query, [name]);
-//             gameId = result;
-//         }
-//         catch (err) {
-//             console.log(err)
-//         }
-//         await addGamePirateSiteConnection(gameId,pirateSiteId,pirateSiteData[2]) //adding game-pirate site connection
-//     }
-
-//     for(const genre of genres){
-//         var genreId;
-//         do {
-//             const query = 'SELECT id FROM genres WHERE name = (?)'
-//             try {
-//                 const [result] = await connection.query(query, [genre]);
-//                 genreId = result;
-//             }
-//             catch (err) {
-//                 console.log(err)
-//             }
-//             if (genreId == null){
-//                 await addNewGenre(genre); //adding new pirate site if not exists
-//             }
-//         }
-//         while (genreId != null)
-//         await addConnectionToConnect_genre(genreId,gameId);
-//     }
-// }
 async function addGameAllData(app_id,platform, name, banner_img, cost, pirateSites, genres) {
     try {
       // Ensure platform exists
@@ -298,6 +240,8 @@ async function addGameAllData(app_id,platform, name, banner_img, cost, pirateSit
       console.error(`❌ Error adding game "${name}":`, err.message);
     }
   }
+
+
 async function getPlatformId(platformName){
     const query = 'SELECT id FROM platforms WHERE platform_name = (?)'
     try {
