@@ -165,7 +165,7 @@ app.get("/api/steam/GameDetails/:appId", async (req, res) => {
 //   });
 // });
 function fetchSteamAppDetails(appId, {
-  cc = "us",
+  cc = "de",
   lang = "en",
   timeout = 8000,
   retries = 5,
