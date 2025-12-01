@@ -1,4 +1,6 @@
+// server.js
 const express = require('express');
+// const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 const fetch = require('node-fetch'); // works with v2
 const puppeteer = require('puppeteer');
 const cors = require('cors');
@@ -9,114 +11,115 @@ const app = express();
 const https = require('https');
 const zlib = require('zlib');
 const databaseHandler = require('./database/database_handler');
+const { platform } = require('os');
 const PORT = 3000;
-const axios = require('axios');
+const connection = mysql.createConnection({
+  host: process.env.DB_HOST,
+  port: process.env.DB_PORT,
+  user: process.env.DB_USERNAME,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME
+});
+// Replace with your actual Steam API key and Steam ID
 const steamApiKey = process.env.STEAM_API_KEY;
 app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.post('/teszt/',async (req,res) =>{
-  databaseHandler.addGameAllData(req.body.app_id,req.body.platform,req.body.name,req.body.banner_img,req.body.cost,req.body.pirateSites,req.body.genres);
-  console.log(req.body.app_id+"");
-  return res.json({msg:"sikeres"});
-});
-app.get('/api/steam/UserID/:username/:steamusername', async (req, res) => { //ha megvan a adatabase lekérd át lesz írva, jelenleg nem nagyon működik
-    // const username = req.params.username;
-    // const steamusername = req.params.steamusername;
-    // const steam_userid = await getUsersSteamID(username, steamusername);
-    // res.json({ steam_userid: steam_userid });
+
+async function getUsersSteamID(username, steamusername) {
+  return new Promise((resolve, reject) => {
+    const query = `
+      SELECT pu.platform_profile_id
+      FROM native_users u
+      JOIN platform_users pu ON u.id = pu.user_id
+      WHERE u.name = ? AND pu.platform_username = ?
+    `;
+
+    connection.query(query, [username, steamusername], (err, results) => {
+      if (err) {
+        console.error('Query error:', err);
+        return reject(err);
+      }
+
+      if (results.length > 0) {
+        resolve(results[0].platform_profile_id);
+      } else {
+        resolve(null);
+      }
+    });
+  });
+}
+
+
+async function uploadGame(platformname, name, banner_img, pfp, cost, genres) {
+  //check before upload
+
+  return databaseHandler.addGameAllData(
+    platformname,
+    name,
+    banner_img,
+    pfp,
+    cost,
+    genres
+  );
+}
+app.get('/api/steam/UserID/:username/:steamusername', async (req, res) => {
+    const username = req.params.username;
+    const steamusername = req.params.steamusername;
+    const steam_userid = await getUsersSteamID(username, steamusername);
+    res.json({ steam_userid: steam_userid });
 });
 
 app.get('/api/steam/OwnedGames/:username/:steamusername', async (req, res) => {
   try {
-    //const steamID = await getUsersSteamID(req.params.username, req.params.steamusername);
-    const steamID = '76561199194098023'; //tesztelés miatt fixen beírt steamID
-    console.log(steamID);
+    const steamID = await getUsersSteamID(req.params.username, req.params.steamusername);
+    console.log("Steam user id"+steamID);
     if (!steamID) {
       return res.status(404).json({ error: 'Steam ID not found for the given username and steamusername' });
     }
     const url = `https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key=${steamApiKey}&steamid=${steamID}&format=json`;
     const response = await fetch(url);
     const data = await response.json();
-    return res.json(data);
+    res.json(data);
   } catch (error) {
     console.error('Error fetching Steam data:', error);
-    return res.status(500).json({ error: 'Failed to fetch data from Steam API' });
+    res.status(500).json({ error: 'Failed to fetch data from Steam API' });
   }
 });
-// app.get('/api/steam/GameDetails/:appId', (req, res) => {
-//   const appId = req.params.appId;
-
-//   const options = {
-//     hostname: 'store.steampowered.com',
-//     path: `/api/appdetails?appids=${appId}`,
-//     method: 'GET',
-//     headers: {
-//       'Cookie': 'birthtime=568022401; lastagecheckage=1-0-2000',
-//       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
-//     }
-//   };
-
-//   const request = https.request(options, (response) => {
-//     let rawData = '';
-
-//     response.on('data', (chunk) => {
-//       rawData += chunk;
-//     });
-
-//     response.on('end', () => {
-//       try {
-//         const parsedData = JSON.parse(rawData);
-//         const gameData = parsedData[appId]?.data;
-
-//         if (gameData) {
-//           res.json(gameData);
-//         } else {
-//           res.status(404).json({ error: 'Game data not found' });
-//         }
-//       } catch (e) {
-//         console.error('Failed to parse JSON:', e);
-//         res.status(500).json({ error: 'Invalid JSON response from Steam API' });
-//       }
-//     });
-
-//     response.on('error', (err) => {
-//       console.error('HTTPS response error:', err);
-//       res.status(500).json({ error: 'Failed to receive data from Steam API' });
-//     });
-//   });
-
-//   request.on('error', (err) => {
-//     console.error('HTTPS request error:', err);
-//     res.status(500).json({ error: 'Failed to fetch Steam API' });
-//   });
-
-//   request.end();
-// });
-app.get('/api/steam/GameDetails/:appId', async (req, res) => {
+app.get('/api/steam/GameDetails/:appId', (req, res) => {
   const appId = req.params.appId;
-  const url = `https://store.steampowered.com/api/appdetails?appids=${appId}`;
 
-  try {
-    const response = await axios.get(url, {
-      headers: {
-        'Cookie': 'wants_mature_content=1; sessionid=99bf6e6e979d1be54f56da73; timezoneOffset=7200,0; ak_bmsc=...; bm_sv=...; browserid=521977529738216949; birthtime=820450801; lastagecheckage=1-January-1996; recentapps=...; app_impressions=...',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-        'Accept': 'application/json',
-        'Referer': `https://store.steampowered.com/app/${appId}`
+  https.get(`https://store.steampowered.com/api/appdetails?appids=${appId}`, (response) => {
+    let rawData = '';
+
+    response.on('data', (chunk) => {
+      rawData += chunk;
+    });
+
+    response.on('end', () => {
+      try {
+        const parsedData = JSON.parse(rawData);
+        const gameData = parsedData[appId]?.data;
+
+        if (gameData) {
+          console.log("steam", gameData.name, gameData.capsule_image,gameData.capsule_image, 0, gameData.genres.map(g => g.description));
+          uploadGame("steam", gameData.name, gameData.capsule_image,gameData.capsule_image, 0, gameData.genres.map(g => g.description))
+          return res.json(gameData); //GameSize benne lehet a requirementsekben, másképp leglálisan nem érhető el, nem scraperülnk, ethikai gondok miatt (robots.txt tiltja az adott oldal scrapelését)
+        } else {
+          res.status(404).json({ error: 'Game data not found' });
+        }
+      } catch (e) {
+        console.error('Failed to parse JSON:', e);
+        res.status(500).json({ error: 'Invalid JSON response from Steam API' });
       }
     });
 
-    const gameData = response.data[appId]?.data;
-    if (gameData) {
-      res.json(gameData);
-    } else {
-      res.status(404).json({ error: 'Game data not found' });
-    }
-  } catch (err) {
-    console.error('Steam API error:', err.message);
-    res.status(500).json({ error: 'Failed to fetch Steam game details' });
-  }
+    response.on('error', (err) => {
+      console.error('HTTPS response error:', err);
+      res.status(500).json({ error: 'Failed to receive data from Steam API' });
+    });
+  }).on('error', (err) => {
+    console.error('HTTPS request error:', err);
+    res.status(500).json({ error: 'Failed to fetch Steam API' });
+  });
 });
 app.get('/api/freetp/Search/:gameName', (req, res) => {
   const gameName = req.params.gameName;

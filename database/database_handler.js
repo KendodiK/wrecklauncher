@@ -1,27 +1,18 @@
 const mysql = require('mysql2/promise');
 const {env}=require("process");
 // Create the connection to database
-let connection;
-
-(async () => {
-  try {
-    connection = await mysql.createConnection({
-      host: env.DB_HOST,
-      port: env.DB_PORT,
-      user: env.DB_USERNAME,
-      password: env.DB_PASSWORD,
-      database: env.DB_NAME
-    });
-    console.log("Database connected successfully");
-  } catch (err) {
-    console.error("Database connection failed:", err);
-  }
-})();
+const connection = mysql.createPool({
+    host: process.env.DB_HOST,
+    port: process.env.DB_PORT,
+    user: process.env.DB_USERNAME,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME
+  });
 //add new chats to 'chats' table
 async function addNewChat(friends_id, sender_id, message){
     const query = 'INSERT INTO `chats` (friends_id, message, sender_id) VALUES (?,?,?)'
     try {
-        const [result] = await connection.query(query, [friends_id, message, sender_id]);
+        const [result] = await connection.execute(query, [friends_id, message, sender_id]);
         console.log(result);
     }
     catch (err) {
@@ -33,7 +24,7 @@ async function addNewChat(friends_id, sender_id, message){
 async function addConnectionToConnect_genre(genre_id, game_id){
     const query = 'INSERT INTO `connect_genres` (genre_id, game_id) VALUES (?,?)'
     try {
-        const [result] = await connection.query(query, [genre_id, game_id]);
+        const [result] = await connection.execute(query, [genre_id, game_id]);
         console.log(result);
     }
     catch (err) {
@@ -45,7 +36,7 @@ async function addConnectionToConnect_genre(genre_id, game_id){
 async function addFriends(user1_id, user2_id){
     const query = 'INSERT INTO `friens` (user1_id, user2_id) VALUES (?,?)'
     try {
-        const [result] = await connection.query(query, [user1_id, user2_id]);
+        const [result] = await connection.execute(query, [user1_id, user2_id]);
         console.log(result);
     }
     catch (err) {
@@ -54,14 +45,15 @@ async function addFriends(user1_id, user2_id){
 }
 
 //add new game to 'games' table
-async function addNewGame(app_id, platform_id, name, banner_img, cost){
-    const query = 'INSERT INTO `games` (app_id, platform_id, name, banner_img, cost) VALUES (?,?,?,?,?)'
+async function addNewGame(platform_id, name, banner_img, pfp, cost){
+    const query = 'INSERT INTO `games` (platform_id, name, banner_img, pfp, cost) VALUES (?,?,?,?,?)'
     try {
-        const [result] = await connection.query(query, [app_id, platform_id, name, banner_img, cost]);
-        console.log(result);
+        const [result] = await connection.execute(query, [platform_id, name, banner_img, pfp, cost]);
+        return result.insertId;  // <--- visszaadjuk az új game ID-t
     }
     catch (err) {
         console.log(err)
+        return null;
     }
 }
 
@@ -69,7 +61,7 @@ async function addNewGame(app_id, platform_id, name, banner_img, cost){
 async function addGamePirateSiteConnection(game_id, site_id, link){
     const query = 'INSERT INTO `game_priates` (game_id, site_id, link) VALUES (?,?,?)'
     try {
-        const [result] = await connection.query(query, [game_id, site_id, link]);
+        const [result] = await connection.execute(query, [game_id, site_id, link]);
         console.log(result);
     }
     catch (err) {
@@ -81,7 +73,7 @@ async function addGamePirateSiteConnection(game_id, site_id, link){
 async function addNewGenre(genre){
     const query = 'INSERT INTO `genres` (genre) VALUES (?)'
     try {
-        const [result] = await connection.query(query, [genre]);
+        const [result] = await connection.execute(query, [genre]);
         console.log(result);
     }
     catch (err) {
@@ -93,7 +85,7 @@ async function addNewGenre(genre){
 async function addNewNativeUser(name, password, pfp){
     const query = 'INSERT INTO `native_users` (name, user_password, pfp) VALUES (?,?,?)'
     try {
-        const [result] = await connection.query(query, [name, password, pfp]);
+        const [result] = await connection.execute(query, [name, password, pfp]);
         console.log(result);
     }
     catch (err) {
@@ -105,7 +97,7 @@ async function addNewNativeUser(name, password, pfp){
 async function addNewPirateSite(name){
     const query = 'INSERT INTO `pirate_sites` (name) VALUES (?)'
     try {
-        const [result] = await connection.query(query, [name]);
+        const [result] = await connection.execute(query, [name]);
         console.log(result);
     }
     catch (err) {
@@ -117,20 +109,19 @@ async function addNewPirateSite(name){
 async function addNewPlatform(name){
     const query = 'INSERT INTO `platforms` (platform_name) VALUES (?)'
     try {
-        const [result] = await connection.query(query, [name]);
+        const [result] = await connection.execute(query, [name]);
         console.log(result);
     }
     catch (err) {
         console.log(err)
     }
-    return;
 }
 
 //add new platform user to 'platform_users' table
 async function addNewPlatformUser(user_id, platform_id, platform_profile_id, platform_password){
     const query = 'INSERT INTO `platform_users` (user_id, platform_id, platform_profile_id, platform_passworld) VALUES (?,?,?,?)'
     try {
-        const [result] = await connection.query(query, [user_id, platform_id, platform_profile_id, platform_passworld]);
+        const [result] = await connection.execute(query, [user_id, platform_id, platform_profile_id, platform_passworld]);
         console.log(result);
     }
     catch (err) {
@@ -147,7 +138,7 @@ async function addNativeUserAllData(nativeUser, nativePassword, pfp, friend_ids,
     const query = 'SELECT id FROM native_user WHERE name = (?)'
     let nativeUserId;
     try {
-        const [result] = await connection.query(query, [nativeUser]);
+        const [result] = await connection.execute(query, [nativeUser]);
         nativeUserId = result;
     }
     catch (err) {
@@ -175,83 +166,58 @@ async function addNativeUserAllData(nativeUser, nativePassword, pfp, friend_ids,
 //pirateSites is a 2-dimensional matrix which contains all the pirate sites were the game can be downloaded:
 //   [pirateSiteName, link]
 //genres is an array which contains the game's genres
-async function addGameAllData(app_id,platform, name, banner_img, cost, pirateSites, genres) {
-    try {
-      // Ensure platform exists
-      let [platformResult] = await connection.execute('SELECT id FROM platforms WHERE platform_name = ?', [platform]);
-      let platformId = platformResult[0]?.id;
-  
-      if (!platformId) {
-        await connection.execute('INSERT INTO platforms (platform_name) VALUES (?)', [platform]);
-        [platformResult] = await connection.execute('SELECT id FROM platforms WHERE platform_name = ?', [platform]);
-        platformId = platformResult[0]?.id;
-      }
-  
-      // Add game
-      await connection.execute(
-        'INSERT INTO games (app_id,platform_id, name, banner_img, cost) VALUES (?,?, ?, ?, ?)',
-        [app_id,platformId, name, banner_img, cost]
-      );
-  
-      // Get game ID
-      const [gameResult] = await connection.execute('SELECT id FROM games WHERE name = ?', [name]);
-      const gameId = gameResult[0]?.id;
-      if (!gameId) throw new Error(`Game ID not found for "${name}"`);
-  
-      // Add pirate site connections
-      try{
-      for (const [siteName, link] of pirateSites) {
-        let [siteResult] = await connection.execute('SELECT id FROM pirate_sites WHERE name = ?', [siteName]);
-        let siteId = siteResult[0]?.id;
-  
-        if (!siteId) {
-          await connection.execute('INSERT INTO pirate_sites (name) VALUES (?)', [siteName]);
-          [siteResult] = await connection.execute('SELECT id FROM pirate_sites WHERE name = ?', [siteName]);
-          siteId = siteResult[0]?.id;
-        }
-  
-        await connection.execute(
-          'INSERT INTO game_pirate_sites (game_id, pirate_site_id, link) VALUES (?, ?, ?)',
-          [gameId, siteId, link]
-        );
-      }}catch{
-        console.log("no pirate sites for this game")
-      }
-  
-      // Add genre connections
-      for (const genre of genres) {
-        let [genreResult] = await connection.execute('SELECT id FROM genres WHERE genre = ?', [genre]);
-        let genreId = genreResult[0]?.id;
-  
-        if (!genreId) {
-          await connection.execute('INSERT INTO genres (genre) VALUES (?)', [genre]);
-          [genreResult] = await connection.execute('SELECT id FROM genres WHERE genre = ?', [genre]);
-          genreId = genreResult[0]?.id;
-        }
-  
-        await connection.execute(
-          'INSERT INTO connect_genres (genre_id, game_id) VALUES (?, ?)',
-          [genreId, gameId]
-        );
-      }
-  
-      console.log(`✅ Game "${name}" added successfully with ID ${gameId}`);
-    } catch (err) {
-      console.error(`❌ Error adding game "${name}":`, err.message);
-    }
-  }
+async function addGameAllData(platform, name, banner_img, pfp, cost, genres) {
 
+    // 1. PLATFORM
+    let platformId;
+    do {
+        platformId = await getPlatformId(platform);
+        if (!platformId) {
+            await addNewPlatform(platform);
+        }
+    } while (!platformId);
 
-async function getPlatformId(platformName){
-    const query = 'SELECT id FROM platforms WHERE platform_name = (?)'
-    try {
-        const [result] = await connection.query(query, [platformName]);
-        return result;
-    }
-    catch (err) {
-        console.log(err);
+    // 2. GAME
+    const gameId = await addNewGame(platformId, name, banner_img, pfp, cost);
+    if (!gameId) throw new Error(`Failed to insert game: ${name}`);
+
+    // 3. GENRES
+    for (const genre of genres ?? []) {
+        if (!genre) continue;
+
+        let genreId;
+        do {
+            const [result] = await connection.execute(
+                `SELECT id FROM genres WHERE genre = ?`,
+                [genre]
+            );
+            genreId = result[0]?.id ?? null;
+
+            if (!genreId) {
+                await addNewGenre(genre);
+                const [newResult] = await connection.execute(
+                    `SELECT id FROM genres WHERE genre = ?`,
+                    [genre]
+                );
+                genreId = newResult[0]?.id ?? null;
+            }
+        } while (!genreId);
+
+        await addConnectionToConnect_genre(genreId, gameId);
     }
 }
 
+
+async function getPlatformId(platformName){
+    const query = 'SELECT id FROM platforms WHERE platform_name = ?'
+    try {
+        const [rows] = await connection.execute(query, [platformName]);
+        return rows[0]?.id ?? null;
+    }
+    catch (err) {
+        console.log(err)
+        return null;
+    }
+}
 
 module.exports = {addNewGenre, addNewNativeUser, addNewPirateSite, addNewPlatform, addNewPlatformUser, addNativeUserAllData, addGameAllData, getPlatformId}
