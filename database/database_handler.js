@@ -45,10 +45,10 @@ async function addFriends(user1_id, user2_id){
 }
 
 //add new game to 'games' table
-async function addNewGame(platform_id, name, banner_img, pfp, cost){
-    const query = 'INSERT INTO `games` (platform_id, name, banner_img, pfp, cost) VALUES (?,?,?,?,?)'
+async function addNewGame(platform_id, appid, name, banner_img, pfp, cost){
+    const query = 'INSERT INTO `games` (platform_id, app_id, name, banner_img, pfp, cost) VALUES (?,?,?,?,?,?)'
     try {
-        const [result] = await connection.execute(query, [platform_id, name, banner_img, pfp, cost]);
+        const [result] = await connection.execute(query, [platform_id, appid, name, banner_img, pfp, cost]);
         return result.insertId;  // <--- visszaadjuk az új game ID-t
     }
     catch (err) {
@@ -166,7 +166,7 @@ async function addNativeUserAllData(nativeUser, nativePassword, pfp, friend_ids,
 //pirateSites is a 2-dimensional matrix which contains all the pirate sites were the game can be downloaded:
 //   [pirateSiteName, link]
 //genres is an array which contains the game's genres
-async function addGameAllData(platform, name, banner_img, pfp, cost, genres) {
+async function addGameAllData(platform, appid, name, banner_img, pfp, cost, genres) {
 
     // 1. PLATFORM
     let platformId;
@@ -178,7 +178,7 @@ async function addGameAllData(platform, name, banner_img, pfp, cost, genres) {
     } while (!platformId);
 
     // 2. GAME
-    const gameId = await addNewGame(platformId, name, banner_img, pfp, cost);
+    const gameId = await addNewGame(platformId, appid, name, banner_img, pfp, cost);
     if (!gameId) throw new Error(`Failed to insert game: ${name}`);
 
     // 3. GENRES

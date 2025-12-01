@@ -87,7 +87,7 @@ app.get('/api/steam/OwnedGames/:username/:steamusername', async (req, res) => {
 app.get('/api/steam/GameDetails/:appId', (req, res) => {
   const appId = req.params.appId;
 
-  https.get(`https://store.steampowered.com/api/appdetails?appids=${appId}`, (response) => {
+  https.get(`https://store.steampowered.com/api/appdetails?appids=${appId}&cc=de`, (response) => {
     let rawData = '';
 
     response.on('data', (chunk) => {
@@ -100,14 +100,35 @@ app.get('/api/steam/GameDetails/:appId', (req, res) => {
         const gameData = parsedData[appId]?.data;
 
         if (gameData) {
-          console.log("steam", gameData.name, gameData.capsule_image,gameData.capsule_image, 0, gameData.genres.map(g => g.description));
-          uploadGame("steam", gameData.name, gameData.capsule_image,gameData.capsule_image, 0, gameData.genres.map(g => g.description))
-          return res.json(gameData); //GameSize benne lehet a requirementsekben, másképp leglálisan nem érhető el, nem scraperülnk, ethikai gondok miatt (robots.txt tiltja az adott oldal scrapelését)
+
+          const price = gameData.price_overview
+            ? gameData.price_overview.initial/100
+            : 0;
+        
+          console.log(price + " || " + appId);
+        
+          const genres = Array.isArray(gameData.genres)
+            ? gameData.genres.map(g => g.description)
+            : [];
+        
+          uploadGame(
+            "steam",
+            appId,
+            gameData.name,
+            gameData.capsule_image,
+            gameData.capsule_image,
+            price,
+            genres
+          );
+        
+          return res.json(gameData);
+        
         } else {
           res.status(404).json({ error: 'Game data not found' });
         }
       } catch (e) {
         console.error('Failed to parse JSON:', e);
+        console.log(rawData);
         res.status(500).json({ error: 'Invalid JSON response from Steam API' });
       }
     });
