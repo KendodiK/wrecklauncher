@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="styles/styles.css" />
+    <link rel="stylesheet" href="styles/home.css" />
+    <title>Profile — Front End App</title>
+  </head>
+  <body>
+    <header id="toolbar">
+      <div class="top-row">
+        <div class="left">
+          <div class="app-icon">
+            <a href="index.html" class="app-icon-link" aria-label="Home" data-menu="home">
+              <img
+                src="img/anchor_40dp_87BAC3_FILL0_wght400_GRAD0_opsz40.svg"
+                alt="App Icon"
+                class="app-icon-img"
+              />
+            </a>
+          </div>
+        </div>
+
+        <div class="right">
+          <button aria-label="Notifications">
+            <img
+              class="nav-item-img"
+              src="img/notifications_40dp_87BAC3_FILL0_wght400_GRAD0_opsz40.svg"
+              alt="Notifications"
+            />
+          </button>
+
+          <div class="user">Username</div>
+
+          <div class="window-controls">
+            <button class="nav-item-winbutton" id="min-btn" aria-label="Minimize">
+              <img src="img/minimize_40dp_87BAC3_FILL0_wght400_GRAD0_opsz40.svg" alt="Minimize" />
+            </button>
+            <button class="nav-item-winbutton" id="max-btn" aria-label="Maximize">
+              <img src="img/branding_watermark_40dp_87BAC3_FILL0_wght400_GRAD0_opsz40.svg" alt="Maximize" />
+            </button>
+            <button class="nav-item-winbutton" id="close-btn" aria-label="Close">
+              <img src="img/close_40dp_87BAC3_FILL0_wght400_GRAD0_opsz40.svg" alt="Close" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="bottom-row">
+        <div class="left">
+          <button class="nav-item-btn" aria-label="Back">
+            <img class="tab-img" src="img/arrow_back_40dp_87BAC3_FILL0_wght400_GRAD0_opsz40.svg" alt="Back" />
+          </button>
+          <button class="nav-item-btn" aria-label="Forward">
+            <img class="tab-img" src="img/arrow_forward_40dp_87BAC3_FILL0_wght400_GRAD0_opsz40.svg" alt="Forward" />
+          </button>
+
+          <a class="nav-item" href="store.html" data-menu="store">
+            <img class="nav-item-img" src="img/store_40dp_87BAC3_FILL0_wght400_GRAD0_opsz40.svg" alt="Store" /> STORE
+          </a>
+          <a class="nav-item" href="library.html" data-menu="library">
+            <img class="nav-item-img" src="img/newsstand_40dp_87BAC3_FILL0_wght400_GRAD0_opsz40.svg" alt="Library" /> LIBRARY
+          </a>
+          <a class="nav-item" href="profile.html" data-menu="profile">
+            <img class="nav-item-img" src="img/person_40dp_87BAC3_FILL0_wght400_GRAD0_opsz40.svg" alt="Profile" /> PROFILE
+          </a>
+          <a class="nav-item" href="friends.html" data-menu="friends">
+            <img class="nav-item-img" src="img/group_40dp_87BAC3_FILL0_wght400_GRAD0_opsz40.svg" alt="Friends" /> FRIENDS
+          </a>
+        </div>
+      </div>
+    </header>
+
+    <main id="app-content">
+      <p>Put your profile content here.</p>
+    </main>
+
+    <script src="scripts/ui.js" defer></script>
+    <script src="scripts/carousel.js" defer></script>
+  </body>
+</html>
