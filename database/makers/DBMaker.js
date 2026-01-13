@@ -1,6 +1,7 @@
-import DatabaseHandler from "../DatabaseHandeler";
+// import DatabaseHandler from "../DatabaseHandeler";
+const DatabaseHandler = require("../DatabaseHandeler");
 
-export default DBMaker;
+// export default DBMaker;
 
 /**
  * DBMaker
@@ -14,10 +15,11 @@ export default DBMaker;
 class DBMaker extends DatabaseHandler {
     constructor(tableStructureFilePath) {
         super('dbName');
-        if (tableStructureFilePath.extname() !== '.sql') {
+        // const filepath = tableStructureFilePath.split('.');
+        if (tableStructureFilePath.split('.').pop() !== 'sql') {
             throw new Error("Invalid table structure file");
         } 
-        executeSQLFile(this.dbConnection, tableStructureFilePath);
+        this.executeSQLFile(this.dbConnection, tableStructureFilePath);
     }
 
     async executeSQLFile(connection, filePath) {
@@ -33,3 +35,4 @@ class DBMaker extends DatabaseHandler {
         });
     }
 }
+module.exports = DBMaker;
