@@ -1,1 +1,2 @@
 steam userid lekérdezése -> given variables nativeusername&steamusername
+token system native usereknek varchar 128 v 64????
