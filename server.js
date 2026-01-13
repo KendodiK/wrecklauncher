@@ -84,43 +84,154 @@ app.get('/api/steam/OwnedGames/:username/:steamusername', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch data from Steam API' });
   }
 });
-app.get('/api/steam/GameDetails/:appId', (req, res) => {
+app.get("/api/steam/GameDetails/:appId", async (req, res) => {
   const appId = req.params.appId;
 
-  https.get(`https://store.steampowered.com/api/appdetails?appids=${appId}`, (response) => {
-    let rawData = '';
-
-    response.on('data', (chunk) => {
-      rawData += chunk;
+  try {
+    const data = await fetchSteamAppDetails(appId, {
+      cc: "us",
+      lang: "en"
     });
 
-    response.on('end', () => {
-      try {
-        const parsedData = JSON.parse(rawData);
-        const gameData = parsedData[appId]?.data;
+    res.json(data);
 
-        if (gameData) {
-          console.log("steam", gameData.name, gameData.capsule_image,gameData.capsule_image, 0, gameData.genres.map(g => g.description));
-          uploadGame("steam", gameData.name, gameData.capsule_image,gameData.capsule_image, 0, gameData.genres.map(g => g.description))
-          return res.json(gameData); //GameSize benne lehet a requirementsekben, másképp leglálisan nem érhető el, nem scraperülnk, ethikai gondok miatt (robots.txt tiltja az adott oldal scrapelését)
-        } else {
-          res.status(404).json({ error: 'Game data not found' });
-        }
-      } catch (e) {
-        console.error('Failed to parse JSON:', e);
-        res.status(500).json({ error: 'Invalid JSON response from Steam API' });
-      }
-    });
-
-    response.on('error', (err) => {
-      console.error('HTTPS response error:', err);
-      res.status(500).json({ error: 'Failed to receive data from Steam API' });
-    });
-  }).on('error', (err) => {
-    console.error('HTTPS request error:', err);
-    res.status(500).json({ error: 'Failed to fetch Steam API' });
-  });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
+// app.get('/api/steam/GameDetails/:appId', (req, res) => {
+//   const appId = req.params.appId;
+
+//   https.get({
+//     hostname: 'store.steampowered.com',
+//     path: `/api/appdetails?appids=${appId}&cc=us`,
+//     headers: {
+//       'Accept-Encoding': 'identity',
+//       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+//     }
+//   }, (response) => {
+//     let rawData = '';
+
+//     response.on('data', (chunk) => {
+//       rawData += chunk;
+//     });
+
+//     response.on('end', () => {
+//       try {
+//         const parsedData = JSON.parse(rawData);
+//         const gameData = parsedData[appId]?.data;
+
+//         if (gameData) {
+
+//           const price = gameData.price_overview
+//             ? gameData.price_overview.initial/100
+//             : 0;
+        
+        
+//           const genres = Array.isArray(gameData.genres)
+//             ? gameData.genres.map(g => g.description)
+//             : [];
+        
+//           uploadGame(
+//             "steam",
+//             appId,
+//             gameData.name,
+//             gameData.capsule_image,
+//             gameData.capsule_image,
+//             price,
+//             genres
+//           );
+        
+//           return res.json(gameData);
+        
+//         } else {
+//           console.log(rawData);
+//           res.status(404).json({ error: 'Game data not found' });
+//         }
+//       } catch (e) {
+//         console.error('Failed to parse JSON:', e);
+//         console.log(rawData);
+//         res.status(500).json({ error: 'Invalid JSON response from Steam API' });
+//       }
+//     });
+
+//     response.on('error', (err) => {
+//       console.error('HTTPS response error:', err);
+//       res.status(500).json({ error: 'Failed to receive data from Steam API' });
+//     });
+//   }).on('error', (err) => {
+//     console.error('HTTPS request error:', err);
+//     res.status(500).json({ error: 'Failed to fetch Steam API' });
+//   });
+// });
+function fetchSteamAppDetails(appId, {
+  cc = "de",
+  lang = "en",
+  timeout = 8000,
+  retries = 5,
+  retryDelay = 500 // ms
+} = {}) {
+
+  return new Promise((resolve, reject) => {
+
+    function attempt(tryNumber) {
+
+      const options = {
+        hostname: "store.steampowered.com",
+        path: `/api/appdetails?appids=${appId}&cc=${cc}&l=${lang}`,
+        method: "GET",
+        headers: {
+          "Accept-Encoding": "identity",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+        },
+        timeout
+      };
+
+      const req = https.get(options, (res) => {
+        let data = "";
+
+        if (res.statusCode === 429) {
+          if (tryNumber < retries) {
+            const wait = retryDelay * tryNumber;
+            console.log(`Steam 429 for ${appId}, retrying in ${wait}ms`);
+            return setTimeout(() => attempt(tryNumber + 1), wait);
+          } else {
+            return reject(new Error(`Steam HTTP Error 429 (too many retries)`));
+          }
+        }
+
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          return reject(new Error(`Steam HTTP Error: ${res.statusCode}`));
+        }
+
+        res.on("data", chunk => data += chunk);
+
+        res.on("end", () => {
+          try {
+            const parsed = JSON.parse(data);
+            const appData = parsed[appId];
+
+            if (!appData || !appData.success)
+              return reject(new Error(`Steam returned success=false for AppID ${appId}`));
+
+            resolve(appData.data);
+          } catch (err) {
+            reject(new Error("Failed to parse Steam JSON: " + err.message));
+          }
+        });
+      });
+
+      req.on("error", reject);
+
+      req.on("timeout", () => {
+        req.destroy();
+        reject(new Error("Steam API request timed out"));
+      });
+    }
+
+    attempt(1);
+  });
+}
 app.get('/api/freetp/Search/:gameName', (req, res) => {
   const gameName = req.params.gameName;
   const postData = `query=${encodeURIComponent(gameName)}`;
