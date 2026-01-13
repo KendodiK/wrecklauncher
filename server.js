@@ -14,18 +14,17 @@ const databaseHandler = require('./database/databaseHandeler');
 const dbHandler = new databaseHandler();
 const { platform } = require('os');
 const PORT = 3000;
-const connection = mysql.createConnection({
-  host: process.env.DB_HOST,
-  port: process.env.DB_PORT,
-  user: process.env.DB_USERNAME,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME
-});
 // Replace with your actual Steam API key and Steam ID
 const steamApiKey = process.env.STEAM_API_KEY;
 app.use(cors());
 
-dbHandler.createDB();
+(async () => {
+  await new Promise((r, rej) => dbHandler.createDB((err)=> err ? rej(err) : r()));
+  app.listen(PORT, () => {
+  console.log(`Proxy server running at http://localhost:${PORT}`);
+  });
+});
+
 
 async function getUsersSteamID(username, steamusername) {
   return new Promise((resolve, reject) => {
@@ -36,7 +35,7 @@ async function getUsersSteamID(username, steamusername) {
       WHERE u.name = ? AND pu.platform_username = ?
     `;
 
-    connection.query(query, [username, steamusername], (err, results) => {
+    dbHandeler.dbConnection.query(query, [username, steamusername], (err, results) => {
       if (err) {
         console.error('Query error:', err);
         return reject(err);
@@ -300,6 +299,3 @@ app.get('/api/freetp/Search/:gameName', (req, res) => {
   request.end();
 });
 //online-fix.me, freetp.org
-app.listen(PORT, () => {
-  console.log(`Proxy server running at http://localhost:${PORT}`);
-});

@@ -1,6 +1,4 @@
-// import { createConnection } from 'mysql2';
 const { createConnection } = require('mysql2');
-// export default DatabaseHandler;
 
 /**
  * DatabaseHandler 
@@ -49,21 +47,20 @@ class DatabaseHandler {
      * Create a new database with the specified name. (or env deffault)
      */
     createDB() {
-        this.dbConnection.connect(function(err) {
-            con.query(`CREATE DATABASE IF NOT EXISTS ${this.dbName}) `, function (err, result) {
-                if (err) throw err;
-                console.log(`Database ${this.dbName} created`);
-            });
+        const sql = `CREATE DATABASE IF NOT EXISTS \`${this.dbName}\``;
+        this.dbConnection.query(sql, (err, result) => {
+            if (err) throw err;
+            console.log(`Database ${this.dbName} created`);
         });
     }
 
     dropDB() {
-        this.dbConnection.connect(function(err) {
-            con.query(`DROP DATABASE IF EXISTS ${this.dbName}) `, function (err, result) {
-                if (err) throw err;
-                console.log(`Database ${this.dbName} dropped`);
-            });
+        const sql = `DROP DATABASE IF EXISTS \`${this.dbName}\``;
+        this.dbConnection.query(sql, (err, result) => {
+            if (err) throw err;
+            console.log(`Database ${this.dbName} dropped`);
         });
     }
 }
+
 module.exports = DatabaseHandler;
