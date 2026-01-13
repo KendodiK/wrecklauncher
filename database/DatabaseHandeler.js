@@ -1,6 +1,6 @@
-import { createConnection } from 'mysql2';
-
-export default DatabaseHandler;
+// import { createConnection } from 'mysql2';
+const { createConnection } = require('mysql2');
+// export default DatabaseHandler;
 
 /**
  * DatabaseHandler 
@@ -66,3 +66,4 @@ class DatabaseHandler {
         });
     }
 }
+module.exports = DatabaseHandler;

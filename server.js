@@ -10,7 +10,8 @@ const { env } = require('process');
 const app = express();
 const https = require('https');
 const zlib = require('zlib');
-const databaseHandler = require('./database/database_handler');
+const databaseHandler = require('./database/databaseHandeler');
+const dbHandler = new databaseHandler();
 const { platform } = require('os');
 const PORT = 3000;
 const connection = mysql.createConnection({
@@ -23,6 +24,8 @@ const connection = mysql.createConnection({
 // Replace with your actual Steam API key and Steam ID
 const steamApiKey = process.env.STEAM_API_KEY;
 app.use(cors());
+
+dbHandler.createDB();
 
 async function getUsersSteamID(username, steamusername) {
   return new Promise((resolve, reject) => {
@@ -51,7 +54,6 @@ async function getUsersSteamID(username, steamusername) {
 
 async function uploadGame(platformname, name, banner_img, pfp, cost, genres) {
   //check before upload
-
   return databaseHandler.addGameAllData(
     platformname,
     name,
