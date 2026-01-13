@@ -169,14 +169,23 @@ async function addNativeUserAllData(nativeUser, nativePassword, pfp, friend_ids,
 async function addGameAllData(platform, appid, name, banner_img, pfp, cost, genres) {
 
     // 1. PLATFORM
-    let platformId;
-    do {
-        platformId = await getPlatformId(platform);
-        if (!platformId) {
-            await addNewPlatform(platform);
-        }
-    } while (!platformId);
+    // let platformId;
+    // do {
+    //     platformId = await getPlatformId(platform);
+    //     if (!platformId) {
+    //         await addNewPlatform(platform);
+    //     }
+    // } while (!platformId);
+    let platformId = await getPlatformId(platform);
 
+    if (!platformId) {
+      await addNewPlatform(platform);
+      platformId = await getPlatformId(platform);
+    }
+    
+    if (!platformId) {
+      throw new Error("Failed to resolve platform ID");
+    }
     // 2. GAME
     const gameId = await addNewGame(platformId, appid, name, banner_img, pfp, cost);
     if (!gameId) throw new Error(`Failed to insert game: ${name}`);

@@ -92,7 +92,16 @@ app.get("/api/steam/GameDetails/:appId", async (req, res) => {
       cc: "us",
       lang: "en"
     });
-
+    // uploadGame('steam',data.name,data.capsule_image,data.capsule_image,data.price_overview.intial,data.genres.map(g => g.description));
+    uploadGame(
+      'steam',
+      data.steam_appid,               // ✔ appid
+      data.name,
+      data.capsule_image,
+      data.capsule_image,
+      data.price_overview?.final / 100 ?? 0, // ✔ correct price
+      data.genres?.map(g => g.description) ?? []
+    );
     res.json(data);
 
   } catch (err) {
