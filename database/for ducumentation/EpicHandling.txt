@@ -1,0 +1,192 @@
+
+Good question—and **very important fork in the road** here.
+Short version first, then the real talk:
+
+> **Even if you have the user’s Epic login credentials, you still can’t treat Epic like Steam.**
+
+And in many cases, you **really shouldn’t**.
+
+Let me explain why, what *is* possible, and what a sane architecture looks like.
+
+---
+
+## 🚨 First: the hard truth (security + legal)
+
+If you mean **username + password**:
+
+### ❌ That’s a bad idea
+
+* Storing raw credentials = **massive security liability**
+* Violates Epic’s Terms of Service
+* Users will (rightfully) not trust your app
+* If breached → you’re cooked 🔥
+
+Even **Playnite / GOG Galaxy / Heroic** do **NOT** store raw Epic passwords.
+
+So: **don’t do this**.
+
+---
+
+## ✅ The *correct* way: OAuth tokens (still limited)
+
+Epic **does** support OAuth—but it’s:
+
+* Not officially documented for third-party launchers
+* Fragile
+* Requires reverse-engineering (Legendary/Heroic territory)
+
+Even *with* OAuth tokens, Epic still does **not** give you:
+
+* A simple “GetOwnedGames” REST endpoint like Steam
+* Stable guarantees the API won’t break
+
+---
+
+## 🧠 What credentials *actually* unlock
+
+If you authenticate properly (OAuth, not password scraping), you can:
+
+| Capability           | Possible?                    |
+| -------------------- | ---------------------------- |
+| Read owned games     | ⚠️ Yes (GraphQL, unofficial) |
+| Read store metadata  | ⚠️ Yes                       |
+| Download manifests   | ⚠️ Yes                       |
+| Launch games         | ✅ Yes                        |
+| Bypass Epic Launcher | ❌ No                         |
+
+You **still must launch via Epic Launcher**.
+
+---
+
+## 🧩 How real launchers do it (important)
+
+### Playnite / Heroic / Legendary
+
+They:
+
+1. Use **Epic OAuth device auth**
+2. Store **access + refresh tokens**
+3. Call **unofficial Epic GraphQL**
+4. Cache aggressively
+5. Fall back to **local manifests** when API breaks
+
+👉 Even they don’t rely on credentials alone.
+
+---
+
+## 🔐 If you *really* want Epic login support (safe version)
+
+### DO THIS INSTEAD 👇
+
+### 1️⃣ Device Authorization Flow (OAuth)
+
+* User logs in via Epic **in a browser**
+* Epic returns a **device code**
+* You receive:
+
+  * `access_token`
+  * `refresh_token`
+* You **never see the password**
+
+This is how Legendary does it.
+
+---
+
+### 2️⃣ Token storage (minimum safety)
+
+* Encrypt tokens at rest
+* Per-user scope
+* Short-lived access token
+* Auto-refresh
+
+```js
+epic_tokens (
+  user_id,
+  access_token,
+  refresh_token,
+  expires_at
+)
+```
+
+---
+
+### 3️⃣ Fetch owned games (unofficial, unstable)
+
+Epic uses GraphQL like:
+
+```graphql
+query {
+  Launcher {
+    library {
+      items {
+        title
+        appName
+        catalogItemId
+      }
+    }
+  }
+}
+```
+
+⚠️ This **can and will break** randomly.
+
+---
+
+## 🧱 Recommendation (based on your current project)
+
+Given your current setup:
+
+### ✅ BEST OPTION
+
+* **Steam** → API (you already do this well)
+* **Epic** → local manifest scan
+* Optional: OAuth enrichment later
+
+### ❌ AVOID
+
+* Username/password storage
+* Web scraping login flows
+* Headless browser login hacks (Puppeteer login)
+
+Those are red flags for antivirus, Epic, and users.
+
+---
+
+## 🏗️ Clean architecture choice (important)
+
+Think in terms of **capability tiers**:
+
+```txt
+Platform Capability Levels
+──────────────────────────
+Steam  → API + Install Scan
+Epic   → Install Scan (+ OAuth optional)
+GOG    → OAuth
+DRM-free → Full control
+```
+
+Your code already fits this model nicely.
+
+---
+
+## 🔥 Bottom line
+
+Even **with credentials**:
+
+* Epic ≠ Steam
+* OAuth ≠ official support
+* Local install scanning is still required
+* Launcher handoff is mandatory
+
+Credentials don’t magically unlock Steam-level APIs.
+
+---
+
+If you want, I can:
+
+* Explain **Epic device auth step-by-step**
+* Show how Legendary does it (cleanly)
+* Help you design **token-safe storage**
+* Or help you justify *not* using login at all (UX win)
+
+Just tell me which direction you’re leaning 👀
