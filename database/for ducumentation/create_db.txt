@@ -24,7 +24,6 @@ CREATE TABLE games (
     id SMALLINT AUTO_INCREMENT PRIMARY KEY,
     app_id INT UNSIGNED NOT NULL,
     platform_id SMALLINT, INDEX(platform_id),
-    app_id INT NOT NULL,
     name VARCHAR(256) NOT NULL,
     banner_img VARCHAR(516),
     cost VARCHAR(7)
