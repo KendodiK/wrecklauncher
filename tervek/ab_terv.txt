@@ -1,0 +1,59 @@
+OUTDATED!! CSAK TERV - 09.18
+
+TÁBLA user:
+	-id (uuid)
+	-name 
+	-password 
+	-pfp (link/img???)
+TÁBLA platform:
+	-id
+	-platform_name
+TÁBLA platform_user:
+	-id
+	-user_id (uuid)
+	-platform_id
+	-platform_profile_id (ezekre idk mi legyen a felső határ)
+	-platform_name
+	-platform_password 
+TÁBLA pirate_sites:
+	-id
+	-site_name
+TÁBLA game:
+	-id (asszem 12 számjegyes int max)
+	-platform_id
+	-name (256???)
+	-banner_img (link)
+	-profile (link???)
+	-cost (dollár vagy vmi egységes)
+TÁBLA game_pirate:
+	-id
+	-game_id
+	-site_id
+	-link
+TÁBLA genres:
+	-id
+	-genre
+TÁBLA connect_genre:
+	-genre_id
+	-game_id
+TÁBLA friends:
+	-id
+	-chat_id 
+	-user_id1 (uuid)
+	-user_id2 (uuid)
+TÁBLA chats:
+	-id (ai)
+	-messages (nagyság hossz kell majd)
+	-sender (uuid)
+
+platfoms:
+	*steam, *epic, *gog, *itchdotio, *riot?, ubisoft
+
+helyileg tároljuk:
+	saját játékokat (frissül új játékok letöltésekor/naponta)
+steamről le kérdezzük:
+	a játék részletes adatait a játékra kattintás után
+
+MIDDLEWARE használata!!!!
+
+
