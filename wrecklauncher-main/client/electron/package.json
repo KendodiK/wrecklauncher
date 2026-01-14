@@ -1,8 +1,0 @@
-{
-  "main": "setup.js",
-  
-  "scripts": {
-    "start": "electron ."
-  }
- 
-}
