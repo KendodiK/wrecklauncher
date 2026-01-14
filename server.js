@@ -10,27 +10,22 @@ const { env } = require('process');
 const app = express();
 const https = require('https');
 const zlib = require('zlib');
-const databaseHandler = require('./database/databaseHandeler');
+const databaseHandler = require('./database/DatabaseHandler');
 const dbHandler = new databaseHandler();
 const databaseMaker = require('./database/makers/DBMaker');
-const dbmaker = new databaseMaker('./database/nonofficial.sql');
+const dbmaker = new databaseMaker('./database/wrecklauncher.sql');
 const { platform } = require('os');
 const PORT = 3000;
 // Replace with your actual Steam API key and Steam ID
 const steamApiKey = process.env.STEAM_API_KEY;
 app.use(cors());
 
-
-  app.listen(PORT, () => {
-  console.log(`Proxy server running at http://localhost:${PORT}`);
-  });
-
-// (async () => {
-//   await new Promise((r, rej) => dbHandler.createDB((err)=> err ? rej(err) : r()));
-//   app.listen(PORT, () => {
-//   console.log(`Proxy server running at http://localhost:${PORT}`);
-//   });
-// });
+(async () => {
+   await new Promise((r, rej) => dbHandler.createDB((err)=> err ? rej(err) : r()));
+   app.listen(PORT, () => {
+   console.log(`Proxy server running at http://localhost:${PORT}`);
+   });
+});
 
 
 async function getUsersSteamID(username, steamusername) {

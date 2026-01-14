@@ -1,6 +1,4 @@
-import Controller from "./Controller";
-
-export default ChatsController 
+const Controller = require("./Controller");
 
 class ChatsController extends Controller {
     constructor() { 
@@ -53,3 +51,5 @@ class ChatsController extends Controller {
 
     async delete(id) { }
 }
+
+module.exports = ChatsController;
