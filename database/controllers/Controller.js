@@ -6,7 +6,7 @@ class Controller extends DatabaseHandler {
     constructor() {
         super('dbName');
     }
-
+    
     async index() {}
 
     async show(id) {}

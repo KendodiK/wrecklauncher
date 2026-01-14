@@ -30,6 +30,8 @@ class DBMaker extends DatabaseHandler {
             console.log('SQL file executed successfully');
         });
     }
+
+    
 }
 
 module.exports = DBMaker;
