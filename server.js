@@ -10,22 +10,26 @@ const { env } = require('process');
 const app = express();
 const https = require('https');
 const zlib = require('zlib');
-const databaseHandler = require('./database/DatabaseHandler');
-const dbHandler = new databaseHandler();
-const databaseMaker = require('./database/makers/DBMaker');
-//const dbmaker = new databaseMaker('./database/wrecklauncher.sql');
 const { platform } = require('os');
+const crypto = require('crypto');
 const PORT = 3000;
 // Replace with your actual Steam API key and Steam ID
 const steamApiKey = process.env.STEAM_API_KEY;
 app.use(cors());
+const databaseHandler = require('./database/DatabaseHandler');
+const dbHandler = new databaseHandler();
+// const databaseMaker = require('./database/makers/DBMaker');
+// const dbmaker = new databaseMaker('./database/wrecklauncher.sql');
+// const tableCreator = require('./database/creators/ChatsTableCreator');
+// const nativeUserTableCreator = new tableCreator();
 
-const tableCreator = require('./database/creators/ChatsTableCreator');
-const nativeUserTableCreator = new tableCreator();
+(async () => {
+  await dbHandler.waitForConnection();
 
-app.listen(PORT, () => {
-   console.log(`Proxy server running at http://localhost:${PORT}`);
-   });
+  app.listen(3000, () => {
+    console.log('Server running on port 3000');
+  });
+})();
 
 // (async () => {
 //    await new Promise((r, rej) => dbHandler.createDB((err)=> err ? rej(err) : r()));
@@ -35,16 +39,18 @@ app.listen(PORT, () => {
 // });
 
 
+
 async function getUsersSteamID(username, steamusername) {
   return new Promise((resolve, reject) => {
     const query = `
+      USE wrecklauncher;
       SELECT pu.platform_profile_id
       FROM native_users u
       JOIN platform_users pu ON u.id = pu.user_id
       WHERE u.name = ? AND pu.platform_username = ?
     `;
 
-    dbHandeler.dbConnection.query(query, [username, steamusername], (err, results) => {
+    dbHandler.dbConnection.query(query, [username, steamusername], (err, results) => {
       if (err) {
         console.error('Query error:', err);
         return reject(err);
@@ -62,24 +68,86 @@ async function getUsersSteamID(username, steamusername) {
 
 async function uploadGame(platformname, name, banner_img, pfp, cost, genres) {
   //check before upload
-  return databaseHandler.addGameAllData(
-    platformname,
-    name,
-    banner_img,
-    pfp,
-    cost,
-    genres
-  );
+  // return dbHandler.addGameAllData(
+  //   platformname,
+  //   name,
+  //   banner_img,
+  //   pfp,
+  //   cost,
+  //   genres
+  // );
 }
+/**
+ * generateToken
+ *
+ * Generates a unique token for a user.
+ *
+ * @param {string} username - The user's username.
+ * @returns {{ token: string } | null} 
+ *          Object containing token, or null if user not found.
+ */
+async function generateToken(username){
+  return crypto
+    .createHash('sha256')
+    .update(username + crypto.randomUUID())
+    .digest('hex');
+}
+//implement to dbHandler
+async function uploadToken(username, token) {
+  await dbHandler.waitForConnection();
+
+  // 1️⃣ USE must be its OWN statement
+  await dbHandler.dbConnection.query('USE wrecklauncher');
+
+  // 2️⃣ SQL must be a STRING
+  const sql = `
+    UPDATE native_users
+    SET token = ?
+    WHERE name = ?;
+  `;
+
+  const [result] = await dbHandler.dbConnection.query(sql, [
+    token,
+    username
+  ]);
+
+  if (result.affectedRows === 0) return null;
+
+   // Select the id
+   const [rows] = await dbHandler.dbConnection.execute(
+    'SELECT id FROM native_users WHERE name = ?',
+    [username]
+  );
+
+  console.log('DB rows returned:', rows); // 🔍 DEBUG
+  if (!rows || rows.length === 0) {
+    console.log('No rows found after update!');
+    return null;
+  }
+
+  console.log('User ID found:', rows[0].id); // 🔍 DEBUG
+  return rows[0].id;
+}
+
+app.post('/api/native/token/:username',async (req,res) =>{
+  const username = req.params.username;
+  const token = await generateToken(username);
+  console.log(token);
+  const userID = await uploadToken(username,token);
+  return res.json(userID+"."+token);
+});
+
 app.get('/api/steam/UserID/:username/:steamusername', async (req, res) => {
     const username = req.params.username;
     const steamusername = req.params.steamusername;
+    // const steam_userid = '76561199194098023';
     const steam_userid = await getUsersSteamID(username, steamusername);
     res.json({ steam_userid: steam_userid });
 });
 
 app.get('/api/steam/OwnedGames/:username/:steamusername', async (req, res) => {
   try {
+    // const steamID = '76561199194098023';
     const steamID = await getUsersSteamID(req.params.username, req.params.steamusername);
     console.log("Steam user id"+steamID);
     if (!steamID) {

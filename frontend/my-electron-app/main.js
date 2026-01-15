@@ -37,3 +37,21 @@ app.whenReady().then(() => {
   tray.setToolTip('My Electron App');
   tray.setContextMenu(contextMenu);
 });
+ipcMain.handle('user:get-token', async (event, username) => {
+  try {
+    const serverurl = 'http://localhost:3000'; //implement in chache later
+    const response = await fetch(`${serverurl}/api/native/token/${username}`, {
+      method: 'POST',
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.text(); // returns "userID.token"
+    return data;
+  } catch (err) {
+    console.error('Failed to fetch token:', err.message);
+    return null;
+  }
+});

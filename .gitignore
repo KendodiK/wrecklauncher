@@ -2,3 +2,4 @@
 database/Beekeeper-Studio-5.4.0-portable.exe
 /database/beekeeper_studio_data
 /database/mysql-9.4.0-winx64
+/frontend/my-electron-app/node_modules
