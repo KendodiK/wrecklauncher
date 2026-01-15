@@ -1,9 +1,9 @@
 // main.js
 const { app, BrowserWindow, ipcMain, Tray, Menu } = require('electron');
 const path = require('path');
-
+const fs = require('fs/promises');
 let win, tray;
-
+const tokenFile = path.join(__dirname, 'user-data', 'token.txt');
 function createWindow() {
   win = new BrowserWindow({
     width: 1200,
@@ -36,22 +36,59 @@ app.whenReady().then(() => {
   ]);
   tray.setToolTip('My Electron App');
   tray.setContextMenu(contextMenu);
+  generateToken('teszt');//username bekérdezés later
 });
 ipcMain.handle('user:get-token', async (event, username) => {
+  return await generateToken(username);
+});
+// Save token
+async function saveToken(token) {
   try {
-    const serverurl = 'http://localhost:3000'; //implement in chache later
+    await fs.mkdir(path.dirname(tokenFile), { recursive: true });
+    await fs.writeFile(tokenFile, token, 'utf-8');
+    console.log('Token saved to file');
+  } catch (err) {
+    console.error('Failed to save token:', err.message);
+  }
+}
+
+// Read token (returns null if file not found)
+async function getToken() {
+  try {
+    const token = await fs.readFile(tokenFile, 'utf-8');
+    return token;
+  } catch (err) {
+    if (err.code === 'ENOENT') return null; // file not found
+    console.error('Failed to read token:', err.message);
+    return null;
+  }
+}
+
+// Generate token if file doesn't exist, or read from file
+async function generateToken(username) {
+  try {
+    // 1️⃣ Try reading existing token
+    let token = await getToken();
+    if (token) {
+      console.log('Using saved token:', token);
+      return token;
+    }
+
+    // 2️⃣ Token doesn't exist → fetch from server
+    const serverurl = 'http://localhost:3000';
     const response = await fetch(`${serverurl}/api/native/token/${username}`, {
       method: 'POST',
     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    token = await response.text();
 
-    const data = await response.text(); // returns "userID.token"
-    return data;
+    // 3️⃣ Save token for future use
+    await saveToken(token);
+    console.log('Generated and saved new token:', token);
+    return token;
   } catch (err) {
     console.error('Failed to fetch token:', err.message);
     return null;
   }
-});
+}
