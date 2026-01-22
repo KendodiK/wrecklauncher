@@ -12,6 +12,7 @@ const https = require('https');
 const zlib = require('zlib');
 const databaseHandler = require('./database/DatabaseHandler');
 const databaseMaker = require('./database/makers/DBMaker');
+const nativeUserController = require('./database/controllers/NativeUsersController');
 //const dbmaker = new databaseMaker('./database/wrecklauncher.sql');
 const { platform } = require('os');
 const PORT = 3000;
@@ -19,10 +20,17 @@ const PORT = 3000;
 const steamApiKey = process.env.STEAM_API_KEY;
 app.use(cors());
 
-const dbHandler = new databaseHandler();
-dbHandler.createDB();
-const dbMaker = new databaseMaker();
-dbMaker.createTables();
+// const dbHandler = new databaseHandler();
+// dbHandler.createDB();
+// const dbMaker = new databaseMaker();
+// dbMaker.createTables();
+
+const nativeUserCtrl = new nativeUserController();
+(async () => {
+    const users = await nativeUserCtrl.index();
+    console.log(users);
+})();
+
 
 app.listen(PORT, () => {
    console.log(`Proxy server running at http://localhost:${PORT}`);

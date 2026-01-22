@@ -9,8 +9,8 @@ class Controller extends DatabaseHandler {
     }
     
     async index() {
-        this.waitForConnection();
-        this.selectDatabase();
+        await this.waitForConnection();
+        await this.selectDatabase();
 
         const query = `SELECT * FROM ${this.tableName};`;
         try { 
@@ -23,8 +23,8 @@ class Controller extends DatabaseHandler {
     }
 
     async show(id) {
-        this.waitForConnection();
-        this.selectDatabase();
+        await this.waitForConnection();
+        await this.selectDatabase();
 
         const query = `SELECT * FROM ${this.tableName} WHERE id = ?;`;
         try {
@@ -37,19 +37,19 @@ class Controller extends DatabaseHandler {
     }
 
     async create() {
-        this.waitForConnection();
-        this.selectDatabase();
+        await this.waitForConnection();
+        await this.selectDatabase();
 
     }
 
     async update() {
-        this.waitForConnection();
-        this.selectDatabase();
+        await this.waitForConnection();
+        await this.selectDatabase();
     }
 
     async delete(id) {
-        this.waitForConnection();
-        this.selectDatabase();
+        await this.waitForConnection();
+        await this.selectDatabase();
 
         const query = `DELETE FROM ${this.tableName} WHERE id = ?;`;
         try {
