@@ -10,4 +10,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   maximize: () => ipcRenderer.invoke('window:maximize'),
   close: () => ipcRenderer.invoke('window:close'),
   toDesktop: () => ipcRenderer.invoke('window:to-desktop'),
+  getToken: (username) => ipcRenderer.invoke('user:get-token', username),
 });

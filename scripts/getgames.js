@@ -5,26 +5,35 @@ const serverurl = 'http://localhost:3000'
 const appid = 22330 // ideiglenes, tesztelésre, majd végig kell lépkedni a játékokon
 const gamename = "Skyrim"
 window.addEventListener('load', async function getgames() {
-  const url = `${serverurl}/api/steam/OwnedGames/${encodeURIComponent(username)}/${encodeURIComponent(steamusername)}`;
+  const url = `${serverurl}/api/native/token/${encodeURIComponent(username)}`;
   const response = await fetch(url, {
-    method: 'GET',
+    method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     }
   });
   const data = await response.json();
   console.log(data);
-  for(let i = 0; i < data.response.game_count;i++){
-    const url2 = `${serverurl}/api/steam/GameDetails/${data.response.games[i].appid}`
-    const response2 = await fetch(url2, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      }
-    });
-    const data2 = await response2.json();
-    console.log(data2);
-  }
+  // const url = `${serverurl}/api/steam/OwnedGames/${encodeURIComponent(username)}/${encodeURIComponent(steamusername)}`;
+  // const response = await fetch(url, {
+  //   method: 'GET',
+  //   headers: {
+  //     'Content-Type': 'application/json',
+  //   }
+  // });
+  // const data = await response.json();
+  // console.log(data);
+  // for(let i = 0; i < data.response.game_count;i++){
+  //   const url2 = `${serverurl}/api/steam/GameDetails/${data.response.games[i].appid}`
+  //   const response2 = await fetch(url2, {
+  //     method: 'GET',
+  //     headers: {
+  //       'Content-Type': 'application/json',
+  //     }
+  //   });
+  //   const data2 = await response2.json();
+  //   console.log(data2);
+  // }
 
   // const url3 = `${serverurl}/api/freetp/Search/${gamename}`;
   // const response3 = await fetch(url3, {
