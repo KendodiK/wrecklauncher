@@ -2,10 +2,12 @@ const Controller = require("./Controller");
 const crypto = require('crypto');
 
 class NativeUsersController extends Controller {
-    tableName = 'native_users';
-
     constructor() {
-        super(this.tableName);
+        super('native_users');
+    }
+
+    async index() {
+        return super.index();
     }
 
     async show(id) {
@@ -14,13 +16,13 @@ class NativeUsersController extends Controller {
 
     /**
      * 
-     * @param {*} data - name, user_password (hashed), pfp (optional)
+     * @param {*} data - name, user_password, pfp (optional)
      */
     async create(data) {
-        super.create();
+        await super.create();
 
         const query = 'INSERT INTO native_users (token, name, user_password, pfp) VALUES (?, ?, ?, ?);';
-        const values = [this.#generateToken(data.name), data.name, data.user_password, data.pfp || null];
+        const values = [this.#generateToken(data.name), data.name, this.#hashPassword(data.user_password), data.pfp || null];
 
         try {
             const [result] = await this.dbConnection.execute(query, values);
@@ -37,7 +39,7 @@ class NativeUsersController extends Controller {
      * @param {*} data - token (optional true or false), name (optional), user_password (optional), pfp (optional)
      */
     async update(id, data) {
-        super.update();
+        await super.update();
 
         const name = this.show(id).name;
         
@@ -53,6 +55,10 @@ class NativeUsersController extends Controller {
         }
     }
 
+    async delete(id) {
+        return super.delete(id);
+    }
+
     /**
      * generateToken
      *
@@ -65,6 +71,11 @@ class NativeUsersController extends Controller {
     #generateToken(username){
         return crypto.createHash('sha256').update(username + crypto.randomUUID()).digest('hex');
     }
+
+    #hashPassword(password) {
+        return crypto.createHash('sha256').update(password).digest('hex');
+    }
+    
 }
 
 module.exports = NativeUsersController;

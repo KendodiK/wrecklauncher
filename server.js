@@ -10,34 +10,32 @@ const { env } = require('process');
 const app = express();
 const https = require('https');
 const zlib = require('zlib');
+const databaseHandler = require('./database/DatabaseHandler');
+const databaseMaker = require('./database/makers/DBMaker');
+const nativeUserController = require('./database/controllers/NativeUsersController');
+//const dbmaker = new databaseMaker('./database/wrecklauncher.sql');
 const { platform } = require('os');
 const crypto = require('crypto');
 const PORT = 3000;
 // Replace with your actual Steam API key and Steam ID
 const steamApiKey = process.env.STEAM_API_KEY;
 app.use(cors());
-const databaseHandler = require('./database/DatabaseHandler');
-const dbHandler = new databaseHandler();
-// const databaseMaker = require('./database/makers/DBMaker');
-// const dbmaker = new databaseMaker('./database/wrecklauncher.sql');
-// const tableCreator = require('./database/creators/ChatsTableCreator');
-// const nativeUserTableCreator = new tableCreator();
 
+// const dbHandler = new databaseHandler();
+// dbHandler.createDB();
+// const dbMaker = new databaseMaker();
+// dbMaker.createTables();
+
+const nativeUserCtrl = new nativeUserController();
 (async () => {
-  await dbHandler.waitForConnection();
-
-  app.listen(3000, () => {
-    console.log('Server running on port 3000');
-  });
+    const users = await nativeUserCtrl.index();
+    console.log(users);
 })();
 
-// (async () => {
-//    await new Promise((r, rej) => dbHandler.createDB((err)=> err ? rej(err) : r()));
-//    app.listen(PORT, () => {
-//    console.log(`Proxy server running at http://localhost:${PORT}`);
-//    });
-// });
 
+app.listen(PORT, () => {
+   console.log(`Proxy server running at http://localhost:${PORT}`);
+   });
 
 
 async function getUsersSteamID(username, steamusername) {
