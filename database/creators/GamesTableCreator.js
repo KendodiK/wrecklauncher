@@ -14,7 +14,7 @@ class GamesTableCreator extends DatabaseHandler {
 
     async createGamesTable() {
         const query = `
-            CREATE TABLE games (
+            CREATE TABLE IF NOT EXISTS games (
                 id SMALLINT AUTO_INCREMENT PRIMARY KEY,
                 app_id INT UNSIGNED NOT NULL,
                 platform_id SMALLINT, INDEX(platform_id),
@@ -25,7 +25,7 @@ class GamesTableCreator extends DatabaseHandler {
         `;
         try {
             await this.dbConnection.execute(query);
-            console.log("Games table created or already exists.");
+            console.log("'Games table' created or already exists.");
         } catch (err) {
             console.error("Error creating games table:", err);
         }

@@ -11,7 +11,6 @@ const app = express();
 const https = require('https');
 const zlib = require('zlib');
 const databaseHandler = require('./database/DatabaseHandler');
-const dbHandler = new databaseHandler();
 const databaseMaker = require('./database/makers/DBMaker');
 //const dbmaker = new databaseMaker('./database/wrecklauncher.sql');
 const { platform } = require('os');
@@ -20,19 +19,14 @@ const PORT = 3000;
 const steamApiKey = process.env.STEAM_API_KEY;
 app.use(cors());
 
-const tableCreator = require('./database/creators/ChatsTableCreator');
-const nativeUserTableCreator = new tableCreator();
+const dbHandler = new databaseHandler();
+dbHandler.createDB();
+const dbMaker = new databaseMaker();
+dbMaker.createTables();
 
 app.listen(PORT, () => {
    console.log(`Proxy server running at http://localhost:${PORT}`);
    });
-
-// (async () => {
-//    await new Promise((r, rej) => dbHandler.createDB((err)=> err ? rej(err) : r()));
-//    app.listen(PORT, () => {
-//    console.log(`Proxy server running at http://localhost:${PORT}`);
-//    });
-// });
 
 
 async function getUsersSteamID(username, steamusername) {

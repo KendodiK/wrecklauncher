@@ -15,8 +15,8 @@ class NativeUserTableCreator extends DatabaseHandler {
 
     async createNativeUserTable() {
         const query = `
-            CREATE TABLE native_users(
-                id UUID DEFAULT (UUID_TO_BIN(UUID())) PRIMARY KEY, // UUID need revision
+            CREATE TABLE IF NOT EXISTS native_users(
+                id UUID DEFAULT UUID() PRIMARY KEY,
                 token VARCHAR(64) NOT NULL,
                 name VARCHAR(32) NOT NULL,
                 user_password VARCHAR(100) NOT NULL,
@@ -25,7 +25,7 @@ class NativeUserTableCreator extends DatabaseHandler {
         `;
         try {
             await this.dbConnection.execute(query);
-            console.log("Native users table created or already exists.");
+            console.log("'Native users' table created or already exists.");
         } catch (err) {
             console.error("Error creating native users table:", err);
         }

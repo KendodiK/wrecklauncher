@@ -14,14 +14,14 @@ class PirateSitesTableCreator extends DatabaseHandler {
 
     async createPirateSites() {
         const query = `
-            CREATE TABLE pirate_sites(
+            CREATE TABLE IF NOT EXISTS pirate_sites(
                 id TINYINT AUTO_INCREMENT PRIMARY KEY,
                 name VARCHAR(10) NOT NULL
             );
         `;
         try {
             await this.dbConnection.execute(query);
-            console.log("Pirate sites table created or already exists.");
+            console.log("'Pirate sites' table created or already exists.");
         } catch (err) {
             console.error("Error creating pirate sites table:", err);
         }

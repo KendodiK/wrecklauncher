@@ -14,14 +14,14 @@ class GenresTableCreator extends DatabaseHandler {
 
     async createGenresTable() {
         const query = `
-            CREATE TABLE genres(
+            CREATE TABLE IF NOT EXISTS genres(
                 id SMALLINT AUTO_INCREMENT PRIMARY KEY,
                 genre VARCHAR(32) NOT NULL
             );
         `;
         try {
             await this.dbConnection.execute(query);
-            console.log("Genres table created or already exists.");
+            console.log("'Genres table' created or already exists.");
         } catch (err) {
             console.error("Error creating genres table:", err);
         }

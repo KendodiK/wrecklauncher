@@ -34,7 +34,6 @@ class DatabaseHandler {
                     user: this.DB_USERNAME,
                     password: this.DB_PASSWORD
                 });
-                console.log('Connected to database');
                 return this.dbConnection;
             } catch (err) {
                 console.error('Error connecting to the database:', err);
@@ -63,12 +62,14 @@ class DatabaseHandler {
      * Create a new database with the specified name. (or env deffault)
      */
     async createDB() {
+        await this.waitForConnection();
         try {
             const sql = `CREATE DATABASE IF NOT EXISTS \`${this.dbName}\``;
             await this.dbConnection.execute(sql);
-            console.log(`Database ${this.dbName} created`);
+            console.log(`Database ${this.dbName} created or already exists`);
         } catch (err) {
             console.error('Error creating database:', err);
+            console.error(err);
             throw err;
         }
     }

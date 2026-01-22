@@ -9,7 +9,7 @@ class GamesGenresConnectionTableCreator extends DatabaseHandler {
     async init() {
         await this.waitForConnection();
         await this.selectDatabase();
-        await this.createGamesCenresConnectionTable();
+        await this.createGamesGenresConnectionTable();
     }
 
     async createGamesGenresConnectionTable() {
@@ -22,7 +22,7 @@ class GamesGenresConnectionTableCreator extends DatabaseHandler {
 
         try {
             await this.dbConnection.execute(query);
-            console.log("Games-genres connection table created or already exists.");
+            console.log("'Games-genres connection' table created or already exists.");
         } catch (err) {
             console.error("Error creating games-genres table table:", err);
         }

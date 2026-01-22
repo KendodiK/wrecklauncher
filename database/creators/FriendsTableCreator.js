@@ -14,13 +14,15 @@ class FriendsTableCreator extends DatabaseHandler {
 
     async createFriendsTable() {
         const query = `
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            user1_id BINARY(16) NOT NULL, INDEX(user1_id),
-            user2_id BINARY(16) NOT NULL, INDEX(user2_id)
+            CREATE TABLE IF NOT EXISTS friends(
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user1_id UUID NOT NULL, INDEX(user1_id),
+                user2_id UUID NOT NULL, INDEX(user2_id)
+            );
         `;
         try {
             await this.dbConnection.execute(query);
-            console.log("Friends table created or already exists.");
+            console.log("'Friends' table created or already exists.");
         } catch (err) {
             console.error("Error creating friends table:", err);
         }

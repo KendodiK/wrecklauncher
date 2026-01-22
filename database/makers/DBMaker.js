@@ -47,7 +47,16 @@ class DBMaker extends DatabaseHandler {
     }
 
     async createTables() { 
-
+        const chatsTableCreator = new ChatsTableCreator();
+        const friendsTableCreator = new FriendsTableCreator();
+        const gamesGenresConnectionTableCreator = new GamesGenresConnectionTableCreator();
+        const gamesPirateSitesConnectionTableCreator = new GamesPirateSitesConnectionTableCreator();
+        const gamesTableCreator = new GamesTableCreator();
+        const genresTableCreator = new GenresTableCreator();
+        const nativeUserTableCreator = new NativeUserTableCreator();
+        const pirateSitesTableCreator = new PirateSitesTableCreator();
+        const platformsTableCreator = new PlatformsTableCreator();
+        const platformUsersTableCreator = new PlatformUsersTableCreator();
     }
 }
 

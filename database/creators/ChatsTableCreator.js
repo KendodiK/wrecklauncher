@@ -23,7 +23,7 @@ class ChatsTableCreator extends DatabaseHandler {
         `;
         try {
             await this.dbConnection.execute(query);
-            console.log("Chats table created or already exists.");
+            console.log("'Chats' table created or already exists.");
         } catch (err) {
             console.error("Error creating chats table:", err);
         }
