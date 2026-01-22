@@ -5,15 +5,24 @@ const serverurl = 'http://localhost:3000'
 const appid = 22330 // ideiglenes, tesztelésre, majd végig kell lépkedni a játékokon
 const gamename = "Skyrim"
 window.addEventListener('load', async function getgames() {
-  const url = `${serverurl}/api/native/token/${encodeURIComponent(username)}`;
-  const response = await fetch(url, {
-    method: 'POST',
+  const url = `${serverurl}/api/steam/userid/${encodeURIComponent(username)}/${encodeURIComponent(steamusername)}`;
+  const response = await fetch(url,{
+    method: 'GET',
     headers: {
       'Content-Type': 'application/json',
     }
   });
   const data = await response.json();
   console.log(data);
+  // const url = `${serverurl}/api/native/token/${encodeURIComponent(username)}`;
+  // const response = await fetch(url, {
+  //   method: 'POST',
+  //   headers: {
+  //     'Content-Type': 'application/json',
+  //   }
+  // });
+  // const data = await response.json();
+  // console.log(data);
   // const url = `${serverurl}/api/steam/OwnedGames/${encodeURIComponent(username)}/${encodeURIComponent(steamusername)}`;
   // const response = await fetch(url, {
   //   method: 'GET',

@@ -36,7 +36,7 @@ app.whenReady().then(() => {
   ]);
   tray.setToolTip('My Electron App');
   tray.setContextMenu(contextMenu);
-  generateToken('teszt');//username bekérdezés later
+  generateToken('teszt',true);//username bekérdezés later
 });
 ipcMain.handle('user:get-token', async (event, username) => {
   return await generateToken(username);
@@ -65,15 +65,16 @@ async function getToken() {
 }
 
 // Generate token if file doesn't exist, or read from file
-async function generateToken(username) {
+async function generateToken(username, generate = false) {
   try {
     // 1️⃣ Try reading existing token
+    if(!generate){
     let token = await getToken();
     if (token) {
       console.log('Using saved token:', token);
       return token;
     }
-
+  }
     // 2️⃣ Token doesn't exist → fetch from server
     const serverurl = 'http://localhost:3000';
     const response = await fetch(`${serverurl}/api/native/token/${username}`, {

@@ -17,6 +17,8 @@ const PORT = 3000;
 const steamApiKey = process.env.STEAM_API_KEY;
 app.use(cors());
 const databaseHandler = require('./database/DatabaseHandler');
+const DBMaker = require('./database/makers/DBMaker');
+const dbmaker = new DBMaker();
 const dbHandler = new databaseHandler();
 // const databaseMaker = require('./database/makers/DBMaker');
 // const dbmaker = new databaseMaker('./database/wrecklauncher.sql');
@@ -24,8 +26,8 @@ const dbHandler = new databaseHandler();
 // const nativeUserTableCreator = new tableCreator();
 
 (async () => {
-  await dbHandler.waitForConnection();
-
+  await dbHandler.createDB();
+  await dbmaker.createTables();
   app.listen(3000, () => {
     console.log('Server running on port 3000');
   });
@@ -39,7 +41,7 @@ const dbHandler = new databaseHandler();
 // });
 
 
-
+//implement in db later (☞ﾟヮﾟ)☞☜(ﾟヮﾟ☜)
 async function getUsersSteamID(username, steamusername) {
   return new Promise((resolve, reject) => {
     const query = `
@@ -137,7 +139,7 @@ app.post('/api/native/token/:username',async (req,res) =>{
   return res.json(userID+"."+token);
 });
 
-app.get('/api/steam/UserID/:username/:steamusername', async (req, res) => {
+app.get('/api/steam/userid/:username/:steamusername', async (req, res) => {
     const username = req.params.username;
     const steamusername = req.params.steamusername;
     // const steam_userid = '76561199194098023';
