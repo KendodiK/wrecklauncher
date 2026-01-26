@@ -58,7 +58,7 @@ class Token{
       if (token) return token;
 
       const serverurl = 'http://localhost:3000';
-      const response = await fetch(`${serverurl}/api/native/token/${this.username}/${this.#password}`, {
+      const response = await fetch(`${serverurl}/api/login/${this.username}/${this.#password}`, {
         method: 'POST',
       });
 

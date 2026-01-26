@@ -76,75 +76,21 @@ async function uploadGame(platformname, name, banner_img, pfp, cost, genres) {
   //   genres
   // );
 }
-/**
- * generateToken
- *
- * Generates a unique token for a user.
- *
- * @param {string} username - The user's username.
- * @returns {{ token: string } | null} 
- *          Object containing token, or null if user not found.
- */
-async function generateToken(username){
-  return crypto
-    .createHash('sha256')
-    .update(username + crypto.randomUUID())
-    .digest('hex');
-}
-//implement to dbHandler
-async function uploadToken(username, token) {
-  await dbHandler.waitForConnection();
 
-  // 1️⃣ USE must be its OWN statement
-  await dbHandler.dbConnection.query('USE wrecklauncher');
-
-  // 2️⃣ SQL must be a STRING
-  const sql = `
-    UPDATE native_users
-    SET token = ?
-    WHERE name = ?;
-  `;
-
-  const [result] = await dbHandler.dbConnection.query(sql, [
-    token,
-    username
-  ]);
-
-  if (result.affectedRows === 0) return null;
-
-   // Select the id
-   const [rows] = await dbHandler.dbConnection.execute(
-    'SELECT id FROM native_users WHERE name = ?',
-    [username]
-  );
-
-  console.log('DB rows returned:', rows); // 🔍 DEBUG
-  if (!rows || rows.length === 0) {
-    console.log('No rows found after update!');
-    return null;
-  }
-
-  console.log('User ID found:', rows[0].id); // 🔍 DEBUG
-  return rows[0].id;
-}
-
-app.post('/api/native/token/:username/:password',async (req,res) =>{
+app.post('/api/login/:username/:password',async (req,res) =>{
   const username = req.params.username;
   const password = req.params.password
   const id = await nativeUserCtrl.getUserByNameAndPassword(username,password);
   await nativeUserCtrl.update(id,{token: true});
   const token = nativeUserCtrl.show(id);
-  // const token = await generateToken(username);
-  // console.log(token);
-  // const userID = await uploadToken(username,token);
   return res.json(id+"."+token);
 });
 
-app.get('/api/steam/UserID/:username/:steamusername', async (req, res) => {
-    const username = req.params.username;
+app.get('/api/steam/UserID/:userID/:steamusername', async (req, res) => {
+    const userID = req.params.userID;
     const steamusername = req.params.steamusername;
     // const steam_userid = '76561199194098023';
-    const steam_userid = await getUsersSteamID(username, steamusername);
+    const steam_userid = await getUsersSteamID(userID, steamusername);
     res.json({ steam_userid: steam_userid });
 });
 
