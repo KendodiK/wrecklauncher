@@ -27,10 +27,10 @@ app.use(cors());
 // dbMaker.createTables();
 
 const nativeUserCtrl = new nativeUserController();
-(async () => {
-    const users = await nativeUserCtrl.index();
-    console.log(users);
-})();
+// (async () => {
+//     const users = await nativeUserCtrl.index();
+//     console.log(users);
+// })();
 
 
 app.listen(PORT, () => {
