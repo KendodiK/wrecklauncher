@@ -3,6 +3,7 @@ const { app, BrowserWindow, ipcMain, Tray, Menu } = require('electron');
 const Token = require('./scripts/TokenController');
 const User = require('./scripts/UserController');
 const username = "teszt" //implement reading from chace later
+const password = "teszt" //implement chache later if viable, prob not
 const path = require('path');
 const tokenFile = path.join(__dirname, 'user-data', 'token.txt');
 const TokenContoller = new Token(username,tokenFile);
