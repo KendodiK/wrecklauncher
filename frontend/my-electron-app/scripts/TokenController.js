@@ -8,6 +8,7 @@ const fetch = require('node-fetch');
 class Token{
     #token;
     #tokenFile;
+    #password;
     constructor(username,tokenfile){
         this.username = username;
         this.#tokenFile = tokenfile;
@@ -22,7 +23,7 @@ class Token{
      async #saveToken(token) {
         try {
           // await fs.mkdir(path.dirname(this.#tokenFile), { recursive: true });
-          await fs.writeFile(tokenFile, token, 'utf-8');
+          await fs.writeFile(this.#tokenFile, token, 'utf-8');
           console.log('Token saved to file');
         } catch (err) {
           console.error('Failed to save token:', err.message);
@@ -36,7 +37,7 @@ class Token{
    */
    async #getToken() {
     try {
-      const token = await fs.readFile(tokenFile, 'utf-8');
+      const token = await fs.readFile(this.#tokenFile, 'utf-8');
       return token;
     } catch (err) {
       if (err.code === 'ENOENT') return null;
@@ -57,7 +58,7 @@ class Token{
       if (token) return token;
 
       const serverurl = 'http://localhost:3000';
-      const response = await fetch(`${serverurl}/api/native/token/${this.username}`, {
+      const response = await fetch(`${serverurl}/api/native/token/${this.username}/${this.#password}`, {
         method: 'POST',
       });
 

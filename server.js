@@ -16,6 +16,7 @@ const nativeUserController = require('./database/controllers/NativeUsersControll
 //const dbmaker = new databaseMaker('./database/wrecklauncher.sql');
 const { platform } = require('os');
 const crypto = require('crypto');
+const NativeUsersController = require('./database/controllers/NativeUsersController');
 const PORT = 3000;
 // Replace with your actual Steam API key and Steam ID
 const steamApiKey = process.env.STEAM_API_KEY;
@@ -127,12 +128,16 @@ async function uploadToken(username, token) {
   return rows[0].id;
 }
 
-app.post('/api/native/token/:username',async (req,res) =>{
+app.post('/api/native/token/:username/:password',async (req,res) =>{
   const username = req.params.username;
-  const token = await generateToken(username);
-  console.log(token);
-  const userID = await uploadToken(username,token);
-  return res.json(userID+"."+token);
+  const password = req.params.password
+  const id = await nativeUserCtrl.getUserByNameAndPassword(username,password);
+  await nativeUserCtrl.update(id,{token: true});
+  const token = nativeUserCtrl.show(id);
+  // const token = await generateToken(username);
+  // console.log(token);
+  // const userID = await uploadToken(username,token);
+  return res.json(id+"."+token);
 });
 
 app.get('/api/steam/UserID/:username/:steamusername', async (req, res) => {
