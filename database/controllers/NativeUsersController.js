@@ -16,7 +16,7 @@ class NativeUsersController extends Controller {
 
     /**
      * 
-     * @param {*} data - name, user_password, pfp (optional)
+     * @param {Array} data - name, user_password, pfp (optional)
      */
     async create(data) {
         await super.create();
@@ -35,8 +35,8 @@ class NativeUsersController extends Controller {
 
     /**
      * 
-     * @param {*} id 
-     * @param {*} data - token (optional true or false), name (optional), user_password (optional), pfp (optional)
+     * @param {int} id 
+     * @param {Array} data - token (optional true or false), name (optional), user_password (optional), pfp (optional)
      */
     async update(id, data) {
         await super.update();
@@ -57,6 +57,25 @@ class NativeUsersController extends Controller {
 
     async delete(id) {
         return super.delete(id);
+    }
+
+    /**
+     * 
+     * @param {string} name - username
+     * @param {string} password - not hashed password
+     * @returns {Array} - native_user object
+     */
+    async getUserByNameAndPassword(name, password) {
+        const query = 'SELECT * FROM native_users WHERE name = ? AND user_password = ?';
+        const values = [name, this.#hashPassword(password)];
+
+        try {
+            const [rows] = await this.dbConnection.execute(query, values);
+            return rows[0];
+        } catch (err) {
+            console.error(`Error while fetching user by name and password: ${err}`);
+            throw err;
+        }
     }
 
     /**
