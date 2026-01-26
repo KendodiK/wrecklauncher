@@ -1,55 +1,88 @@
 const Controller = require("./Controller");
+const FriendsController = require("./FriendsController");
+const NativeUsersController = require("./NativeUsersController");
 
 class ChatsController extends Controller {
     constructor() { 
-        super('dbName');
+        super('chats');
     }
 
     async index() {
-        const query = 'SELECT * FROM chats';
-
-        try {
-            const [result] = await this.dbConnection.execute(query);
-            return result;
-        } catch (err) {
-            console.log("Error while reading chats:" + err);
-            return [];
-        }
+        return super.index();
     }
 
     /**
      * @param {int} id
      */
     async show(id) { 
-        const query = 'SELECT * FROM chats WHERE id = ?';
-
-        try {
-            const [result] = await this.dbConnection.execute(query, [id]);
-            return result[0];
-        } catch (err) {
-            console.log("Error while reading chat:" + err);
-            return null;
-        }
+        return super.show(id);
     }
 
     /**
-     * @param {Array} data - [friends_id, message, sender_id]
+     * @param {Array} data - ["friends_id" = firends.id, "message" = string, "sender_id" = native_users.id ]
      */
     async create(data) {
+        super.create();
+
+        var foreignKeyCheck = await this.#checkForeignKeys(data);
+        if (foreignKeyCheck instanceof Error) {
+            throw foreignKeyCheck;
+        }
+
         const [friends_id, message, sender_id] = data;
         const query = 'INSERT INTO `chats` (friends_id, message, sender_id) VALUES (?,?,?)'
         try {
             const [result] = await this.dbConnection.execute(query, [friends_id, message, sender_id]);
-            return result;
+            return { id: result.insertId, ...data };
         }
         catch (err) {
-            console.log(err)
+            console.error("Error while adding to database: " + err)
+            throw err;
         }
     }
 
-    async update(id, data) { }
+    /**
+     * @param {int} id
+     * @param {Array} data - ["friends_id" = firends.id, "message" = string, "sender_id" = native_users.id ]
+     */
+    async update(id, data) {
+        super.update();
 
-    async delete(id) { }
+        var foreignKeyCheck = await this.#checkForeignKeys(data);
+        if (foreignKeyCheck instanceof Error) {
+            throw foreignKeyCheck;
+        }
+
+        const query = 'UPDATE `chats` SET friends_id = ?, message = ?, sender_id = ? WHERE id = ?;'
+        const values = [data.friends_id, data.message, data.sender_id, id];
+        try {
+            const [result] = await this.dbConnection.execute(query, values);
+            return { message: id + " Updated successfully" };
+        }
+        catch (err) {
+            console.error("Error while updating database:" + err)
+            throw err;
+        }
+    }
+
+    async delete(id) { 
+        return super.delete(id);
+    }
+
+    async #checkForeignKeys(data) { 
+        var friendsController = new FriendsController();
+        var nativeUsersController = new NativeUsersController();
+
+        if (!await friendsController.show(data.friends_id)) {
+            return new Error("Invalid friends_id: " + data.friends_id);
+        }
+
+        if (!await nativeUsersController.show(data.sender_id)) {
+            return new Error("Invalid sender_id: " + data.sender_id);
+        }
+
+        return true;
+    }
 }
 
 module.exports = ChatsController;
