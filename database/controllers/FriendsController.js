@@ -31,10 +31,10 @@ class FriendsController extends Controller {
         const values = [data.user1_id, data.user2_id];
         try {
             const [result] = await this.dbConnection.execute(query, values);
-            return {message: "Friendship created", id: result.insertId};
+            return { message: `${result.id} Element created in table ${this.tableName}` };
         }
         catch (err) {
-            console.error("Error while adding to database: " + err)
+            console.error(`Error while adding new element to table ${this.tableName}: ${err}`);
             throw err;
         }
     }
@@ -55,10 +55,10 @@ class FriendsController extends Controller {
         const values = [data.user1_id, data.user2_id, id];
         try {
             const [result] = await this.dbConnection.execute(query, values);
-            return { message: id + " Updated successfully" };
+            return { message: `${id} Updated successfully in table ${this.tableName}` };
         }
         catch (err) {
-            console.error("Error while updating database:" + err)
+            console.error(`Error while updating element in table ${this.tableName}: ${err}`);
             throw err;
         }
     }

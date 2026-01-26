@@ -17,7 +17,7 @@ class Controller extends DatabaseHandler {
             const [rows] = await this.dbConnection.execute(query);
             return rows;            
         } catch (err) {
-            console.error("Error:", err);
+            console.error(`Error while selecting from table ${this.tableName}: ${err}`);
             throw err;
         }
     }
@@ -31,7 +31,7 @@ class Controller extends DatabaseHandler {
             const [rows] = await this.dbConnection.execute(query, [id]);
             return rows[0];
         } catch (err) {
-            console.error("Error:", err);
+            console.error(`Error while selecting from table ${this.tableName}: ${err}`);
             throw err;
         }
     }
@@ -54,9 +54,9 @@ class Controller extends DatabaseHandler {
         const query = `DELETE FROM ${this.tableName} WHERE id = ?;`;
         try {
             await this.dbConnection.execute(query, [id]);
-            return { message: id + " deleted successfully" };
+            return { message: `${id} deleted successfully from ${this.tableName}` };
         } catch (err) {
-            console.error("Error:", err);
+            console.error(`Error while deleting from table ${this.tableName}: ${err}`);
             throw err;
         }
     }

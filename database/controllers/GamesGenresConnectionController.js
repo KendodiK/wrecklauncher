@@ -2,7 +2,7 @@ const Controller = require('./Controller');
 const GenresController = require('./GenresController');
 const GamesController = require('./GamesController');
 
-class PirateSitesController extends Controller {
+class GamesGenresConnnectionController extends Controller {
     constructor() {
         super('games_genres_connections');
     }
@@ -31,10 +31,10 @@ class PirateSitesController extends Controller {
         var values = [data.game_id, data.genre_id];
         try {
             const [result] = await this.dbConnection.execute(query, values);
-            return {message: "GamesGenresConnection created", id: result.insertId};
+            return { message: `${result.id} Element created in table ${this.tableName}` };
         }
         catch (err) {
-            console.error("Error while adding to database: " + err)
+            console.error(`Error while adding new element to table ${this.tableName}: ${err}`);
             throw err;
         }
     }
@@ -56,9 +56,9 @@ class PirateSitesController extends Controller {
         var values = [data.game_id, data.genre_id, id]; 
         try {
             const [result] = await this.dbConnection.execute(query, values);
-            return {message: "GamesGenresConnection updated"};
+            return { message: `${id} Updated successfully in table ${this.tableName}` };
         } catch (err) {
-            console.error("Error while updating database:" + err)
+            console.error(`Error while updating element in table ${this.tableName}: ${err}`);
             throw err;
         }
     }
@@ -83,4 +83,4 @@ class PirateSitesController extends Controller {
     }
 }
 
-module.exports = PirateSitesController;
+module.exports = GamesGenresConnnectionController;

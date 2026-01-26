@@ -26,9 +26,9 @@ class NativeUsersController extends Controller {
 
         try {
             const [result] = await this.dbConnection.execute(query, values);
-            return { id: result.insertId, ...data };
+            return { message: `${result.id} Element created in table ${this.tableName}` };
         } catch (err) {
-            console.error("Error creating native user:", err);
+            console.error(`Error while adding new element to table ${this.tableName}: ${err}`);
             throw err;
         }
     }
@@ -48,9 +48,9 @@ class NativeUsersController extends Controller {
 
         try {
             await this.dbConnection.execute(query, values.filter(v => v !== null));
-            return { message: id + "Updated successfully" };
+            return { message: `${id} Updated successfully in table ${this.tableName}` };
         } catch (err) {
-            console.error("Error updating native user:", err);
+            console.error(`Error while updating element in table ${this.tableName}: ${err}`);
             throw err;
         }
     }

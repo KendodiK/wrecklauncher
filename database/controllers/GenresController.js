@@ -1,8 +1,8 @@
 const Controller = require('./Controller');
 
-class PirateSitesController extends Controller {
+class GenresController extends Controller {
     constructor() {
-        super('pirate_sites');
+        super('genres');
     }
 
     async index() {
@@ -24,10 +24,10 @@ class PirateSitesController extends Controller {
         const values = [data.genre];
         try {
             const [result] = await this.dbConnection.execute(query, values);
-            return {message: "Genre created", id: result.insertId};
+            return { message: `${result.insertId} Element created in table ${this.tableName}` };
         }
         catch (err) {
-            console.error("Error while adding to database: " + err)
+            console.error(`Error while adding new element to table ${this.tableName}: ${err}`);
             throw err;
         }
     }
@@ -44,9 +44,9 @@ class PirateSitesController extends Controller {
         const values = [data.genre, id];
         try {
             const [result] = await this.dbConnection.execute(query, values);
-            return {message: "Genre updated"};
+            return { message: `${id} Updated successfully in table ${this.tableName}` };
         } catch (err) {
-            console.error("Error while updating database:" + err)
+            console.error(`Error while updating element in table ${this.tableName}: ${err}`);
             throw err;
         }
     }
@@ -56,4 +56,4 @@ class PirateSitesController extends Controller {
     }
 }
 
-module.exports = PirateSitesController;
+module.exports = GenresController;

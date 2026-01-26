@@ -33,10 +33,10 @@ class ChatsController extends Controller {
         const query = 'INSERT INTO `chats` (friends_id, message, sender_id) VALUES (?,?,?)'
         try {
             const [result] = await this.dbConnection.execute(query, [friends_id, message, sender_id]);
-            return { id: result.insertId, ...data };
+            return { message: `${result.id} Element created in table ${this.tableName}` };
         }
         catch (err) {
-            console.error("Error while adding to database: " + err)
+            console.error(`Error while adding new element to table ${this.tableName}: ${err}`);
             throw err;
         }
     }
@@ -57,10 +57,10 @@ class ChatsController extends Controller {
         const values = [data.friends_id, data.message, data.sender_id, id];
         try {
             const [result] = await this.dbConnection.execute(query, values);
-            return { message: id + " Updated successfully" };
+            return { message: `${id} Updated successfully in table ${this.tableName}` };
         }
         catch (err) {
-            console.error("Error while updating database:" + err)
+            console.error(`Error while updating element in table ${this.tableName}: ${err}`);
             throw err;
         }
     }

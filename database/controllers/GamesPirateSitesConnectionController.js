@@ -17,7 +17,7 @@ class GamesPirateSitesConncectionController extends Controller {
 
     /**
      * 
-     * @param {Array} data - ["game_id" = games.id, "pirate_site_id" = pirate_sites.id ]
+     * @param {Array} data - ["game_id" = games.id, "pirate_site_id" = pirate_sites.id, "link" = string ]
      * @returns 
      */
     async create(data) {
@@ -28,20 +28,20 @@ class GamesPirateSitesConncectionController extends Controller {
             throw foreignKeyCheck;
         }
 
-        const query = 'INSERT INTO `game_pirates_sites_connections` (game_id, pirate_site_id) VALUES (?, ?)';
-        const values = [data.game_id, data.pirate_site_id];
+        const query = 'INSERT INTO `game_pirates_sites_connections` (game_id, pirate_site_id, link) VALUES (?, ?, ?)';
+        const values = [data.game_id, data.pirate_site_id, data.link];
         try {
             const [result] = await this.dbConnection.execute(query, values);
-            return {message: "Connection created", id: result.insertId};
+            return { message: `${result.id} Element created in table ${this.tableName}` };
         } catch (err) {
-            console.error("Error while adding to database: " + err)
+            console.error(`Error while adding new element to table ${this.tableName}: ${err}`);
             throw err;
         }
     }
 
     /**
      * @param {int} id
-     * @param {Array} data - ["game_id" = games.id, "pirate_site_id" = pirate_sites.id ]
+     * @param {Array} data - ["game_id" = games.id, "pirate_site_id" = pirate_sites.id, "link" = string ]
      * @returns 
      */
     async update(id, data) {
@@ -52,13 +52,13 @@ class GamesPirateSitesConncectionController extends Controller {
             throw foreignKeyCheck;
         }
 
-        const query = 'UPDATE `game_pirates_sites_connections` SET game_id = ?, pirate_site_id = ? WHERE id = ?;';
-        const values = [data.game_id, data.pirate_site_id, id];
+        const query = 'UPDATE `game_pirates_sites_connections` SET game_id = ?, pirate_site_id = ?, link = ? WHERE id = ?;';
+        const values = [data.game_id, data.pirate_site_id, data.link, id];
         try {
             const [result] = await this.dbConnection.execute(query, values);
-            return {message: "Connection updated"};
+            return { message: `${id} Updated successfully in table ${this.tableName}` };
         } catch (err) {
-            console.error("Error while updating database:" + err)
+            console.error(`Error while updating element in table ${this.tableName}: ${err}`);
             throw err;
         }
     }
