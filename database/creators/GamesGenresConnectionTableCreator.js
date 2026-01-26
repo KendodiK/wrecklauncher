@@ -14,7 +14,7 @@ class GamesGenresConnectionTableCreator extends DatabaseHandler {
 
     async createGamesGenresConnectionTable() {
         const query = `
-            CREATE TABLE IF NOT EXISTS games_genres_connection (
+            CREATE TABLE IF NOT EXISTS games_genres_connections (
                 game_id INT NOT NULL, INDEX(game_id),
                 genre_id INT NOT NULL, INDEX(genre_id)
             )

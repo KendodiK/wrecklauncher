@@ -14,7 +14,7 @@ class GamesPirateSitesConnectionTableCreator extends DatabaseHandler {
 
     async createGamesPirateSitesConnectionTable() {
         const query = `
-            CREATE TABLE IF NOT EXISTS game_pirates(
+            CREATE TABLE IF NOT EXISTS game_pirates_sites_connections (
             game_id SMALLINT NOT NULL, INDEX(game_id),
             site_id TINYINT NOT NULL, INDEX(site_id),
             link VARCHAR(516) NOT NULL
