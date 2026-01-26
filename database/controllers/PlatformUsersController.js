@@ -17,7 +17,7 @@ class PlatformUsersController extends Controller {
 
     /**
      * 
-     * @param {*} data - ["native_user_id" = native_users.id, "platform_user_name" = string, "platform_id" = platforms.id, "platform_profile_id" = string, "platform_password" = string ]
+     * @param {Array} data - ["native_user_id" = native_users.id, "platform_user_name" = string, "platform_id" = platforms.id, "platform_profile_id" = string, "platform_password" = string ]
      */
     async create(data) {
         await super.create();
@@ -41,8 +41,8 @@ class PlatformUsersController extends Controller {
 
     /**
      * 
-     * @param {*} id 
-     * @param {*} data - ["native_user_id" = native_users.id, "platform_user_name" = string, "platform_id" = platforms.id, "platform_profile_id" = string, "platform_password" = string ]
+     * @param {int} id 
+     * @param {Array} data - ["native_user_id" = native_users.id, "platform_user_name" = string, "platform_id" = platforms.id, "platform_profile_id" = string, "platform_password" = string ]
      */
     async update(id, data) {
         await super.update(); 
@@ -66,6 +66,23 @@ class PlatformUsersController extends Controller {
 
     async delete(id) {
         return super.delete(id);
+    }
+
+    /**
+     * 
+     * @param {string} native_user_id - user's token id
+     * @returns {Array} - platform_users objectss
+     */
+    async getPlatfomUsersByNativeUserId(native_user_id) {
+        const query = 'SELECT * FROM platform_users WHERE native_user_id = ?;';
+        const values = [native_user_id];
+        try {
+            const [rows] = await this.dbConnection.execute(query, values);
+            return rows;
+        } catch (err) {
+            console.error(`Error while fetching platform users by native user id from table ${this.tableName}: ${err}`);
+            throw err;
+        }
     }
 
     async #checkForeignKeys(data) {
