@@ -16,7 +16,7 @@ const nativeUserController = require('./database/controllers/NativeUsersControll
 //const dbmaker = new databaseMaker('./database/wrecklauncher.sql');
 const { platform } = require('os');
 const crypto = require('crypto');
-const NativeUsersController = require('./database/controllers/NativeUsersController');
+const platformUsersController = require('./database/controllers/PlatformUsersController');
 const PORT = 3000;
 // Replace with your actual Steam API key and Steam ID
 const steamApiKey = process.env.STEAM_API_KEY;
@@ -26,7 +26,7 @@ app.use(cors());
 // dbHandler.createDB();
 // const dbMaker = new databaseMaker();
 // dbMaker.createTables();
-
+const platformUserCtrl = new platformUsersController();
 const nativeUserCtrl = new nativeUserController();
 // (async () => {
 //     const users = await nativeUserCtrl.index();
@@ -86,12 +86,14 @@ app.post('/api/login/:username/:password',async (req,res) =>{
   return res.json(id+"."+token);
 });
 
-app.get('/api/steam/UserID/:userID/:steamusername', async (req, res) => {
-    const userID = req.params.userID;
-    const steamusername = req.params.steamusername;
+app.get('/api/platform/UserID/:token/:platformUsername', async (req, res) => {
+    const token = req.params.token;
+    const platformUsername = req.params.platformUsername;
     // const steam_userid = '76561199194098023';
-    const steam_userid = await getUsersSteamID(userID, steamusername);
-    res.json({ steam_userid: steam_userid });
+    const platformUsers = await platformUserCtrl.getPlatfomUsersByNativeUserId(token.split('.')[0]);
+    const platformUserID = platformUsers[platformUsers.findIndex(row => row.platform_user_name == platformUsername)].id;    
+    console.log(platformUserID);
+    res.json({ platformUserID: platformUserID });
 });
 
 app.get('/api/steam/OwnedGames/:username/:steamusername', async (req, res) => {

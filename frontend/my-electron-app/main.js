@@ -41,7 +41,15 @@ app.whenReady().then(() => {
   tray.setToolTip('My Electron App');
   tray.setContextMenu(contextMenu);
   TokenContoller.getToken();
+  getPlatformUserID('freshargetinaccount69912');
 });
 ipcMain.handle('user:get-token', async (event) => {
   return TokenContoller.getToken();
 });
+async function getPlatformUserID(platformUsername){
+  const serverurl = 'http://localhost:3000';
+      const response = await fetch(`${serverurl}/api/platform/UserID/${TokenContoller.getToken()}/${platformUsername}`, {
+        method: 'GET',
+      });
+
+}
