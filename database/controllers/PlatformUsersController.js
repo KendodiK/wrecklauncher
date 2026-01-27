@@ -98,6 +98,26 @@ class PlatformUsersController extends Controller {
         return await this.create(platformUserData);
     }
 
+    /**
+     * Return all platform users by native user id
+     * @param {string} nativeUserId 
+     * @returns {Array} - platform_users objects 
+     */
+    async getByNativeUserId(nativeUserId) {
+        await super.waitForConnection();
+        await super.selectDatabase();
+
+        const query = 'SELECT * FROM platform_users WHERE native_user_id = ?;';
+        const values = [nativeUserId];
+        try {
+            const [rows] = await this.dbConnection.execute(query, values);
+            return rows;
+        } catch (err) {
+            console.error(`Error while fetching platform users by native user id from table ${this.tableName}: ${err}`);
+            throw err;
+        }
+    }
+
     async #checkForeignKeys(data) {
         var nativeUsersController = new NativeUsersController();
         var platformsController = new PlatformsController();

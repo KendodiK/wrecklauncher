@@ -26,6 +26,10 @@ app.listen(PORT, () => {
 });
 
 //generateDB();
+//tryCreatePlatformUser();
+//tryCreateNativeUser(); --- IGNORE ---
+//tryGetNativeUser();
+tryChangeNativeUser('be70909f-fac1-11f0-a4d3-68f728710017');
 
 function generateDB() {
     let databaseHandler = new DatabaseHandler();
@@ -35,7 +39,7 @@ function generateDB() {
     });
 }
 
-(async () => {
+async function tryCreatePlatformUser () {
     try {
         let userData = {
             "name": "testUser",
@@ -61,4 +65,27 @@ function generateDB() {
     } catch (err) {
         console.error('Error in test code:', err instanceof Error ? err.message : String(err));
     }
-})();
+};
+
+async function tryGetNativeUser () {
+    try {
+        let nativeUsersController = new NativeUsersController();
+        let userResult = await nativeUsersController.getUserByNameAndPassword("testUser", "testPassword");
+        console.log(userResult);
+    } catch (err) {
+        console.error('Error in test code:', err instanceof Error ? err.message : String(err));
+    }
+}
+
+async function tryChangeNativeUser (id) {
+    try {
+        let nativeUsersController = new NativeUsersController();
+        let updateData = {
+            "token": true,
+            "name": "updatedTestUser", }
+        let result = await nativeUsersController.update(id, updateData);
+        console.log(result);
+    } catch (err) {
+        console.error('Error in test code:', err instanceof Error ? err.message : String(err));
+    }
+}
