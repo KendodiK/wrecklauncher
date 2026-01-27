@@ -43,14 +43,16 @@ class NativeUsersController extends Controller {
      */
     async update(id, data) {
         await super.update();
+        let old = await this.show(id); 
 
-        const name = this.show(id).name;
+        let name = data.name ?? old.name;
+        let token = data.token ? await this.#generateToken(name) : old.token;
         
-        const query = 'UPDATE native_users SET name = ?, user_password = ?, pfp = ? WHERE id = ?;';
-        const values = [data.token ? this.#generateToken(name) : null, data.name || null, data.user_password || null, data.pfp || null, id];
+        const query = 'UPDATE native_users SET token = ?, name = ?, user_password = ?, pfp = ? WHERE id = ?;';
+        const values = [token, name, data.user_password ?? old.user_password, data.pfp ?? old.pfp, id];
 
         try {
-            await this.dbConnection.execute(query, values.filter(v => v !== null));
+            await this.dbConnection.execute(query, values);
             return { message: `${id} Updated successfully in table ${this.tableName}` };
         } catch (err) {
             console.error(`Error while updating element in table ${this.tableName}: ${err}`);
