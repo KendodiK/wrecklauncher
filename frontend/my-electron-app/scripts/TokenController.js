@@ -9,8 +9,9 @@ class Token{
     #token;
     #tokenFile;
     #password;
-    constructor(username,tokenfile){
+    constructor(username, password, tokenfile){
         this.username = username;
+        this.#password = password;
         this.#tokenFile = tokenfile;
         this.#token = null;
     }
@@ -78,9 +79,9 @@ class Token{
  * 
  * @returns token
  */
-   getToken(){
-    if(this.#token) return this.#token;
-    return this.#generateToken();
+   async getToken(){
+    if(!this.#token) {this.#token = await this.#generateToken()};
+    return this.#token;
   }
 
 }

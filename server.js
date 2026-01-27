@@ -52,13 +52,26 @@ async function uploadGame(platformname, name, banner_img, pfp, cost, genres) {
   // );
 }
 
-app.post('/api/login/:username/:password',async (req,res) =>{
-  const username = req.params.username;
-  const password = req.params.password
-  const id = await nativeUserCtrl.getUserByNameAndPassword(username,password);
-  await nativeUserCtrl.update(id,{token: true});
-  const token = nativeUserCtrl.show(id);
-  return res.json(id+"."+token);
+app.post('/api/login/:username/:password', async (req, res) => {
+  try {
+    const username = req.params.username;
+    const password = req.params.password;
+    console.log(`Login attempt for username: ${username}`);
+    console.log(`With password: ${password}`);
+    const user = await nativeUserCtrl.getUserByNameAndPassword(username, password);
+    console.log("User found:", user);
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid username or password' });
+    }
+    
+    await nativeUserCtrl.update(user.id, {token: true});
+    const updatedUser = await nativeUserCtrl.show(user.id);
+    
+    return res.json(user.id + "." + updatedUser.token);
+  } catch (error) {
+    console.error('Error in /api/login endpoint:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 app.get('/api/platform/UserID/:platformname/:platformUsername/:token', async (req, res) => {

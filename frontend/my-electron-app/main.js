@@ -6,7 +6,7 @@ const username = "teszt" //implement reading from chace later
 const password = "teszt" //implement chache later if viable, prob not
 const path = require('path');
 const tokenFile = path.join(__dirname, 'user-data', 'token.txt');
-const TokenContoller = new Token(username,tokenFile);
+const TokenContoller = new Token(username, password, tokenFile);
 let win, tray;
 function createWindow() {
   win = new BrowserWindow({
