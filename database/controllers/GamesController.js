@@ -50,8 +50,16 @@ class GamesController extends Controller {
             throw foreignKeyCheck;
         }
 
+        var old = await this.show(id);
+
         const query = 'UPDATE `pirate_sites` SET app_id = ?, platform_id = ?, name = ?, banner_img = ?, cost = ? WHERE id = ?;';
-        const values = [data.app_id, data.platform_id, data.name, data.banner_img, data.cost, id];
+        const values = [
+            data.app_id ?? old.app_id, 
+            data.platform_id ?? old.platform_id, 
+            data.name ?? old.name, 
+            data.banner_img ?? old.banner_img, 
+            data.cost ?? old.cost, 
+            id ];
         try {
             const [result] = await this.dbConnection.execute(query, values);
             return { message: `${id} Updated successfully in table ${this.tableName}` };

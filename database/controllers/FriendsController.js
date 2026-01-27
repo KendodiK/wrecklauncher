@@ -51,8 +51,13 @@ class FriendsController extends Controller {
             throw foreignKeyCheck;
         }
 
+        var old = await this.show(id);
+
         const query = 'UPDATE `friends` SET user1_id = ?, user2_id = ? WHERE id = ?;'
-        const values = [data.user1_id, data.user2_id, id];
+        const values = [
+            data.user1_id ?? old.user1_id, 
+            data.user2_id ?? old.user2_id, 
+            id ];
         try {
             const [result] = await this.dbConnection.execute(query, values);
             return { message: `${id} Updated successfully in table ${this.tableName}` };

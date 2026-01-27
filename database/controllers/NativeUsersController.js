@@ -10,6 +10,11 @@ class NativeUsersController extends Controller {
         return super.index();
     }
 
+    /**
+     * 
+     * @param {string} id - uuid of the user
+     * @returns 
+     */
     async show(id) {
         return super.show(id);
     }
@@ -38,7 +43,7 @@ class NativeUsersController extends Controller {
 
     /**
      * 
-     * @param {int} id 
+     * @param {string} id - uuid of the user
      * @param {Array} data - token (optional true or false), name (optional), user_password (optional), pfp (optional)
      */
     async update(id, data) {
@@ -60,6 +65,11 @@ class NativeUsersController extends Controller {
         }
     }
 
+    /**
+     * 
+     * @param {string} id - uuid of the user
+     * @returns 
+     */
     async delete(id) {
         return super.delete(id);
     }
