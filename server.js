@@ -17,6 +17,7 @@ const nativeUserController = require('./database/controllers/NativeUsersControll
 const { platform } = require('os');
 const crypto = require('crypto');
 const platformUsersController = require('./database/controllers/PlatformUsersController');
+const PlatformsController = require('./database/controllers/PlatformsController');
 const DBMaker = require('./database/makers/DBMaker');
 const PORT = 3000;
 // Replace with your actual Steam API key and Steam ID
@@ -28,6 +29,7 @@ app.use(cors());
 // const dbMaker = new databaseMaker();
 // dbMaker.createTables();
 const platformUserCtrl = new platformUsersController();
+const platformsCtrl = new PlatformsController();
 const nativeUserCtrl = new nativeUserController();
 // (async () => {
 //     const users = await nativeUserCtrl.index();
@@ -80,25 +82,30 @@ app.get('/api/platform/UserID/:platformname/:platformUsername/:token', async (re
         
         // Extract user ID from token (format: id.token)
         const userId = token.split('.')[0];
-        console.log("User ID from token: " + userId);
         
         // Get platform users for this native user
-        const platformUsers = await platformUserCtrl.getPlatfomUsersByNativeUserId(userId);
-        console.log("Platform users found:", platformUsers);
+        const platformUsers = await platformUserCtrl.getByNativeUserId(userId);
         
         if (!platformUsers || platformUsers.length === 0) {
             return res.status(404).json({ error: 'No platform users found for this user' });
         }
         
-        // Find the matching platform user
-        const index = platformUsers.findIndex(row => row.platform_user_name == platformUsername && row.platform_name == platformname);
+        // Resolve platform id from platform name
+        const platform = await platformsCtrl.getByPlatformName(platformname);
+        if (!platform) {
+          return res.status(404).json({ error: `Unknown platform: ${platformname}` });
+        }
+
+        // Find the matching platform user (platform_users has platform_id, not platform_name)
+        const index = platformUsers.findIndex(
+          row => row.platform_user_name == platformUsername && Number(row.platform_id) === Number(platform.id)
+        );
         if (index === -1) {
             return res.status(404).json({ error: `Platform user not found for ${platformname}:${platformUsername}` });
         }
         
-        const platformUserID = platformUsers[index].id;    
-        console.log("Platform User ID: " + platformUserID);
-        res.json({ platformUserID: platformUserID });
+        const platformUserID = platformUsers[index].platform_profile_id;    
+        return res.json({ platformUserID: platformUserID });
     } catch (error) {
         console.error("Error in /api/platform/UserID endpoint:", error);
         res.status(500).json({ error: error.message });

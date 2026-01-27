@@ -48,7 +48,7 @@ ipcMain.handle('user:get-token', async (event) => {
   return TokenContoller.getToken();
 });
 ipcMain.handle('user:get-platform-userid', async (event, platformName, platformUsername) => {
-  return getPlatformUserID(platformName, platformUsername);
+  return getPlatformUserID(platformName, platformUsername);  
 });
 async function getPlatformUserID(platformName, platformUsername){
   const serverurl = 'http://localhost:3000';

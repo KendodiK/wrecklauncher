@@ -23,7 +23,7 @@ class Token{
  */
      async #saveToken(token) {
         try {
-          // await fs.mkdir(path.dirname(this.#tokenFile), { recursive: true });
+          await fs.mkdir(path.dirname(this.#tokenFile), { recursive: true });
           await fs.writeFile(this.#tokenFile, token, 'utf-8');
           console.log('Token saved to file');
         } catch (err) {
