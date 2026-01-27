@@ -20,12 +20,12 @@ class PlatformsController extends Controller {
     async create(data) {
         await super.create();
 
-        const query = 'INSERT INTO platforms (name) VALUES (?);';
+        const query = 'INSERT INTO platforms (platform_name) VALUES (?);';
         const values = [data.name];
 
         try {
             const [result] = await this.dbConnection.execute(query, values);
-            return { message: `${result.id} Element created in table ${this.tableName}` };
+            return { message: `${result.id} Element created in table ${this.tableName}`, id: result.id };
         } catch (err) {
             console.error(`Error while adding new element to table ${this.tableName}: ${err}`);
             throw err;
