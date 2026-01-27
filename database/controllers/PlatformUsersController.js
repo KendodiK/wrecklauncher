@@ -22,7 +22,7 @@ class PlatformUsersController extends Controller {
     async create(data) {
         await super.create();
         
-        var isThereForeignKey = this.#checkForeignKeys(data)
+        let isThereForeignKey = await this.#checkForeignKeys(data)
         if (isThereForeignKey != true) {
             throw isThereForeignKey;
         }       
@@ -47,7 +47,7 @@ class PlatformUsersController extends Controller {
     async update(id, data) {
         await super.update(); 
 
-        var isThereForeignKey = this.#checkForeignKeys(data)
+        let isThereForeignKey = await this.#checkForeignKeys(data)
         if (isThereForeignKey != true) {
             throw isThereForeignKey;
         }
@@ -70,22 +70,32 @@ class PlatformUsersController extends Controller {
 
     /**
      * 
-     * @param {string} native_user_id - user's token id
-     * @returns {Array} - platform_users objectss
+     * @param {Array} data - ["native_user_id" = natrive_users.id || null, "platform_id" = platforms.id || null, "platform_name" = string || null, "platform_user_name" = string, "platform_profile_id" = string, "platform_password" = string ]
      */
-    async getPlatfomUsersByNativeUserId(native_user_id) {
-        await this.waitForConnection();
-        await this.selectDatabase();
-        
-        const query = 'SELECT * FROM platform_users WHERE native_user_id = ?;';
-        const values = [native_user_id];
-        try {
-            const [rows] = await this.dbConnection.execute(query, values);
-            return rows;
-        } catch (err) {
-            console.error(`Error while fetching platform users by native user id from table ${this.tableName}: ${err}`);
-            throw err;
+    async createUserWhithAllForeginData(data) {
+        let platformId = null;
+        if (data.native_user_id == null) {
+            throw new Error("cannot create user whitout password")
         }
+        if (data.platform_id == null && data.platform_name != null) { 
+            let platformsController = new PlatformsController();
+            let platformData = {
+                "name": data.platform_name
+            }
+            let platformCreateResponse = await platformsController.create(platformData);
+            if (platformCreateResponse instanceof Error) {
+                throw new Error("Cannot create user: " + platformCreateResponse.message);
+            }
+            platformId = platformCreateResponse.id;
+        }
+        let platformUserData = {
+            "native_user_id": data.native_user_id,
+            "platform_user_name": data.platform_user_name,
+            "platform_id": platformId || data.platform_id,
+            "platform_profile_id": data.platform_profile_id,
+            "platform_password": data.platform_password
+        }
+        return await this.create(platformUserData);
     }
 
     async #checkForeignKeys(data) {

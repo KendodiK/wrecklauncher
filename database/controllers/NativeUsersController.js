@@ -21,6 +21,9 @@ class NativeUsersController extends Controller {
     async create(data) {
         await super.create();
 
+        console.log(data.name);
+        console.log(data.user_password);
+
         const query = 'INSERT INTO native_users (token, name, user_password, pfp) VALUES (?, ?, ?, ?);';
         const values = [this.#generateToken(data.name), data.name, this.#hashPassword(data.user_password), data.pfp || null];
 
@@ -66,6 +69,9 @@ class NativeUsersController extends Controller {
      * @returns {Array} - native_user object
      */
     async getUserByNameAndPassword(name, password) {
+        await this.waitForConnection();
+        await this.selectDatabase();
+
         const query = 'SELECT * FROM native_users WHERE name = ? AND user_password = ?';
         const values = [name, this.#hashPassword(password)];
 
