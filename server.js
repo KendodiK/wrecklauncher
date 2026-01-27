@@ -56,8 +56,6 @@ app.post('/api/login/:username/:password', async (req, res) => {
   try {
     const username = req.params.username;
     const password = req.params.password;
-    console.log(`Login attempt for username: ${username}`);
-    console.log(`With password: ${password}`);
     const user = await nativeUserCtrl.getUserByNameAndPassword(username, password);
     console.log("User found:", user);
     if (!user) {
@@ -79,9 +77,6 @@ app.get('/api/platform/UserID/:platformname/:platformUsername/:token', async (re
         const platformname = req.params.platformname;
         const platformUsername = req.params.platformUsername;
         const token = req.params.token;
-        console.log("Received token: " + token);
-        console.log("Platform Username: " + platformUsername);
-        console.log("Platform Name: " + platformname);
         
         // Extract user ID from token (format: id.token)
         const userId = token.split('.')[0];
