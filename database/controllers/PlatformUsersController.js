@@ -17,12 +17,12 @@ class PlatformUsersController extends Controller {
 
     /**
      * 
-     * @param {*} data - ["native_user_id" = native_users.id, "platform_user_name" = string, "platform_id" = platforms.id, "platform_profile_id" = string, "platform_password" = string ]
+     * @param {Array} data - ["native_user_id" = native_users.id, "platform_user_name" = string, "platform_id" = platforms.id, "platform_profile_id" = string, "platform_password" = string ]
      */
     async create(data) {
         await super.create();
         
-        var isThereForeignKey = this.#checkForeignKeys(data)
+        let isThereForeignKey = await this.#checkForeignKeys(data)
         if (isThereForeignKey != true) {
             throw isThereForeignKey;
         }       
@@ -41,13 +41,13 @@ class PlatformUsersController extends Controller {
 
     /**
      * 
-     * @param {*} id 
-     * @param {*} data - ["native_user_id" = native_users.id, "platform_user_name" = string, "platform_id" = platforms.id, "platform_profile_id" = string, "platform_password" = string ]
+     * @param {int} id 
+     * @param {Array} data - ["native_user_id" = native_users.id, "platform_user_name" = string, "platform_id" = platforms.id, "platform_profile_id" = string, "platform_password" = string ]
      */
     async update(id, data) {
         await super.update(); 
 
-        var isThereForeignKey = this.#checkForeignKeys(data)
+        let isThereForeignKey = await this.#checkForeignKeys(data)
         if (isThereForeignKey != true) {
             throw isThereForeignKey;
         }
@@ -66,6 +66,36 @@ class PlatformUsersController extends Controller {
 
     async delete(id) {
         return super.delete(id);
+    }
+
+    /**
+     * 
+     * @param {Array} data - ["native_user_id" = natrive_users.id || null, "platform_id" = platforms.id || null, "platform_name" = string || null, "platform_user_name" = string, "platform_profile_id" = string, "platform_password" = string ]
+     */
+    async createUserWhithAllForeginData(data) {
+        let platformId = null;
+        if (data.native_user_id == null) {
+            throw new Error("cannot create user whitout password")
+        }
+        if (data.platform_id == null && data.platform_name != null) { 
+            let platformsController = new PlatformsController();
+            let platformData = {
+                "name": data.platform_name
+            }
+            let platformCreateResponse = await platformsController.create(platformData);
+            if (platformCreateResponse instanceof Error) {
+                throw new Error("Cannot create user: " + platformCreateResponse.message);
+            }
+            platformId = platformCreateResponse.id;
+        }
+        let platformUserData = {
+            "native_user_id": data.native_user_id,
+            "platform_user_name": data.platform_user_name,
+            "platform_id": platformId || data.platform_id,
+            "platform_profile_id": data.platform_profile_id,
+            "platform_password": data.platform_password
+        }
+        return await this.create(platformUserData);
     }
 
     async #checkForeignKeys(data) {
