@@ -38,7 +38,8 @@ class Token{
    async #getToken() {
     try {
       const token = await fs.readFile(this.#tokenFile, 'utf-8');
-      return token;
+      // Remove quotes if present
+      return token.trim().replace(/^"(.*)"$/, '$1');
     } catch (err) {
       if (err.code === 'ENOENT') return null;
       console.error('Failed to read token:', err.message);
@@ -55,7 +56,7 @@ class Token{
    async #generateToken() {
     try {
       let token = await this.#getToken();
-      if (token) return token;
+      if (token) return token.trim();
 
       const serverurl = 'http://localhost:3000';
       const response = await fetch(`${serverurl}/api/login/${this.username}/${this.#password}`, {
@@ -63,7 +64,7 @@ class Token{
       });
 
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      token = await response.text();
+      token = await response.json();
       await this.#saveToken(token);
       console.log('Generated and saved new token:', token);
       return token;

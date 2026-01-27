@@ -17,6 +17,7 @@ const nativeUserController = require('./database/controllers/NativeUsersControll
 const { platform } = require('os');
 const crypto = require('crypto');
 const platformUsersController = require('./database/controllers/PlatformUsersController');
+const DBMaker = require('./database/makers/DBMaker');
 const PORT = 3000;
 // Replace with your actual Steam API key and Steam ID
 const steamApiKey = process.env.STEAM_API_KEY;
@@ -37,32 +38,6 @@ const nativeUserCtrl = new nativeUserController();
 app.listen(PORT, () => {
    console.log(`Proxy server running at http://localhost:${PORT}`);
    });
-
-
-async function getUsersSteamID(username, steamusername) {
-  return new Promise((resolve, reject) => {
-    const query = `
-      USE wrecklauncher;
-      SELECT pu.platform_profile_id
-      FROM native_users u
-      JOIN platform_users pu ON u.id = pu.user_id
-      WHERE u.name = ? AND pu.platform_username = ?
-    `;
-
-    dbHandler.dbConnection.query(query, [username, steamusername], (err, results) => {
-      if (err) {
-        console.error('Query error:', err);
-        return reject(err);
-      }
-
-      if (results.length > 0) {
-        resolve(results[0].platform_profile_id);
-      } else {
-        resolve(null);
-      }
-    });
-  });
-}
 
 
 async function uploadGame(platformname, name, banner_img, pfp, cost, genres) {
@@ -86,14 +61,40 @@ app.post('/api/login/:username/:password',async (req,res) =>{
   return res.json(id+"."+token);
 });
 
-app.get('/api/platform/UserID/:token/:platformUsername', async (req, res) => {
-    const token = req.params.token;
-    const platformUsername = req.params.platformUsername;
-    // const steam_userid = '76561199194098023';
-    const platformUsers = await platformUserCtrl.getPlatfomUsersByNativeUserId(token.split('.')[0]);
-    const platformUserID = platformUsers[platformUsers.findIndex(row => row.platform_user_name == platformUsername)].id;    
-    console.log(platformUserID);
-    res.json({ platformUserID: platformUserID });
+app.get('/api/platform/UserID/:platformname/:platformUsername/:token', async (req, res) => {
+    try {
+        const platformname = req.params.platformname;
+        const platformUsername = req.params.platformUsername;
+        const token = req.params.token;
+        console.log("Received token: " + token);
+        console.log("Platform Username: " + platformUsername);
+        console.log("Platform Name: " + platformname);
+        
+        // Extract user ID from token (format: id.token)
+        const userId = token.split('.')[0];
+        console.log("User ID from token: " + userId);
+        
+        // Get platform users for this native user
+        const platformUsers = await platformUserCtrl.getPlatfomUsersByNativeUserId(userId);
+        console.log("Platform users found:", platformUsers);
+        
+        if (!platformUsers || platformUsers.length === 0) {
+            return res.status(404).json({ error: 'No platform users found for this user' });
+        }
+        
+        // Find the matching platform user
+        const index = platformUsers.findIndex(row => row.platform_user_name == platformUsername && row.platform_name == platformname);
+        if (index === -1) {
+            return res.status(404).json({ error: `Platform user not found for ${platformname}:${platformUsername}` });
+        }
+        
+        const platformUserID = platformUsers[index].id;    
+        console.log("Platform User ID: " + platformUserID);
+        res.json({ platformUserID: platformUserID });
+    } catch (error) {
+        console.error("Error in /api/platform/UserID endpoint:", error);
+        res.status(500).json({ error: error.message });
+    }
 });
 
 app.get('/api/steam/OwnedGames/:username/:steamusername', async (req, res) => {

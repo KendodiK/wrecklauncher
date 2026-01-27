@@ -74,6 +74,9 @@ class PlatformUsersController extends Controller {
      * @returns {Array} - platform_users objectss
      */
     async getPlatfomUsersByNativeUserId(native_user_id) {
+        await this.waitForConnection();
+        await this.selectDatabase();
+        
         const query = 'SELECT * FROM platform_users WHERE native_user_id = ?;';
         const values = [native_user_id];
         try {
