@@ -8,7 +8,10 @@ require('dotenv').config();
 const mysql = require('mysql2');
 const { env } = require('process');
 const app = express();
+const http = require('http');
 const https = require('https');
+const fs = require('fs');
+const path = require('path');
 const zlib = require('zlib');
 const databaseHandler = require('./database/DatabaseHandler');
 const databaseMaker = require('./database/makers/DBMaker');
@@ -35,11 +38,82 @@ const nativeUserCtrl = new nativeUserController();
 //     const users = await nativeUserCtrl.index();
 //     console.log(users);
 // })();
+/**
+ * Loads TLS configuration for the HTTPS server.
+ *
+ * Priority:
+ * 1) env vars `SSL_KEY_PATH` + `SSL_CERT_PATH`
+ * 2) `./certs/localhost-key.pem` + `./certs/localhost-cert.pem`
+ * 3) dev fallback: generate a self-signed cert (requires `selfsigned` dependency)
+ *
+ * Note: Self-signed certificates are NOT trusted by default. For Electron/Node fetch
+ * to work without extra flags, use a trusted dev cert (e.g. mkcert) and point to it.
+ */
+function loadHttpsOptions() {
+  const keyPath = process.env.SSL_KEY_PATH || path.join(__dirname, 'certs', 'localhost-key.pem');
+  const certPath = process.env.SSL_CERT_PATH || path.join(__dirname, 'certs', 'localhost-cert.pem');
 
+  if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
+    return {
+      key: fs.readFileSync(keyPath),
+      cert: fs.readFileSync(certPath),
+    };
+  }
 
-app.listen(PORT, () => {
-   console.log(`Proxy server running at http://localhost:${PORT}`);
-   });
+  let selfsigned;
+  try {
+    // eslint-disable-next-line global-require
+    selfsigned = require('selfsigned');
+  } catch {
+    throw new Error(
+      'TLS cert/key not found. Provide SSL_KEY_PATH and SSL_CERT_PATH (or ./certs/*.pem), or install the `selfsigned` package for a dev self-signed fallback.'
+    );
+  }
+
+  const attrs = [{ name: 'commonName', value: 'localhost' }];
+  const pems = selfsigned.generate(attrs, {
+    days: 365,
+    keySize: 2048,
+    algorithm: 'sha256',
+    extensions: [
+      {
+        name: 'subjectAltName',
+        altNames: [
+          { type: 2, value: 'localhost' },
+          { type: 7, ip: '127.0.0.1' },
+        ],
+      },
+    ],
+  });
+
+  console.warn('[TLS] Using a self-signed certificate (dev fallback).');
+  console.warn('[TLS] For Electron/Node fetch to trust it, use mkcert and provide cert/key via SSL_KEY_PATH and SSL_CERT_PATH.');
+  return { key: pems.private, cert: pems.cert };
+}
+
+function startServers() {
+  const httpsPort = Number(process.env.HTTPS_PORT || PORT);
+  const httpPort = Number(process.env.HTTP_PORT || 3001);
+
+  const httpsOptions = loadHttpsOptions();
+
+  // On some Windows setups, binding to IPv6 only ("::") does not accept IPv4.
+  // Start separate listeners on both stacks so `localhost` works reliably.
+  const httpsV4 = https.createServer(httpsOptions, app);
+  const httpsV6 = https.createServer(httpsOptions, app);
+  httpsV4.listen(httpsPort, '127.0.0.1');
+  httpsV6.listen(httpsPort, '::1');
+
+  const httpV4 = http.createServer(app);
+  const httpV6 = http.createServer(app);
+  httpV4.listen(httpPort, '127.0.0.1');
+  httpV6.listen(httpPort, '::1');
+
+  console.log(`API server (HTTPS) running at https://localhost:${httpsPort}`);
+  console.log(`API server (HTTP) running at http://localhost:${httpPort}`);
+}
+
+startServers();
 
 
 async function uploadGame(platformname, name, banner_img, pfp, cost, genres) {
@@ -112,21 +186,16 @@ app.get('/api/platform/UserID/:platformname/:platformUsername/:token', async (re
     }
 });
 
-app.get('/api/steam/OwnedGames/:username/:steamusername', async (req, res) => {
+app.get('/api/steam/key/:token', async (req, res) => {
   try {
-    // const steamID = '76561199194098023';
-    const steamID = await getUsersSteamID(req.params.username, req.params.steamusername);
-    console.log("Steam user id"+steamID);
-    if (!steamID) {
-      return res.status(404).json({ error: 'Steam ID not found for the given username and steamusername' });
+    const token = req.params.token;
+    const dbToken = (await nativeUserCtrl.show(token.split('.')[0])).token;
+    if (!dbToken || dbToken !== token.split('.')[1]) {
+      return res.status(401).json({ error: 'Invalid token' });
     }
-    const url = `https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key=${steamApiKey}&steamid=${steamID}&format=json`;
-    const response = await fetch(url);
-    const data = await response.json();
-    res.json(data);
-  } catch (error) {
-    console.error('Error fetching Steam data:', error);
-    res.status(500).json({ error: 'Failed to fetch data from Steam API' });
+    return res.json({ steamApiKey: steamApiKey });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 app.get("/api/steam/GameDetails/:appId", async (req, res) => {
@@ -218,74 +287,7 @@ app.get("/api/steam/GameDetails/:appId", async (req, res) => {
 //     res.status(500).json({ error: 'Failed to fetch Steam API' });
 //   });
 // });
-function fetchSteamAppDetails(appId, {
-  cc = "de",
-  lang = "en",
-  timeout = 8000,
-  retries = 5,
-  retryDelay = 500 // ms
-} = {}) {
 
-  return new Promise((resolve, reject) => {
-
-    function attempt(tryNumber) {
-
-      const options = {
-        hostname: "store.steampowered.com",
-        path: `/api/appdetails?appids=${appId}&cc=${cc}&l=${lang}`,
-        method: "GET",
-        headers: {
-          "Accept-Encoding": "identity",
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-        },
-        timeout
-      };
-
-      const req = https.get(options, (res) => {
-        let data = "";
-
-        if (res.statusCode === 429) {
-          if (tryNumber < retries) {
-            const wait = retryDelay * tryNumber;
-            console.log(`Steam 429 for ${appId}, retrying in ${wait}ms`);
-            return setTimeout(() => attempt(tryNumber + 1), wait);
-          } else {
-            return reject(new Error(`Steam HTTP Error 429 (too many retries)`));
-          }
-        }
-
-        if (res.statusCode < 200 || res.statusCode >= 300) {
-          return reject(new Error(`Steam HTTP Error: ${res.statusCode}`));
-        }
-
-        res.on("data", chunk => data += chunk);
-
-        res.on("end", () => {
-          try {
-            const parsed = JSON.parse(data);
-            const appData = parsed[appId];
-
-            if (!appData || !appData.success)
-              return reject(new Error(`Steam returned success=false for AppID ${appId}`));
-
-            resolve(appData.data);
-          } catch (err) {
-            reject(new Error("Failed to parse Steam JSON: " + err.message));
-          }
-        });
-      });
-
-      req.on("error", reject);
-
-      req.on("timeout", () => {
-        req.destroy();
-        reject(new Error("Steam API request timed out"));
-      });
-    }
-
-    attempt(1);
-  });
-}
 app.get('/api/freetp/Search/:gameName', (req, res) => {
   const gameName = req.params.gameName;
   const postData = `query=${encodeURIComponent(gameName)}`;

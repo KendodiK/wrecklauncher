@@ -4,3 +4,7 @@ database/Beekeeper-Studio-5.4.0-portable.exe
 /database/mysql-9.4.0-winx64
 server.js
 /database/mariadb
+
+# Local HTTPS dev certs (never commit private keys)
+/certs/*.pem
+certs/README.md

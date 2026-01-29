@@ -2,11 +2,15 @@
 const { app, BrowserWindow, ipcMain, Tray, Menu } = require('electron');
 const Token = require('./scripts/TokenController');
 const User = require('./scripts/UserController');
+const SteamGamesController = require('./scripts/SteamGamesController');
 const username = "teszt" //implement reading from chace later
 const password = "teszt" //implement chache later if viable, prob not
 const path = require('path');
+const fs = require('fs');
 const tokenFile = path.join(__dirname, 'user-data', 'token.txt');
-const TokenContoller = new Token(username, password, tokenFile);
+const serverurl = 'http://localhost:3000';
+const UserController = new User(username, password, tokenFile, serverurl);
+const SteamGamesCtrl = new SteamGamesController();
 let win, tray;
 function createWindow() {
   win = new BrowserWindow({
@@ -33,62 +37,33 @@ ipcMain.handle('window:to-desktop', () => win.hide());
 app.whenReady().then(() => {
   createWindow();
 
-  tray = new Tray(path.join(__dirname, 'icons', 'app-icon.png'));
-  const contextMenu = Menu.buildFromTemplate([
-    { label: 'Show App', click: () => win.show() },
-    { label: 'Quit', click: () => app.quit() },
-  ]);
-  tray.setToolTip('My Electron App');
-  tray.setContextMenu(contextMenu);
+  // Tray icon is optional; don't crash app startup if missing.
+  const trayIconPath = path.join(__dirname, 'img', 'oneletrajz.png');
+  if (fs.existsSync(trayIconPath)) {
+    tray = new Tray(trayIconPath);
+    const contextMenu = Menu.buildFromTemplate([
+      { label: 'Show App', click: () => win.show() },
+      { label: 'Quit', click: () => app.quit() },
+    ]);
+    tray.setToolTip('My Electron App');
+    tray.setContextMenu(contextMenu);
+  } else {
+    console.warn(`Tray icon not found at ${trayIconPath}; skipping tray.`);
+  }
   async () => {
-  await TokenContoller.getToken();
-  await getPlatformUserID('freshargetinaccount69912');}
+  await UserController.getToken();
+  await UserController.getOwnedGamesFromSteam();
+};
 });
 ipcMain.handle('user:get-token', async (event) => {
-  return TokenContoller.getToken();
+  return await UserController.getToken();
 });
 ipcMain.handle('user:get-platform-userid', async (event, platformName, platformUsername) => {
-  return getPlatformUserID(platformName, platformUsername);  
+  return await UserController.getPlatformUserID(platformName, platformUsername);  
 });
-async function getPlatformUserID(platformName, platformUsername){
-  const serverurl = 'http://localhost:3000';
-  try {
-    const token = await TokenContoller.getToken();
-    console.log("Getting Platform User ID for platform:", platformName, "username:", platformUsername);
-    console.log("Token:", token);
-    const url = `${serverurl}/api/platform/UserID/${platformName}/${platformUsername}/${token}`;
-    console.log("Request URL:", url);
-    
-    let response;
-    try {
-      response = await fetch(url, {
-        method: 'GET',
-      });
-    } catch (fetchError) {
-      console.error("Fetch error (server might not be running):", fetchError.message);
-      throw new Error(`Failed to connect to server at ${serverurl}: ${fetchError.message}`);
-    }
-    
-    console.log("Response status:", response.status);
-    console.log("Response ok:", response.ok);
-    
-    let data;
-    try {
-      data = await response.json();
-      console.log("Response data:", data);
-    } catch (parseError) {
-      console.error("Failed to parse JSON response:", parseError.message);
-      throw new Error(`Invalid JSON response from server: ${parseError.message}`);
-    }
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}, message: ${data.error || 'Unknown error'}`);
-    }
-    
-    console.log("Platform User ID: " + data.platformUserID);
-    return data.platformUserID;
-  } catch (error) {
-    console.error("Error fetching platform user ID:", error);
-    throw error;
-  }
-}
+ipcMain.handle('user:get-owned-games-from-steam', async (event, platformUsername) => {
+  return await UserController.getOwnedGamesFromSteam(platformUsername);  
+});
+ipcMain.handle('steam:get-game-details', async (event, appID) => {
+  return await SteamGamesCtrl.getGamesDetails(appID);  
+});
