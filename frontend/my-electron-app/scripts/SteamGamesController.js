@@ -100,7 +100,7 @@ class SteamGamesController extends GamesController {
    * @param {number} appID Steam AppID
    * @returns {Promise<any>} detailed information about the Steam game
      */
-    async getGamesDetails(appID, cc) {
+    async getGamesDetails(appID, cc = "de") {
         try {
             const appIdNum = Number(appID);
             if (!Number.isFinite(appIdNum) || appIdNum <= 0) {
