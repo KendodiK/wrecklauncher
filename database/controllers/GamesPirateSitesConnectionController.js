@@ -52,8 +52,15 @@ class GamesPirateSitesConncectionController extends Controller {
             throw foreignKeyCheck;
         }
 
+        var old = await this.show(id);
+
         const query = 'UPDATE `game_pirates_sites_connections` SET game_id = ?, pirate_site_id = ?, link = ? WHERE id = ?;';
-        const values = [data.game_id, data.pirate_site_id, data.link, id];
+        const values = [
+            data.game_id ?? old.game_id, 
+            data.pirate_site_id ?? old.pirate_site_id, 
+            data.link ?? old.link, 
+            id ];
+            
         try {
             const [result] = await this.dbConnection.execute(query, values);
             return { message: `${id} Updated successfully in table ${this.tableName}` };

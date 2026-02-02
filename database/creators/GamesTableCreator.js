@@ -17,9 +17,11 @@ class GamesTableCreator extends DatabaseHandler {
             CREATE TABLE IF NOT EXISTS games (
                 id SMALLINT AUTO_INCREMENT PRIMARY KEY,
                 app_id INT UNSIGNED NOT NULL,
-                platform_id SMALLINT, INDEX(platform_id),
+                platform_id SMALLINT NOT NULL, INDEX(platform_id),
                 name VARCHAR(256) NOT NULL,
                 banner_img VARCHAR(516),
+                description VARCHAR(2048),
+                minimum_requirements VARCHAR(1024),
                 cost VARCHAR(7)
             );
         `;

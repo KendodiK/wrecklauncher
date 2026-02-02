@@ -15,7 +15,7 @@ class GenresController extends Controller {
 
     /**
      * @param {Array} data - ["genre" = string ]
-     * @returns
+     * @returns {Array} - ["message": string, "id": int]
      */
     async create(data) {
         super.create();
@@ -24,7 +24,7 @@ class GenresController extends Controller {
         const values = [data.genre];
         try {
             const [result] = await this.dbConnection.execute(query, values);
-            return { message: `${result.insertId} Element created in table ${this.tableName}` };
+            return { message: `${result.insertId} Element created in table ${this.tableName}`, id: result.insertId };
         }
         catch (err) {
             console.error(`Error while adding new element to table ${this.tableName}: ${err}`);

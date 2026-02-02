@@ -10,26 +10,37 @@ class NativeUsersController extends Controller {
         return super.index();
     }
 
+    /**
+     * 
+     * @param {string} id - uuid of the user
+     * @returns 
+     */
     async show(id) {
         return super.show(id);
     }
 
     /**
-     * 
-     * @param {Array} data - name, user_password, pfp (optional)
-     */
+     * @param {Array} data - [
+     *          "token" = string, 
+     *          "name" = string, 
+     *          "user_password" = string, 
+     *          "email" = string, 
+     *          "bio" = string || null, 
+     *          "pfp" = string || null ]
+     * @returns {Array} - ["message": string, "id": int]
+    */
     async create(data) {
         await super.create();
 
         console.log(data.name);
         console.log(data.user_password);
 
-        const query = 'INSERT INTO native_users (token, name, user_password, pfp) VALUES (?, ?, ?, ?);';
-        const values = [this.#generateToken(data.name), data.name, this.#hashPassword(data.user_password), data.pfp || null];
+        const query = 'INSERT INTO native_users (token, name, user_password, email, bio, pfp) VALUES (?, ?, ?, ?, ?, ?);';
+        const values = [this.#generateToken(data.name), data.name, this.#hashPassword(data.user_password), data.email, data.bio || null, data.pfp || null];
 
         try {
             const [result] = await this.dbConnection.execute(query, values);
-            return { message: `${result.id} Element created in table ${this.tableName}` };
+            return { message: `${result.id} Element created in table ${this.tableName}`, id: result.id };
         } catch (err) {
             console.error(`Error while adding new element to table ${this.tableName}: ${err}`);
             throw err;
@@ -38,8 +49,15 @@ class NativeUsersController extends Controller {
 
     /**
      * 
-     * @param {int} id 
-     * @param {Array} data - token (optional true or false), name (optional), user_password (optional), pfp (optional)
+     * @param {string} id - uuid of the user
+     * @param {Array} data - [
+     *          "token" = string, 
+     *          "name" = string, 
+     *          "user_password" = string, 
+     *          "email" = string, 
+     *          "bio" = string || null, 
+     *          "pfp" = string || null ]
+     * @returns {Array} - ["message": string]
      */
     async update(id, data) {
         await super.update();
@@ -48,8 +66,15 @@ class NativeUsersController extends Controller {
         let name = data.name ?? old.name;
         let token = data.token ? await this.#generateToken(name) : old.token;
         
-        const query = 'UPDATE native_users SET token = ?, name = ?, user_password = ?, pfp = ? WHERE id = ?;';
-        const values = [token, name, data.user_password ?? old.user_password, data.pfp ?? old.pfp, id];
+        const query = 'UPDATE native_users SET token = ?, name = ?, user_password = ?, email = ?, bio = ?, pfp = ? WHERE id = ?;';
+        const values = [
+            token, 
+            name, 
+            data.user_password ?? old.user_password, 
+            data.email ?? old.email, 
+            data.bio ?? old.bio, 
+            data.pfp ?? old.pfp, 
+            id];
 
         try {
             await this.dbConnection.execute(query, values);
@@ -60,6 +85,11 @@ class NativeUsersController extends Controller {
         }
     }
 
+    /**
+     * 
+     * @param {string} id - uuid of the user
+     * @returns 
+     */
     async delete(id) {
         return super.delete(id);
     }

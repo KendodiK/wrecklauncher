@@ -52,9 +52,15 @@ class ChatsController extends Controller {
         if (foreignKeyCheck instanceof Error) {
             throw foreignKeyCheck;
         }
+        
+        var old = await this.show(id);
 
         const query = 'UPDATE `chats` SET friends_id = ?, message = ?, sender_id = ? WHERE id = ?;'
-        const values = [data.friends_id, data.message, data.sender_id, id];
+        const values = [
+            data.friends_id ?? old.friends_id, 
+            data.message ?? old.message, 
+            data.sender_id ?? old.sender_id, 
+            id ];
         try {
             const [result] = await this.dbConnection.execute(query, values);
             return { message: `${id} Updated successfully in table ${this.tableName}` };
