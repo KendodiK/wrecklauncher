@@ -10,5 +10,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   maximize: () => ipcRenderer.invoke('window:maximize'),
   close: () => ipcRenderer.invoke('window:close'),
   toDesktop: () => ipcRenderer.invoke('window:to-desktop'),
-  getToken: (username) => ipcRenderer.invoke('user:get-token', username),
+  // User helpers
+  getToken: (...args) => ipcRenderer.invoke('user:get-token', ...args),
+  getPlatformUserID: (platformName, platformUsername) =>
+    ipcRenderer.invoke('user:get-platform-userid', platformName, platformUsername),
+  getOwnedGamesFromSteam: (platformUsername) =>
+    ipcRenderer.invoke('user:get-owned-games-from-steam', platformUsername),
+
+  // Steam helpers
+  getSteamGameDetails: (appID, cc) => ipcRenderer.invoke('steam:get-game-details', appID, cc),
 });

@@ -64,6 +64,6 @@ ipcMain.handle('user:get-platform-userid', async (event, platformName, platformU
 ipcMain.handle('user:get-owned-games-from-steam', async (event, platformUsername) => {
   return await UserController.getOwnedGamesFromSteam(platformUsername);  
 });
-ipcMain.handle('steam:get-game-details', async (event, appID) => {
-  return await SteamGamesCtrl.getGamesDetails(appID);  
+ipcMain.handle('steam:get-game-details', async (event, appID, cc) => {
+  return await SteamGamesCtrl.getGamesDetails(appID, cc);
 });

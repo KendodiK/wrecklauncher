@@ -4,16 +4,26 @@
     try {
       const username = 'teszt'; // change if needed
       const token = await window.electronAPI.getToken(username);
-      const platformUserID = await window.electronAPI.invoke('user:get-platform-userid', 'steam', 'freshargetinaccount69912');
-      const ownedGames = await window.electronAPI.invoke('user:get-owned-games-from-steam', 'freshargetinaccount69912');
-      for (const game of ownedGames) {
-        const appId = game?.appid ?? game?.appID;
-        if (!appId) {
-          console.warn('Owned game missing appid:', game);
-          continue;
+        const platformName = 'steam';
+        const platformUsername = 'freshargetinaccount69912';
+
+        const platformUserID = await window.electronAPI.getPlatformUserID(platformName, platformUsername);
+        const ownedGames = await window.electronAPI.getOwnedGamesFromSteam(platformUsername);
+
+        const appIds = (Array.isArray(ownedGames) ? ownedGames : [])
+          .map((game) => Number(game?.appid ?? game?.appID))
+          .filter((n) => Number.isFinite(n) && n > 0);
+
+        // Fetch one-by-one; the Steam store API can block large batches.
+        for (const appId of appIds) {
+          try {
+            console.log(await window.electronAPI.getSteamGameDetails(appId));
+          } catch (e) {
+            console.warn('Failed to fetch Steam details for', appId, e);
+          }
+          await new Promise((r) => setTimeout(r, 200));
         }
-        await window.electronAPI.invoke('steam:get-game-details', appId);
-      }
+
       const tokenDiv = document.getElementsByClassName('hello')[0];
       if (platformUserID) {
         tokenDiv.textContent = `Platform User ID: ${platformUserID}`;
