@@ -47,13 +47,21 @@ class PlatformUsersController extends Controller {
     async update(id, data) {
         await super.update(); 
 
-        let isThereForeignKey = await this.#checkForeignKeys(data)
+        var isThereForeignKey = await this.#checkForeignKeys(data)
         if (isThereForeignKey != true) {
             throw isThereForeignKey;
         }
 
+        var old = await this.show(id); 
+
         const query = 'UPDATE platform_users SET native_user_id = ?, platform_user_name = ?, platform_id = ?, platform_profile_id = ?, platform_password = ? WHERE id = ?;';
-        const values = [data.native_user_id, data.platform_user_name, data.platform_id, data.platform_profile_id, data.platform_password, id];
+        const values = [
+            data.native_user_id ?? old.nativeUserId, 
+            data.platform_user_name ?? old.platform_user_name, 
+            data.platform_id ?? old.platform_id, 
+            data.platform_profile_id ?? old.platform_profile_id, 
+            data.platform_password ?? old.platform_password, 
+            id];
 
         try {
             await this.dbConnection.execute(query, values);

@@ -52,8 +52,13 @@ class GamesGenresConnnectionController extends Controller {
             throw foreignKeyCheck;
         }
 
+        var old = await this.show(id);
+
         const query = 'UPDATE `games_genres_connections` SET game_id = ?, genre_id = ? WHERE id = ?;';
-        var values = [data.game_id, data.genre_id, id]; 
+        var values = [
+            data.game_id ?? old.game_id, 
+            data.genre_id ?? old.genre_id, 
+            id ]; 
         try {
             const [result] = await this.dbConnection.execute(query, values);
             return { message: `${id} Updated successfully in table ${this.tableName}` };

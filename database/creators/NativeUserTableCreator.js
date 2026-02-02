@@ -20,6 +20,8 @@ class NativeUserTableCreator extends DatabaseHandler {
                 token VARCHAR(64) NOT NULL,
                 name VARCHAR(32) NOT NULL,
                 user_password VARCHAR(100) NOT NULL,
+                email VARCHAR(256) NOT NULL,
+                bio VARCHAR(512),
                 pfp VARCHAR(516)
             );
         `;

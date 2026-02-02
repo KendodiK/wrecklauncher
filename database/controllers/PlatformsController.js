@@ -35,6 +35,7 @@ class PlatformsController extends Controller {
     /**
      * 
      * @param {Array} data - {"name": string}
+     * @returns {Array} message: string, id: int
      */
     async create(data) {
         await super.create();
