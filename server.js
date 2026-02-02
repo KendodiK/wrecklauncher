@@ -16,7 +16,9 @@ const nativeUserController = require('./database/controllers/NativeUsersControll
 //const dbmaker = new databaseMaker('./database/wrecklauncher.sql');
 const { platform } = require('os');
 const crypto = require('crypto');
-const NativeUsersController = require('./database/controllers/NativeUsersController');
+const platformUsersController = require('./database/controllers/PlatformUsersController');
+const PlatformsController = require('./database/controllers/PlatformsController');
+const DBMaker = require('./database/makers/DBMaker');
 const PORT = 3000;
 // Replace with your actual Steam API key and Steam ID
 const steamApiKey = process.env.STEAM_API_KEY;
@@ -26,7 +28,8 @@ app.use(cors());
 // dbHandler.createDB();
 // const dbMaker = new databaseMaker();
 // dbMaker.createTables();
-
+const platformUserCtrl = new platformUsersController();
+const platformsCtrl = new PlatformsController();
 const nativeUserCtrl = new nativeUserController();
 // (async () => {
 //     const users = await nativeUserCtrl.index();
@@ -37,32 +40,6 @@ const nativeUserCtrl = new nativeUserController();
 app.listen(PORT, () => {
    console.log(`Proxy server running at http://localhost:${PORT}`);
    });
-
-
-async function getUsersSteamID(username, steamusername) {
-  return new Promise((resolve, reject) => {
-    const query = `
-      USE wrecklauncher;
-      SELECT pu.platform_profile_id
-      FROM native_users u
-      JOIN platform_users pu ON u.id = pu.user_id
-      WHERE u.name = ? AND pu.platform_username = ?
-    `;
-
-    dbHandler.dbConnection.query(query, [username, steamusername], (err, results) => {
-      if (err) {
-        console.error('Query error:', err);
-        return reject(err);
-      }
-
-      if (results.length > 0) {
-        resolve(results[0].platform_profile_id);
-      } else {
-        resolve(null);
-      }
-    });
-  });
-}
 
 
 async function uploadGame(platformname, name, banner_img, pfp, cost, genres) {
@@ -76,76 +53,63 @@ async function uploadGame(platformname, name, banner_img, pfp, cost, genres) {
   //   genres
   // );
 }
-/**
- * generateToken
- *
- * Generates a unique token for a user.
- *
- * @param {string} username - The user's username.
- * @returns {{ token: string } | null} 
- *          Object containing token, or null if user not found.
- */
-async function generateToken(username){
-  return crypto
-    .createHash('sha256')
-    .update(username + crypto.randomUUID())
-    .digest('hex');
-}
-//implement to dbHandler
-async function uploadToken(username, token) {
-  await dbHandler.waitForConnection();
 
-  // 1️⃣ USE must be its OWN statement
-  await dbHandler.dbConnection.query('USE wrecklauncher');
-
-  // 2️⃣ SQL must be a STRING
-  const sql = `
-    UPDATE native_users
-    SET token = ?
-    WHERE name = ?;
-  `;
-
-  const [result] = await dbHandler.dbConnection.query(sql, [
-    token,
-    username
-  ]);
-
-  if (result.affectedRows === 0) return null;
-
-   // Select the id
-   const [rows] = await dbHandler.dbConnection.execute(
-    'SELECT id FROM native_users WHERE name = ?',
-    [username]
-  );
-
-  console.log('DB rows returned:', rows); // 🔍 DEBUG
-  if (!rows || rows.length === 0) {
-    console.log('No rows found after update!');
-    return null;
+app.post('/api/login/:username/:password', async (req, res) => {
+  try {
+    const username = req.params.username;
+    const password = req.params.password;
+    const user = await nativeUserCtrl.getUserByNameAndPassword(username, password);
+    console.log("User found:", user);
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid username or password' });
+    }
+    
+    await nativeUserCtrl.update(user.id, {token: true});
+    const updatedUser = await nativeUserCtrl.show(user.id);
+    
+    return res.json(user.id + "." + updatedUser.token);
+  } catch (error) {
+    console.error('Error in /api/login endpoint:', error);
+    res.status(500).json({ error: error.message });
   }
-
-  console.log('User ID found:', rows[0].id); // 🔍 DEBUG
-  return rows[0].id;
-}
-
-app.post('/api/native/token/:username/:password',async (req,res) =>{
-  const username = req.params.username;
-  const password = req.params.password
-  const id = await nativeUserCtrl.getUserByNameAndPassword(username,password);
-  await nativeUserCtrl.update(id,{token: true});
-  const token = nativeUserCtrl.show(id);
-  // const token = await generateToken(username);
-  // console.log(token);
-  // const userID = await uploadToken(username,token);
-  return res.json(id+"."+token);
 });
 
-app.get('/api/steam/UserID/:username/:steamusername', async (req, res) => {
-    const username = req.params.username;
-    const steamusername = req.params.steamusername;
-    // const steam_userid = '76561199194098023';
-    const steam_userid = await getUsersSteamID(username, steamusername);
-    res.json({ steam_userid: steam_userid });
+app.get('/api/platform/UserID/:platformname/:platformUsername/:token', async (req, res) => {
+    try {
+        const platformname = req.params.platformname;
+        const platformUsername = req.params.platformUsername;
+        const token = req.params.token;
+        
+        // Extract user ID from token (format: id.token)
+        const userId = token.split('.')[0];
+        
+        // Get platform users for this native user
+        const platformUsers = await platformUserCtrl.getByNativeUserId(userId);
+        
+        if (!platformUsers || platformUsers.length === 0) {
+            return res.status(404).json({ error: 'No platform users found for this user' });
+        }
+        
+        // Resolve platform id from platform name
+        const platform = await platformsCtrl.getByPlatformName(platformname);
+        if (!platform) {
+          return res.status(404).json({ error: `Unknown platform: ${platformname}` });
+        }
+
+        // Find the matching platform user (platform_users has platform_id, not platform_name)
+        const index = platformUsers.findIndex(
+          row => row.platform_user_name == platformUsername && Number(row.platform_id) === Number(platform.id)
+        );
+        if (index === -1) {
+            return res.status(404).json({ error: `Platform user not found for ${platformname}:${platformUsername}` });
+        }
+        
+        const platformUserID = platformUsers[index].platform_profile_id;    
+        return res.json({ platformUserID: platformUserID });
+    } catch (error) {
+        console.error("Error in /api/platform/UserID endpoint:", error);
+        res.status(500).json({ error: error.message });
+    }
 });
 
 app.get('/api/steam/OwnedGames/:username/:steamusername', async (req, res) => {
