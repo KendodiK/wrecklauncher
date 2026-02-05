@@ -19,6 +19,7 @@ const nativeUserController = require('./database/controllers/NativeUsersControll
 const platformUsersController = require('./database/controllers/PlatformUsersController');
 const gamesController = require('./database/controllers/GamesController');
 const platformsController = require('./database/controllers/PlatformsController');
+const friendsController = require('./database/controllers/FriendsController');
 
 const PORT = 3000;
 // Replace with your actual Steam API key and Steam ID
@@ -54,16 +55,16 @@ app.post('/api/login/:username/:password', async (req, res) => {
   }
 });
 
-app.get('/api/platform/UserID/:platformname/:platformUsername/:token', async (req, res) => {
+app.get('/api/platform/user_id/:platformname/:platformUsername', tokenValidate(), async (req, res) => {
     try {
         const platformname = req.params.platformname;
         const platformUsername = req.params.platformUsername;
-        const token = req.params.token;
-        
+
         // Extract user ID from token (format: id.token)
-        const userId = token.split('.')[0];
+        const userId = req.auth.userId;
         
         // Get platform users for this native user
+        const platformUserCtrl = new platformUsersController();
         const platformUsers = await platformUserCtrl.getByNativeUserId(userId);
         
         if (!platformUsers || platformUsers.length === 0) {
@@ -71,6 +72,7 @@ app.get('/api/platform/UserID/:platformname/:platformUsername/:token', async (re
         }
         
         // Resolve platform id from platform name
+        const platformsCtrl = new platformsController();
         const platform = await platformsCtrl.getByPlatformName(platformname);
         if (!platform) {
           return res.status(404).json({ error: `Unknown platform: ${platformname}` });
@@ -110,31 +112,40 @@ app.get('/api/steam/OwnedGames/:username/:steamusername', async (req, res) => {
   }
 });
 
-app.get("/api/steam/GameDetails/:appId", async (req, res) => {
-  const appId = req.params.appId;
-
+app.get("/api/games/:id", async (req, res) => {
   try {
-    const data = await fetchSteamAppDetails(appId, {
-      cc: "us",
-      lang: "en"
-    });
-    uploadGame(
-      'steam',
-      data.steam_appid,
-      data.name,
-      data.capsule_image,
-      data.capsule_image,
-      data.price_overview?.final / 100 ?? 0,
-      data.genres?.map(g => g.description) ?? []
-    );
-    res.json(data);
-
+    const gameId = req.params.id;
+    const gameCtrl = new gamesController();
+    const game = await gameCtrl.show(gameId);
+    return res.json(game);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+      return res.status(500).json({ error: err.message });
   }
 });
 
-app.post("/api/games/upload/:token", async (req, res) => {
+app.get("/api/friends/:nativeUserId", async (req, res) => {
+  try {
+    const nativeUserId = req.params.nativeUserId;
+    const friendsCtrl = new friendsController();
+    const friends = await friendsCtrl.getFriendsByNativeUserId(nativeUserId);
+    return res.json(friends);
+  } catch (err) {
+      return res.status(500).json({ error: err.message });
+  } 
+});
+
+app.get("/api/nativeUser/:id", async (req, res) => {
+  try {
+    const nativeUserId = req.params.id;
+    const nativeUserCtrl = new nativeUserController();
+    const user = await nativeUserCtrl.show(nativeUserId);
+    return res.json(user);
+  } catch (err) {
+      return res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/games/upload/:token", tokenValidate(), async (req, res) => {
   try {
     const gameCtrl = new gamesController();
     const gameId = await gameCtrl.getGameIdByAppId(req.body.app_id);
@@ -147,18 +158,6 @@ app.post("/api/games/upload/:token", async (req, res) => {
   }
 
   try {
-    const nativeUserCtrl = new nativeUserController()
-    
-    const token = req.params.token;
-    const userId = token.split('.')[0];
-    const userUniqueToken = token.split('.')[1];
-
-    // Validate token
-    const user = await nativeUserCtrl.show(userId);
-    if (!user || user.token !== userUniqueToken) {
-      return res.status(401).json({ error: 'Invalid token' });
-    }
-
     const platformCtrl = new platformsController();
     platformId = await platformCtrl.getByPlatformName(req.body.platform_name).id ?? null;
 
@@ -177,9 +176,57 @@ app.post("/api/games/upload/:token", async (req, res) => {
 
     const gamesCtrl = new gamesController();
     const uploadedGame = await gamesCtrl.uploadWithAll(gameData, null, genreNames);
-    res.status(201).json({ message: 'Game uploaded successfully', gameId: uploadedGame.id });
+    return res.status(201).json({ message: 'Game uploaded successfully', gameId: uploadedGame.id });
   } catch (error) {
     console.error('Error in /api/games/upload endpoint:', error);
-    res.status(500).json({ error: error.message });
+    return res.status(500).json({ error: error.message });
   }
 });
+
+app.post("/api/friends", tokenValidate(), async (req, res) => {
+  try {
+    const userId = req.auth.userId;
+    const friendUserId = req.body.friendUserId;
+
+    const friendsCtrl = new friendsController();
+    const result = await friendsCtrl.create({ user1_id: userId, user2_id: friendUserId });
+    if (result.message.includes('already exists') || result instanceof Error) {
+      return res.status(400).json({ message: result.message });
+    }
+    return res.status(201).json(result);
+  } catch (error) {
+    console.error('Error in /api/friends endpoint:', error);
+    return res.status(500).json({ error: error.message }); 
+  }
+});
+
+function tokenValidate(req) {
+  return async (req, res, next) => {
+    try {
+      const auth = req.headers?.authorization;
+      if (!auth || !auth.toLowerCase().startsWith('bearer ')) {
+        return res.status(401).json({ error: 'Missing or invalid Authorization header' });
+      }
+      const token = auth.slice('bearer '.length).trim();
+
+      const parts = token.split('.');
+      if (parts.length !== 2 || !parts[0] || !parts[1]) {
+        return res.status(401).json({ error: 'Invalid token format' });
+      }
+
+      const [userId, userUniqueToken] = parts;
+
+      const nativeUserCtrl = new nativeUserController();
+      const user = await nativeUserCtrl.show(userId);
+      if (!user || user.token !== userUniqueToken) {
+        return res.status(401).json({ error: 'Invalid token' });
+      }
+      req.auth = { userId, user, token };
+
+      return next();
+    } catch (error) {
+      console.error('Error in token validation:', error);
+      return res.status(500).json({ error: 'Internal server error during token validation' });
+    }
+  };
+}

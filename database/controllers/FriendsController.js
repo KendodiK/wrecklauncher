@@ -18,6 +18,7 @@ class FriendsController extends Controller {
     /**
      * 
      * @param {Array} data - ["user1_id" = native_users.id, "user2_id" = native_users.id ]
+     * @return {Array} - ["message": string, "id": int] if created, ["message": string] if friendship already exists
      */
     async create(data) {
         super.create();
@@ -27,11 +28,25 @@ class FriendsController extends Controller {
             throw foreignKeyCheck;
         }
 
-        const query = 'INSERT INTO `friends` (user1_id, user2_id) VALUES (?,?)'
-        const values = [data.user1_id, data.user2_id];
+        var query = 'SELECT * FROM friends WHERE user1_id = ? AND user2_id = ? OR user1_id = ? AND user2_id = ?';
+        var values = [data.user1_id, data.user2_id, data.user2_id, data.user1_id];
+        var rows = [];
+        try {
+            rows = await this.dbConnection.execute(query, values);
+        } catch (err) {
+            console.error(`Error while fetching friends for native user ${data.user1_id} from table ${this.tableName}: ${err}`);
+            throw err;
+        }
+
+        if (rows.length > 0) {
+            return { message: `Friendship already exists between user ${data.user1_id} and user ${data.user2_id}` };
+        }
+
+        query = 'INSERT INTO `friends` (user1_id, user2_id) VALUES (?,?)'
+        values = [data.user1_id, data.user2_id];
         try {
             const [result] = await this.dbConnection.execute(query, values);
-            return { message: `${result.id} Element created in table ${this.tableName}` };
+            return { message: `${result.id} Element created in table ${this.tableName}`, id: result.id };
         }
         catch (err) {
             console.error(`Error while adding new element to table ${this.tableName}: ${err}`);
@@ -70,6 +85,25 @@ class FriendsController extends Controller {
 
     async delete(id) {
         return super.delete(id);
+    }
+
+    /**
+     * Gets the friends (native user ids) for a given native user
+     * @param {int} nativeUserId 
+     * @returns {Array} - Array of friends (native user ids) for the given native user ID
+     */
+    async getNativeUserFriends(nativeUserId) {
+        await this.waitForConnection();
+        await this.selectDatabase(); 
+    
+        const query = 'SELECT * FROM friends WHERE user1_id = ?';
+        try {
+            const [rows] = await this.dbConnection.execute(query, [nativeUserId]);
+            return rows;
+        } catch (err) {
+            console.error(`Error while fetching friends for native user ${nativeUserId} from table ${this.tableName}: ${err}`);
+            throw err;
+        }
     }
 
     async #checkForeignKeys(data) { 
