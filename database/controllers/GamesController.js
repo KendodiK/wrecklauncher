@@ -1,7 +1,7 @@
 const Controller = require('./Controller');
 const PlatformsController = require('./PlatformsController');
 const GenresController = require('./GenresController');
-const GamesGenresController = require('./GamesGenresController');
+const GamesGenresConnectionController = require('./GamesGenresConnectionController');
 
 class GamesController extends Controller {
     constructor() {
@@ -88,7 +88,7 @@ class GamesController extends Controller {
      *          "banner_img" = string || null, 
      *          "description" = string || null, 
      *          "minimum_requirements" = string || null, 
-     *          "cost" = float ]
+     *          "cost" = float ||null ]
      * @param {Array} genre_ids - [ genre.id, ... ] can be null or could contain genres which already exist.
      * @param {Array} genre_names - [ genre.name, ... ] names for the genres which do not exist yet.
      * @returns {Array} - ["message": string, "id": int]
@@ -111,9 +111,29 @@ class GamesController extends Controller {
         const game = await this.create(data);
         data.id = game.id;
 
-        const gamesGenresController = new GamesGenresController();
+        const gamesGenresController = new GamesGenresConnectionController();
         for (const genre_id of data.genre_ids) {
             await gamesGenresController.create({ "game_id": data.id, "genre_id": genre_id });
+        }
+        return game;
+    }
+
+    /**
+     * Get native game id by the unique platform specific game id.
+     * @param {int} app_id 
+     * @returns {int|null} - game.id or null if not found
+     */
+    async getGameIdByAppId(app_id) {
+        await this.waitForConnection();
+        await this.selectDatabase();
+        
+        const query = `SELECT id FROM ${this.tableName} WHERE app_id = ?;`;
+        try {
+            const [rows] = await this.dbConnection.execute(query, [app_id]);
+            return rows[0]?.id ?? null;
+        } catch (err) {
+            console.error(`Error while fetching game id by app_id from table ${this.tableName}: ${err}`);
+            throw err;
         }
     }
 

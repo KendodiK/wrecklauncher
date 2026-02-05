@@ -198,6 +198,7 @@ app.get('/api/steam/key/:token', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 app.get("/api/steam/GameDetails/:appId", async (req, res) => {
   const appId = req.params.appId;
 
