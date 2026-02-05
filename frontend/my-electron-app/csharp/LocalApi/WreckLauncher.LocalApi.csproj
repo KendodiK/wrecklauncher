@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <!-- Compile the translated controllers/models that live one folder up -->
+  <ItemGroup>
+    <Compile Include="..\Controllers\**\*.cs" />
+    <Compile Include="..\Models\**\*.cs" />
+
+    <!-- No-token Epic approach: exclude OAuth scaffolding from build -->
+    <Compile Remove="..\Controllers\EpicOAuthController.cs" />
+    <Compile Remove="..\Models\EpicOAuthModels.cs" />
+  </ItemGroup>
+</Project>

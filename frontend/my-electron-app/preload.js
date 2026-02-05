@@ -11,7 +11,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   close: () => ipcRenderer.invoke('window:close'),
   toDesktop: () => ipcRenderer.invoke('window:to-desktop'),
   // User helpers
-  getToken: (...args) => ipcRenderer.invoke('user:get-token', ...args),
+  getToken: () => ipcRenderer.invoke('user:get-token'),
   getPlatformUserID: (platformName, platformUsername) =>
     ipcRenderer.invoke('user:get-platform-userid', platformName, platformUsername),
   getOwnedGamesFromSteam: (platformUsername) =>
@@ -19,4 +19,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Steam helpers
   getSteamGameDetails: (appID, cc) => ipcRenderer.invoke('steam:get-game-details', appID, cc),
+
+  // Epic helpers
+  getEpicInstalledGames: () => ipcRenderer.invoke('epic:get-installed-games'),
 });
