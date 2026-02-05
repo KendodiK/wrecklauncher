@@ -129,6 +129,7 @@ app.get('/api/steam/OwnedGames/:username/:steamusername', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch data from Steam API' });
   }
 });
+
 app.get("/api/steam/GameDetails/:appId", async (req, res) => {
   const appId = req.params.appId;
 
