@@ -14,7 +14,9 @@ function getTokenFilePath() {
     ? path.join(app.getPath('userData'), 'token.txt')
     : path.join(__dirname, 'user-data', 'token.txt');
 }
-const serverurl = 'https://localhost:3000';
+// Backend base URL passed to LocalApi.
+// Prefer HTTP dev port (3001) to avoid TLS trust issues that can slow startup.
+const serverurl = process.env.WRECK_BACKEND_URL || 'http://127.0.0.1:3001';
 let localApiProcess;
 let localApiBaseUrl;
 let win, tray;
@@ -207,15 +209,15 @@ async function startLocalApi() {
   const devLocalApiExe = path.join(__dirname, 'localapi-bin', 'WreckLauncher.LocalApi.exe');
   const localApiExe = app.isPackaged ? packagedLocalApiExe : devLocalApiExe;
 
-  const useExe = fs.existsSync(localApiExe);
+  // Dev quality-of-life: prefer `dotnet run` so changes in C# take effect immediately.
+  // Packaged builds should never depend on the .NET SDK, so they use the shipped EXE.
+  const useExe = app.isPackaged && fs.existsSync(localApiExe);
   const command = useExe ? localApiExe : 'dotnet';
   const args = useExe
     ? ['--urls', urls]
     : ['run', '--project', path.join(__dirname, 'csharp', 'LocalApi', 'WreckLauncher.LocalApi.csproj'), '--urls', urls];
 
-  const spawnCwd = useExe
-    ? path.dirname(localApiExe)
-    : __dirname;
+  const spawnCwd = useExe ? path.dirname(localApiExe) : __dirname;
 
   localApiProcess = spawn(command, args, {
     cwd: spawnCwd,
@@ -263,6 +265,13 @@ function createWindow() {
     titleBarStyle: 'hidden',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
+
+      // Electron 20+ increasingly encourages sandboxing; however our preload uses
+      // Node-style requires (electron ipcRenderer) and a contextBridge API.
+      // Make this explicit to avoid "sandboxed_renderer.bundle" failures.
+      sandbox: false,
+      contextIsolation: true,
+      nodeIntegration: false,
     },
   });
 
@@ -319,20 +328,48 @@ ipcMain.handle('user:get-token', async (event) => {
 });
 ipcMain.handle('user:get-platform-userid', async (event, platformName, platformUsername) => {
   if (!localApiBaseUrl) throw new Error('LocalApi not ready');
-  const res = await httpGetJson(
-    `${localApiBaseUrl}/platform/userid/${encodeURIComponent(platformName)}/${encodeURIComponent(platformUsername)}`
-  );
-  return res?.platformUserID ?? null;
+  try {
+    const res = await httpGetJson(
+      `${localApiBaseUrl}/platform/userid/${encodeURIComponent(platformName)}/${encodeURIComponent(platformUsername)}`
+    );
+    return res?.platformUserID ?? null;
+  } catch (e) {
+    // Don't crash renderer flows if backend has a temporary/broken endpoint.
+    console.warn('[ipc] user:get-platform-userid failed:', e);
+    return null;
+  }
 });
 ipcMain.handle('user:get-owned-games-from-steam', async (event, platformUsername) => {
   if (!localApiBaseUrl) throw new Error('LocalApi not ready');
-  return await httpGetJson(`${localApiBaseUrl}/steam/owned-games/${encodeURIComponent(platformUsername)}`);
+  try {
+    return await httpGetJson(`${localApiBaseUrl}/steam/owned-games/${encodeURIComponent(platformUsername)}`);
+  } catch (e) {
+    console.warn('[ipc] user:get-owned-games-from-steam failed:', e);
+    return [];
+  }
 });
 ipcMain.handle('steam:get-game-details', async (event, appID, cc) => {
   if (!localApiBaseUrl) throw new Error('LocalApi not ready');
-  const url = new URL(`${localApiBaseUrl}/steam/appdetails/${encodeURIComponent(appID)}`);
-  if (cc) url.searchParams.set('cc', cc);
-  return await httpGetJson(url.toString());
+  try {
+    const url = new URL(`${localApiBaseUrl}/steam/appdetails/${encodeURIComponent(appID)}`);
+    if (cc) url.searchParams.set('cc', cc);
+    return await httpGetJson(url.toString());
+  } catch (e) {
+    console.warn('[ipc] steam:get-game-details failed:', e);
+    return null;
+  }
+});
+
+ipcMain.handle('steam:get-game-details-and-upload', async (event, appID, cc) => {
+  if (!localApiBaseUrl) throw new Error('LocalApi not ready');
+  try {
+    const url = new URL(`${localApiBaseUrl}/steam/appdetails/${encodeURIComponent(appID)}/upload`);
+    if (cc) url.searchParams.set('cc', cc);
+    return await httpRequestJson(url.toString(), 'POST');
+  } catch (e) {
+    console.warn('[ipc] steam:get-game-details-and-upload failed:', e);
+    return null;
+  }
 });
 
 ipcMain.handle('epic:get-installed-games', async () => {

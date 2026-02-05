@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("WreckLauncher.LocalApi")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+a11fd7c615efd3ac2951f87fa016fdc72915aa0d")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+9a7e9f3c1b07ae5075ec38df616095abd00e2214")]
 [assembly: System.Reflection.AssemblyProductAttribute("WreckLauncher.LocalApi")]
 [assembly: System.Reflection.AssemblyTitleAttribute("WreckLauncher.LocalApi")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

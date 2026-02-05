@@ -37,8 +37,7 @@ public class TokenController
         // Dev helper: if you use mkcert for localhost, you may need to trust that CA.
         // In .NET this is usually handled by the OS trust store; if you still have TLS issues,
         // consider adding explicit cert validation only for localhost.
-        // (left as default here for safety)
-
+        // (left as default here for safety)        
         var http = new HttpClient(handler);
         http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("wrecklauncher", "1.0"));
         http.Timeout = TimeSpan.FromSeconds(15);

@@ -95,8 +95,7 @@ public sealed class UserController : TokenController
         {
             var key = keyProp.GetString();
             if (!string.IsNullOrWhiteSpace(key)) return key;
-        }
-
+        }        
         throw new Exception("steamApiKey missing in server response");
     }
 

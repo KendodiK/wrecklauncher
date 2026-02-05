@@ -52,17 +52,36 @@
         const epicInstalled = await window.electronAPI.getEpicInstalledGames();
         console.log('Epic installed games:', epicInstalled);
 
-        const platformUserID = await window.electronAPI.getPlatformUserID(platformName, platformUsername);
-        const ownedGames = (await window.electronAPI.getOwnedGamesFromSteam(platformUsername));
-        console.log('Owned games from Steam:', ownedGames);
-        const appIds = (Array.isArray(ownedGames) ? ownedGames : [])
-          .map((game) => Number(game?.appid ?? game?.appID))
-          .filter((n) => Number.isFinite(n) && n > 0);
-        for (const appId of appIds) {
+        // These backend calls may be temporarily broken; don't block app startup on them.
+        let platformUserID = null;
+        try {
+          platformUserID = await window.electronAPI.getPlatformUserID(platformName, platformUsername);
+        } catch (e) {
+          console.warn('getPlatformUserID failed (ignored):', e);
+        }
+
+        let appIds = [];
+        try {
+          const ownedGames = (await window.electronAPI.getOwnedGamesFromSteam(platformUsername));
+          console.log('Owned games from Steam:', ownedGames);
+          appIds = (Array.isArray(ownedGames) ? ownedGames : [])
+            .map((game) => Number(game?.appid ?? game?.appID ?? game?.appId ?? game?.AppId))
+            .filter((n) => Number.isFinite(n) && n > 0);
+        } catch (e) {
+          console.warn('getOwnedGamesFromSteam failed (ignored):', e);
+        }
+
+        // If we couldn't get owned games, still validate the Steam-details+upload pipeline with a small sample.
+        if (!Array.isArray(appIds) || appIds.length === 0) {
+          appIds = [730, 570, 440]; // CS2, Dota 2, TF2
+        }
+
+        // Keep startup snappy: limit how many uploads we do on page load.
+        for (const appId of appIds.slice(0, 5)) {
           try {
-            console.log(await window.electronAPI.getSteamGameDetails(appId));
+            console.log(await window.electronAPI.getSteamGameDetailsAndUpload(appId));
           } catch (e) {
-            console.warn('Failed to fetch Steam details for', appId, e);
+            console.warn('Failed to fetch Steam details/upload for', appId, e);
           }
           await new Promise((r) => setTimeout(r, 200));
         }
