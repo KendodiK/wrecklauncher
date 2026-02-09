@@ -1,0 +1,96 @@
+# =========================
+# Node
+# =========================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# =========================
+# Build outputs
+# =========================
+dist/
+build/
+out/
+release/
+app/dist/
+renderer/dist/
+main/dist/
+
+# Electron packaged apps
+*.exe
+*.dmg
+*.app
+*.AppImage
+*.snap
+*.deb
+*.rpm
+*.msi
+*.blockmap
+*.asar
+
+# electron-builder / forge
+/.webpack/
+/makers/
+/publish/
+*.tsbuildinfo
+
+# =========================
+# Env files
+# =========================
+.env
+.env.*
+!.env.example
+
+# =========================
+# Logs
+# =========================
+logs/
+*.log
+
+# =========================
+# OS files
+# =========================
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# =========================
+# IDE / Editor
+# =========================
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+
+# =========================
+# Testing
+# =========================
+coverage/
+.nyc_output/
+
+# =========================
+# Cache
+# =========================
+.cache/
+.parcel-cache/
+.eslintcache
+.stylelintcache
+.tmp/
+temp/
+
+# =========================
+# TypeScript
+# =========================
+*.tsbuildinfo
+
+# =========================
+# Electron runtime data
+# =========================
+userData/
