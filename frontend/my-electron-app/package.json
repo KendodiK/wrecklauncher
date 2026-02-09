@@ -8,9 +8,16 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "build:react": "esbuild scripts/react-app.jsx --bundle --outfile=scripts/react-bundle.js --loader:.jsx=jsx --platform=browser --format=iife",
+    "build": "npm run build:react",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
   "devDependencies": {
-    "electron": "^39.2.7"
+    "electron": "^39.2.7",
+    "esbuild": "^0.24.2"
   }
 }
