@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
+import { runSmokeControllers } from '../../smokeControllers.js';
 
 const DEFAULT_ITEMS = Array.from({ length: 9 }).map((_, i) => {
 	const n = i + 1;

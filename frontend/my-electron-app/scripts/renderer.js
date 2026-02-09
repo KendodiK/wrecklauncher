@@ -48,6 +48,7 @@
       const token = await window.electronAPI.getToken();
         const platformName = 'steam';
         const platformUsername = 'freshargetinaccount69912';
+        //const platformUsername = 'Szbarni06';
 
         const epicInstalled = await window.electronAPI.getEpicInstalledGames();
         console.log('Epic installed games:', epicInstalled);

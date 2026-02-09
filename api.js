@@ -10,7 +10,6 @@ const https = require('https');
 const zlib = require('zlib');
 const { platform } = require('os');
 const crypto = require('crypto');
-
 const databaseHandler = require('./database/DatabaseHandler');
 const databaseMaker = require('./database/makers/DBMaker');
 const DBMaker = require('./database/makers/DBMaker');
@@ -25,12 +24,66 @@ const PORT = 3000;
 // Replace with your actual Steam API key and Steam ID
 const steamApiKey = process.env.STEAM_API_KEY;
 app.use(cors());
+const path = require('path');
+const fs = require('fs');
+function loadHttpsOptions() {
+  const keyPath = process.env.SSL_KEY_PATH || path.join(__dirname, 'certs', 'localhost-key.pem');
+  const certPath = process.env.SSL_CERT_PATH || path.join(__dirname, 'certs', 'localhost-cert.pem');
 
+  if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
+    return {
+      key: fs.readFileSync(keyPath),
+      cert: fs.readFileSync(certPath),
+    };
+  }
 
+  let selfsigned;
+  try {
+    // eslint-disable-next-line global-require
+    selfsigned = require('selfsigned');
+  } catch {
+    throw new Error(
+      'TLS cert/key not found. Provide SSL_KEY_PATH and SSL_CERT_PATH (or ./certs/*.pem), or install the `selfsigned` package for a dev self-signed fallback.'
+    );
+  }
 
-app.listen(PORT, () => {
-   console.log(`Proxy server running at http://localhost:${PORT}`);
-});
+  const attrs = [{ name: 'commonName', value: 'localhost' }];
+  const pems = selfsigned.generate(attrs, {
+    days: 365,
+    keySize: 2048,
+    algorithm: 'sha256',
+    extensions: [
+      {
+        name: 'subjectAltName',
+        altNames: [
+          { type: 2, value: 'localhost' },
+          { type: 7, ip: '127.0.0.1' },
+        ],
+      },
+    ],
+  });
+
+  console.warn('[TLS] Using a self-signed certificate (dev fallback).');
+  console.warn('[TLS] For Electron/Node fetch to trust it, use mkcert and provide cert/key via SSL_KEY_PATH and SSL_CERT_PATH.');
+  return { key: pems.private, cert: pems.cert };
+}
+
+function startServers() {
+  const httpsPort = Number(process.env.HTTPS_PORT || PORT);
+  const httpPort = Number(process.env.HTTP_PORT || 3001);
+  const httpsOptions = loadHttpsOptions();
+  // On some Windows setups, binding to IPv6 only ("::") does not accept IPv4.
+  // Start separate listeners on both stacks so `localhost` works reliably.
+  const httpsV4 = https.createServer(httpsOptions, app);
+  const httpsV6 = https.createServer(httpsOptions, app);
+  httpsV4.listen(httpsPort, '127.0.0.1');
+  httpsV6.listen(httpsPort, '::1');
+  console.log(`API server (HTTPS) running at https://localhost:${httpsPort}`);
+  console.log(`API server (HTTP) running at http://localhost:${httpPort}`);
+}
+
+startServers();
+
 
 
 app.post('/api/login/:username/:password', async (req, res) => {
