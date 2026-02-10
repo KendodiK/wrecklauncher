@@ -36,7 +36,7 @@ class NativeUsersController extends Controller {
         console.log(data.user_password);
 
         const query = 'INSERT INTO native_users (token, name, user_password, email, bio, pfp) VALUES (?, ?, ?, ?, ?, ?);';
-        const values = [this.#generateToken(data.name), data.name, this.#hashPassword(data.user_password), data.email, data.bio || null, data.pfp || null];
+        const values = [this.#generateToken(data.name), data.name, this.#hashPassword(data.user_password), data.email, data.bio ?? null, data.pfp ?? null];
 
         try {
             const [result] = await this.dbConnection.execute(query, values);

@@ -99,9 +99,9 @@ class GamesController extends Controller {
             const platform = await platformsController.create({ "name": data.platform_name });
             data.platform_id = platform.id;
         }
+        let created_genre_ids = [];
         if (genre_names != null) {
             const genresController = new GenresController();
-            created_genre_ids = [];
             for (const genre_name of data.genre_names) {
                 const genre = await genresController.create({ "genre": genre_name });
                 created_genre_ids.push(genre.id);
@@ -111,9 +111,12 @@ class GamesController extends Controller {
         const game = await this.create(data);
         data.id = game.id;
 
-        const gamesGenresController = new GamesGenresConnectionController();
-        for (const genre_id of data.genre_ids) {
-            await gamesGenresController.create({ "game_id": data.id, "genre_id": genre_id });
+        if (genre_ids != null || created_genre_ids.length > 0) {
+            created_genre_ids.push.apply(created_genre_ids, genre_ids);
+            const gamesGenresController = new GamesGenresConnectionController();
+            for (const genre_id of created_genre_ids) {
+                await gamesGenresController.create({ "game_id": data.id, "genre_id": genre_id });
+            } 
         }
         return game;
     }

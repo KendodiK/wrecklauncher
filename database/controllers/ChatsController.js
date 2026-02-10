@@ -75,6 +75,26 @@ class ChatsController extends Controller {
         return super.delete(id);
     }
 
+    /**
+     * Returns chat log based on friendsId, gets only 10 message at one call for better performance;
+     * @param {int} friendsId - friends.id
+     * @param {int} from - the number where we want to start the display from
+     * @returns {Array} The previous chats between that two people
+     */
+    async getByFriedsId(friendsId, from) {
+        await this.waitForConnection;
+        await this.selectDatabase;
+
+        const query = 'SELECT * FROM `chats` WHERE friends_id = ? ORDER BY id  LIMIT 10 OFFSET ?;' //10 can be changed later to any number
+
+        try {
+            return await this.dbConnection.execute(query, [friendsId, from]);
+        }
+        catch (err) {
+            console.error(`Error while getting chat log form ${this.tableName}: ${err}`)
+        }
+    }
+
     async #checkForeignKeys(data) { 
         var friendsController = new FriendsController();
         var nativeUsersController = new NativeUsersController();
