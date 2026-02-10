@@ -10,111 +10,73 @@ const https = require('https');
 const zlib = require('zlib');
 const { platform } = require('os');
 const crypto = require('crypto');
+
 const databaseHandler = require('./database/DatabaseHandler');
 const databaseMaker = require('./database/makers/DBMaker');
 const DBMaker = require('./database/makers/DBMaker');
 
 const nativeUserController = require('./database/controllers/NativeUsersController');
 const platformUsersController = require('./database/controllers/PlatformUsersController');
-const gamesController = require('./database/controllers/GamesController');
 const platformsController = require('./database/controllers/PlatformsController');
+const gamesGenresConnnectionController = require('./database/controllers/GamesGenresConnectionController');
+const gamesController = require('./database/controllers/GamesController');
 const friendsController = require('./database/controllers/FriendsController');
+const chatsController = require('./database/controllers/ChatsController'); 
+const FriendsController = require('./database/controllers/FriendsController');
 
 const PORT = 3000;
 // Replace with your actual Steam API key and Steam ID
 const steamApiKey = process.env.STEAM_API_KEY;
 app.use(cors());
-const path = require('path');
-const fs = require('fs');
-function loadHttpsOptions() {
-  const keyPath = process.env.SSL_KEY_PATH || path.join(__dirname, 'certs', 'localhost-key.pem');
-  const certPath = process.env.SSL_CERT_PATH || path.join(__dirname, 'certs', 'localhost-cert.pem');
 
-  if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
-    return {
-      key: fs.readFileSync(keyPath),
-      cert: fs.readFileSync(certPath),
-    };
-  }
-
-  let selfsigned;
-  try {
-    // eslint-disable-next-line global-require
-    selfsigned = require('selfsigned');
-  } catch {
-    throw new Error(
-      'TLS cert/key not found. Provide SSL_KEY_PATH and SSL_CERT_PATH (or ./certs/*.pem), or install the `selfsigned` package for a dev self-signed fallback.'
-    );
-  }
-
-  const attrs = [{ name: 'commonName', value: 'localhost' }];
-  const pems = selfsigned.generate(attrs, {
-    days: 365,
-    keySize: 2048,
-    algorithm: 'sha256',
-    extensions: [
-      {
-        name: 'subjectAltName',
-        altNames: [
-          { type: 2, value: 'localhost' },
-          { type: 7, ip: '127.0.0.1' },
-        ],
-      },
-    ],
-  });
-
-  console.warn('[TLS] Using a self-signed certificate (dev fallback).');
-  console.warn('[TLS] For Electron/Node fetch to trust it, use mkcert and provide cert/key via SSL_KEY_PATH and SSL_CERT_PATH.');
-  return { key: pems.private, cert: pems.cert };
-}
-
-function startServers() {
-  const httpsPort = Number(process.env.HTTPS_PORT || PORT);
-  const httpPort = Number(process.env.HTTP_PORT || 3001);
-  const httpsOptions = loadHttpsOptions();
-  // On some Windows setups, binding to IPv6 only ("::") does not accept IPv4.
-  // Start separate listeners on both stacks so `localhost` works reliably.
-  const httpsV4 = https.createServer(httpsOptions, app);
-  const httpsV6 = https.createServer(httpsOptions, app);
-  httpsV4.listen(httpsPort, '127.0.0.1');
-  httpsV6.listen(httpsPort, '::1');
-  console.log(`API server (HTTPS) running at https://localhost:${httpsPort}`);
-  console.log(`API server (HTTP) running at http://localhost:${httpPort}`);
-}
-
-startServers();
-
-
-
-app.post('/api/login/:username/:password', async (req, res) => {
-  try {
-    const nativeUserCtrl = new nativeUserController();
-
-    const username = req.params.username;
-    const password = req.params.password;
-    const user = await nativeUserCtrl.getUserByNameAndPassword(username, password);
-    console.log("User found:", user);
-    if (!user) {
-      return res.status(401).json({ error: 'Invalid username or password' });
-    }
-    
-    await nativeUserCtrl.update(user.id, {token: true});
-    const updatedUser = await nativeUserCtrl.show(user.id);
-    
-    return res.json(user.id + "." + updatedUser.token);
-  } catch (error) {
-    console.error('Error in /api/login endpoint:', error);
-    res.status(500).json({ error: error.message });
-  }
+app.listen(PORT, () => {
+   console.log(`Proxy server running at http://localhost:${PORT}`);
 });
+
+
+// ------------------- Middleware ------------------ //
+
+function tokenValidate(req) {
+  return async (req, res, next) => {
+    try {
+      const auth = req.headers?.authorization;
+      if (!auth || !auth.toLowerCase().startsWith('bearer ')) {
+        return res.status(401).json({ error: 'Missing or invalid Authorization header' });
+      }
+      const token = auth.slice('bearer '.length).trim();
+
+      const parts = token.split('.');
+      if (parts.length !== 2 || !parts[0] || !parts[1]) {
+        return res.status(401).json({ error: 'Invalid token format' });
+      }
+
+      const [userId, userUniqueToken] = parts;
+
+      const nativeUserCtrl = new nativeUserController();
+      const user = await nativeUserCtrl.show(userId);
+      if (!user || user.token !== userUniqueToken) {
+        return res.status(401).json({ error: 'Invalid token' });
+      }
+      req.auth = { userId, user, token };
+
+      return next();
+    } catch (error) {
+      console.error('Error in token validation:', error);
+      return res.status(500).json({ error: 'Internal server error during token validation' });
+    }
+  };
+}
+
+// ------------------- API Endpoints ------------------ //
+
+// -------------------     GET      ------------------ //
 
 app.get('/api/platform/user_id/:platformname/:platformUsername', tokenValidate(), async (req, res) => {
     try {
-        const platformname = req.params.platformname;
-        const platformUsername = req.params.platformUsername;
+        const { platformname, platformUsername } = req.params;
 
         // Extract user ID from token (format: id.token)
-        const userId = req.auth.userId;
+        const { userId } = req.auth;
         
         // Get platform users for this native user
         const platformUserCtrl = new platformUsersController();
@@ -147,27 +109,9 @@ app.get('/api/platform/user_id/:platformname/:platformUsername', tokenValidate()
     }
 });
 
-app.get('/api/steam/OwnedGames/:username/:steamusername', async (req, res) => {
+app.get("/api/games/:id", async (req, res) => { //nem biztos hogy kell használni, ha van /games/:id/all -> a libary-hoz.
   try {
-    // const steamID = '76561199194098023';
-    const steamID = await getUsersSteamID(req.params.username, req.params.steamusername);
-    console.log("Steam user id"+steamID);
-    if (!steamID) {
-      return res.status(404).json({ error: 'Steam ID not found for the given username and steamusername' });
-    }
-    const url = `https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key=${steamApiKey}&steamid=${steamID}&format=json`;
-    const response = await fetch(url);
-    const data = await response.json();
-    res.json(data);
-  } catch (error) {
-    console.error('Error fetching Steam data:', error);
-    res.status(500).json({ error: 'Failed to fetch data from Steam API' });
-  }
-});
-
-app.get("/api/games/:id", async (req, res) => {
-  try {
-    const gameId = req.params.id;
+    const { id: gameId } = req.params;
     const gameCtrl = new gamesController();
     const game = await gameCtrl.show(gameId);
     return res.json(game);
@@ -176,11 +120,40 @@ app.get("/api/games/:id", async (req, res) => {
   }
 });
 
+app.get("/api/games/:id/all", async (req, res) => {
+  try {
+    const {id: gameId } = req.params;
+    const gameCtrl = new gamesController();
+    const game = await gameCtrl.getGameWithAllForeign(gameId);
+
+    const gamesGenresCtrl = new gamesGenresConnnectionController();
+    const gameGenres = await gamesGenresCtrl.getByGameId(gameId);
+    game.genres = gameGenres;
+
+    const platformCtrl = new platformsController();
+    const platform = platformCtrl.show(game.platform_id);
+    game.platfrom = platform; //ennek így nem kéne működnie tesztelés needed !!!
+
+    return res.json(game);
+  } catch (err) {
+      return res.status(500).json({ error: err.message });
+  }
+});
+
 app.get("/api/friends/:nativeUserId", async (req, res) => {
   try {
-    const nativeUserId = req.params.nativeUserId;
+    const { nativeUserId } = req.params;
     const friendsCtrl = new friendsController();
-    const friends = await friendsCtrl.getFriendsByNativeUserId(nativeUserId);
+    const friendsRaw = await friendsCtrl.getFriendsByNativeUserId(nativeUserId);
+
+    const friends = [];
+    friendsRaw.forEach(friend => {
+      friends.push({
+        id: friend.id,
+        user_id: (Number(friend.user1_id) !== Number(nativeUserId)) ? friend.user1_id : friend.user2_id
+      });
+    });
+
     return res.json(friends);
   } catch (err) {
       return res.status(500).json({ error: err.message });
@@ -189,12 +162,72 @@ app.get("/api/friends/:nativeUserId", async (req, res) => {
 
 app.get("/api/nativeUser/:id", async (req, res) => {
   try {
-    const nativeUserId = req.params.id;
+    const { id: nativeUserId } = req.params;
     const nativeUserCtrl = new nativeUserController();
     const user = await nativeUserCtrl.show(nativeUserId);
     return res.json(user);
   } catch (err) {
       return res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/chat/:friendsId", async (req, res) => {
+  try {
+    const { friendsId } = req.params;
+    const { from } = req.body;
+    const chatsCtrl = new chatsController();
+    const chatLog = await chatsCtrl.getByFriendsId(friendsId, from);
+    return res.json(chatLog);
+  } catch (error) {
+    console.error('Error in /api/chat endpoint:', error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// -------------------     POST      ------------------ //
+
+app.post('/api/login/:username/:password', async (req, res) => {
+  try {
+    const nativeUserCtrl = new nativeUserController();
+
+    const { username, password } = req.params;
+    const user = await nativeUserCtrl.getUserByNameAndPassword(username, password);
+    console.log("User found:", user);
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid username or password' });
+    }
+    
+    await nativeUserCtrl.update(user.id, {token: true});
+    const updatedUser = await nativeUserCtrl.show(user.id);
+    
+    return res.json(user.id + "." + updatedUser.token);
+  } catch (error) {
+    console.error('Error in /api/login endpoint:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/signup', async (req, res) => {
+  try {
+    const nativeUserCtrl = new nativeUserController();
+
+    const { username, password, email } = req.body;
+
+    const existingUser = await nativeUserCtrl.getUserByName(username); //Kell hogy egyedi legyen a név????
+    if (existingUser) {
+      return res.status(400).json({ error: 'Username already exists' });
+    }
+
+    const userData = {
+      "username" : username,
+      "password" : password,
+      "email" : email,
+    }
+    const newUser = await nativeUserCtrl.create(userData);
+    return res.status(201).json(newUser);
+  } catch (error) {
+    console.error('Error in /api/signup endpoint:', error);
+    return res.status(500).json({ error: error.message });
   }
 });
 
@@ -238,8 +271,8 @@ app.post("/api/games/upload/:token", tokenValidate(), async (req, res) => {
 
 app.post("/api/friends", tokenValidate(), async (req, res) => {
   try {
-    const userId = req.auth.userId;
-    const friendUserId = req.body.friendUserId;
+    const { userId } = req.auth;
+    const { friendUserId } = req.body;
 
     const friendsCtrl = new friendsController();
     const result = await friendsCtrl.create({ user1_id: userId, user2_id: friendUserId });
@@ -253,33 +286,56 @@ app.post("/api/friends", tokenValidate(), async (req, res) => {
   }
 });
 
-function tokenValidate(req) {
-  return async (req, res, next) => {
-    try {
-      const auth = req.headers?.authorization;
-      if (!auth || !auth.toLowerCase().startsWith('bearer ')) {
-        return res.status(401).json({ error: 'Missing or invalid Authorization header' });
-      }
-      const token = auth.slice('bearer '.length).trim();
+// -------------------      PUT       ------------------ //
+app.put("/api/login/:id", tokenValidate(), async (req, res) => {
+  try {
+    const nativeUserId = req.params.id;
+    const nativeUserCtrl = new nativeUserController();
+    const updatedUser = await nativeUserCtrl.update(nativeUserId, req.body);
+    return res.json(updatedUser);
+  } catch (error) {
+    console.error('Error in /api/nativeUser/:id endpoint:', error);
+    return res.status(500).json({ error: error.message });
+  }
+});
 
-      const parts = token.split('.');
-      if (parts.length !== 2 || !parts[0] || !parts[1]) {
-        return res.status(401).json({ error: 'Invalid token format' });
-      }
+app.put("/api/games/:id", async (req, res) => {
+  try {
+    const { id: gameId } = req.params;
 
-      const [userId, userUniqueToken] = parts;
-
-      const nativeUserCtrl = new nativeUserController();
-      const user = await nativeUserCtrl.show(userId);
-      if (!user || user.token !== userUniqueToken) {
-        return res.status(401).json({ error: 'Invalid token' });
-      }
-      req.auth = { userId, user, token };
-
-      return next();
-    } catch (error) {
-      console.error('Error in token validation:', error);
-      return res.status(500).json({ error: 'Internal server error during token validation' });
+    const gameData = {
+      "app_id": req.body.app_id,
+      "platform_id": platformId,
+      "name": req.body.name,
+      "banner_img": req.body.banner_img,
+      "description": req.body.description ?? null,
+      "minimum_requirements": req.body.minimum_requirements ?? null,
+      "cost": req.body.cost ?? null,
     }
-  };
-}
+
+    const gamesCtrl = new gamesController();
+    const updatedGame = gamesCtrl.update(gameId, gameData);
+    return res.json(updatedGame);
+  } catch (err) {
+    console.error('Error in /api/games/:id endpoint:', error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// -------------------     DELETE     ------------------ //
+
+app.delete("/api/friends/:friendShipId", tokenValidate(), async (req, res) => {
+  try {
+    const { friendShipId } = req.params;
+
+    const friendsCtrl = new friendsController();
+    const result = await friendsCtrl.delete(friendShipId);
+    if (result instanceof Error) {
+      return res.status(400).json({ message: result.message });
+    }
+    return res.status(201).json(result);
+  } catch (error) {
+    console.error('Error in /api/friends endpoint:', error);
+    return res.status(500).json({ error: error.message }); 
+  }
+});

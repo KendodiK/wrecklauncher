@@ -96,9 +96,9 @@ class FriendsController extends Controller {
         await this.waitForConnection();
         await this.selectDatabase(); 
     
-        const query = 'SELECT * FROM friends WHERE user1_id = ?';
+        const query = 'SELECT * FROM friends WHERE user1_id = ? OR user2_id = ?';
         try {
-            const [rows] = await this.dbConnection.execute(query, [nativeUserId]);
+            const [rows] = await this.dbConnection.execute(query, [nativeUserId, nativeUserId]);
             return rows;
         } catch (err) {
             console.error(`Error while fetching friends for native user ${nativeUserId} from table ${this.tableName}: ${err}`);

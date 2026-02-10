@@ -72,6 +72,24 @@ class GamesGenresConnnectionController extends Controller {
         return super.delete(id);
     }
 
+    async getByGameId(gameId) {
+        await this.waitForConnection();
+        await this.selectDatabase();
+
+        const query = `SELECT gam.id, gen.genre FROM games_genres_connections AS ggc
+	                JOIN games AS gam on ggc.game_id = gam.id
+                    JOIN genres AS gen ON ggc.genre_id = gen.id
+                    WHERE ggc.game_id = ?;`;
+        var values = [gameId];
+        try {
+            const [rows] = await this.dbConnection.execute(query, values);
+            return rows;
+        } catch (err) {
+            console.error(`Error while getting genres for game ${gameId}: ${err}`);
+            throw err;
+        }
+    }
+
     async #checkForeignKeys(data) {
         const gamesController = new GamesController();
         const genresController = new GenresController();

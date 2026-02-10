@@ -126,6 +126,8 @@ class PlatformUsersController extends Controller {
         }
     }
 
+    
+
     async #checkForeignKeys(data) {
         var nativeUsersController = new NativeUsersController();
         var platformsController = new PlatformsController();
