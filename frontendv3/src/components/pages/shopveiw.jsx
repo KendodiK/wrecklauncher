@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import { runSmokeControllers } from '../../smokeControllers.js';
 
@@ -27,9 +27,19 @@ function circularOffset(index, active, length) {
 }
 
 const Shopveiw = ({ items }) => {
+	const didRunSmokeRef = useRef(false);
 	const shouldReduceMotion = useReducedMotion();
 	const cards = useMemo(() => (items && items.length ? items : DEFAULT_ITEMS), [items]);
 	const [active, setActive] = useState(() => Math.min(2, Math.max(0, Math.floor(cards.length / 2))));
+
+	useEffect(() => {
+		// React.StrictMode runs effects twice in dev; guard so smoke runs once.
+		if (didRunSmokeRef.current) return;
+		didRunSmokeRef.current = true;
+		runSmokeControllers().catch((e) => {
+			console.warn('[smoke] runSmokeControllers failed:', e);
+		});
+	}, []);
 
 	const next = () => setActive((prev) => wrapIndex(prev + 1, cards.length));
 	const prev = () => setActive((prev) => wrapIndex(prev - 1, cards.length));

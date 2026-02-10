@@ -40,10 +40,21 @@ function httpErrorMessage(status, json, text) {
 async function fetchJsonSafe(url, options) {
   /** @type {any} */
   let doFetch = globalThis.fetch;
+  /** @type {any} */
+  let undiciFetch = null;
+
+  // We prefer Node's global fetch for general requests, but for localhost HTTPS
+  // we may need undici's dispatcher feature to trust dev certs.
+  try {
+    ({ fetch: undiciFetch } = require('undici'));
+  } catch {
+    undiciFetch = null;
+  }
+
   if (typeof doFetch !== 'function') {
-    try {
-      ({ fetch: doFetch } = require('undici'));
-    } catch {
+    if (typeof undiciFetch === 'function') {
+      doFetch = undiciFetch;
+    } else {
       throw new Error('fetch() is not available (need Node 18+ or undici)');
     }
   }
@@ -51,9 +62,16 @@ async function fetchJsonSafe(url, options) {
   /** @type {RequestInit & { dispatcher?: any }} */
   const finalOptions = { ...(options || {}) };
 
-  if (isHttpsLocalhost(url) && !('dispatcher' in finalOptions)) {
-    const dispatcher = getLocalhostDispatcher();
-    if (dispatcher) finalOptions.dispatcher = dispatcher;
+  if (isHttpsLocalhost(url)) {
+    // Use undici.fetch when we need dispatcher support.
+    if (typeof undiciFetch === 'function') {
+      doFetch = undiciFetch;
+    }
+
+    if (!('dispatcher' in finalOptions)) {
+      const dispatcher = getLocalhostDispatcher();
+      if (dispatcher) finalOptions.dispatcher = dispatcher;
+    }
   }
 
   const res = await doFetch(url, finalOptions);

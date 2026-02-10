@@ -78,6 +78,7 @@ class UserController extends TokenController {
     if (!steamID) throw new Error('Steam ID not found');
 
     const key = await this.#getSteamApiKey();
+    console.log(`[UserController] Fetching owned games for SteamID ${steamID} with API key ${key}`);
     const url = `https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key=${encodeURIComponent(key)}&steamid=${encodeURIComponent(String(steamID))}&format=json`;
     const { ok, status, json, text } = await fetchJsonSafe(url, { method: 'GET' });
     if (!ok) throw new Error(httpErrorMessage(status, json, text));
