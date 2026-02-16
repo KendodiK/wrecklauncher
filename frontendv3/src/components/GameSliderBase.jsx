@@ -4,16 +4,26 @@ import { motion, useReducedMotion } from 'motion/react';
 // Base slider: structure + JavaScript behavior. Styling/animation is injected via props.
 // games: optional array of { id, image, title }
 const GameSliderBase = ({
+	mode = 'translate',
 	games,
 	topVh = 0,
 	activeOffsetPx = 200,
 	cloneCount: cloneCountProp = 5,
+	ariaLabel,
+	onActivateCard,
 	// Styling hooks (wrapper supplies CSS classnames)
 	classNameWrapper = '',
 	classNameCarousel = '',
 	classNameContainer = '',
 	classNameCard = '',
 	classNameCardActive = '',
+	// Render hooks
+	renderBeforeContainer,
+	renderAfterContainer,
+	renderCard,
+	// Stack-mode animation hook
+	getStackMotion,
+	stackMotionTransition,
 	// Animation hooks (wrapper supplies timing; easing is controlled here)
 	transitionMs = 300,
 }) => {
@@ -94,6 +104,7 @@ const GameSliderBase = ({
 
 	const recenter = useCallback(
 		(animate = true) => {
+			if (mode !== 'translate') return;
 			const container = containerRef.current;
 			const carousel = carouselRef.current;
 			if (!container || !carousel) return;
@@ -132,14 +143,15 @@ const GameSliderBase = ({
 				setX(offset);
 			}
 		},
-		[activeOffsetPx, cards.length, currentIndex]
+		[activeOffsetPx, cards.length, currentIndex, mode]
 	);
 
 	// Layout update: place active card + toggle active class
 	useLayoutEffect(() => {
+		if (mode !== 'translate') return;
 		recenter(!skipAnimationRef.current);
 		skipAnimationRef.current = false;
-	}, [currentIndex, cards.length, recenter]);
+	}, [currentIndex, cards.length, recenter, mode]);
 
 	// After the move animation finishes, reset edge positions for seamless looping.
 	useEffect(() => {
@@ -167,6 +179,7 @@ const GameSliderBase = ({
 
 	// Recenter when the carousel area changes size (e.g., dropdown opens, window resizes).
 	useEffect(() => {
+		if (mode !== 'translate') return;
 		const carousel = carouselRef.current;
 		if (!carousel) return;
 
@@ -185,7 +198,7 @@ const GameSliderBase = ({
 				resizeRafRef.current = 0;
 			}
 		};
-	}, [cards.length, currentIndex, recenter]);
+	}, [cards.length, currentIndex, recenter, mode]);
 
 	// If the game list changes, jump to the new middle without animating.
 	useEffect(() => {
@@ -197,25 +210,61 @@ const GameSliderBase = ({
 	const onKeyDown = (e) => {
 		if (e.key === 'ArrowRight') move(1);
 		if (e.key === 'ArrowLeft') move(-1);
+		if (e.key === 'Enter') {
+			if (typeof onActivateCard !== 'function') return;
+			const card = cards[currentIndex];
+			if (!card) return;
+			e.preventDefault?.();
+			e.stopPropagation?.();
+			onActivateCard(card, { index: currentIndex });
+		}
 	};
 
-	const onWheel = (e) => {
-		// Treat mouse wheel as left/right navigation.
-		// Prevent page scroll while the cursor is over the carousel.
-		e.preventDefault();
-		e.stopPropagation();
-		if (wheelLockRef.current) return;
-		if (isMoving) return;
+	// Native non-passive wheel handler to reliably block vertical page scroll while hovering.
+	useEffect(() => {
+		const el = carouselRef.current;
+		if (!el) return;
 
-		const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-		if (Math.abs(delta) < 4) return;
+		const handler = (e) => {
+			// Treat mouse wheel/trackpad as left/right navigation.
+			// Prevent page scroll while the cursor is over the carousel.
+			if (e.cancelable) e.preventDefault();
+			e.stopPropagation();
+			if (wheelLockRef.current) return;
+			if (isMoving) return;
 
-		wheelLockRef.current = true;
-		move(delta > 0 ? 1 : -1);
-		setTimeout(() => {
-			wheelLockRef.current = false;
-		}, 120);
-	};
+			const dx = e.deltaX ?? 0;
+			const dy = e.deltaY ?? 0;
+			const delta = Math.abs(dx) > Math.abs(dy) ? dx : dy;
+			if (Math.abs(delta) < 4) return;
+
+			wheelLockRef.current = true;
+			move(delta > 0 ? 1 : -1);
+			setTimeout(() => {
+				wheelLockRef.current = false;
+			}, 120);
+		};
+
+		el.addEventListener('wheel', handler, { passive: false });
+		return () => el.removeEventListener('wheel', handler, { passive: false });
+	}, [isMoving]);
+
+	const effectiveRenderCard = renderCard
+		? renderCard
+		: ({ card }) => (
+			<img
+				src={card.image}
+				alt={card.title}
+				decoding="async"
+				loading="lazy"
+			/>
+		);
+
+	const stackTransition = useMemo(() => {
+		if (shouldReduceMotion || skipAnimationRef.current) return { duration: 0 };
+		if (stackMotionTransition) return stackMotionTransition;
+		return { duration: Math.max(0, transitionMs) / 1000, ease: [0.2, 0.8, 0.2, 1] };
+	}, [shouldReduceMotion, stackMotionTransition, transitionMs]);
 
 	return (
 		<div className={classNameWrapper} style={topVh ? { marginTop: `${topVh}vh` } : undefined}>
@@ -223,36 +272,86 @@ const GameSliderBase = ({
 				ref={carouselRef}
 				className={classNameCarousel}
 				tabIndex={0}
+				aria-label={ariaLabel}
 				onKeyDown={onKeyDown}
-				onWheel={onWheel}
 			>
-				<motion.ul
-					ref={containerRef}
-					className={classNameContainer}
-					initial={false}
-					animate={{ x }}
-					transition={
-						!shouldReduceMotion && !skipAnimationRef.current
-							? { duration: Math.max(0, transitionMs) / 1000, ease: [0.2, 0.8, 0.2, 1] }
-							: { duration: 0 }
-					}
-				>
-					{cards.map((card, index) => (
-						<li
-							key={card._key ?? card.id}
-							className={`${classNameCard} ${index === currentIndex ? classNameCardActive : ''}`.trim()}
-							onClick={() => handleCardClick(index)}
-						>
-							<img
-								src={card.image}
-								alt={card.title}
-								decoding="async"
-								loading={Math.abs(index - currentIndex) <= 2 ? 'eager' : 'lazy'}
-								fetchPriority={index === currentIndex ? 'high' : 'auto'}
-							/>
-						</li>
-					))}
-				</motion.ul>
+				{typeof renderBeforeContainer === 'function' ? renderBeforeContainer({ move }) : null}
+
+				{mode === 'stack' ? (
+					<ul ref={containerRef} className={classNameContainer}>
+						{cards.map((card, index) => {
+							const offset = index - currentIndex;
+							const abs = Math.abs(offset);
+							const dir = offset === 0 ? 0 : offset > 0 ? 1 : -1;
+
+							const stack = typeof getStackMotion === 'function'
+								? getStackMotion({ offset, abs, dir, index, currentIndex, card })
+								: { visible: abs <= 3, style: undefined, animate: undefined };
+
+							if (stack && stack.visible === false) return null;
+
+							return (
+								<motion.li
+									key={card._key ?? card.id}
+									className={`${classNameCard} ${index === currentIndex ? classNameCardActive : ''}`.trim()}
+									style={stack?.style}
+									initial={false}
+									animate={stack?.animate}
+									transition={stackTransition}
+									onClick={() => handleCardClick(index)}
+									onDoubleClick={() => {
+										if (typeof onActivateCard !== 'function') return;
+										onActivateCard(card, { index });
+									}}
+								>
+									{effectiveRenderCard({
+										card,
+										offset,
+										abs,
+										dir,
+										index,
+										currentIndex,
+										classNameCardActive,
+									})}
+								</motion.li>
+							);
+						})}
+					</ul>
+				) : (
+					<motion.ul
+						ref={containerRef}
+						className={classNameContainer}
+						initial={false}
+						animate={{ x }}
+						transition={
+							!shouldReduceMotion && !skipAnimationRef.current
+								? { duration: Math.max(0, transitionMs) / 1000, ease: [0.2, 0.8, 0.2, 1] }
+								: { duration: 0 }
+						}
+					>
+						{cards.map((card, index) => (
+							<li
+								key={card._key ?? card.id}
+								className={`${classNameCard} ${index === currentIndex ? classNameCardActive : ''}`.trim()}
+								onClick={() => handleCardClick(index)}
+								onDoubleClick={() => {
+									if (typeof onActivateCard !== 'function') return;
+									onActivateCard(card, { index });
+								}}
+							>
+								<img
+									src={card.image}
+									alt={card.title}
+									decoding="async"
+									loading={Math.abs(index - currentIndex) <= 2 ? 'eager' : 'lazy'}
+									fetchPriority={index === currentIndex ? 'high' : 'auto'}
+								/>
+							</li>
+						))}
+					</motion.ul>
+				)}
+
+				{typeof renderAfterContainer === 'function' ? renderAfterContainer({ move }) : null}
 			</div>
 		</div>
 	);

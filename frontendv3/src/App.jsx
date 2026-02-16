@@ -9,6 +9,7 @@ import DownloadsPage from "./components/pages/download.jsx";
 import FriendsPage from "./components/pages/friends.jsx";
 import SettingsPage from "./components/pages/setting.jsx";
 import ProfilePage from "./components/pages/profle.jsx";
+import GamePage from "./components/pages/gamepage.jsx";
 
 function App() {
   // user: bejelentkezett felhasználó adatai (vagy null, ha nincs bejelentkezve)
@@ -27,6 +28,8 @@ function App() {
           <Route path="/login" element={<Login onLogin={setUser} />} />
           <Route path="/store" element={<Store />} />
           <Route path="/library" element={<LibraryPage />} />
+          <Route path="/game" element={<GamePage />} />
+          <Route path="/game/:id" element={<GamePage />} />
           <Route path="/downloads" element={<DownloadsPage />} />
           <Route path="/friends" element={<FriendsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
