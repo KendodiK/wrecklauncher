@@ -22,7 +22,6 @@ const gamesGenresConnnectionController = require('./database/controllers/GamesGe
 const gamesController = require('./database/controllers/GamesController');
 const friendsController = require('./database/controllers/FriendsController');
 const chatsController = require('./database/controllers/ChatsController'); 
-const FriendsController = require('./database/controllers/FriendsController');
 
 const PORT = 3000;
 // Replace with your actual Steam API key and Steam ID
@@ -69,8 +68,18 @@ function tokenValidate(req) {
 
 // ------------------- API Endpoints ------------------ //
 
+
+
 // -------------------     GET      ------------------ //
 
+/*
+  route: /api/platform/user_id/:platformname/:platformUsername
+  params: platformname (string), platformUsername (string)
+  headers: auth token
+  body: -
+
+  returns: { platform_users.id }
+*/
 app.get('/api/platform/user_id/:platformname/:platformUsername', tokenValidate(), async (req, res) => {
     try {
         const { platformname, platformUsername } = req.params;
@@ -109,6 +118,24 @@ app.get('/api/platform/user_id/:platformname/:platformUsername', tokenValidate()
     }
 });
 
+/*
+  route: /api/games/:id
+  params: games.id
+  headers: -
+  body: -
+
+  returns: 
+    {
+      games.id,
+      games.app_id,
+      games.platform_id,
+      games.name,
+      games.banner_img,
+      games.description,
+      games.minimum_requirements,
+      games.cost
+    }
+*/
 app.get("/api/games/:id", async (req, res) => { //nem biztos hogy kell használni, ha van /games/:id/all -> a libary-hoz.
   try {
     const { id: gameId } = req.params;
@@ -120,11 +147,30 @@ app.get("/api/games/:id", async (req, res) => { //nem biztos hogy kell használn
   }
 });
 
+
+/*
+  route: /api/games/:id
+  params: games.id
+  headers: -
+  body: -
+
+  returns: 
+    {
+      games.id,
+      games.app_id,
+      games.platform_id,
+      games.name,
+      games.banner_img,
+      games.description,
+      games.minimum_requirements,
+      games.cost
+    }
+*/
 app.get("/api/games/:id/all", async (req, res) => {
   try {
     const {id: gameId } = req.params;
     const gameCtrl = new gamesController();
-    const game = await gameCtrl.getGameWithAllForeign(gameId);
+    const game = await gameCtrl.getWithAllForeign(gameId);
 
     const gamesGenresCtrl = new gamesGenresConnnectionController();
     const gameGenres = await gamesGenresCtrl.getByGameId(gameId);
@@ -140,6 +186,21 @@ app.get("/api/games/:id/all", async (req, res) => {
   }
 });
 
+/*
+  route: /api/friends/:nativeUserId
+  params: native_users.id
+  headers: -
+  body: -
+
+  returns: 
+    {
+      {friends.id, native_user.id}
+      {friends.id, native_user.id}
+      .
+      .
+      .
+    }
+*/
 app.get("/api/friends/:nativeUserId", async (req, res) => {
   try {
     const { nativeUserId } = req.params;
@@ -160,23 +221,57 @@ app.get("/api/friends/:nativeUserId", async (req, res) => {
   } 
 });
 
-app.get("/api/nativeUser/:id", async (req, res) => {
+
+/*
+  route: /api/nativeUser/
+  params: -
+  headers: auth token
+  body: -
+
+  returns: 
+    {
+      native_user.id,
+      native_user.token,
+      native_user.user_password,
+      native_user.email,
+      native_user.bio,
+      native_user.pfp
+    }
+*/
+app.get("/api/nativeUser", tokenValidate(), async (req, res) => {
   try {
-    const { id: nativeUserId } = req.params;
+    const { userId } = req.auth;
     const nativeUserCtrl = new nativeUserController();
-    const user = await nativeUserCtrl.show(nativeUserId);
+    const user = await nativeUserCtrl.show(userId);
     return res.json(user);
   } catch (err) {
       return res.status(500).json({ error: err.message });
   }
 });
 
+
+/*
+  route: /api/chat/:friendsId
+  params: friends.id
+  headers: -
+  body: from (int, the number where we want to see the messages from)
+
+  returns: 
+    {
+      [0] {chats.id, chats.friends_id, chats.message, chats.sender_id},
+      [1] {chats.id, chats.friends_id, chats.message, chats.sender_id},
+      .
+      .
+      .
+      [9] {chats.id, chats.friends_id, chats.message, chats.sender_id},
+    }
+*/
 app.get("/api/chat/:friendsId", async (req, res) => {
   try {
     const { friendsId } = req.params;
     const { from } = req.body;
     const chatsCtrl = new chatsController();
-    const chatLog = await chatsCtrl.getByFriendsId(friendsId, from);
+    const chatLog = await chatsCtrl.getByFriedsId(friendsId, from);
     return res.json(chatLog);
   } catch (error) {
     console.error('Error in /api/chat endpoint:', error);
@@ -231,7 +326,7 @@ app.post('/api/signup', async (req, res) => {
   }
 });
 
-app.post("/api/games/upload/:token", tokenValidate(), async (req, res) => {
+app.post("/api/games", tokenValidate(), async (req, res) => {
   try {
     const gameCtrl = new gamesController();
     const gameId = await gameCtrl.getGameIdByAppId(req.body.app_id);
@@ -244,13 +339,16 @@ app.post("/api/games/upload/:token", tokenValidate(), async (req, res) => {
   }
 
   try {
-    const platformCtrl = new platformsController();
-    platformId = await platformCtrl.getByPlatformName(req.body.platform_name).id ?? null;
+    let platf_name = req.body.platform_name ?? null;
+    let platf_id = req.body.platfomr_id ?? null;
+    if (platf_id == null && platf_name == null) {
+      return res.status(400).json({message: 'Cannot upload, no data for platform.\nPlease give platform name or platform id if its in the db'})
+    }
 
     const gameData = {
       "app_id": req.body.app_id,
-      "platform_id": platformId,
-      "platform_name": platformId == null ? req.body.platform_name : null,
+      "platform_id": platf_id,
+      "platform_name": platf_name,
       "name": req.body.name,
       "banner_img": req.body.banner_img,
       "description": req.body.description ?? null,

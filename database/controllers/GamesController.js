@@ -2,6 +2,7 @@ const Controller = require('./Controller');
 const PlatformsController = require('./PlatformsController');
 const GenresController = require('./GenresController');
 const GamesGenresConnectionController = require('./GamesGenresConnectionController');
+const { RetryError } = require('got');
 
 class GamesController extends Controller {
     constructor() {
@@ -23,12 +24,12 @@ class GamesController extends Controller {
     async create(data) {
         super.create();
 
-        var foreignKeyCheck = await this.#checkForeignKeys(data);
+        let foreignKeyCheck = await this.#checkForeignKeys(data);
         if (foreignKeyCheck instanceof Error) {
             throw foreignKeyCheck;
         }
 
-        const query = 'INSERT INTO `pirate_sites` (app_id, platform_id, name, banner_img, description, minimum_requirements, cost) VALUES (?, ?, ?, ?, ?, ?, ?)';
+        const query = 'INSERT INTO `games` (app_id, platform_id, name, banner_img, description, minimum_requirements, cost) VALUES (?, ?, ?, ?, ?, ?, ?)';
         const values = [data.app_id, data.platform_id, data.name, data.banner_img ?? "", data.description ?? "", data.minimum_requirements ?? "", data.cost ?? 0.0];
         try {
             const [result] = await this.dbConnection.execute(query, values);
@@ -47,14 +48,14 @@ class GamesController extends Controller {
     async update(id, data) {
         super.update();
 
-        var foreignKeyCheck = await this.#checkForeignKeys(data);
+        let foreignKeyCheck = await this.#checkForeignKeys(data);
         if (foreignKeyCheck instanceof Error) {
             throw foreignKeyCheck;
         }
 
-        var old = await this.show(id);
+        let old = await this.show(id);
 
-        const query = 'UPDATE `pirate_sites` SET app_id = ?, platform_id = ?, name = ?, banner_img = ?, description = ?, minimum_requirements = ?, cost = ? WHERE id = ?;';
+        const query = 'UPDATE `games` SET app_id = ?, platform_id = ?, name = ?, banner_img = ?, description = ?, minimum_requirements = ?, cost = ? WHERE id = ?;';
         const values = [
             data.app_id ?? old.app_id, 
             data.platform_id ?? old.platform_id, 
@@ -66,7 +67,7 @@ class GamesController extends Controller {
             id ];
         try {
             const [result] = await this.dbConnection.execute(query, values);
-            return { message: `${id} Updated successfully in table ${this.tableName}` };
+            return { message: `Updated successfully in table ${this.tableName}`, id: result.id };
         } catch (err) {
             console.error(`Error while updating element in table ${this.tableName}: ${err}`);
             throw err;
@@ -136,6 +137,46 @@ class GamesController extends Controller {
             return rows[0]?.id ?? null;
         } catch (err) {
             console.error(`Error while fetching game id by app_id from table ${this.tableName}: ${err}`);
+            throw err;
+        }
+    }
+    /**
+     * 
+     * @param {int} game_id - not app_id !
+     * @returns {Array} - data of the given game:
+     * [
+     *   games.id,
+     *   games.app_id,
+     *   games.name,
+     *   games.banner_img,
+     *   games.description,
+     *   games.minimum_requirements,
+     *   games.const,
+     *   platforms.platform_name
+     *  ]
+     */
+    async getWithAllForeign(game_id) {
+        await this.waitForConnection();
+        await this.selectDatabase();
+
+        const query = `SELECT 
+                            g.id, 
+                            g.app_id, 
+                            g.name, 
+                            g.banner_img, 
+                            g.description, 
+                            g.minimum_requirements, 
+                            g.cost, 
+                            p.platform_name AS platform  
+                    FROM ${this.tableName} AS g
+                    JOIN platforms AS p ON g.platform_id = p.id;
+                    WHERE g.id = ?`;
+
+        try {
+            const [rows] = await this.dbConnection.execute(query, [game_id]);
+            return rows[0] ?? null;
+        } catch (err) {
+            console.error(`Error while getting game by app_id from table ${this.tableName}: ${err}`);
             throw err;
         }
     }

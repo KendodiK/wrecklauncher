@@ -19,6 +19,7 @@ const DatabaseHandler = require('./database/DatabaseHandler');
 const DBMaker = require('./database/makers/DBMaker');
 const NativeUsersController = require('./database/controllers/NativeUsersController');
 const PlatformUsersController = require('./database/controllers/PlatformUsersController');
+const GameController = require('./database/controllers/GamesController');
 
 
 app.listen(PORT, () => {
@@ -29,7 +30,8 @@ app.listen(PORT, () => {
 //tryCreatePlatformUser();
 //tryCreateNativeUser(); --- IGNORE ---
 //tryGetNativeUser();
-tryChangeNativeUser('be70909f-fac1-11f0-a4d3-68f728710017');
+//tryChangeNativeUser('be70909f-fac1-11f0-a4d3-68f728710017');
+tryUploadGame();
 
 function generateDB() {
     let databaseHandler = new DatabaseHandler();
@@ -87,5 +89,24 @@ async function tryChangeNativeUser (id) {
         console.log(result);
     } catch (err) {
         console.error('Error in test code:', err instanceof Error ? err.message : String(err));
+    }
+}
+
+async function tryUploadGame() {
+    let gameData = {
+        "app_id": 1111,
+        "platform_id": 1,
+        "name": "testGame",
+        "banner_img": "https://...",
+        "description": "blaaa blaaa blaaa test desc",
+        "minimum_requirements": "testreq1: 200 ap,\ntestreq2: 21iD",
+        "cost": 12.50,
+    }
+    try {
+        let gameCntr = new GameController();
+        let res = gameCntr.create(gameData)
+        console.log(res.message ?? "stg went wrong check db");
+    } catch (err) {
+        console.error('Error in creating game:', err instanceof Error ? err.message : String(err));
     }
 }
