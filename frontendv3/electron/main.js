@@ -43,25 +43,9 @@ app.whenReady().then(() => {
   createWindow();
 
   // Serverless controller modules (no LocalApi web server).
-  const backendUrl = process.env.WRECK_BACKEND_URL || 'http://127.0.0.1:3001';
-
-  // Dev-only: allow self-signed certs for localhost HTTPS if explicitly enabled.
-  // This keeps traffic encrypted, but disables server identity verification.
-  if (process.env.WRECK_INSECURE_LOCALHOST_TLS === '1') {
-    try {
-      const u = new URL(backendUrl);
-      const isLocalhost = u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.hostname === '::1';
-      if (isLocalhost && u.protocol === 'https:') {
-        process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-        console.warn('[TLS] WRECK_INSECURE_LOCALHOST_TLS=1: TLS verification is disabled for this process (dev-only).');
-      }
-    } catch {
-      // ignore
-    }
-  }
-
-  const username = process.env.WRECK_USERNAME || 'teszt';
-  const password = process.env.WRECK_PASSWORD || 'teszt';
+  const backendUrl = process.env.WRECK_BACKEND_URL || 'http://127.0.0.1:3000';
+  const username = 'teszt';
+  const password = 'teszt';
 
   const tokenFile = getTokenFilePath();
 
@@ -85,7 +69,7 @@ app.whenReady().then(() => {
   function getSteamCtrl() {
     if (!steamCtrl) {
       const SteamGamesController = require('./controllers/SteamGamesController');
-      steamCtrl = new SteamGamesController();
+      steamCtrl = new SteamGamesController({ serverUrl: backendUrl });
     }
     return steamCtrl;
   }
@@ -119,39 +103,8 @@ app.whenReady().then(() => {
     return await getUserCtrl().getOwnedGamesFromSteam(String(platformUsername));
   });
 
-  ipcMain.handle('steam:get-game-details', async (_event, appID, cc) => {
-    return await getSteamCtrl().getGamesDetails(Number(appID), cc ? String(cc) : undefined);
-  });
-
-  ipcMain.handle('steam:get-game-details-and-upload', async (_event, appID, cc) => {
-    const details = await getSteamCtrl().getGamesDetails(Number(appID), cc ? String(cc) : undefined);
-    if (!details) return null;
-
-    const token = await getUserCtrl().getToken();
-    if (!token) throw new Error('Missing token');
-
-    const genreNames = Array.isArray(details.genres)
-      ? details.genres
-          .map((g) => (g && typeof g === 'object' ? g.description : null))
-          .filter((s) => typeof s === 'string' && s.trim())
-      : [];
-
-    const cost = typeof details.price_overview === 'number' ? details.price_overview / 100 : null;
-
-    /** @type {import('./models').UploadGameRequest} */
-    const uploadReq = {
-      app_id: String(details.appid),
-      platform_name: 'steam',
-      name: details.name || `steam:${details.appid}`,
-      banner_img: details.bannerimg || '',
-      description: null,
-      minimum_requirements: null,
-      cost,
-      genre_names: genreNames,
-    };
-
-    const upload = await getGamesCtrl().uploadGame(token, uploadReq);
-    return { details, upload };
+  ipcMain.handle('steam:get-game-details', async (_event,token, appID, cc) => {
+    return await getSteamCtrl().getGamesDetails(token, Number(appID), cc ? String(cc) : undefined);
   });
 
   ipcMain.handle('epic:get-installed-games', async () => {

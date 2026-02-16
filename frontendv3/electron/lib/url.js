@@ -12,7 +12,9 @@ function hasScheme(value) {
  * Normalizes a backend base URL.
  * - Adds a default scheme if missing
  * - Trims trailing slashes
- * - Upgrades http://localhost:3000 -> https://localhost:3000 (common dev setup)
+ *
+ * Note: This helper does NOT auto-upgrade http -> https.
+ * If you want HTTPS, pass an https:// URL explicitly.
  *
  * @param {string} serverUrl
  * @param {{ defaultProtocol?: 'http:'|'https:' }} [opts]
@@ -30,11 +32,6 @@ function normalizeBaseUrl(serverUrl, opts) {
     url = new URL(withScheme);
   } catch {
     return trimmed.replace(/\/+$/, '');
-  }
-
-  const isLocalhost = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '::1';
-  if (url.protocol === 'http:' && isLocalhost && url.port === '3000') {
-    url.protocol = 'https:';
   }
 
   return url.toString().replace(/\/+$/, '');

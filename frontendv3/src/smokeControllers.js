@@ -92,26 +92,26 @@ export async function runSmokeControllers() {
     lines.push(`== ${label} (ERROR) ==\n${msg}`);
     console.warn(`[smoke] ${label} failed:`, err);
   };
-
+var token;
   try {
-    const token = await api.getToken();
+    token = await api.getToken();
     log('token', token);
   } catch (e) {
     warn('getToken', e);
   }
 
-  try {
-    const epic = await api.getEpicInstalledGames();
-    log('epicInstalledGames (first 5)', Array.isArray(epic) ? epic.slice(0, 5) : epic);
-  } catch (e) {
-    warn('getEpicInstalledGames', e);
-  }
+  // try {
+  //   const epic = await api.getEpicInstalledGames();
+  //   log('epicInstalledGames (first 5)', Array.isArray(epic) ? epic.slice(0, 5) : epic);
+  // } catch (e) {
+  //   warn('getEpicInstalledGames', e);
+  // }
 
   // Steam details (safe sample)
   const appIds = [730, 570, 440];
   for (const appId of appIds) {
     try {
-      const details = await api.getSteamGameDetails(appId, 'us');
+      const details = await api.getSteamGameDetails(token, appId, 'us');
       log(`steamDetails ${appId}`, details);
     } catch (e) {
       warn(`getSteamGameDetails ${appId}`, e);
@@ -130,26 +130,40 @@ export async function runSmokeControllers() {
 
     try {
       const owned = await api.getOwnedGamesFromSteam(steamUsername);
-      log('ownedGamesFromSteam (first 10)', Array.isArray(owned) ? owned.slice(0, 10) : owned);
+      log('ownedGamesFromSteam (first 10)', owned);
+      for(const game of owned){
+        try {
+          const details = await api.getSteamGameDetails(token, game.appid, 'us');
+          log(`steamDetails ${game.appid}`, details);
+        } catch (e) {
+          warn(`getSteamGameDetails ${game.appid}`, e);
+        }
+      }
     } catch (e) {
       warn('getOwnedGamesFromSteam', e);
     }
   } else {
     lines.push('== ownedGamesFromSteam ==\nSkipped (set VITE_SMOKE_STEAM_USERNAME)');
   }
+  try{
+    const details = await api.getAllDetailsByID(token, 730);
+    log(`getAllDetailsByID 730`, details);
+  } catch (e) {
+    warn(`getAllDetailsByID 730`, e);
+  }
 
   // Optional upload pipeline
-  const doUpload = String(import.meta?.env?.VITE_SMOKE_UPLOAD || '') === '1';
-  if (doUpload) {
-    try {
-      const upload = await api.getSteamGameDetailsAndUpload(730, 'us');
-      log('steamDetailsAndUpload 730', upload);
-    } catch (e) {
-      warn('getSteamGameDetailsAndUpload 730', e);
-    }
-  } else {
-    lines.push('== steamDetailsAndUpload ==\nSkipped (set VITE_SMOKE_UPLOAD=1)');
-  }
+  // const doUpload = String(import.meta?.env?.VITE_SMOKE_UPLOAD || '') === '1';
+  // if (doUpload) {
+  //   try {
+  //     const upload = await api.getSteamGameDetailsAndUpload(token, 730, 'us');
+  //     log('steamDetailsAndUpload 730', upload);
+  //   } catch (e) {
+  //     warn('getSteamGameDetailsAndUpload 730', e);
+  //   }
+  // } else {
+  //   lines.push('== steamDetailsAndUpload ==\nSkipped (set VITE_SMOKE_UPLOAD=1)');
+  // }
 
   showNotice('Smoke finished', 'See console + details below', lines.join('\n\n'));
 }

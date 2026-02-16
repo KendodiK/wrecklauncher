@@ -1,8 +1,18 @@
 // @ts-check
 
 const https = require('https');
+const GamesController = require('./GamesController');
 
-class SteamGamesController {
+class SteamGamesController extends GamesController {
+  /**
+   * @param {{ serverUrl: string }|undefined} [cfg]
+   */
+  constructor(cfg) {
+    super({
+      serverUrl: cfg?.serverUrl || process.env.WRECK_BACKEND_URL || 'http://127.0.0.1:3000',
+    });
+  }
+
   static #agent = new https.Agent({
     keepAlive: true,
     maxSockets: 2,
@@ -77,11 +87,12 @@ class SteamGamesController {
   }
 
   /**
+   * @param {string} token
    * @param {number} appID
    * @param {string} [cc]
    * @returns {Promise<import('../models').SteamGameDetails|null>}
    */
-  async getGamesDetails(appID, cc = 'de') {
+  async getGamesDetails(token, appID, cc = 'de') {
     const appIdNum = Number(appID);
     if (!Number.isFinite(appIdNum) || appIdNum <= 0) throw new Error(`Invalid Steam AppID: ${String(appID)}`);
 
@@ -138,8 +149,7 @@ class SteamGamesController {
       const appData = parsed?.[String(appIdNum)];
       if (!appData || !appData.success) return null;
       const data = appData.data || {};
-
-      return {
+      let gameDetails = {
         appid: data.steam_appid ?? appIdNum,
         name: data.name ?? null,
         bannerimg: data.header_image ?? data.capsule_image ?? null,
@@ -148,7 +158,9 @@ class SteamGamesController {
         cc: ccToUse ?? null,
         lang,
         raw: data,
-      };
+      }
+      super.uploadGame(token,gameDetails);
+      return gameDetails;
     };
 
     let result = await attempt(requestedCc, 1);

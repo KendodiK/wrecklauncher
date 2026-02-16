@@ -12,8 +12,8 @@
     "electron:dev:only": "cross-env NODE_ENV=development electron .",
     "electron": "cross-env NODE_ENV=production electron .",
     "start": "npm run electron",
-    "electron:dev:3000": "cross-env NODE_ENV=development WRECK_BACKEND_URL=https://127.0.0.1:3000 electron .",
-    "electron:dev:3000:insecure": "cross-env NODE_ENV=development WRECK_BACKEND_URL=https://127.0.0.1:3000 WRECK_INSECURE_LOCALHOST_TLS=1 electron ."
+    "electron:dev:3000": "cross-env NODE_ENV=development WRECK_BACKEND_URL=http://127.0.0.1:3000 electron .",
+    "electron:dev:3000:insecure": "cross-env NODE_ENV=development WRECK_BACKEND_URL=http://127.0.0.1:3000 electron ."
   },
   "keywords": [],
   "author": "",

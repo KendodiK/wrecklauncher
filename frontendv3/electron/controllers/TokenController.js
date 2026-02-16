@@ -35,6 +35,20 @@ class TokenController {
   }
 
   /**
+   * Clears any cached token and removes the persisted token file.
+   * Useful when the backend rotated tokens and the cached one became invalid.
+   * @protected
+   */
+  async _invalidateToken() {
+    this.#token = null;
+    try {
+      await fs.unlink(this.#tokenFile);
+    } catch {
+      // ignore
+    }
+  }
+
+  /**
    * @param {AuthToken} token
    */
   async #saveToken(token) {

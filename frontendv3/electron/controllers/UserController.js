@@ -26,30 +26,83 @@ class UserController extends TokenController {
    * @returns {Promise<string|number|null>}
    */
   async getPlatformUserID(platformName, platformUsername) {
-    const token = await this.getToken();
-    if (!token) throw new Error('Missing auth token');
+    const attemptOnce = async () => {
+      const token = await this.getToken();
+      if (!token) throw new Error('Missing auth token');
 
-    // Variant A (api.js)
-    {
-      const url = joinUrl(this.#serverUrl, 'api', 'platform', 'user_id', enc(platformName), enc(platformUsername));
-      const { ok, status, json, text } = await fetchJsonSafe(url, {
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' },
-      });
-      if (ok && json && typeof json === 'object' && 'platformUserID' in json) return json.platformUserID;
-      // If it exists but is error-ish, surface it.
-      if (status !== 404 && status !== 405 && status !== 500 && status !== 502) {
-        if (!ok) throw new Error(httpErrorMessage(status, json, text));
+      /** @type {Error|null} */
+      let apiVariantError = null;
+
+      // Variant A (api.js)
+      {
+        const url = joinUrl(this.#serverUrl, 'api', 'platform', 'user_id', enc(platformName), enc(platformUsername));
+        const { ok, status, json, text } = await fetchJsonSafe(url, {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' },
+        });
+        if (ok && json && typeof json === 'object' && 'platformUserID' in json) return json.platformUserID;
+
+        if (!ok) {
+          const msg = httpErrorMessage(status, json, text);
+          const hasMeaningfulJson = !!(json && typeof json === 'object' && (json.error || json.message));
+
+          // Token invalid/rotated: caller will retry with a fresh login.
+          if (status === 401 && /invalid token/i.test(msg)) {
+            const e = new Error(msg);
+            // @ts-ignore
+            e.code = 'WRECK_INVALID_TOKEN';
+            throw e;
+          }
+
+          if (hasMeaningfulJson) {
+            throw new Error(msg);
+          }
+
+          if (status !== 404 && status !== 405) {
+            throw new Error(msg);
+          }
+
+          apiVariantError = new Error(msg);
+        }
       }
-    }
 
-    // Variant B (server.js)
-    {
-      const url = joinUrl(this.#serverUrl, 'api', 'platform', 'UserID', enc(platformName), enc(platformUsername), enc(token));
-      const { ok, status, json, text } = await fetchJsonSafe(url, { method: 'GET', headers: { 'Accept': 'application/json' } });
-      if (!ok) throw new Error(httpErrorMessage(status, json, text));
-      if (!json) throw new Error(`Invalid JSON from server (HTTP ${status})`);
-      return json.platformUserID ?? null;
+      // Variant B (server.js)
+      {
+        const url = joinUrl(this.#serverUrl, 'api', 'platform', 'UserID', enc(platformName), enc(platformUsername), enc(token));
+        const { ok, status, json, text } = await fetchJsonSafe(url, { method: 'GET', headers: { 'Accept': 'application/json' } });
+
+        if (!ok) {
+          const legacyMsg = httpErrorMessage(status, json, text);
+
+          if (status === 401 && /invalid token/i.test(legacyMsg)) {
+            const e = new Error(legacyMsg);
+            // @ts-ignore
+            e.code = 'WRECK_INVALID_TOKEN';
+            throw e;
+          }
+
+          const legacyLooksLikeMissingRoute =
+            status === 404 &&
+            typeof text === 'string' &&
+            /Cannot\s+GET\s+\/api\/platform\/UserID\//i.test(text);
+
+          if (legacyLooksLikeMissingRoute && apiVariantError) throw apiVariantError;
+          throw new Error(legacyMsg);
+        }
+        if (!json) throw new Error(`Invalid JSON from server (HTTP ${status})`);
+        return json.platformUserID ?? null;
+      }
+    };
+
+    try {
+      return await attemptOnce();
+    } catch (err) {
+      // One automatic retry on invalid/rotated token
+      if (err && typeof err === 'object' && /** @type {any} */ (err).code === 'WRECK_INVALID_TOKEN') {
+        await this._invalidateToken();
+        return await attemptOnce();
+      }
+      throw err;
     }
   }
 
@@ -58,14 +111,35 @@ class UserController extends TokenController {
    * @returns {Promise<string>}
    */
   async #getSteamApiKey() {
-    const token = await this.getToken();
-    if (!token) throw new Error('Missing auth token');
-    const url = joinUrl(this.#serverUrl, 'api', 'steam', 'key', enc(token));
-    const { ok, status, json, text } = await fetchJsonSafe(url, { method: 'GET', headers: { 'Accept': 'application/json' } });
-    if (!ok) throw new Error(httpErrorMessage(status, json, text));
-    const key = json?.steamApiKey;
-    if (typeof key === 'string' && key.trim()) return key;
-    throw new Error('steamApiKey missing in response');
+    const attemptOnce = async () => {
+      const token = await this.getToken();
+      if (!token) throw new Error('Missing auth token');
+      const url = joinUrl(this.#serverUrl, 'api', 'steam', 'key');
+      const { ok, status, json, text } = await fetchJsonSafe(url, { method: 'GET', headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${token}` } });
+      if (!ok) {
+        const msg = httpErrorMessage(status, json, text);
+        if (status === 401 && /invalid token/i.test(msg)) {
+          const e = new Error(msg);
+          // @ts-ignore
+          e.code = 'WRECK_INVALID_TOKEN';
+          throw e;
+        }
+        throw new Error(msg);
+      }
+      const key = json?.steamApiKey;
+      if (typeof key === 'string' && key.trim()) return key;
+      throw new Error('steamApiKey missing in response');
+    };
+
+    try {
+      return await attemptOnce();
+    } catch (err) {
+      if (err && typeof err === 'object' && /** @type {any} */ (err).code === 'WRECK_INVALID_TOKEN') {
+        await this._invalidateToken();
+        return await attemptOnce();
+      }
+      throw err;
+    }
   }
 
   /**
