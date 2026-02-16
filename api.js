@@ -27,6 +27,8 @@ const PORT = 3000;
 // Replace with your actual Steam API key and Steam ID
 const steamApiKey = process.env.STEAM_API_KEY;
 app.use(cors());
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true }));
 
 app.listen(PORT, () => {
    console.log(`Proxy server running at http://localhost:${PORT}`);
@@ -281,6 +283,17 @@ app.get("/api/chat/:friendsId", async (req, res) => {
 
 // -------------------     POST      ------------------ //
 
+/*
+  route: /api/login/:username/:password
+  params: -
+  headers: username, password
+  body: -
+
+  returns: 
+    {
+      user auth token (user.id + user.token)
+    }
+*/
 app.post('/api/login/:username/:password', async (req, res) => {
   try {
     const nativeUserCtrl = new nativeUserController();
@@ -302,6 +315,27 @@ app.post('/api/login/:username/:password', async (req, res) => {
   }
 });
 
+/*
+  route: /api/signup/
+  params: -
+  headers: -
+  body: username, password, email
+
+  returns: 
+    {
+      {
+        native_user.id,
+        native_user.token,
+        native_user.user_password,
+        native_user.email,
+        native_user.bio,
+        native_user.pfp
+      }
+      {
+        user auth token (user.id + user.token)
+      }
+    }
+*/
 app.post('/api/signup', async (req, res) => {
   try {
     const nativeUserCtrl = new nativeUserController();
@@ -319,13 +353,24 @@ app.post('/api/signup', async (req, res) => {
       "email" : email,
     }
     const newUser = await nativeUserCtrl.create(userData);
-    return res.status(201).json(newUser);
+    return res.status(201).json({newUser, token: newUser.id + "." + newUser.token});
   } catch (error) {
     console.error('Error in /api/signup endpoint:', error);
     return res.status(500).json({ error: error.message });
   }
 });
 
+/*
+  route: /api/games/
+  params: -
+  headers: auth token
+  body: app_id, platform_id || platfrom_name, name, banner_img, description, minimum_requirements, cost, genre_names[]
+
+  returns: 
+    {
+      message: 'Game uploaded successfully', gameId: uploadedGame.id
+    }
+*/
 app.post("/api/games", tokenValidate(), async (req, res) => {
   try {
     const gameCtrl = new gamesController();
@@ -367,6 +412,17 @@ app.post("/api/games", tokenValidate(), async (req, res) => {
   }
 });
 
+/*
+  route: /api/friends/
+  params: -
+  headers: auth token
+  body: friendUserid (native_user.id)
+
+  returns: 
+    {
+      message: "frinedship created", id: result.id
+    }
+*/
 app.post("/api/friends", tokenValidate(), async (req, res) => {
   try {
     const { userId } = req.auth;
@@ -377,7 +433,7 @@ app.post("/api/friends", tokenValidate(), async (req, res) => {
     if (result.message.includes('already exists') || result instanceof Error) {
       return res.status(400).json({ message: result.message });
     }
-    return res.status(201).json(result);
+    return res.status(201).json({message: "frinedship created", id: result.id});
   } catch (error) {
     console.error('Error in /api/friends endpoint:', error);
     return res.status(500).json({ error: error.message }); 
@@ -385,11 +441,29 @@ app.post("/api/friends", tokenValidate(), async (req, res) => {
 });
 
 // -------------------      PUT       ------------------ //
-app.put("/api/login/:id", tokenValidate(), async (req, res) => {
+
+/*
+  route: /api/login/
+  params: -
+  headers: auth token
+  body: token, name, user_password, email
+
+  returns: 
+    {
+      native_user.id,
+      native_user.token,
+      native_user.name
+      native_user.user_password,
+      native_user.email,
+      native_user.bio,
+      native_user.pfp
+    }
+*/
+app.put("/api/login", tokenValidate(), async (req, res) => {
   try {
-    const nativeUserId = req.params.id;
+    const { userId } = req.auth;
     const nativeUserCtrl = new nativeUserController();
-    const updatedUser = await nativeUserCtrl.update(nativeUserId, req.body);
+    const updatedUser = await nativeUserCtrl.update(userId, req.body);
     return res.json(updatedUser);
   } catch (error) {
     console.error('Error in /api/nativeUser/:id endpoint:', error);
@@ -397,6 +471,23 @@ app.put("/api/login/:id", tokenValidate(), async (req, res) => {
   }
 });
 
+/*
+  route: /api/games/:id
+  params: game id
+  headers: -
+  body: app_id, platform_id, name, banner_img, description || null, minimum_requirements || null
+
+  returns: 
+    {
+      game.id,
+      game.app_id,
+      game.platform_id,
+      game.name,
+      game.banner_img,
+      game.description,
+      game.minimum_requirements
+    }
+*/
 app.put("/api/games/:id", async (req, res) => {
   try {
     const { id: gameId } = req.params;
@@ -422,6 +513,17 @@ app.put("/api/games/:id", async (req, res) => {
 
 // -------------------     DELETE     ------------------ //
 
+/*
+  route: /api/nativeUser/:friendShipId
+  params: friends.id
+  headers: auth token
+  body: -
+
+  returns: 
+    {
+      
+    }
+*/
 app.delete("/api/friends/:friendShipId", tokenValidate(), async (req, res) => {
   try {
     const { friendShipId } = req.params;
