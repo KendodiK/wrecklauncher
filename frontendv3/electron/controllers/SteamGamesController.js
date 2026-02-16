@@ -149,17 +149,51 @@ class SteamGamesController extends GamesController {
       const appData = parsed?.[String(appIdNum)];
       if (!appData || !appData.success) return null;
       const data = appData.data || {};
+
+      const minimumRequirements =
+        (data.pc_requirements && typeof data.pc_requirements === 'object' ? data.pc_requirements.minimum : null) ||
+        (data.mac_requirements && typeof data.mac_requirements === 'object' ? data.mac_requirements.minimum : null) ||
+        (data.linux_requirements && typeof data.linux_requirements === 'object' ? data.linux_requirements.minimum : null) ||
+        null;
+
       let gameDetails = {
         appid: data.steam_appid ?? appIdNum,
         name: data.name ?? null,
         bannerimg: data.header_image ?? data.capsule_image ?? null,
         genres: Array.isArray(data.genres) ? data.genres : [],
         price_overview: data.price_overview?.final ?? null,
+        minimum_requirements: typeof minimumRequirements === 'string' && minimumRequirements.trim() ? minimumRequirements : null,
         cc: ccToUse ?? null,
         lang,
         raw: data,
+      };
+
+      // Upload normalized game payload to backend.
+      // Keep it separate from the Steam details object.
+      const genreNames = Array.isArray(data.genres)
+        ? data.genres
+            .map((g) => (g && typeof g === 'object' ? g.description : null))
+            .filter((s) => typeof s === 'string' && s.trim())
+        : [];
+
+      const cost = typeof data.price_overview?.final === 'number' ? data.price_overview.final / 100 : null;
+
+      const uploadResult = await super.uploadGame(token, {
+        app_id: String(gameDetails.appid ?? appIdNum),
+        platform_name: 'steam',
+        name: gameDetails.name || `steam:${String(gameDetails.appid ?? appIdNum)}`,
+        banner_img: gameDetails.bannerimg || '',
+        description: typeof data.short_description === 'string' && data.short_description.trim() ? data.short_description : null,
+        minimum_requirements: "teszt",
+        //minimum_requirements: gameDetails.minimum_requirements,
+        cost,
+        genre_names: genreNames,
+      });
+
+      if (!uploadResult || uploadResult.ok !== true) {
+        const msg = uploadResult?.rawText || uploadResult?.response?.error || uploadResult?.response?.message || 'Unknown error';
+        throw new Error(`Game upload failed (HTTP ${uploadResult?.statusCode ?? 0}): ${String(msg).slice(0, 300)}`);
       }
-      super.uploadGame(token,gameDetails);
       return gameDetails;
     };
 

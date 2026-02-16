@@ -21,18 +21,18 @@ class GamesController extends Controller {
      * @returns {Array} - ["message": string, "id": int]
      */
     async create(data) {
-        super.create();
+        await super.create();
 
         var foreignKeyCheck = await this.#checkForeignKeys(data);
         if (foreignKeyCheck instanceof Error) {
             throw foreignKeyCheck;
         }
 
-        const query = 'INSERT INTO `pirate_sites` (app_id, platform_id, name, banner_img, description, minimum_requirements, cost) VALUES (?, ?, ?, ?, ?, ?, ?)';
+        const query = 'INSERT INTO `games` (app_id, platform_id, name, banner_img, description, minimum_requirements, cost) VALUES (?, ?, ?, ?, ?, ?, ?)';
         const values = [data.app_id, data.platform_id, data.name, data.banner_img ?? "", data.description ?? "", data.minimum_requirements ?? "", data.cost ?? 0.0];
         try {
             const [result] = await this.dbConnection.execute(query, values);
-            return { message: `${result.id} Element created in table ${this.tableName}`, id: result.id };
+            return { message: `${result.insertId} Element created in table ${this.tableName}`, id: result.insertId };
         } catch (err) {
             console.error(`Error while adding new element to table ${this.tableName}: ${err}`);
             throw err;
@@ -45,7 +45,7 @@ class GamesController extends Controller {
      * @returns {Array} - ["message": string]
      */
     async update(id, data) {
-        super.update();
+        await super.update();
 
         var foreignKeyCheck = await this.#checkForeignKeys(data);
         if (foreignKeyCheck instanceof Error) {
@@ -54,7 +54,7 @@ class GamesController extends Controller {
 
         var old = await this.show(id);
 
-        const query = 'UPDATE `pirate_sites` SET app_id = ?, platform_id = ?, name = ?, banner_img = ?, description = ?, minimum_requirements = ?, cost = ? WHERE id = ?;';
+        const query = 'UPDATE `games` SET app_id = ?, platform_id = ?, name = ?, banner_img = ?, description = ?, minimum_requirements = ?, cost = ? WHERE id = ?;';
         const values = [
             data.app_id ?? old.app_id, 
             data.platform_id ?? old.platform_id, 
@@ -100,21 +100,28 @@ class GamesController extends Controller {
             data.platform_id = platform.id;
         }
         let created_genre_ids = [];
-        if (genre_names != null) {
+        const genreNamesArr = Array.isArray(genre_names)
+            ? genre_names
+            : (genre_names != null ? [genre_names] : []);
+
+        /** @type {any[]} */
+        const genreIdsArr = Array.isArray(genre_ids) ? genre_ids : [];
+
+        if (genreNamesArr.length > 0) {
             const genresController = new GenresController();
-            for (const genre_name of data.genre_names) {
+            for (const genre_name of genreNamesArr) {
                 const genre = await genresController.create({ "genre": genre_name });
                 created_genre_ids.push(genre.id);
             }
-            genre_ids.push.apply(genre_ids, created_genre_ids);
+            genreIdsArr.push.apply(genreIdsArr, created_genre_ids);
         }
         const game = await this.create(data);
         data.id = game.id;
 
-        if (genre_ids != null || created_genre_ids.length > 0) {
-            created_genre_ids.push.apply(created_genre_ids, genre_ids);
+        if (genreIdsArr.length > 0) {
+            // genreIdsArr already contains created ids too (if any)
             const gamesGenresController = new GamesGenresConnectionController();
-            for (const genre_id of created_genre_ids) {
+            for (const genre_id of genreIdsArr) {
                 await gamesGenresController.create({ "game_id": data.id, "genre_id": genre_id });
             } 
         }

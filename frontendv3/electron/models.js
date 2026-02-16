@@ -28,6 +28,7 @@
  * @property {string|null} bannerimg
  * @property {any[]|any|null} genres
  * @property {number|null} price_overview
+ * @property {string|null|undefined} [minimum_requirements]
  * @property {string|null} cc
  * @property {string} lang
  * @property {any} raw

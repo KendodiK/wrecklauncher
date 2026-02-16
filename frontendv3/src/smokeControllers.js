@@ -108,33 +108,33 @@ var token;
   // }
 
   // Steam details (safe sample)
-  const appIds = [730, 570, 440];
-  for (const appId of appIds) {
-    try {
-      const details = await api.getSteamGameDetails(token, appId, 'us');
-      log(`steamDetails ${appId}`, details);
-    } catch (e) {
-      warn(`getSteamGameDetails ${appId}`, e);
-    }
-  }
+  // const appIds = [730, 570, 440];
+  // for (const appId of appIds) {
+  //   try {
+  //     const details = await api.getSteamGameDetails(token, appId, 'us');
+  //     // log(`steamDetails ${appId}`, details);
+  //   } catch (e) {
+  //     warn(`getSteamGameDetails ${appId}`, e);
+  //   }
+  // }
 
   // Optional: platform/owned games (requires you to set a real Steam username)
   const steamUsername = (import.meta?.env?.VITE_SMOKE_STEAM_USERNAME || 'freshargetinaccount69912').trim();
   if (steamUsername) {
     try {
       const id = await api.getPlatformUserID('steam', steamUsername);
-      log('platformUserID', id);
+      // log('platformUserID', id);
     } catch (e) {
       warn('getPlatformUserID', e);
     }
 
     try {
       const owned = await api.getOwnedGamesFromSteam(steamUsername);
-      log('ownedGamesFromSteam (first 10)', owned);
+      // log('ownedGamesFromSteam (first 10)', owned);
       for(const game of owned){
         try {
-          const details = await api.getSteamGameDetails(token, game.appid, 'us');
-          log(`steamDetails ${game.appid}`, details);
+          const details = await api.getSteamGameDetails(await api.getToken(), game.appid, 'us');
+          // log(`steamDetails ${game.appid}`, details);
         } catch (e) {
           warn(`getSteamGameDetails ${game.appid}`, e);
         }

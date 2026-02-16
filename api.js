@@ -28,6 +28,8 @@ const PORT = 3000;
 // Replace with your actual Steam API key and Steam ID
 const steamApiKey = process.env.STEAM_API_KEY;
 app.use(cors());
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true }));
 
 app.listen(PORT, () => {
    console.log(`Proxy server running at http://localhost:${PORT}`);

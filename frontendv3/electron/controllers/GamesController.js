@@ -16,8 +16,8 @@ class GamesController {
   }
 
   /**
-   * POST /api/games/upload/:token
-   * Note: api.js validates auth via Authorization header; keep both.
+   * POST /api/games/upload
+   * Auth: Authorization: Bearer <token>
    *
    * @param {string} token
    * @param {import('../models').UploadGameRequest|any} request
@@ -26,19 +26,16 @@ class GamesController {
   async uploadGame(token, request) {
     if (!token || !String(token).trim()) throw new Error('Token is required');
     if (!request || typeof request !== 'object') throw new Error('Request body is required');
-
-    const url = joinUrl(this.#serverUrl, 'api', 'games',);
-
-    const { ok, status, json, text } = await fetchJsonSafe(url,{
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'Authorization': `Bearer ${token}`,
-      },
-      body: JSON.stringify(request),
-    });
-
+    let url = joinUrl(this.#serverUrl, 'api', 'games');
+    let { ok, status, json, text } = await fetchJsonSafe(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(request),
+      });
     return {
       ok,
       statusCode: status,
@@ -66,16 +63,18 @@ class GamesController {
         'Authorization': `Bearer ${token}`,
       },
     });    
+    const obj = json && typeof json === 'object' ? json : null;
     /*@type {import('../models').UploadGameRequest} */
+    console.log('getAllDetailsByID response:', obj);
     return {
-      app_id: json && typeof json === 'object' && 'app_id' in json ? json.app_id : null,
-      name: json && typeof json === 'object' && 'name' in json ? json.name : null,
-      platform_name: json && typeof json === 'object' && 'platform_name' in json ? json.platform_name : null,
-      banner_img: json && typeof json === 'object' && 'banner_img' in json ? json.banner_img : null,
-      description: json && typeof json === 'object' && 'description' in json ? json.description : null,
-      minimum_requirements: json && typeof json === 'object' && 'minimum_requirements' in json ? json.minimum_requirements : null,
-      cost: json && typeof json === 'object' && 'cost' in json ? json.cost : null,
-      genre_names: json && typeof json === 'object' && 'genre_names' in json && Array.isArray(json.genre_names) ? json.genre_names : null,
+      app_id: obj?.app_id ?? null,
+      name: obj?.name ?? null,
+      platform_name: obj?.platform_name ?? null,
+      banner_img: obj?.banner_img ?? null,
+      description: obj?.description ?? null,
+      minimum_requirements: obj?.minimum_requirements ?? null,
+      cost: obj?.cost ?? 0,
+      genre_names: Array.isArray(obj?.genre_names) ? obj.genre_names : null,
     };
   }
 }
