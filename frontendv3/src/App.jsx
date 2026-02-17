@@ -4,7 +4,6 @@ import MainNavbar from './components/mainnavbar.jsx';
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Login from "./components/pages/login.jsx";
 import Store from "./components/pages/store.jsx";
-import LibraryPage from "./components/pages/libraray.jsx";
 import DownloadsPage from "./components/pages/download.jsx";
 import FriendsPage from "./components/pages/friends.jsx";
 import SettingsPage from "./components/pages/setting.jsx";
@@ -27,13 +26,12 @@ function App() {
         <Routes>
           <Route path="/login" element={<Login onLogin={setUser} />} />
           <Route path="/store" element={<Store />} />
-          <Route path="/library" element={<LibraryPage />} />
           <Route path="/game" element={<GamePage />} />
           <Route path="/game/:id" element={<GamePage />} />
           <Route path="/downloads" element={<DownloadsPage />} />
           <Route path="/friends" element={<FriendsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/profile" element={<ProfilePage user={user} />} />
           <Route path="/" element={<Store />} />
         </Routes>
       </div>

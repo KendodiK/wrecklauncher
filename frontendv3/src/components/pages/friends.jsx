@@ -1,8 +1,11 @@
 import React, { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 const makeId = () => Math.random().toString(16).slice(2);
 
 const FriendsPage = () => {
+	const navigate = useNavigate();
+
 	const friends = useMemo(
 		() => [
 			{
@@ -81,6 +84,10 @@ const FriendsPage = () => {
 			],
 		}));
 		setDraft('');
+	};
+
+	const viewProfile = () => {
+		navigate('/profile');
 	};
 
 	const FriendRow = ({ friend, selected, showMsgButton }) => (
@@ -192,20 +199,49 @@ const FriendsPage = () => {
 							{messagesForActive.length === 0 ? (
 								<div className="text-sm text-slate-300">No messages yet.</div>
 							) : (
-								messagesForActive.map((m) => (
-									<div
-										key={m.id}
-										className={
-											'max-w-[78%] rounded-lg border px-3 py-2 text-sm ' +
-											(m.from === 'me'
-												? 'ml-auto border-emerald-500/25 bg-emerald-500/10'
-												: 'mr-auto border-slate-700/60 bg-slate-950/20')
+								messagesForActive.map((m) => {
+									const isMe = m.from === 'me';
+									return (
+										<div
+											key={m.id}
+											className={
+												'flex items-end gap-2 ' + (isMe ? 'justify-end' : 'justify-start')
 										}
-									>
-										<div className="text-slate-100 whitespace-pre-wrap">{m.text}</div>
-										<div className="mt-1 text-[10px] text-slate-400">{m.ts}</div>
-									</div>
-								))
+										>
+											{!isMe && (
+												<button
+													type="button"
+													className="h-7 px-2 rounded border border-slate-700/60 bg-slate-900/25 hover:bg-slate-900/40 text-xs text-slate-200 whitespace-nowrap"
+													onClick={viewProfile}
+													title="View profile"
+												>
+													View profile
+												</button>
+											)}
+											<div
+												className={
+													'max-w-[78%] rounded-lg border px-3 py-2 text-sm ' +
+													(isMe
+														? 'border-emerald-500/25 bg-emerald-500/10'
+														: 'border-slate-700/60 bg-slate-950/20')
+												}
+											>
+												<div className="text-slate-100 whitespace-pre-wrap">{m.text}</div>
+												<div className="mt-1 text-[10px] text-slate-400">{m.ts}</div>
+											</div>
+											{isMe && (
+												<button
+													type="button"
+													className="h-7 px-2 rounded border border-slate-700/60 bg-slate-900/25 hover:bg-slate-900/40 text-xs text-slate-200 whitespace-nowrap"
+													onClick={viewProfile}
+													title="View profile"
+												>
+													View profile
+												</button>
+											)}
+										</div>
+									);
+								})
 							)}
 						</div>
 						<div className="px-3 py-3 border-t border-slate-700/60 flex items-center gap-2">
@@ -256,11 +292,9 @@ const FriendsPage = () => {
 						<button
 							type="button"
 							className="mt-3 w-full h-9 rounded-lg border border-slate-700/60 bg-slate-900/25 hover:bg-slate-900/40 text-sm"
-							onClick={() => {
-								console.log('Open friend profile (placeholder)');
-							}}
+							onClick={viewProfile}
 						>
-							Profile
+							View profile
 						</button>
 					</div>
 				</div>
