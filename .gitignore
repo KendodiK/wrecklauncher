@@ -4,3 +4,4 @@ database/Beekeeper-Studio-5.4.0-portable.exe
 /database/mysql-9.4.0-winx64
 server.js
 /database/mariadb
+/frontendv3/node_modules
