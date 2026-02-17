@@ -1,4 +1,4 @@
-const { createConnection } = require('mysql2');
+const { createConnection } = require('mysql2/promise');
 
 /**
  * DatabaseHandler 
@@ -11,7 +11,6 @@ class DatabaseHandler {
     DB_PORT = process.env.DB_PORT;
     DB_USERNAME = process.env.DB_USERNAME;
     DB_PASSWORD = process.env.DB_PASSWORD;
-    mysql = require('mysql');
     dbConnection;
 
     /**
@@ -27,39 +26,63 @@ class DatabaseHandler {
      * @private Private method to create a database connection.
      */
     #createDBConnection() {
-        this.dbConnection = this.mysql.createConnection({
-            host: this.DB_HOST,
-            port: this.DB_PORT,
-            user: this.DB_USERNAME,
-            password: this.DB_PASSWORD
-        });
-
-        this.dbConnection.connect((err) => {
-            if (err) {
+        this.connectionPromise = (async () => {
+            try {
+                this.dbConnection = await createConnection({
+                    host: this.DB_HOST,
+                    port: this.DB_PORT,
+                    user: this.DB_USERNAME,
+                    password: this.DB_PASSWORD
+                });
+                return this.dbConnection;
+            } catch (err) {
                 console.error('Error connecting to the database:', err);
-                return;
+                throw err;
             }
-            console.log('Connected to the database.');
-        });
+        })();
+    }
+
+    /**
+     * Wait for the database connection to be established.
+     */
+    async waitForConnection() {
+        await this.connectionPromise;
+    }
+
+    async selectDatabase() {
+        try {
+            await this.dbConnection.execute(`USE \`${this.dbName}\``); 
+        } catch (err) {
+            console.error(`Error selecting database ${this.dbName}:`, err);
+            throw err;
+        }
     }
 
     /**
      * Create a new database with the specified name. (or env deffault)
      */
-    createDB() {
-        const sql = `CREATE DATABASE IF NOT EXISTS \`${this.dbName}\``;
-        this.dbConnection.query(sql, (err, result) => {
-            if (err) throw err;
-            console.log(`Database ${this.dbName} created`);
-        });
+    async createDB() {
+        await this.waitForConnection();
+        try {
+            const sql = `CREATE DATABASE IF NOT EXISTS \`${this.dbName}\``;
+            await this.dbConnection.execute(sql);
+            console.log(`Database ${this.dbName} created or already exists`);
+        } catch (err) {
+            console.error('Error creating database:', err);
+            console.error(err);
+            throw err;
+        }
     }
 
-    dropDB() {
-        const sql = `DROP DATABASE IF EXISTS \`${this.dbName}\``;
-        this.dbConnection.query(sql, (err, result) => {
-            if (err) throw err;
+    async dropDB() {
+        try {
+            const sql = `DROP DATABASE IF EXISTS \`${this.dbName}\``;
+            await this.dbConnection.execute(sql);
             console.log(`Database ${this.dbName} dropped`);
-        });
+        } catch (err) {
+            console.error('Error dropping database:', err);
+            throw err;
+        }
     }
 }
 

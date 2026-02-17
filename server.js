@@ -11,68 +11,110 @@ const app = express();
 const https = require('https');
 const zlib = require('zlib');
 const databaseHandler = require('./database/DatabaseHandler');
-const dbHandler = new databaseHandler();
 const databaseMaker = require('./database/makers/DBMaker');
-const dbmaker = new databaseMaker('./database/wrecklauncher.sql');
+const nativeUserController = require('./database/controllers/NativeUsersController');
+//const dbmaker = new databaseMaker('./database/wrecklauncher.sql');
 const { platform } = require('os');
+const crypto = require('crypto');
+const platformUsersController = require('./database/controllers/PlatformUsersController');
+const PlatformsController = require('./database/controllers/PlatformsController');
+const DBMaker = require('./database/makers/DBMaker');
 const PORT = 3000;
 // Replace with your actual Steam API key and Steam ID
 const steamApiKey = process.env.STEAM_API_KEY;
 app.use(cors());
 
-(async () => {
-   await new Promise((r, rej) => dbHandler.createDB((err)=> err ? rej(err) : r()));
-   app.listen(PORT, () => {
+// const dbHandler = new databaseHandler();
+// dbHandler.createDB();
+// const dbMaker = new databaseMaker();
+// dbMaker.createTables();
+const platformUserCtrl = new platformUsersController();
+const platformsCtrl = new PlatformsController();
+const nativeUserCtrl = new nativeUserController();
+// (async () => {
+//     const users = await nativeUserCtrl.index();
+//     console.log(users);
+// })();
+
+
+app.listen(PORT, () => {
    console.log(`Proxy server running at http://localhost:${PORT}`);
    });
-});
-
-
-async function getUsersSteamID(username, steamusername) {
-  return new Promise((resolve, reject) => {
-    const query = `
-      SELECT pu.platform_profile_id
-      FROM native_users u
-      JOIN platform_users pu ON u.id = pu.user_id
-      WHERE u.name = ? AND pu.platform_username = ?
-    `;
-
-    dbHandeler.dbConnection.query(query, [username, steamusername], (err, results) => {
-      if (err) {
-        console.error('Query error:', err);
-        return reject(err);
-      }
-
-      if (results.length > 0) {
-        resolve(results[0].platform_profile_id);
-      } else {
-        resolve(null);
-      }
-    });
-  });
-}
 
 
 async function uploadGame(platformname, name, banner_img, pfp, cost, genres) {
   //check before upload
-  return databaseHandler.addGameAllData(
-    platformname,
-    name,
-    banner_img,
-    pfp,
-    cost,
-    genres
-  );
+  // return dbHandler.addGameAllData(
+  //   platformname,
+  //   name,
+  //   banner_img,
+  //   pfp,
+  //   cost,
+  //   genres
+  // );
 }
-app.get('/api/steam/UserID/:username/:steamusername', async (req, res) => {
+
+app.post('/api/login/:username/:password', async (req, res) => {
+  try {
     const username = req.params.username;
-    const steamusername = req.params.steamusername;
-    const steam_userid = await getUsersSteamID(username, steamusername);
-    res.json({ steam_userid: steam_userid });
+    const password = req.params.password;
+    const user = await nativeUserCtrl.getUserByNameAndPassword(username, password);
+    console.log("User found:", user);
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid username or password' });
+    }
+    
+    await nativeUserCtrl.update(user.id, {token: true});
+    const updatedUser = await nativeUserCtrl.show(user.id);
+    
+    return res.json(user.id + "." + updatedUser.token);
+  } catch (error) {
+    console.error('Error in /api/login endpoint:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/platform/UserID/:platformname/:platformUsername/:token', async (req, res) => {
+    try {
+        const platformname = req.params.platformname;
+        const platformUsername = req.params.platformUsername;
+        const token = req.params.token;
+        
+        // Extract user ID from token (format: id.token)
+        const userId = token.split('.')[0];
+        
+        // Get platform users for this native user
+        const platformUsers = await platformUserCtrl.getByNativeUserId(userId);
+        
+        if (!platformUsers || platformUsers.length === 0) {
+            return res.status(404).json({ error: 'No platform users found for this user' });
+        }
+        
+        // Resolve platform id from platform name
+        const platform = await platformsCtrl.getByPlatformName(platformname);
+        if (!platform) {
+          return res.status(404).json({ error: `Unknown platform: ${platformname}` });
+        }
+
+        // Find the matching platform user (platform_users has platform_id, not platform_name)
+        const index = platformUsers.findIndex(
+          row => row.platform_user_name == platformUsername && Number(row.platform_id) === Number(platform.id)
+        );
+        if (index === -1) {
+            return res.status(404).json({ error: `Platform user not found for ${platformname}:${platformUsername}` });
+        }
+        
+        const platformUserID = platformUsers[index].platform_profile_id;    
+        return res.json({ platformUserID: platformUserID });
+    } catch (error) {
+        console.error("Error in /api/platform/UserID endpoint:", error);
+        res.status(500).json({ error: error.message });
+    }
 });
 
 app.get('/api/steam/OwnedGames/:username/:steamusername', async (req, res) => {
   try {
+    // const steamID = '76561199194098023';
     const steamID = await getUsersSteamID(req.params.username, req.params.steamusername);
     console.log("Steam user id"+steamID);
     if (!steamID) {
@@ -87,6 +129,7 @@ app.get('/api/steam/OwnedGames/:username/:steamusername', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch data from Steam API' });
   }
 });
+
 app.get("/api/steam/GameDetails/:appId", async (req, res) => {
   const appId = req.params.appId;
 

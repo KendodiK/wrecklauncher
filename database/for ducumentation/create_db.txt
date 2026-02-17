@@ -4,10 +4,12 @@ CREATE TABLE native_users(
     user_password VARCHAR(100) NOT NULL,
     pfp VARCHAR(516)
 );
+
 CREATE TABLE platforms(
     id TINYINT AUTO_INCREMENT PRIMARY KEY,
     platform_name VARCHAR(10)
 );
+
 CREATE TABLE platform_users(
     id SMALLINT AUTO_INCREMENT PRIMARY KEY,
     user_id BINARY(16) NOT NULL, INDEX(user_id),
@@ -16,10 +18,12 @@ CREATE TABLE platform_users(
     platform_profile_id VARCHAR(17) NOT NULL,
     platform_password VARCHAR(64) NUT NULL
 );
+
 CREATE TABLE pirate_sites(
     id TINYINT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(10) NOT NULL
 );
+
 CREATE TABLE games (
     id SMALLINT AUTO_INCREMENT PRIMARY KEY,
     app_id INT UNSIGNED NOT NULL,
@@ -48,6 +52,7 @@ CREATE TABLE genres(
     id SMALLINT AUTO_INCREMENT PRIMARY KEY,
     genre VARCHAR(32) NOT NULL
 );
+
 CREATE TABLE connect_genres(
     genre_id SMALLINT, INDEX(genre_id),
     game_id SMALLINT, INDEX(game_id)

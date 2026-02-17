@@ -1,19 +1,65 @@
-import DatabaseHandler from '../utils/DatabaseHandler.js';
-
-export default Controller;
+const DatabaseHandler = require("../DatabaseHandler");
 
 class Controller extends DatabaseHandler {
-    constructor() {
-        super('dbName');
+    tableName = '';
+
+    constructor(_tableName) {
+        super();
+        this.tableName = _tableName;
+    }
+    
+    async index() {
+        await this.waitForConnection();
+        await this.selectDatabase();
+
+        const query = `SELECT * FROM ${this.tableName};`;
+        try { 
+            const [rows] = await this.dbConnection.execute(query);
+            return rows;            
+        } catch (err) {
+            console.error(`Error while selecting from table ${this.tableName}: ${err}`);
+            throw err;
+        }
     }
 
-    async index() {}
+    async show(id) {
+        await this.waitForConnection();
+        await this.selectDatabase();
 
-    async show(id) {}
+        const query = `SELECT * FROM ${this.tableName} WHERE id = ?;`;
+        try {
+            const [rows] = await this.dbConnection.execute(query, [id]);
+            return rows[0];
+        } catch (err) {
+            console.error(`Error while selecting from table ${this.tableName}: ${err}`);
+            throw err;
+        }
+    }
 
-    async create(data) {}
+    async create() {
+        await this.waitForConnection();
+        await this.selectDatabase();
 
-    async update(id, data) {}
+    }
 
-    async delete(id) {}
+    async update() {
+        await this.waitForConnection();
+        await this.selectDatabase();
+    }
+
+    async delete(id) {
+        await this.waitForConnection();
+        await this.selectDatabase();
+
+        const query = `DELETE FROM ${this.tableName} WHERE id = ?;`;
+        try {
+            await this.dbConnection.execute(query, [id]);
+            return { message: `${id} deleted successfully from ${this.tableName}` };
+        } catch (err) {
+            console.error(`Error while deleting from table ${this.tableName}: ${err}`);
+            throw err;
+        }
+    }
 } 
+
+module.exports = Controller;

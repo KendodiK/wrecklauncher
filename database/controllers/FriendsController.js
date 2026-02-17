@@ -1,38 +1,123 @@
 const Controller = require("./Controller");
+const NativeUsersController = require("./NativeUsersController");
 
 class FriendsController extends Controller {
     constructor() { 
-        super('dbName');
+        super('friends');
     }
 
     async index() {
-        const query = 'SELECT * FROM friends';
-        try {
-            const [result] = await this.dbConnection.execute(query);
-            return result;
-        } catch (err) {
-            console.log("Error while reading friends:" + err);
-            return [];
-        } 
+        return super.index();
     }
 
-    async show(id) {}
+    async show(id) {
+        return super.show(id);
+    }
 
 
     /**
      * 
-     * @param {*} data - [user1_id, user2_id]
+     * @param {Array} data - ["user1_id" = native_users.id, "user2_id" = native_users.id ]
+     * @return {Array} - ["message": string, "id": int] if created, ["message": string] if friendship already exists
      */
     async create(data) {
-        const [user1_id, user2_id] = data;
-        const query = 'INSERT INTO `friends` (user1_id, user2_id) VALUES (?,?)'
+        super.create();
+
+        var foreignKeyCheck = await this.#checkForeignKeys(data);
+        if (foreignKeyCheck instanceof Error) {
+            throw foreignKeyCheck;
+        }
+
+        var query = 'SELECT * FROM friends WHERE user1_id = ? AND user2_id = ? OR user1_id = ? AND user2_id = ?';
+        var values = [data.user1_id, data.user2_id, data.user2_id, data.user1_id];
+        var rows = [];
         try {
-            const [result] = await this.dbConnection.execute(query, [user1_id, user2_id]);
-            return result;
+            rows = await this.dbConnection.execute(query, values);
+        } catch (err) {
+            console.error(`Error while fetching friends for native user ${data.user1_id} from table ${this.tableName}: ${err}`);
+            throw err;
+        }
+
+        if (rows.length > 0) {
+            return { message: `Friendship already exists between user ${data.user1_id} and user ${data.user2_id}` };
+        }
+
+        query = 'INSERT INTO `friends` (user1_id, user2_id) VALUES (?,?)'
+        values = [data.user1_id, data.user2_id];
+        try {
+            const [result] = await this.dbConnection.execute(query, values);
+            return { message: `${result.id} Element created in table ${this.tableName}`, id: result.id };
         }
         catch (err) {
-            console.log(err)
+            console.error(`Error while adding new element to table ${this.tableName}: ${err}`);
+            throw err;
         }
+    }
+
+    /**
+     * @param {int} id
+     * @param {Array} data - ["user1_id" = native_users.id, "user2_id" = native_users.id ]
+     */
+    async update(id, data) {
+        super.update();
+        
+        var foreignKeyCheck = await this.#checkForeignKeys(data);
+        if (foreignKeyCheck instanceof Error) {
+            throw foreignKeyCheck;
+        }
+
+        var old = await this.show(id);
+
+        const query = 'UPDATE `friends` SET user1_id = ?, user2_id = ? WHERE id = ?;'
+        const values = [
+            data.user1_id ?? old.user1_id, 
+            data.user2_id ?? old.user2_id, 
+            id ];
+        try {
+            const [result] = await this.dbConnection.execute(query, values);
+            return { message: `${id} Updated successfully in table ${this.tableName}` };
+        }
+        catch (err) {
+            console.error(`Error while updating element in table ${this.tableName}: ${err}`);
+            throw err;
+        }
+    }
+
+    async delete(id) {
+        return super.delete(id);
+    }
+
+    /**
+     * Gets the friends (native user ids) for a given native user
+     * @param {int} nativeUserId 
+     * @returns {Array} - Array of friends (native user ids) for the given native user ID
+     */
+    async getNativeUserFriends(nativeUserId) {
+        await this.waitForConnection();
+        await this.selectDatabase(); 
+    
+        const query = 'SELECT * FROM friends WHERE user1_id = ? OR user2_id = ?';
+        try {
+            const [rows] = await this.dbConnection.execute(query, [nativeUserId, nativeUserId]);
+            return rows;
+        } catch (err) {
+            console.error(`Error while fetching friends for native user ${nativeUserId} from table ${this.tableName}: ${err}`);
+            throw err;
+        }
+    }
+
+    async #checkForeignKeys(data) { 
+        var nativeUsersController = new NativeUsersController();
+
+        if (!await nativeUsersController.show(data.user1_id)) {
+            return new Error("Invalid user1_id: " + data.user1_id);
+        }
+
+        if (!await nativeUsersController.show(data.user2_id)) {
+            return new Error("Invalid user2_id: " + data.user2_id);
+        }
+
+        return true;
     }
 }
 

@@ -1,4 +1,14 @@
 const DatabaseHandler = require("../DatabaseHandler");
+const ChatsTableCreator = require("../creators/ChatsTableCreator");
+const FriendsTableCreator = require("../creators/FriendsTableCreator");
+const GamesGenresConnectionTableCreator = require("../creators/GamesGenresConnectionTableCreator");
+const GamesPirateSitesConnectionTableCreator = require("../creators/GamesPirateSitesConnectionTableCreator");
+const GamesTableCreator = require("../creators/GamesTableCreator");
+const GenresTableCreator = require("../creators/GenresTableCreator");
+const NativeUserTableCreator = require("../creators/NativeUserTableCreator");
+const PirateSitesTableCreator = require("../creators/PirateSitesTableCreator");
+const PlatformsTableCreator = require("../creators/PlatformsTableCreator");
+const PlatformUsersTableCreator = require("../creators/PlatformUsersTableCreator");
 
 /**
  * DBMaker
@@ -10,17 +20,22 @@ const DatabaseHandler = require("../DatabaseHandler");
  * @param {string} tableStructureFilePath - The file path to the SQL file containing table structures.
  */
 class DBMaker extends DatabaseHandler {
-    constructor(tableStructureFilePath) {
-        super('dbName');
-        if (tableStructureFilePath.split('.').pop() !== 'sql') {
-            throw new Error("Invalid table structure file");
-        } 
-        this.executeSQLFile(this.dbConnection, tableStructureFilePath);
+
+    constructor(tableStructureFilePath = null) {
+        super();
     }
 
-    async executeSQLFile(connection, filePath) {
+    /**
+     * This method is not tested, use at your own risk.
+     * @param {string} filePath - Path to the SQL file
+     */
+    async executeSQLFile(filePath) {
+        if (filePath.split('.').pop() !== 'sql') {
+                throw new Error("Invalid table structure file");
+        } 
         const fs = require('fs');
         const sql = fs.readFileSync(filePath, 'utf8');
+        const connection = this.dbConnection;
 
         connection.query(sql, function (err, result) {
             if (err) {
@@ -29,6 +44,19 @@ class DBMaker extends DatabaseHandler {
             } 
             console.log('SQL file executed successfully');
         });
+    }
+
+    async createTables() { 
+        const chatsTableCreator = new ChatsTableCreator();
+        const friendsTableCreator = new FriendsTableCreator();
+        const gamesGenresConnectionTableCreator = new GamesGenresConnectionTableCreator();
+        const gamesPirateSitesConnectionTableCreator = new GamesPirateSitesConnectionTableCreator();
+        const gamesTableCreator = new GamesTableCreator();
+        const genresTableCreator = new GenresTableCreator();
+        const nativeUserTableCreator = new NativeUserTableCreator();
+        const pirateSitesTableCreator = new PirateSitesTableCreator();
+        const platformsTableCreator = new PlatformsTableCreator();
+        const platformUsersTableCreator = new PlatformUsersTableCreator();
     }
 }
 
