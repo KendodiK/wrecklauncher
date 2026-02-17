@@ -90,25 +90,75 @@ app.whenReady().then(() => {
     return epicCtrl;
   }
 
-  ipcMain.handle('user:get-token', async () => {
-    // UserController already extends TokenController; avoid a redundant instance.
-    return await getUserCtrl().getToken();
-  });
+  /**
+   * Registers an IPC handler with consistent error logging.
+   * @param {string} channel
+   * @param {(event: Electron.IpcMainInvokeEvent, ...args: any[]) => Promise<any>} fn
+   */
+  function handle(channel, fn) {
+    ipcMain.handle(channel, async (event, ...args) => {
+      try {
+        return await fn(event, ...args);
+      } catch (err) {
+        const anyErr = /** @type {any} */ (err);
+        const cause = anyErr?.cause;
+        const code = cause?.code || anyErr?.code;
 
-  ipcMain.handle('user:get-platform-userid', async (_event, platformName, platformUsername) => {
+        if (code === 'ECONNREFUSED' || code === 'ENOTFOUND' || code === 'EAI_AGAIN') {
+          const hint =
+            `Backend is not reachable at ${backendUrl}. ` +
+            `Start it (e.g. node api.js) or set WRECK_BACKEND_URL. ` +
+            `Original: ${String(cause?.message || anyErr?.message || err)}`;
+          const wrapped = new Error(hint);
+          // @ts-ignore
+          wrapped.cause = err;
+          console.error(`[ipcMain.handle] ${channel} failed:`, wrapped);
+          throw wrapped;
+        }
+
+        console.error(`[ipcMain.handle] ${channel} failed:`, err);
+        throw err;
+      }
+    });
+  }
+
+  /**
+   * Registers an IPC handler that auto-fetches the auth token.
+   * Usage: handleAuthed('games:whatever', async ({ token }, arg1, arg2) => { ... })
+   * @param {string} channel
+   * @param {(ctx: { event: Electron.IpcMainInvokeEvent, token: string }, ...args: any[]) => Promise<any>} fn
+   */
+  function handleAuthed(channel, fn) {
+    handle(channel, async (event, ...args) => {
+      const token = await getUserCtrl().getToken();
+      if (!token) throw new Error('Missing auth token');
+      return await fn({ event, token }, ...args);
+    });
+  }
+
+  // UserController already extends TokenController; avoid a redundant instance.
+  handle('user:get-token', async () => await getUserCtrl().getToken());
+
+  handle('user:get-platform-userid', async (_event, platformName, platformUsername) => {
     return await getUserCtrl().getPlatformUserID(String(platformName), String(platformUsername));
   });
 
-  ipcMain.handle('user:get-owned-games-from-steam', async (_event, platformUsername) => {
+  handle('user:get-owned-games-from-steam', async (_event, platformUsername) => {
     return await getUserCtrl().getOwnedGamesFromSteam(String(platformUsername));
   });
 
-  ipcMain.handle('steam:get-game-details', async (_event,token, appID, cc) => {
+  // Steam game details: renderer passes (appID, cc). Token is fetched here.
+  handleAuthed('steam:get-game-details', async ({ token }, appID, cc) => {
     return await getSteamCtrl().getGamesDetails(token, Number(appID), cc ? String(cc) : undefined);
   });
 
-  ipcMain.handle('epic:get-installed-games', async () => {
-    return getEpicCtrl().getInstalledGames();
+  // Backward/alternate name used by preload API.
+  handleAuthed('steam:get-game-details-and-upload', async ({ token }, appID, cc) => {
+    return await getSteamCtrl().getGamesDetails(token, Number(appID), cc ? String(cc) : undefined);
+  });
+
+  handle('epic:get-installed-games', async () => {
+    return await getEpicCtrl().getInstalledGames();
   });
 
   app.on('activate', () => {

@@ -1,6 +1,7 @@
 // Temporary smoke checks (renderer.js style).
-// Enable by setting: localStorage.setItem('wreck_smoke', '1') then reload.
-// Disable: localStorage.removeItem('wreck_smoke')
+// Enabled by default.
+// Disable by setting: localStorage.setItem('wreck_smoke', '0') then reload.
+// Re-enable by setting: localStorage.setItem('wreck_smoke', '1') then reload.
 
 function ensureNoticeBanner() {
   let el = document.getElementById('notice-banner');
@@ -61,9 +62,12 @@ function showNotice(title, body, details) {
 
 function shouldRun() {
   try {
-    return localStorage.getItem('wreck_smoke') === '1';
+    const v = localStorage.getItem('wreck_smoke');
+    if (v === '0') return false;
+    if (v === '1') return true;
+    return true;
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -88,11 +92,15 @@ export async function runSmokeControllers() {
   };
 
   const warn = (label, err) => {
+    const anyErr = /** @type {any} */ (err);
     const msg = err instanceof Error ? err.message : String(err);
-    lines.push(`== ${label} (ERROR) ==\n${msg}`);
+    const causeMsg = anyErr?.cause?.message ? String(anyErr.cause.message) : '';
+    const details = causeMsg && causeMsg !== msg ? `${msg}\nCause: ${causeMsg}` : msg;
+    lines.push(`== ${label} (ERROR) ==\n${details}`);
     console.warn(`[smoke] ${label} failed:`, err);
   };
-var token;
+
+  let token;
   try {
     token = await api.getToken();
     log('token', token);
@@ -111,7 +119,7 @@ var token;
   // const appIds = [730, 570, 440];
   // for (const appId of appIds) {
   //   try {
-  //     const details = await api.getSteamGameDetails(token, appId, 'us');
+  //     const details = await api.getSteamGameDetails(appId, 'us');
   //     // log(`steamDetails ${appId}`, details);
   //   } catch (e) {
   //     warn(`getSteamGameDetails ${appId}`, e);
@@ -119,7 +127,7 @@ var token;
   // }
 
   // Optional: platform/owned games (requires you to set a real Steam username)
-  const steamUsername = (import.meta?.env?.VITE_SMOKE_STEAM_USERNAME || 'freshargetinaccount69912').trim();
+  const steamUsername = (import.meta?.env?.VITE_SMOKE_STEAM_USERNAME || 'freshargentinaccount69912').trim();
   if (steamUsername) {
     try {
       const id = await api.getPlatformUserID('steam', steamUsername);
@@ -130,11 +138,11 @@ var token;
 
     try {
       const owned = await api.getOwnedGamesFromSteam(steamUsername);
-      // log('ownedGamesFromSteam (first 10)', owned);
+//      log('ownedGamesFromSteam (first x)', owned);
       for(const game of owned){
         try {
-          const details = await api.getSteamGameDetails(await api.getToken(), game.appid, 'us');
-          // log(`steamDetails ${game.appid}`, details);
+          const details = await api.getSteamGameDetails(game.appid, 'us');
+          log(`steamDetails ${game.appid}`, details);
         } catch (e) {
           warn(`getSteamGameDetails ${game.appid}`, e);
         }
@@ -145,18 +153,13 @@ var token;
   } else {
     lines.push('== ownedGamesFromSteam ==\nSkipped (set VITE_SMOKE_STEAM_USERNAME)');
   }
-  try{
-    const details = await api.getAllDetailsByID(token, 730);
-    log(`getAllDetailsByID 730`, details);
-  } catch (e) {
-    warn(`getAllDetailsByID 730`, e);
-  }
+  // getAllDetailsByID is not exposed via preload/electronAPI.
 
   // Optional upload pipeline
   // const doUpload = String(import.meta?.env?.VITE_SMOKE_UPLOAD || '') === '1';
   // if (doUpload) {
   //   try {
-  //     const upload = await api.getSteamGameDetailsAndUpload(token, 730, 'us');
+  //     const upload = await api.getSteamGameDetailsAndUpload(730, 'us');
   //     log('steamDetailsAndUpload 730', upload);
   //   } catch (e) {
   //     warn('getSteamGameDetailsAndUpload 730', e);
