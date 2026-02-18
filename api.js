@@ -198,6 +198,9 @@ app.get("/api/games/:id/all", async (req, res) => {
     const {id: gameId } = req.params;
     const gameCtrl = new gamesController();
     const game = await gameCtrl.getWithAllForeign(gameId);
+    if (!game) {
+      return res.status(404).json({ error: `Game not found: ${gameId}` });
+    }
 
     const gamesGenresCtrl = new gamesGenresConnnectionController();
     const gameGenres = await gamesGenresCtrl.getByGameId(gameId);

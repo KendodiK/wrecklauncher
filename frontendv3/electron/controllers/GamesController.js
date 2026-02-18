@@ -62,7 +62,14 @@ class GamesController {
         'Accept': 'application/json',
         'Authorization': `Bearer ${token}`,
       },
-    });    
+    });
+
+    if (!ok) {
+      const apiError = json && typeof json === 'object' ? (json.error || json.message) : null;
+      const snippet = String(apiError ?? text ?? 'Unknown error').replace(/\s+/g, ' ').trim().slice(0, 300);
+      throw new Error(`Failed to fetch game details (HTTP ${status}): ${snippet}`);
+    }
+
     const obj = json && typeof json === 'object' ? json : null;
     /*@type {import('../models').UploadGameRequest} */
     console.log('getAllDetailsByID response:', obj);

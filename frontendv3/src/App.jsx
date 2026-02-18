@@ -1,7 +1,7 @@
 // Fő alkalmazás komponens, itt kezeljük a globális user állapotot és a route-okat
 import { useState } from 'react';
 import MainNavbar from './components/mainnavbar.jsx';
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { HashRouter, Routes, Route } from "react-router-dom";
 import Login from "./components/pages/login.jsx";
 import Store from "./components/pages/store.jsx";
 import LibraryPage from "./components/pages/libraray.jsx";
@@ -20,7 +20,7 @@ function App() {
   };
 
   return (
-    <BrowserRouter>
+    <HashRouter>
       <div className="min-h-screen flex flex-col bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
         <MainNavbar user={user} onLogout={handleLogout} />
         <Routes>
@@ -34,7 +34,7 @@ function App() {
           <Route path="/" element={<Store />} />
         </Routes>
       </div>
-    </BrowserRouter>
+    </HashRouter>
   );
 }
 

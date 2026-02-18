@@ -105,7 +105,12 @@ export async function runSmokeControllers() {
     token = await api.getToken();
     log('token', token);
   } catch (e) {
-    warn('getToken', e);
+    try{
+      token = await api.register('teszt', 'teszt', 'teszt@example.com');
+      log('register', token);
+    } catch (e2) {
+      warn('register', e2);
+    }
   }
 
   // try {
@@ -155,7 +160,7 @@ export async function runSmokeControllers() {
 //   }
 
   // GamesController.getAllDetailsByID (optional)
-  const smokeGameIdRaw = String(3595230).trim();
+  const smokeGameIdRaw = String(730).trim();
   if (smokeGameIdRaw) {
     try {
       const details = await api.getAllDetailsByID(Number(smokeGameIdRaw));

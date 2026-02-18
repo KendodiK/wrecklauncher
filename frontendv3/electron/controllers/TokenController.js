@@ -20,16 +20,19 @@ class TokenController {
   #username;
   /** @type {string} */
   #password;
+  /** @type {string} */
+  #email;
 
   /** @protected */
   _serverUrl;
 
   /**
-   * @param {{ username: string, password: string, tokenFile: string, serverUrl: string }} cfg
+   * @param {{ username: string, password: string, email: string, tokenFile: string, serverUrl: string }} cfg
    */
   constructor(cfg) {
     this.#username = String(cfg.username || '');
     this.#password = String(cfg.password || '');
+    this.#email = String(cfg.email || '');
     this.#tokenFile = String(cfg.tokenFile || 'token.txt');
     this._serverUrl = normalizeBaseUrl(cfg.serverUrl || '', { defaultProtocol: 'http:' });
   }
@@ -87,6 +90,35 @@ class TokenController {
     return null;
   }
 
+  /**
+   * Registers a new user and returns the token.
+   * @param {string} username 
+   * @param {string} password 
+   * @param {string} email
+   * @returns token on success, null on failure (e.g. username taken)
+    * @throws on HTTP errors or unexpected responses
+   */
+  async register(username, password, email) {
+    const url = joinUrl(this._serverUrl, 'api', 'signup');
+    const { ok, status, json, text } = await fetchJsonSafe(url, { 
+      method: 'POST',
+      body: JSON.stringify({
+        username,
+        password,
+        email
+      })
+    });
+    if (!ok) throw new Error(`Registration failed: HTTP ${status}${text ? ` - ${String(text).slice(0, 200)}` : ''}`);
+    if (typeof json === 'string' && json.trim()) return /** @type {AuthToken} */ (json.trim());
+    if (typeof text === 'string') {
+      this.#username = username;
+      this.#password = password;
+      this.#email = email;
+      const t = text.trim().replace(/^"(.*)"$/, '$1');
+      if (t) return /** @type {AuthToken} */ (t);
+    }
+    return null;
+  }
   /**
    * @returns {Promise<AuthToken|null>}
    */

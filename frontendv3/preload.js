@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Controller helpers (serverless modules in Electron main)
   getToken: () => ipcRenderer.invoke('user:get-token'),
+  register: (username, password, email) =>
+    ipcRenderer.invoke('user:register', username, password, email),
   getPlatformUserID: (platformName, platformUsername) =>
     ipcRenderer.invoke('user:get-platform-userid', platformName, platformUsername),
   getOwnedGamesFromSteam: (platformUsername) =>

@@ -29,6 +29,31 @@ function createWindow() {
     },
   });
 
+  mainWindow.webContents.on(
+    'did-fail-load',
+    (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+      console.error('[electron] did-fail-load:', {
+        errorCode,
+        errorDescription,
+        validatedURL,
+        isMainFrame,
+      });
+    },
+  );
+
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    console.error('[electron] render-process-gone:', details);
+  });
+
+  mainWindow.webContents.on('unresponsive', () => {
+    console.error('[electron] webContents became unresponsive');
+  });
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    const currentUrl = mainWindow?.webContents.getURL();
+    console.log('[electron] did-finish-load:', currentUrl);
+  });
+
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
     if (process.env.OPEN_DEVTOOLS === '1') {
@@ -44,11 +69,14 @@ app.whenReady().then(() => {
 
   // Serverless controller modules (no LocalApi web server).
   const backendUrl = process.env.WRECK_BACKEND_URL || 'http://127.0.0.1:3000';
-  const username = 'teszt';
-  const password = 'teszt';
-
   const tokenFile = getTokenFilePath();
 
+  //temp
+  const username = 'teszt';
+  const password = 'teszt';
+  const email = 'a@b.c';
+
+  
   /** @type {import('./controllers/UserController')|null} */
   let userCtrl = null;
   /** @type {import('./controllers/SteamGamesController')|null} */
@@ -61,7 +89,7 @@ app.whenReady().then(() => {
   function getUserCtrl() {
     if (!userCtrl) {
       const UserController = require('./controllers/UserController');
-      userCtrl = new UserController({ username, password, tokenFile, serverUrl: backendUrl });
+      userCtrl = new UserController({ username, password, email, tokenFile, serverUrl: backendUrl });
     }
     return userCtrl;
   }
@@ -85,7 +113,7 @@ app.whenReady().then(() => {
   function getEpicCtrl() {
     if (!epicCtrl) {
       const EpicGamesController = require('./controllers/EpicGamesController');
-      epicCtrl = new EpicGamesController();
+      epicCtrl = new EpicGamesController({ serverUrl: backendUrl });
     }
     return epicCtrl;
   }
@@ -138,6 +166,10 @@ app.whenReady().then(() => {
 
   // UserController already extends TokenController; avoid a redundant instance.
   handle('user:get-token', async () => await getUserCtrl().getToken());
+
+  handle('user:register', async (_event, username, password, email) => {
+    return await getUserCtrl().register(String(username), String(password), String(email));
+  });
 
   handle('user:get-platform-userid', async (_event, platformName, platformUsername) => {
     return await getUserCtrl().getPlatformUserID(String(platformName), String(platformUsername));

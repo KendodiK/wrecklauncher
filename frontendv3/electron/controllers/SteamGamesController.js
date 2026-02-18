@@ -177,7 +177,6 @@ class SteamGamesController extends GamesController {
         : [];
 
       const cost = typeof data.price_overview?.final === 'number' ? data.price_overview.final / 100 : null;
-
       const uploadResult = await super.uploadGame(token, {
         app_id: String(gameDetails.appid ?? appIdNum),
         platform_name: 'steam',
@@ -189,11 +188,21 @@ class SteamGamesController extends GamesController {
         cost,
         genre_names: genreNames,
       });
-
-      if (!uploadResult || uploadResult.ok !== true || uploadResult.statusCode !== 400) {
-        const msg = uploadResult?.rawText || uploadResult?.response?.error || uploadResult?.response?.message || 'Unknown error';
-        throw new Error(`Game upload failed (HTTP ${uploadResult?.statusCode ?? 0}): ${String(msg).slice(0, 300)}`);
-      }
+      console.log('uploadResult:', uploadResult);
+      console.log('gameDetails sent for upload:', {
+        app_id: String(gameDetails.appid ?? appIdNum),
+        platform_name: 'steam',
+        name: gameDetails.name || `steam:${String(gameDetails.appid ?? appIdNum)}`,
+        banner_img: gameDetails.bannerimg || '',
+        description: typeof data.short_description === 'string' && data.short_description.trim() ? data.short_description : null,
+        minimum_requirements: gameDetails.minimum_requirements,
+        cost,
+        genre_names: genreNames,
+      });
+      if(!uploadResult.ok && uploadResult.statusCode !== 400){
+        const msg = uploadResult.rawText || uploadResult.response?.error || uploadResult.response?.message || 'Unknown error';
+        throw new Error(`Game upload failed (HTTP ${uploadResult.statusCode}): ${String(msg).slice(0, 300)}`);
+      }      
       return gameDetails;
     };
 

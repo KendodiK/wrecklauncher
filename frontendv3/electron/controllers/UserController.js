@@ -9,7 +9,7 @@ class UserController extends TokenController {
   #serverUrl;
 
   /**
-   * @param {{ username: string, password: string, tokenFile: string, serverUrl: string }} cfg
+   * @param {{ username: string, password: string, email: string, tokenFile: string, serverUrl: string }} cfg
    */
   constructor(cfg) {
     super(cfg);
