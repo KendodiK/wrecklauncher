@@ -1,6 +1,6 @@
 const DatabaseHandler = require("../DatabaseHandler");
 
-class FriendsTableCreator extends DatabaseHandler {
+class FriendsTableMaker extends DatabaseHandler {
     constructor() {
         super();
         this.init();
@@ -38,4 +38,4 @@ class FriendsTableCreator extends DatabaseHandler {
     }
 }
 
-module.exports = FriendsTableCreator;
+module.exports = FriendsTableMaker;

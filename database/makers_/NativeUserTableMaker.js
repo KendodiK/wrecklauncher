@@ -1,8 +1,8 @@
 const DatabaseHandler = require("../DatabaseHandler");
 
-class NativeUserTableCreator extends DatabaseHandler {
+class NativeUserTableMaker extends DatabaseHandler {
     constructor() {
-        console.log("Creating NativeUserTableCreator");
+        console.log("Creating NativeUserTableMaker");
         super();
         this.init();
     }
@@ -43,4 +43,4 @@ class NativeUserTableCreator extends DatabaseHandler {
     }
 }
 
-module.exports = NativeUserTableCreator;
+module.exports = NativeUserTableMaker;

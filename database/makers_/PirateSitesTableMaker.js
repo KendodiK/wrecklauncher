@@ -1,6 +1,6 @@
 const DatabaseHandler = require("../DatabaseHandler");
 
-class PlatformsTableCreator extends DatabaseHandler {
+class PirateSitesTableMaker extends DatabaseHandler {
     constructor() {
         super();
         this.init();
@@ -13,28 +13,28 @@ class PlatformsTableCreator extends DatabaseHandler {
 
     async create() {
         const query = `
-            CREATE TABLE IF NOT EXISTS platforms(
+            CREATE TABLE IF NOT EXISTS pirate_sites(
                 id TINYINT AUTO_INCREMENT PRIMARY KEY,
-                platform_name VARCHAR(10)
+                name VARCHAR(10) NOT NULL
             );
         `;
         try {
             await this.dbConnection.execute(query);
-            console.log("'Platforms' table created or already exists.");
+            console.log("'Pirate sites' table created or already exists.");
         } catch (err) {
-            console.error("Error creating platforms table:", err);
+            console.error("Error creating pirate sites table:", err);
         }
     }
 
     async delete() {
-        const query = `DROP TABLE platforms`
+        const query = `DROP TABLE pirate_sites`
         try {
             await this.dbConnection.execute(query);
-            console.log("'platforms' table deleted!");
+            console.log("'pirate_sites' table deleted!");
         } catch (err) {
-            console.error("Error while deleting 'platforms' table:", err);
+            console.error("Error while deleting 'pirate_sites' table:", err);
         }
     }
 }
 
-module.exports = PlatformsTableCreator;
+module.exports = PirateSitesTableMaker;

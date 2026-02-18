@@ -1,6 +1,6 @@
 const DatabaseHandler = require("../DatabaseHandler");
 
-class GenresTableCreator extends DatabaseHandler {
+class GenresTableMaker extends DatabaseHandler {
     constructor() {
         super();
         this.init();
@@ -37,4 +37,4 @@ class GenresTableCreator extends DatabaseHandler {
     }
 }
 
-module.exports = GenresTableCreator;
+module.exports = GenresTableMaker;

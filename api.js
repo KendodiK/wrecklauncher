@@ -12,8 +12,7 @@ const { platform } = require('os');
 const crypto = require('crypto');
 
 const databaseHandler = require('./database/DatabaseHandler');
-const databaseMaker = require('./database/makers/DBMaker');
-const DBMaker = require('./database/makers/DBMaker');
+const DBCreator = require('./database/DBCreator');
 
 const nativeUserController = require('./database/controllers/NativeUsersController');
 const platformUsersController = require('./database/controllers/PlatformUsersController');
@@ -47,7 +46,7 @@ server.on('error', (err) => {
   console.error('Server error:', err);
 });
 
-server.on('listening', () => {
+server.on('listening', async () => {
   try {
     const addr = server.address();
     if (typeof addr === 'string') {
@@ -57,6 +56,13 @@ server.on('listening', () => {
     }
   } catch (err) {
     console.error('Error retrieving server address:', err);
+  }
+
+  try {
+    const databaseCreator = new DBCreator();
+    await databaseCreator.createTables();
+  } catch (err) {
+    console.error('Error creating database tables on startup:', err);
   }
 });
 

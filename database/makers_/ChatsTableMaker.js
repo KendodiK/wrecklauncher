@@ -1,6 +1,6 @@
 const DatabaseHandler = require("../DatabaseHandler");
 
-class ChatsTableCreator extends DatabaseHandler {
+class ChatsTableMaker extends DatabaseHandler {
     constructor() {
         super();
         this.init();
@@ -39,4 +39,4 @@ class ChatsTableCreator extends DatabaseHandler {
     }
 }
 
-module.exports = ChatsTableCreator;
+module.exports = ChatsTableMaker;

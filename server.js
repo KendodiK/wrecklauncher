@@ -11,14 +11,14 @@ const app = express();
 const https = require('https');
 const zlib = require('zlib');
 const databaseHandler = require('./database/DatabaseHandler');
-const databaseMaker = require('./database/makers/DBMaker');
+const databaseMaker = require('./database/DBCreator');
 const nativeUserController = require('./database/controllers/NativeUsersController');
 //const dbmaker = new databaseMaker('./database/wrecklauncher.sql');
 const { platform } = require('os');
 const crypto = require('crypto');
 const platformUsersController = require('./database/controllers/PlatformUsersController');
 const PlatformsController = require('./database/controllers/PlatformsController');
-const DBMaker = require('./database/makers/DBMaker');
+const DBMaker = require('./database/DBCreator');
 const PORT = 3000;
 // Replace with your actual Steam API key and Steam ID
 const steamApiKey = process.env.STEAM_API_KEY;
