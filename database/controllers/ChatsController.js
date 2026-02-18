@@ -22,7 +22,7 @@ class ChatsController extends Controller {
      * @param {Array} data - ["friends_id" = firends.id, "message" = string, "sender_id" = native_users.id ]
      */
     async create(data) {
-        super.create();
+        await super.create();
 
         var foreignKeyCheck = await this.#checkForeignKeys(data);
         if (foreignKeyCheck instanceof Error) {
@@ -46,7 +46,7 @@ class ChatsController extends Controller {
      * @param {Array} data - ["friends_id" = firends.id, "message" = string, "sender_id" = native_users.id ]
      */
     async update(id, data) {
-        super.update();
+        await super.update();
 
         var foreignKeyCheck = await this.#checkForeignKeys(data);
         if (foreignKeyCheck instanceof Error) {

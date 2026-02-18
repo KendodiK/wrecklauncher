@@ -18,7 +18,7 @@ class PirateSitesController extends Controller {
      * @returns 
      */
     async create(data) {
-        super.create();
+        await super.create();
 
         const query = 'INSERT INTO `pirate_sites` (name) VALUES (?)';
         const values = [data.name];
@@ -39,7 +39,7 @@ class PirateSitesController extends Controller {
      * @returns 
      */
     async update(id, data) {
-        super.update();
+        await super.update();
 
         const query = 'UPDATE `pirate_sites` SET name = ? WHERE id = ?;';
         const values = [data.name, id];

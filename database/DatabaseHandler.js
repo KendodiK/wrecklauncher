@@ -1,4 +1,4 @@
-const { createConnection } = require('mysql2/promise');
+const { createPool, createConnection } = require('mysql2/promise');
 
 /**
  * DatabaseHandler 
@@ -13,6 +13,12 @@ class DatabaseHandler {
     DB_PASSWORD = process.env.DB_PASSWORD;
     dbConnection;
 
+    /** @type {Map<string, import('mysql2/promise').Pool>} */
+    static pools = new Map();
+
+    /** @type {Map<string, Promise<import('mysql2/promise').Pool>>} */
+    static poolPromises = new Map();
+
     /**
      * Constructor for DatabaseHandler
      * @param {string} dbName - Name of the database to connect to. If null, uses default from environment variables.
@@ -26,20 +32,55 @@ class DatabaseHandler {
      * @private Private method to create a database connection.
      */
     #createDBConnection() {
-        this.connectionPromise = (async () => {
+        const dbKey = String(this.dbName || '');
+
+        const existing = DatabaseHandler.pools.get(dbKey);
+        if (existing) {
+            this.dbConnection = existing;
+            this.connectionPromise = Promise.resolve(existing);
+            return;
+        }
+
+        const existingPromise = DatabaseHandler.poolPromises.get(dbKey);
+        if (existingPromise) {
+            this.connectionPromise = existingPromise.then((pool) => {
+                this.dbConnection = pool;
+                return pool;
+            });
+            return;
+        }
+
+        const poolPromise = (async () => {
             try {
-                this.dbConnection = await createConnection({
+                const pool = createPool({
                     host: this.DB_HOST,
                     port: this.DB_PORT,
                     user: this.DB_USERNAME,
-                    password: this.DB_PASSWORD
+                    password: this.DB_PASSWORD,
+                    database: this.dbName,
+                    waitForConnections: true,
+                    connectionLimit: Number(process.env.DB_CONNECTION_LIMIT || 10),
+                    queueLimit: 0,
+                    enableKeepAlive: true,
                 });
-                return this.dbConnection;
+
+                // Validate connectivity early.
+                await pool.query('SELECT 1');
+
+                DatabaseHandler.pools.set(dbKey, pool);
+                return pool;
             } catch (err) {
-                console.error('Error connecting to the database:', err);
+                DatabaseHandler.poolPromises.delete(dbKey);
+                console.error('Error creating database pool:', err);
                 throw err;
             }
         })();
+
+        DatabaseHandler.poolPromises.set(dbKey, poolPromise);
+        this.connectionPromise = poolPromise.then((pool) => {
+            this.dbConnection = pool;
+            return pool;
+        });
     }
 
     /**
@@ -50,12 +91,9 @@ class DatabaseHandler {
     }
 
     async selectDatabase() {
-        try {
-            await this.dbConnection.execute(`USE \`${this.dbName}\``); 
-        } catch (err) {
-            console.error(`Error selecting database ${this.dbName}:`, err);
-            throw err;
-        }
+        // With pooled connections we set the default database on the pool.
+        // Keep this method for backward compatibility with existing controllers.
+        return;
     }
 
     /**
@@ -64,8 +102,23 @@ class DatabaseHandler {
     async createDB() {
         await this.waitForConnection();
         try {
-            const sql = `CREATE DATABASE IF NOT EXISTS \`${this.dbName}\``;
-            await this.dbConnection.execute(sql);
+            // Creating a database requires a connection without selecting the database.
+            const conn = await createConnection({
+                host: this.DB_HOST,
+                port: this.DB_PORT,
+                user: this.DB_USERNAME,
+                password: this.DB_PASSWORD,
+            });
+            try {
+                const sql = `CREATE DATABASE IF NOT EXISTS \`${this.dbName}\``;
+                await conn.execute(sql);
+            } finally {
+                try {
+                    await conn.end();
+                } catch {
+                    // ignore
+                }
+            }
             console.log(`Database ${this.dbName} created or already exists`);
         } catch (err) {
             console.error('Error creating database:', err);
@@ -76,8 +129,22 @@ class DatabaseHandler {
 
     async dropDB() {
         try {
-            const sql = `DROP DATABASE IF EXISTS \`${this.dbName}\``;
-            await this.dbConnection.execute(sql);
+            const conn = await createConnection({
+                host: this.DB_HOST,
+                port: this.DB_PORT,
+                user: this.DB_USERNAME,
+                password: this.DB_PASSWORD,
+            });
+            try {
+                const sql = `DROP DATABASE IF EXISTS \`${this.dbName}\``;
+                await conn.execute(sql);
+            } finally {
+                try {
+                    await conn.end();
+                } catch {
+                    // ignore
+                }
+            }
             console.log(`Database ${this.dbName} dropped`);
         } catch (err) {
             console.error('Error dropping database:', err);

@@ -18,7 +18,7 @@ class GenresController extends Controller {
      * @returns {Array} - ["message": string, "id": int]
      */
     async create(data) {
-        super.create();
+        await super.create();
 
         const query = 'INSERT INTO `genres` (genre) VALUES (?)';
         const values = [data.genre];
@@ -38,7 +38,7 @@ class GenresController extends Controller {
      * @returns
      */
     async update(id, data) {
-        super.update();
+        await super.update();
 
         const query = 'UPDATE `genres` SET genre = ? WHERE id = ?;';
         const values = [data.genre, id];

@@ -20,7 +20,7 @@ class GamesGenresConnnectionController extends Controller {
      * @returns
      */
     async create(data) {
-        super.create();
+        await super.create();
 
         var foreignKeyCheck = await this.#checkForeignKeys(data);
         if (foreignKeyCheck instanceof Error) {
@@ -45,7 +45,7 @@ class GamesGenresConnnectionController extends Controller {
      * @returns
      */
     async update(id, data) {
-        super.update();
+        await super.update();
 
         var foreignKeyCheck = await this.#checkForeignKeys(data);
         if (foreignKeyCheck instanceof Error) {
