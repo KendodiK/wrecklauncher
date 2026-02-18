@@ -55,6 +55,11 @@ class GenresController extends Controller {
         }
     }
 
+    /**
+     * Checks if genre already exists in the database
+     * @param {string} genre - Genre in question
+     * @returns {int || error} id - the id if its in the database
+     */
     async getByGenre(genre) {
         await this.waitForConnection();
         await this.selectDatabase();

@@ -30,8 +30,34 @@ app.use(cors());
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-app.listen(PORT, () => {
-   console.log(`Proxy server running at http://localhost:${PORT}`);
+// Global error handlers to avoid silent exits
+process.on('uncaughtException', (err) => {
+  console.error('uncaughtException:', err);
+});
+process.on('unhandledRejection', (reason, p) => {
+  console.error('unhandledRejection at:', p, 'reason:', reason);
+});
+
+// Start server and attach listeners for better diagnostics
+const server = app.listen(PORT, () => {
+  console.log(`Proxy server running at http://localhost:${PORT}`);
+});
+
+server.on('error', (err) => {
+  console.error('Server error:', err);
+});
+
+server.on('listening', () => {
+  try {
+    const addr = server.address();
+    if (typeof addr === 'string') {
+      console.log('Server listening on', addr);
+    } else {
+      console.log('Server listening on', `${addr.address}:${addr.port}`);
+    }
+  } catch (err) {
+    console.error('Error retrieving server address:', err);
+  }
 });
 
 
@@ -176,10 +202,6 @@ app.get("/api/games/:id/all", async (req, res) => {
     const gamesGenresCtrl = new gamesGenresConnnectionController();
     const gameGenres = await gamesGenresCtrl.getByGameId(gameId);
     game.genres = gameGenres;
-
-    const platformCtrl = new platformsController();
-    const platform = platformCtrl.show(game.platform_id);
-    game.platfrom = platform; //ennek így nem kéne működnie tesztelés needed !!!
 
     return res.json(game);
   } catch (err) {

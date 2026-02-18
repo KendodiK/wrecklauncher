@@ -188,10 +188,11 @@ class GamesController extends Controller {
                             g.description, 
                             g.minimum_requirements, 
                             g.cost, 
+                            g.platform_id,
                             p.platform_name AS platform  
                     FROM ${this.tableName} AS g
-                    JOIN platforms AS p ON g.platform_id = p.id;
-                    WHERE g.id = ?`;
+                    JOIN platforms AS p ON g.platform_id = p.id
+                    WHERE g.id = ?;`;
 
         try {
             const [rows] = await this.dbConnection.execute(query, [game_id]);
