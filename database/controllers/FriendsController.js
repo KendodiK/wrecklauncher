@@ -1,5 +1,4 @@
 const Controller = require("./Controller");
-const NativeUsersController = require("./NativeUsersController");
 
 class FriendsController extends Controller {
     constructor() { 
@@ -21,7 +20,7 @@ class FriendsController extends Controller {
      * @return {Array} - ["message": string, "id": int] if created, ["message": string] if friendship already exists
      */
     async create(data) {
-        super.create();
+        await super.create();
 
         var foreignKeyCheck = await this.#checkForeignKeys(data);
         if (foreignKeyCheck instanceof Error) {
@@ -59,7 +58,7 @@ class FriendsController extends Controller {
      * @param {Array} data - ["user1_id" = native_users.id, "user2_id" = native_users.id ]
      */
     async update(id, data) {
-        super.update();
+        await super.update();
         
         var foreignKeyCheck = await this.#checkForeignKeys(data);
         if (foreignKeyCheck instanceof Error) {
@@ -106,15 +105,28 @@ class FriendsController extends Controller {
         }
     }
 
-    async #checkForeignKeys(data) { 
-        var nativeUsersController = new NativeUsersController();
+    async #checkForeignKeys(data) {
+        await this.waitForConnection();
+        await this.selectDatabase();
 
-        if (!await nativeUsersController.show(data.user1_id)) {
-            return new Error("Invalid user1_id: " + data.user1_id);
+        try {
+            const [rows1] = await this.dbConnection.execute('SELECT id FROM native_users WHERE id = ?', [data.user1_id]);
+            if (!rows1 || rows1.length === 0) {
+                return new Error("Invalid user1_id: " + data.user1_id);
+            }
+        } catch (err) {
+            console.error(`Error while checking user1_id ${data.user1_id}: ${err}`);
+            throw err;
         }
 
-        if (!await nativeUsersController.show(data.user2_id)) {
-            return new Error("Invalid user2_id: " + data.user2_id);
+        try {
+            const [rows2] = await this.dbConnection.execute('SELECT id FROM native_users WHERE id = ?', [data.user2_id]);
+            if (!rows2 || rows2.length === 0) {
+                return new Error("Invalid user2_id: " + data.user2_id);
+            }
+        } catch (err) {
+            console.error(`Error while checking user2_id ${data.user2_id}: ${err}`);
+            throw err;
         }
 
         return true;

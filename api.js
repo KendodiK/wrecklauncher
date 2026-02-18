@@ -149,7 +149,6 @@ app.get("/api/games/:id", async (req, res) => { //nem biztos hogy kell használn
   }
 });
 
-
 /*
   route: /api/games/:id
   params: games.id
@@ -222,7 +221,6 @@ app.get("/api/friends/:nativeUserId", async (req, res) => {
       return res.status(500).json({ error: err.message });
   } 
 });
-
 
 /*
   route: /api/nativeUser/
@@ -375,7 +373,8 @@ app.post("/api/games", tokenValidate(), async (req, res) => {
   try {
     const gameCtrl = new gamesController();
     const gameId = await gameCtrl.getGameIdByAppId(req.body.app_id);
-    if (gameId) {
+    let err = gameId instanceof Error;
+    if (!err) {
       return res.status(400).json({ message: 'Game with the same app_id already exists', gameId: gameId });
     }
   } catch (error) {
@@ -464,6 +463,9 @@ app.put("/api/login", tokenValidate(), async (req, res) => {
     const { userId } = req.auth;
     const nativeUserCtrl = new nativeUserController();
     const updatedUser = await nativeUserCtrl.update(userId, req.body);
+    if (updatedUser instanceof Error) {
+      return res.status(400).json({ message: updatedUser.message });
+    }
     return res.json(updatedUser);
   } catch (error) {
     console.error('Error in /api/nativeUser/:id endpoint:', error);
@@ -504,6 +506,9 @@ app.put("/api/games/:id", async (req, res) => {
 
     const gamesCtrl = new gamesController();
     const updatedGame = gamesCtrl.update(gameId, gameData);
+    if (updatedGame instanceof Error) {
+      return res.status(400).json({ message: updatedGame.message });
+    }
     return res.json(updatedGame);
   } catch (err) {
     console.error('Error in /api/games/:id endpoint:', error);
@@ -521,7 +526,7 @@ app.put("/api/games/:id", async (req, res) => {
 
   returns: 
     {
-      
+      message
     }
 */
 app.delete("/api/friends/:friendShipId", tokenValidate(), async (req, res) => {

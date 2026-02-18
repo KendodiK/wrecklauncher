@@ -22,7 +22,7 @@ class GamesController extends Controller {
      * @returns {Array} - ["message": string, "id": int]
      */
     async create(data) {
-        super.create();
+        await super.create();
 
         let foreignKeyCheck = await this.#checkForeignKeys(data);
         if (foreignKeyCheck instanceof Error) {
@@ -33,7 +33,7 @@ class GamesController extends Controller {
         const values = [data.app_id, data.platform_id, data.name, data.banner_img ?? "", data.description ?? "", data.minimum_requirements ?? "", data.cost ?? 0.0];
         try {
             const [result] = await this.dbConnection.execute(query, values);
-            return { message: `${result.id} Element created in table ${this.tableName}`, id: result.id };
+            return { message: `${result.insertId} Element created in table ${this.tableName}`, id: result.insertId };
         } catch (err) {
             console.error(`Error while adding new element to table ${this.tableName}: ${err}`);
             throw err;
@@ -46,7 +46,7 @@ class GamesController extends Controller {
      * @returns {Array} - ["message": string]
      */
     async update(id, data) {
-        super.update();
+        await super.update();
 
         let foreignKeyCheck = await this.#checkForeignKeys(data);
         if (foreignKeyCheck instanceof Error) {
@@ -94,30 +94,51 @@ class GamesController extends Controller {
      * @param {Array} genre_names - [ genre.name, ... ] names for the genres which do not exist yet.
      * @returns {Array} - ["message": string, "id": int]
      */
-    async uploadWithAll(data, genre_ids = null, genre_names = null) {
+    async uploadWithAll(data, genre_ids, genre_names) {
+        if (data.platform_id == null && data.platform_name == null) {
+            return new Error("Can't upload game, no platform id or name given");
+        }
         if (data.platform_id == null && data.platform_name != null) {
             const platformsController = new PlatformsController();
             const platform = await platformsController.create({ "name": data.platform_name });
+            if(platform instanceof Error) {
+                throw platform;
+            }
             data.platform_id = platform.id;
         }
+
         let created_genre_ids = [];
-        if (genre_names != null) {
+        if (genre_names != null && Array.isArray(genre_names) && genre_names.length > 0) {
             const genresController = new GenresController();
-            for (const genre_name of data.genre_names) {
+            for (const genre_name of genre_names) {
                 const genre = await genresController.create({ "genre": genre_name });
+                if (genre instanceof Error) {
+                    throw genre;
+                }
                 created_genre_ids.push(genre.id);
             }
-            genre_ids.push.apply(genre_ids, created_genre_ids);
         }
+
         const game = await this.create(data);
         data.id = game.id;
 
-        if (genre_ids != null || created_genre_ids.length > 0) {
-            created_genre_ids.push.apply(created_genre_ids, genre_ids);
+        const all_genre_ids = Array.isArray(genre_ids) && genre_ids.length > 0 ? genre_ids : [];
+        if (Array.isArray(created_genre_ids) && created_genre_ids.length > 0) {
+            for (const new_id of created_genre_ids) {
+                console.log(new_id.id);
+                all_genre_ids.push(new_id.id);
+            }
+        }
+        console.log(all_genre_ids);
+
+        if (all_genre_ids.length > 0) {
             const gamesGenresController = new GamesGenresConnectionController();
-            for (const genre_id of created_genre_ids) {
-                await gamesGenresController.create({ "game_id": data.id, "genre_id": genre_id });
-            } 
+            for (const genre_id of all_genre_ids) {
+                let conn = await gamesGenresController.create({ "game_id": game.id, "genre_id": genre_id });
+                if (conn instanceof Error) {
+                    throw conn;
+                }
+            }
         }
         return game;
     }
@@ -134,7 +155,7 @@ class GamesController extends Controller {
         const query = `SELECT id FROM ${this.tableName} WHERE app_id = ?;`;
         try {
             const [rows] = await this.dbConnection.execute(query, [app_id]);
-            return rows[0]?.id ?? null;
+            return rows[0].id;
         } catch (err) {
             console.error(`Error while fetching game id by app_id from table ${this.tableName}: ${err}`);
             throw err;
@@ -182,10 +203,17 @@ class GamesController extends Controller {
     }
 
     async #checkForeignKeys(data) {
-        const platformsController = new PlatformsController();
+        await this.waitForConnection();
+        await this.selectDatabase();
 
-        if (await platformsController.show(data.platform_id) instanceof Error) { 
-            return new Error("Invalid platform id: " + data.platform_id);
+        try {
+            const [rows] = await this.dbConnection.execute('SELECT id FROM platforms WHERE id = ?', [data.platform_id]);
+            if (!rows || rows.length === 0) {
+                return new Error("Invalid platform id: " + data.platform_id);
+            }
+        } catch (err) {
+            console.error(`Error while checking platform id ${data.platform_id}: ${err}`);
+            throw err;
         }
 
         return true;

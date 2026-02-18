@@ -1,8 +1,8 @@
 const Controller = require('./Controller');
-const GenresController = require('./GenresController');
-const GamesController = require('./GamesController');
 
 class GamesGenresConnnectionController extends Controller {
+    
+
     constructor() {
         super('games_genres_connections');
     }
@@ -20,18 +20,19 @@ class GamesGenresConnnectionController extends Controller {
      * @returns
      */
     async create(data) {
-        super.create();
+        await super.create();
 
-        var foreignKeyCheck = await this.#checkForeignKeys(data);
+        let foreignKeyCheck = await this.#checkForeignKeys(data);
         if (foreignKeyCheck instanceof Error) {
             throw foreignKeyCheck;
         }
 
+        console.log(data.game_id, data.genre_id);
         const query = 'INSERT INTO `games_genres_connections` (game_id, genre_id) VALUES (?, ?)';
-        var values = [data.game_id, data.genre_id];
+        let values = [data.game_id, data.genre_id];
         try {
             const [result] = await this.dbConnection.execute(query, values);
-            return { message: `${result.id} Element created in table ${this.tableName}` };
+            return { message: `${result.insertId} Element created in table ${this.tableName}`, id: result.insertId };
         }
         catch (err) {
             console.error(`Error while adding new element to table ${this.tableName}: ${err}`);
@@ -45,17 +46,17 @@ class GamesGenresConnnectionController extends Controller {
      * @returns
      */
     async update(id, data) {
-        super.update();
+        await super.update();
 
-        var foreignKeyCheck = await this.#checkForeignKeys(data);
+        let foreignKeyCheck = await this.#checkForeignKeys(data);
         if (foreignKeyCheck instanceof Error) {
             throw foreignKeyCheck;
         }
 
-        var old = await this.show(id);
+        let old = await this.show(id);
 
         const query = 'UPDATE `games_genres_connections` SET game_id = ?, genre_id = ? WHERE id = ?;';
-        var values = [
+        let values = [
             data.game_id ?? old.game_id, 
             data.genre_id ?? old.genre_id, 
             id ]; 
@@ -80,7 +81,7 @@ class GamesGenresConnnectionController extends Controller {
 	                JOIN games AS gam on ggc.game_id = gam.id
                     JOIN genres AS gen ON ggc.genre_id = gen.id
                     WHERE ggc.game_id = ?;`;
-        var values = [gameId];
+        let values = [gameId];
         try {
             const [rows] = await this.dbConnection.execute(query, values);
             return rows;
@@ -91,15 +92,28 @@ class GamesGenresConnnectionController extends Controller {
     }
 
     async #checkForeignKeys(data) {
-        const gamesController = new GamesController();
-        const genresController = new GenresController();
+        await this.waitForConnection();
+        await this.selectDatabase();
 
-        if (await gamesController.show(data.game_id) instanceof Error) { 
-            return new Error("Invalid game id: " + data.game_id);
+        try {
+            const [gameRows] = await this.dbConnection.execute('SELECT id FROM games WHERE id = ?', [data.game_id]);
+            if (!gameRows || gameRows.length === 0) {
+                return new Error("Invalid game id: " + data.game_id);
+            }
+        } catch (err) {
+            console.error(`Error while checking game id ${data.game_id}: ${err}`);
+            throw err;
         }
 
-        if (await genresController.show(data.genre_id) instanceof Error) {
-            return new Error("Invalid genre id: " + data.genre_id);
+        console.log(data);
+        try {
+            const [genreRows] = await this.dbConnection.execute('SELECT id FROM genres WHERE id = ?', [data.genre_id]);
+            if (!genreRows || genreRows.length === 0) {
+                return new Error("Invalid genre id: " + data.genre_id);
+            }
+        } catch (err) {
+            console.error(`Error while checking genre id ${data.genre_id}: ${err}`);
+            throw err;
         }
 
         return true;

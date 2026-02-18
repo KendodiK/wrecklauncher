@@ -31,7 +31,8 @@ app.listen(PORT, () => {
 //tryCreateNativeUser(); --- IGNORE ---
 //tryGetNativeUser();
 //tryChangeNativeUser('be70909f-fac1-11f0-a4d3-68f728710017');
-tryUploadGame();
+//tryUploadGame();
+tryUploadGameWithAll();
 
 function generateDB() {
     let databaseHandler = new DatabaseHandler();
@@ -105,6 +106,30 @@ async function tryUploadGame() {
     try {
         let gameCntr = new GameController();
         let res = gameCntr.create(gameData)
+        console.log(res.message ?? "stg went wrong check db");
+    } catch (err) {
+        console.error('Error in creating game:', err instanceof Error ? err.message : String(err));
+    }
+}
+
+async function  tryUploadGameWithAll() {
+    let gameData = {
+        "app_id": 2222,
+        "platform_id": 1,
+        "name": "testGame",
+        "banner_img": "https://...",
+        "description": "blaaa blaaa blaaa test desc",
+        "minimum_requirements": "testreq1: 200 ap,\ntestreq2: 21iD",
+        "cost": 12.50,
+    }
+
+    let genres = [
+        "Shooter", "FPS", "Action"
+    ]
+
+    try {
+        let gameCntr = new GameController();
+        let res = gameCntr.uploadWithAll(gameData, null, genres)
         console.log(res.message ?? "stg went wrong check db");
     } catch (err) {
         console.error('Error in creating game:', err instanceof Error ? err.message : String(err));

@@ -1,6 +1,4 @@
 const Controller = require('./Controller');
-const NativeUsersController = require('./NativeUsersController');
-const PlatformsController = require('./PlatformsController');
 
 class PlatformUsersController extends Controller {
     constructor() {
@@ -129,15 +127,27 @@ class PlatformUsersController extends Controller {
     
 
     async #checkForeignKeys(data) {
-        var nativeUsersController = new NativeUsersController();
-        var platformsController = new PlatformsController();
+        await this.waitForConnection();
+        await this.selectDatabase();
 
-        if (!await nativeUsersController.show(data.native_user_id)) {
-            return new Error("Invalid native user id: " + data.native_user_id);
+        try {
+            const [userRows] = await this.dbConnection.execute('SELECT id FROM native_users WHERE id = ?', [data.native_user_id]);
+            if (!userRows || userRows.length === 0) {
+                return new Error("Invalid native user id: " + data.native_user_id);
+            }
+        } catch (err) {
+            console.error(`Error while checking native_user_id ${data.native_user_id}: ${err}`);
+            throw err;
         }
 
-        if (!await platformsController.show(data.platform_id)) {
-            return new Error("Invalid platform id: " + data.platform_id);
+        try {
+            const [platRows] = await this.dbConnection.execute('SELECT id FROM platforms WHERE id = ?', [data.platform_id]);
+            if (!platRows || platRows.length === 0) {
+                return new Error("Invalid platform id: " + data.platform_id);
+            }
+        } catch (err) {
+            console.error(`Error while checking platform_id ${data.platform_id}: ${err}`);
+            throw err;
         }
 
         return true;
