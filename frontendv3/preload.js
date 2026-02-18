@@ -19,6 +19,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSteamGameDetails: (appID, cc) => ipcRenderer.invoke('steam:get-game-details', appID, cc),
   getSteamGameDetailsAndUpload: (appID, cc) => ipcRenderer.invoke('steam:get-game-details-and-upload', appID, cc),
   getEpicInstalledGames: () => ipcRenderer.invoke('epic:get-installed-games'),
+
+  // GamesController
+  getAllDetailsByID: (id) => ipcRenderer.invoke('games:get-all-details-by-id', id),
 });
 
 // Optional legacy-style alias used by some code paths

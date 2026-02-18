@@ -127,33 +127,45 @@ export async function runSmokeControllers() {
   // }
 
   // Optional: platform/owned games (requires you to set a real Steam username)
-  const steamUsername = (import.meta?.env?.VITE_SMOKE_STEAM_USERNAME || 'freshargentinaccount69912').trim();
-  if (steamUsername) {
-    try {
-      const id = await api.getPlatformUserID('steam', steamUsername);
-      // log('platformUserID', id);
-    } catch (e) {
-      warn('getPlatformUserID', e);
-    }
+//   const steamUsername = (import.meta?.env?.VITE_SMOKE_STEAM_USERNAME || 'freshargentinaccount69912').trim();
+//   if (steamUsername) {
+//     try {
+//       const id = await api.getPlatformUserID('steam', steamUsername);
+//       // log('platformUserID', id);
+//     } catch (e) {
+//       warn('getPlatformUserID', e);
+//     }
 
+//     try {
+//       const owned = await api.getOwnedGamesFromSteam(steamUsername);
+// //      log('ownedGamesFromSteam (first x)', owned);
+//       for(const game of owned){
+//         try {
+//           const details = await api.getSteamGameDetails(game.appid, 'us');
+//           log(`steamDetails ${game.appid}`, details);
+//         } catch (e) {
+//           warn(`getSteamGameDetails ${game.appid}`, e);
+//         }
+//       }
+//     } catch (e) {
+//       warn('getOwnedGamesFromSteam', e);
+//     }
+//   } else {
+//     lines.push('== ownedGamesFromSteam ==\nSkipped (set VITE_SMOKE_STEAM_USERNAME)');
+//   }
+
+  // GamesController.getAllDetailsByID (optional)
+  const smokeGameIdRaw = String(3595230).trim();
+  if (smokeGameIdRaw) {
     try {
-      const owned = await api.getOwnedGamesFromSteam(steamUsername);
-//      log('ownedGamesFromSteam (first x)', owned);
-      for(const game of owned){
-        try {
-          const details = await api.getSteamGameDetails(game.appid, 'us');
-          log(`steamDetails ${game.appid}`, details);
-        } catch (e) {
-          warn(`getSteamGameDetails ${game.appid}`, e);
-        }
-      }
+      const details = await api.getAllDetailsByID(Number(smokeGameIdRaw));
+      log(`getAllDetailsByID ${smokeGameIdRaw}`, details);
     } catch (e) {
-      warn('getOwnedGamesFromSteam', e);
+      warn(`getAllDetailsByID ${smokeGameIdRaw}`, e);
     }
   } else {
-    lines.push('== ownedGamesFromSteam ==\nSkipped (set VITE_SMOKE_STEAM_USERNAME)');
+    lines.push('== getAllDetailsByID ==\nSkipped (set VITE_SMOKE_GAME_ID)');
   }
-  // getAllDetailsByID is not exposed via preload/electronAPI.
 
   // Optional upload pipeline
   // const doUpload = String(import.meta?.env?.VITE_SMOKE_UPLOAD || '') === '1';

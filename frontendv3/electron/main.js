@@ -157,6 +157,11 @@ app.whenReady().then(() => {
     return await getSteamCtrl().getGamesDetails(token, Number(appID), cc ? String(cc) : undefined);
   });
 
+  // Game DB details (requires backend support)
+  handleAuthed('games:get-all-details-by-id', async ({ token }, id) => {
+    return await getGamesCtrl().getAllDetailsByID(token, Number(id));
+  });
+
   handle('epic:get-installed-games', async () => {
     return await getEpicCtrl().getInstalledGames();
   });

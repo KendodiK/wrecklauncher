@@ -190,7 +190,7 @@ class SteamGamesController extends GamesController {
         genre_names: genreNames,
       });
 
-      if (!uploadResult || uploadResult.ok !== true) {
+      if (!uploadResult || uploadResult.ok !== true || uploadResult.statusCode !== 400) {
         const msg = uploadResult?.rawText || uploadResult?.response?.error || uploadResult?.response?.message || 'Unknown error';
         throw new Error(`Game upload failed (HTTP ${uploadResult?.statusCode ?? 0}): ${String(msg).slice(0, 300)}`);
       }
