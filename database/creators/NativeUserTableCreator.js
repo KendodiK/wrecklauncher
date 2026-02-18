@@ -10,10 +10,9 @@ class NativeUserTableCreator extends DatabaseHandler {
     async init() {
         await this.waitForConnection();
         await this.selectDatabase();
-        await this.createNativeUserTable();
     }
 
-    async createNativeUserTable() {
+    async create() {
         const query = `
             CREATE TABLE IF NOT EXISTS native_users(
                 id UUID DEFAULT UUID() PRIMARY KEY,
@@ -30,6 +29,16 @@ class NativeUserTableCreator extends DatabaseHandler {
             console.log("'Native users' table created or already exists.");
         } catch (err) {
             console.error("Error creating native users table:", err);
+        }
+    }
+
+    async delete() {
+        const query = `DROP TABLE native_users`
+        try {
+            await this.dbConnection.execute(query);
+            console.log("'native_users' table deleted!");
+        } catch (err) {
+            console.error("Error while deleting 'native_users' table:", err);
         }
     }
 }

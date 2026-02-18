@@ -9,10 +9,9 @@ class GamesPirateSitesConnectionTableCreator extends DatabaseHandler {
     async init() {
         await this.waitForConnection();
         await this.selectDatabase();
-        await this.createGamesPirateSitesConnectionTable();
     }
 
-    async createGamesPirateSitesConnectionTable() {
+    async create() {
         const query = `
             CREATE TABLE IF NOT EXISTS game_pirates_sites_connections (
             game_id SMALLINT NOT NULL, INDEX(game_id),
@@ -25,6 +24,16 @@ class GamesPirateSitesConnectionTableCreator extends DatabaseHandler {
             console.log("'Games-pirate sites connection' table created or already exists.");
         } catch (err) {
             console.error("Error creating games-pirate sites connection table:", err);
+        }
+    }
+
+        async delete() {
+        const query = `DROP TABLE game_pirates_sites_connections`
+        try {
+            await this.dbConnection.execute(query);
+            console.log("'game_pirates_sites_connections' table deleted!");
+        } catch (err) {
+            console.error("Error while deleting 'game_pirates_sites_connections' table:", err);
         }
     }
 }

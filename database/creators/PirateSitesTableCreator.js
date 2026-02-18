@@ -9,10 +9,9 @@ class PirateSitesTableCreator extends DatabaseHandler {
     async init() {
         await this.waitForConnection();
         await this.selectDatabase();
-        await this.createPirateSites();
     }
 
-    async createPirateSites() {
+    async create() {
         const query = `
             CREATE TABLE IF NOT EXISTS pirate_sites(
                 id TINYINT AUTO_INCREMENT PRIMARY KEY,
@@ -24,6 +23,16 @@ class PirateSitesTableCreator extends DatabaseHandler {
             console.log("'Pirate sites' table created or already exists.");
         } catch (err) {
             console.error("Error creating pirate sites table:", err);
+        }
+    }
+
+    async delete() {
+        const query = `DROP TABLE pirate_sites`
+        try {
+            await this.dbConnection.execute(query);
+            console.log("'pirate_sites' table deleted!");
+        } catch (err) {
+            console.error("Error while deleting 'pirate_sites' table:", err);
         }
     }
 }

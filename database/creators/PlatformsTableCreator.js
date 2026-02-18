@@ -9,10 +9,9 @@ class PlatformsTableCreator extends DatabaseHandler {
     async init() {
         await this.waitForConnection();
         await this.selectDatabase();
-        await this.createPlatformsTable();
     }
 
-    async createPlatformsTable() {
+    async create() {
         const query = `
             CREATE TABLE IF NOT EXISTS platforms(
                 id TINYINT AUTO_INCREMENT PRIMARY KEY,
@@ -24,6 +23,16 @@ class PlatformsTableCreator extends DatabaseHandler {
             console.log("'Platforms' table created or already exists.");
         } catch (err) {
             console.error("Error creating platforms table:", err);
+        }
+    }
+
+    async delete() {
+        const query = `DROP TABLE platforms`
+        try {
+            await this.dbConnection.execute(query);
+            console.log("'platforms' table deleted!");
+        } catch (err) {
+            console.error("Error while deleting 'platforms' table:", err);
         }
     }
 }

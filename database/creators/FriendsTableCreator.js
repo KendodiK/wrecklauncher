@@ -9,10 +9,9 @@ class FriendsTableCreator extends DatabaseHandler {
     async init() {
         await this.waitForConnection();
         await this.selectDatabase();
-        await this.createFriendsTable();
     }
 
-    async createFriendsTable() {
+    async create() {
         const query = `
             CREATE TABLE IF NOT EXISTS friends(
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -25,6 +24,16 @@ class FriendsTableCreator extends DatabaseHandler {
             console.log("'Friends' table created or already exists.");
         } catch (err) {
             console.error("Error creating friends table:", err);
+        }
+    }
+
+    async delete() {
+        const query = `DROP TABLE friends`
+        try {
+            await this.dbConnection.execute(query);
+            console.log("'friends' table deleted!");
+        } catch (err) {
+            console.error("Error while deleting 'friends' table:", err);
         }
     }
 }

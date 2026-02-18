@@ -11,7 +11,7 @@ class ChatsTableCreator extends DatabaseHandler {
         await this.selectDatabase();
     }
 
-    async createChatsTable() {
+    async create() {
         const query = `
             CREATE TABLE IF NOT EXISTS chats (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -28,7 +28,7 @@ class ChatsTableCreator extends DatabaseHandler {
         }
     }
 
-    async deleteChatsTable() {
+    async delete() {
         const query = `DROP TABLE chats`
         try {
             await this.dbConnection.execute(query);

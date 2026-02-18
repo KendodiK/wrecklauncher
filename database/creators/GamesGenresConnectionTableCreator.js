@@ -9,10 +9,9 @@ class GamesGenresConnectionTableCreator extends DatabaseHandler {
     async init() {
         await this.waitForConnection();
         await this.selectDatabase();
-        await this.createGamesGenresConnectionTable();
     }
 
-    async createGamesGenresConnectionTable() {
+    async create() {
         const query = `
             CREATE TABLE IF NOT EXISTS games_genres_connections (
                 game_id INT NOT NULL, INDEX(game_id),
@@ -25,6 +24,16 @@ class GamesGenresConnectionTableCreator extends DatabaseHandler {
             console.log("'Games-genres connection' table created or already exists.");
         } catch (err) {
             console.error("Error creating games-genres table table:", err);
+        }
+    }
+
+    async delete() {
+        const query = `DROP TABLE games_genres_connection_table`
+        try {
+            await this.dbConnection.execute(query);
+            console.log("'games_genres_connection_table' table deleted!");
+        } catch (err) {
+            console.error("Error while deleting 'games_genres_connection_table' table:", err);
         }
     }
 }

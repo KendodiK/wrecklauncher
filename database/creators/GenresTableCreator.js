@@ -9,10 +9,9 @@ class GenresTableCreator extends DatabaseHandler {
     async init() {
         await this.waitForConnection();
         await this.selectDatabase();
-        await this.createGenresTable();
     }
 
-    async createGenresTable() {
+    async create() {
         const query = `
             CREATE TABLE IF NOT EXISTS genres(
                 id SMALLINT AUTO_INCREMENT PRIMARY KEY,
@@ -24,6 +23,16 @@ class GenresTableCreator extends DatabaseHandler {
             console.log("'Genres table' created or already exists.");
         } catch (err) {
             console.error("Error creating genres table:", err);
+        }
+    }
+
+    async delete() {
+        const query = `DROP TABLE genres`
+        try {
+            await this.dbConnection.execute(query);
+            console.log("'genres' table deleted!");
+        } catch (err) {
+            console.error("Error while deleting 'genres' table:", err);
         }
     }
 }

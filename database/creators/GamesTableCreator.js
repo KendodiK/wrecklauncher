@@ -9,10 +9,9 @@ class GamesTableCreator extends DatabaseHandler {
     async init() {
         await this.waitForConnection();
         await this.selectDatabase();
-        await this.createGamesTable();
     }
 
-    async createGamesTable() {
+    async create() {
         const query = `
             CREATE TABLE IF NOT EXISTS games (
                 id SMALLINT AUTO_INCREMENT PRIMARY KEY,
@@ -30,6 +29,16 @@ class GamesTableCreator extends DatabaseHandler {
             console.log("'Games table' created or already exists.");
         } catch (err) {
             console.error("Error creating games table:", err);
+        }
+    }
+
+    async delete() {
+        const query = `DROP TABLE games`
+        try {
+            await this.dbConnection.execute(query);
+            console.log("'games' table deleted!");
+        } catch (err) {
+            console.error("Error while deleting 'games' table:", err);
         }
     }
 }
