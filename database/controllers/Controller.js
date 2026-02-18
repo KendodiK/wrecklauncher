@@ -60,6 +60,6 @@ class Controller extends DatabaseHandler {
             throw err;
         }
     }
-} 
+}
 
 module.exports = Controller;

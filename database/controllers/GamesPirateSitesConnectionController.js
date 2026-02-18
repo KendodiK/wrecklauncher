@@ -1,6 +1,5 @@
 const Controller = require('./Controller');
-const GamesController = require('./GamesController');
-const PirateSitesController = require('./PirateSitesController');
+// Validate via DB queries to avoid circular controller requires
 
 class GamesPirateSitesConncectionController extends Controller {
     constructor() {
@@ -23,7 +22,7 @@ class GamesPirateSitesConncectionController extends Controller {
     async create(data) {
         await super.create();
 
-        var foreignKeyCheck = await this.#checkForeignKeys(data);
+        let foreignKeyCheck = await this.#checkForeignKeys(data);
         if (foreignKeyCheck instanceof Error) {
             throw foreignKeyCheck;
         }
@@ -32,7 +31,7 @@ class GamesPirateSitesConncectionController extends Controller {
         const values = [data.game_id, data.pirate_site_id, data.link];
         try {
             const [result] = await this.dbConnection.execute(query, values);
-            return { message: `${result.id} Element created in table ${this.tableName}` };
+            return { message: `${result.insertId} Element created in table ${this.tableName}`, id: result.insertId };
         } catch (err) {
             console.error(`Error while adding new element to table ${this.tableName}: ${err}`);
             throw err;
@@ -47,12 +46,12 @@ class GamesPirateSitesConncectionController extends Controller {
     async update(id, data) {
         await super.update();
 
-        var foreignKeyCheck = await this.#checkForeignKeys(data);
+        let foreignKeyCheck = await this.#checkForeignKeys(data);
         if (foreignKeyCheck instanceof Error) {
             throw foreignKeyCheck;
         }
 
-        var old = await this.show(id);
+        let old = await this.show(id);
 
         const query = 'UPDATE `game_pirates_sites_connections` SET game_id = ?, pirate_site_id = ?, link = ? WHERE id = ?;';
         const values = [
@@ -75,15 +74,27 @@ class GamesPirateSitesConncectionController extends Controller {
     }
 
     async #checkForeignKeys(data) {
-        var gamesController = new GamesController();
-        var pirateSitesController = new PirateSitesController();
+        await this.waitForConnection();
+        await this.selectDatabase();
 
-        if (await gamesController.show(data.game_id) instanceof Error) {
-            return new Error("Invalid game id: " + data.game_id);
+        try {
+            const [gameRows] = await this.dbConnection.execute('SELECT id FROM games WHERE id = ?', [data.game_id]);
+            if (!gameRows || gameRows.length === 0) {
+                return new Error("Invalid game id: " + data.game_id);
+            }
+        } catch (err) {
+            console.error(`Error while checking game id ${data.game_id}: ${err}`);
+            throw err;
         }
 
-        if (await pirateSitesController.show(data.pirate_site_id) instanceof Error) {
-            return new Error("Invalid pirate site id: " + data.pirate_site_id);
+        try {
+            const [siteRows] = await this.dbConnection.execute('SELECT id FROM pirate_sites WHERE id = ?', [data.pirate_site_id]);
+            if (!siteRows || siteRows.length === 0) {
+                return new Error("Invalid pirate site id: " + data.pirate_site_id);
+            }
+        } catch (err) {
+            console.error(`Error while checking pirate_site_id ${data.pirate_site_id}: ${err}`);
+            throw err;
         }
 
         return true;

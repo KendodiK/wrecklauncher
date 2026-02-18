@@ -1,6 +1,4 @@
 const Controller = require("./Controller");
-const FriendsController = require("./FriendsController");
-const NativeUsersController = require("./NativeUsersController");
 
 class ChatsController extends Controller {
     constructor() { 
@@ -82,8 +80,8 @@ class ChatsController extends Controller {
      * @returns {Array} The previous chats between that two people
      */
     async getByFriedsId(friendsId, from) {
-        await this.waitForConnection;
-        await this.selectDatabase;
+        await this.waitForConnection();
+        await this.selectDatabase();
 
         const query = 'SELECT * FROM `chats` WHERE friends_id = ? ORDER BY id  LIMIT 10 OFFSET ?;' //10 can be changed later to any number
 
@@ -95,16 +93,28 @@ class ChatsController extends Controller {
         }
     }
 
-    async #checkForeignKeys(data) { 
-        var friendsController = new FriendsController();
-        var nativeUsersController = new NativeUsersController();
+    async #checkForeignKeys(data) {
+        await this.waitForConnection();
+        await this.selectDatabase();
 
-        if (!await friendsController.show(data.friends_id)) {
-            return new Error("Invalid friends_id: " + data.friends_id);
+        try {
+            const [friendsRows] = await this.dbConnection.execute('SELECT id FROM friends WHERE id = ?', [data.friends_id]);
+            if (!friendsRows || friendsRows.length === 0) {
+                return new Error("Invalid friends_id: " + data.friends_id);
+            }
+        } catch (err) {
+            console.error(`Error while checking friends_id ${data.friends_id}: ${err}`);
+            throw err;
         }
 
-        if (!await nativeUsersController.show(data.sender_id)) {
-            return new Error("Invalid sender_id: " + data.sender_id);
+        try {
+            const [userRows] = await this.dbConnection.execute('SELECT id FROM native_users WHERE id = ?', [data.sender_id]);
+            if (!userRows || userRows.length === 0) {
+                return new Error("Invalid sender_id: " + data.sender_id);
+            }
+        } catch (err) {
+            console.error(`Error while checking sender_id ${data.sender_id}: ${err}`);
+            throw err;
         }
 
         return true;

@@ -20,16 +20,20 @@ class GenresController extends Controller {
     async create(data) {
         await super.create();
 
-        const query = 'INSERT INTO `genres` (genre) VALUES (?)';
-        const values = [data.genre];
-        try {
-            const [result] = await this.dbConnection.execute(query, values);
-            return { message: `${result.insertId} Element created in table ${this.tableName}`, id: result.insertId };
+        let id = await this.getByGenre(data.genre);
+        if(id instanceof Error) {
+            const query = 'INSERT INTO `genres` (genre) VALUES (?)';
+            const values = [data.genre];
+            try {
+                const [result] = await this.dbConnection.execute(query, values);
+                return { message: `${result.insertId} Element created in table ${this.tableName}`, id: result.insertId };
+            }
+            catch (err) {
+                console.error(`Error while adding new element to table ${this.tableName}: ${err}`);
+                throw err;
+            }
         }
-        catch (err) {
-            console.error(`Error while adding new element to table ${this.tableName}: ${err}`);
-            throw err;
-        }
+        return { message: `Element already existed in table ${this.tableName}`, id: id };
     }
 
     /**
@@ -47,6 +51,25 @@ class GenresController extends Controller {
             return { message: `${id} Updated successfully in table ${this.tableName}` };
         } catch (err) {
             console.error(`Error while updating element in table ${this.tableName}: ${err}`);
+            throw err;
+        }
+    }
+
+    /**
+     * Checks if genre already exists in the database
+     * @param {string} genre - Genre in question
+     * @returns {int || error} id - the id if its in the database
+     */
+    async getByGenre(genre) {
+        await this.waitForConnection();
+        await this.selectDatabase();
+
+        const query = `SELECT id FROM ${this.tableName} WHERE genre = ?`
+        try {
+            const [id] = await this.dbConnection.execute(query, [genre]);
+            return id[0];
+        } catch (err) {
+            console.error(`Error while geting element from ${this.tableName}: ${err}`);
             throw err;
         }
     }

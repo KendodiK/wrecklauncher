@@ -9,7 +9,6 @@ class ChatsTableCreator extends DatabaseHandler {
     async init() {
         await this.waitForConnection();
         await this.selectDatabase();
-        await this.createChatsTable();
     }
 
     async createChatsTable() {
@@ -25,7 +24,17 @@ class ChatsTableCreator extends DatabaseHandler {
             await this.dbConnection.execute(query);
             console.log("'Chats' table created or already exists.");
         } catch (err) {
-            console.error("Error creating chats table:", err);
+            console.error("Error creating 'chats' table:", err);
+        }
+    }
+
+    async deleteChatsTable() {
+        const query = `DROP TABLE chats`
+        try {
+            await this.dbConnection.execute(query);
+            console.log("'Chats' table deleted!");
+        } catch (err) {
+            console.error("Error while deleting 'chats' table:", err);
         }
     }
 }
