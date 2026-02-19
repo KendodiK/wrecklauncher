@@ -21,7 +21,7 @@ class FriendsController extends Controller {
      * @return {Array} - ["message": string, "id": int] if created, ["message": string] if friendship already exists
      */
     async create(data) {
-        super.create();
+        await super.create();
 
         var foreignKeyCheck = await this.#checkForeignKeys(data);
         if (foreignKeyCheck instanceof Error) {
@@ -59,7 +59,7 @@ class FriendsController extends Controller {
      * @param {Array} data - ["user1_id" = native_users.id, "user2_id" = native_users.id ]
      */
     async update(id, data) {
-        super.update();
+        await super.update();
         
         var foreignKeyCheck = await this.#checkForeignKeys(data);
         if (foreignKeyCheck instanceof Error) {

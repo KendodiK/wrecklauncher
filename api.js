@@ -4,6 +4,7 @@ const puppeteer = require('puppeteer');
 const cors = require('cors');
 require('dotenv').config();
 const mysql = require('mysql2');
+const mysqlPromise = require('mysql2/promise');
 const { env } = require('process');
 const app = express();
 const https = require('https');
@@ -22,6 +23,9 @@ const gamesGenresConnnectionController = require('./database/controllers/GamesGe
 const gamesController = require('./database/controllers/GamesController');
 const friendsController = require('./database/controllers/FriendsController');
 const chatsController = require('./database/controllers/ChatsController'); 
+const NativeUsersController = require('./database/controllers/NativeUsersController');
+const PlatformUsersController = require('./database/controllers/PlatformUsersController');
+const PlatformsController = require('./database/controllers/PlatformsController');
 
 const PORT = 3000;
 // Replace with your actual Steam API key and Steam ID
@@ -30,9 +34,98 @@ app.use(cors());
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-app.listen(PORT, () => {
-   console.log(`Proxy server running at http://localhost:${PORT}`);
+async function ensureDatabaseSchema() {
+  const maker = new DBMaker();
+  await maker.createTables().then(async () => {
+    console.log('Database tables created successfully');
+    await new NativeUsersController().create({
+      name: "teszt",
+      user_password: "teszt",
+      email: "test@example.com"
+    }).then(async result => {
+    console.log("Test user created with ID:", result.id);
+    await new PlatformsController().create({ name: "steam" }).then(async platformResult => {
+      console.log("Test platform created with ID:", platformResult.id);
+      await new PlatformUsersController().create({
+        native_user_id: result.id,
+        platform_id: platformResult.id,
+        platform_user_name: "freshargentinaccount69912",
+        platform_profile_id: "76561199194098023",
+        platform_password: "teszt"
+      }).then(() => {
+        console.log("Test platform user created successfully");
+      }).catch(err => {
+        console.error("Error creating test platform user:", err);
+      });
+    }).catch(err => {
+      console.error("Error creating test platform:", err);
+    });
+  }).catch(err => {
+    console.error("Error creating test user:", err);
+  });
+}).catch(err => {
+  console.error('Error creating database tables:', err);
+  throw err;
 });
+}
+
+async function startServer() {
+  try {
+    await ensureDatabaseSchema();
+    console.log('Database schema ready.');
+  } catch (err) {
+    console.error('Database schema initialization failed:', err);
+    process.exit(1);
+  }
+
+  app.listen(PORT, () => {
+    console.log(`Proxy server running at http://localhost:${PORT}`);
+  });
+}
+
+startServer();
+
+// ------------------- Debug (opt-in) ------------------ //
+
+function _stripOuterQuotes(value) {
+  if (typeof value !== 'string') return value;
+  const v = value.trim();
+  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+    return v.slice(1, -1);
+  }
+  return v;
+}
+
+if (process.env.WRECK_DEBUG_DBINFO === '1') {
+  app.get('/api/debug/dbinfo', async (req, res) => {
+    const cfg = {
+      host: _stripOuterQuotes(process.env.DB_HOST || 'localhost'),
+      port: Number(_stripOuterQuotes(process.env.DB_PORT || '3306')),
+      user: _stripOuterQuotes(process.env.DB_USERNAME || 'root'),
+      password: _stripOuterQuotes(process.env.DB_PASSWORD || ''),
+      database: _stripOuterQuotes(process.env.DB_NAME || 'wrecklauncher'),
+    };
+
+    try {
+      const conn = await mysqlPromise.createConnection(cfg);
+      const [infoRows] = await conn.query('SELECT @@hostname AS hostname, @@port AS port, DATABASE() AS databaseName');
+      const [countRows] = await conn.query('SELECT COUNT(*) AS games_count FROM games');
+      await conn.end();
+
+      return res.json({
+        env: { host: cfg.host, port: cfg.port, user: cfg.user, database: cfg.database },
+        mysql: Array.isArray(infoRows) ? infoRows[0] : infoRows,
+        games: Array.isArray(countRows) ? countRows[0] : countRows,
+      });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return res.status(500).json({
+        error: msg,
+        env: { host: cfg.host, port: cfg.port, user: cfg.user, database: cfg.database },
+      });
+    }
+  });
+}
 
 
 // ------------------- Middleware ------------------ //
@@ -63,7 +156,8 @@ function tokenValidate(req) {
       return next();
     } catch (error) {
       console.error('Error in token validation:', error);
-      return res.status(500).json({ error: 'Internal server error during token validation' });
+      const msg = error instanceof Error ? error.message : String(error);
+      return res.status(500).json({ error: `Internal server error during token validation: ${msg}` });
     }
   };
 }
@@ -73,6 +167,18 @@ function tokenValidate(req) {
 
 
 // -------------------     GET      ------------------ //
+
+app.get('/api/steam/key', tokenValidate(), async (req, res) => {
+  try {
+    if (!steamApiKey || (typeof steamApiKey === 'string' && !steamApiKey.trim())) {
+      return res.status(500).json({ error: 'STEAM_API_KEY is not configured on the backend' });
+    }
+    console.log('Received request for Steam API key');
+    return res.json({ steamApiKey });
+  } catch (error) {
+    console.error('Error in /api/steam/key endpoint:', error);
+    return res.status(500).json({ error: error.message });
+  }});
 
 /*
   route: /api/platform/user_id/:platformname/:platformUsername
@@ -300,6 +406,8 @@ app.post('/api/login/:username/:password', async (req, res) => {
 
     const { username, password } = req.params;
     const user = await nativeUserCtrl.getUserByNameAndPassword(username, password);
+    console.log("Login attempt for username:", username);
+    console.log("Password provided:", password);
     console.log("User found:", user);
     if (!user) {
       return res.status(401).json({ error: 'Invalid username or password' });
@@ -348,12 +456,13 @@ app.post('/api/signup', async (req, res) => {
     }
 
     const userData = {
-      "username" : username,
-      "password" : password,
-      "email" : email,
+      name: username,
+      user_password: password,
+      email: email,
     }
-    const newUser = await nativeUserCtrl.create(userData);
-    return res.status(201).json({newUser, token: newUser.id + "." + newUser.token});
+    const created = await nativeUserCtrl.create(userData);
+    const user = await nativeUserCtrl.show(created.id);
+    return res.status(201).json({ user, token: created.id + "." + created.token });
   } catch (error) {
     console.error('Error in /api/signup endpoint:', error);
     return res.status(500).json({ error: error.message });
@@ -380,12 +489,12 @@ app.post("/api/games", tokenValidate(), async (req, res) => {
     }
   } catch (error) {
     console.error('Error in /api/games/upload endpoint:', error);
-    res.status(500).json({ error: error.message });
+    return res.status(500).json({ error: error.message });
   }
 
   try {
     let platf_name = req.body.platform_name ?? null;
-    let platf_id = req.body.platfomr_id ?? null;
+    let platf_id = req.body.platform_id ?? null;
     if (platf_id == null && platf_name == null) {
       return res.status(400).json({message: 'Cannot upload, no data for platform.\nPlease give platform name or platform id if its in the db'})
     }

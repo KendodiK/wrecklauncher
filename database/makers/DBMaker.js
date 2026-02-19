@@ -57,6 +57,19 @@ class DBMaker extends DatabaseHandler {
         const pirateSitesTableCreator = new PirateSitesTableCreator();
         const platformsTableCreator = new PlatformsTableCreator();
         const platformUsersTableCreator = new PlatformUsersTableCreator();
+
+        await Promise.all([
+            chatsTableCreator.ready,
+            friendsTableCreator.ready,
+            gamesGenresConnectionTableCreator.ready,
+            gamesPirateSitesConnectionTableCreator.ready,
+            gamesTableCreator.ready,
+            genresTableCreator.ready,
+            nativeUserTableCreator.ready,
+            pirateSitesTableCreator.ready,
+            platformsTableCreator.ready,
+            platformUsersTableCreator.ready,
+        ]);
     }
 }
 

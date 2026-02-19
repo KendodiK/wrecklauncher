@@ -3,7 +3,7 @@ const DatabaseHandler = require("../DatabaseHandler");
 class PirateSitesTableCreator extends DatabaseHandler {
     constructor() {
         super();
-        this.init();
+        this.ready = this.init();
     }
 
     async init() {

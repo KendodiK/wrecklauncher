@@ -4,7 +4,7 @@ class NativeUserTableCreator extends DatabaseHandler {
     constructor() {
         console.log("Creating NativeUserTableCreator");
         super();
-        this.init();
+        this.ready = this.init();
     }
 
     async init() {

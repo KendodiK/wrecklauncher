@@ -5,7 +5,7 @@ module.exports = defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-    strictPort: true,
+    strictPort: false,
   },
   build: {
     outDir: 'dist',

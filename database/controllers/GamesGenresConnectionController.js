@@ -1,6 +1,4 @@
 const Controller = require('./Controller');
-const GenresController = require('./GenresController');
-const GamesController = require('./GamesController');
 
 class GamesGenresConnnectionController extends Controller {
     constructor() {
@@ -20,7 +18,7 @@ class GamesGenresConnnectionController extends Controller {
      * @returns
      */
     async create(data) {
-        super.create();
+        await super.create();
 
         var foreignKeyCheck = await this.#checkForeignKeys(data);
         if (foreignKeyCheck instanceof Error) {
@@ -45,7 +43,7 @@ class GamesGenresConnnectionController extends Controller {
      * @returns
      */
     async update(id, data) {
-        super.update();
+        await super.update();
 
         var foreignKeyCheck = await this.#checkForeignKeys(data);
         if (foreignKeyCheck instanceof Error) {
@@ -91,15 +89,29 @@ class GamesGenresConnnectionController extends Controller {
     }
 
     async #checkForeignKeys(data) {
-        const gamesController = new GamesController();
-        const genresController = new GenresController();
-
-        if (await gamesController.show(data.game_id) instanceof Error) { 
-            return new Error("Invalid game id: " + data.game_id);
+        if (!data || data.game_id == null) {
+            return new Error('Missing game_id');
+        }
+        if (data.genre_id == null) {
+            return new Error('Missing genre_id');
         }
 
-        if (await genresController.show(data.genre_id) instanceof Error) {
-            return new Error("Invalid genre id: " + data.genre_id);
+        // Avoid circular controller dependencies (GamesController <-> this controller)
+        // by checking existence with direct queries.
+        const [gameRows] = await this.dbConnection.execute(
+            'SELECT id FROM games WHERE id = ? LIMIT 1;'
+            , [data.game_id]
+        );
+        if (!gameRows?.[0]) {
+            return new Error('Invalid game id: ' + data.game_id);
+        }
+
+        const [genreRows] = await this.dbConnection.execute(
+            'SELECT id FROM genres WHERE id = ? LIMIT 1;'
+            , [data.genre_id]
+        );
+        if (!genreRows?.[0]) {
+            return new Error('Invalid genre id: ' + data.genre_id);
         }
 
         return true;

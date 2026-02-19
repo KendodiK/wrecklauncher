@@ -35,12 +35,20 @@ class NativeUsersController extends Controller {
         console.log(data.name);
         console.log(data.user_password);
 
+        const token = this.#generateToken(data.name);
         const query = 'INSERT INTO native_users (token, name, user_password, email, bio, pfp) VALUES (?, ?, ?, ?, ?, ?);';
-        const values = [this.#generateToken(data.name), data.name, this.#hashPassword(data.user_password), data.email, data.bio ?? null, data.pfp ?? null];
+        const values = [token, data.name, this.#hashPassword(data.user_password), data.email, data.bio ?? null, data.pfp ?? null];
 
         try {
-            const [result] = await this.dbConnection.execute(query, values);
-            return { message: `${result.id} Element created in table ${this.tableName}`, id: result.id };
+            await this.dbConnection.execute(query, values);
+
+            const [rows] = await this.dbConnection.execute(
+                'SELECT id, token FROM native_users WHERE token = ? LIMIT 1;',
+                [token]
+            );
+            const created = rows?.[0];
+            const id = created?.id;
+            return { message: `${id} Element created in table ${this.tableName}`, id, token: created?.token };
         } catch (err) {
             console.error(`Error while adding new element to table ${this.tableName}: ${err}`);
             throw err;
@@ -70,7 +78,7 @@ class NativeUsersController extends Controller {
         const values = [
             token, 
             name, 
-            data.user_password ?? old.user_password, 
+            data.user_password ? this.#hashPassword(data.user_password) : old.user_password, 
             data.email ?? old.email, 
             data.bio ?? old.bio, 
             data.pfp ?? old.pfp, 
@@ -106,12 +114,31 @@ class NativeUsersController extends Controller {
 
         const query = 'SELECT * FROM native_users WHERE name = ? AND user_password = ?';
         const values = [name, this.#hashPassword(password)];
-
+        console.log("Executing query:", query, "with values:", values);
         try {
             const [rows] = await this.dbConnection.execute(query, values);
             return rows[0];
         } catch (err) {
             console.error(`Error while fetching user by name and password: ${err}`);
+            throw err;
+        }
+    }
+
+    /**
+     * Fetch a native user by name.
+     * @param {string} name
+     * @returns {object | undefined}
+     */
+    async getUserByName(name) {
+        await this.waitForConnection();
+        await this.selectDatabase();
+
+        const query = 'SELECT * FROM native_users WHERE name = ? LIMIT 1';
+        try {
+            const [rows] = await this.dbConnection.execute(query, [name]);
+            return rows[0];
+        } catch (err) {
+            console.error(`Error while fetching user by name: ${err}`);
             throw err;
         }
     }

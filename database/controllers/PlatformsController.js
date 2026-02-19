@@ -45,7 +45,7 @@ class PlatformsController extends Controller {
 
         try {
             const [result] = await this.dbConnection.execute(query, values);
-            return { message: `${result.id} Element created in table ${this.tableName}`, id: result.id };
+            return { message: `${result.insertId} Element created in table ${this.tableName}`, id: result.insertId };
         } catch (err) {
             console.error(`Error while adding new element to table ${this.tableName}: ${err}`);
             throw err;
@@ -61,7 +61,7 @@ class PlatformsController extends Controller {
     async update(id, data) {
         await super.update(); 
     
-        const query = 'UPDATE platforms SET name = ? WHERE id = ?;';
+        const query = 'UPDATE platforms SET platform_name = ? WHERE id = ?;';
         const values = [data.name, id];
 
         try {
