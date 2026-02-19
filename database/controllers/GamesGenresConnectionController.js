@@ -74,8 +74,7 @@ class GamesGenresConnnectionController extends Controller {
     }
 
     async getByGameId(gameId) {
-        await this.waitForConnection();
-        await this.selectDatabase();
+        await this.ready;
 
         const query = `SELECT gam.id, gen.genre FROM games_genres_connections AS ggc
 	                JOIN games AS gam on ggc.game_id = gam.id
@@ -92,8 +91,7 @@ class GamesGenresConnnectionController extends Controller {
     }
 
     async #checkForeignKeys(data) {
-        await this.waitForConnection();
-        await this.selectDatabase();
+        await this.ready;
 
         try {
             const [gameRows] = await this.dbConnection.execute('SELECT id FROM games WHERE id = ?', [data.game_id]);

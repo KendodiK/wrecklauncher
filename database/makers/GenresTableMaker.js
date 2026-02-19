@@ -1,18 +1,18 @@
 const DatabaseHandler = require("../DatabaseHandler");
 
-class GenresTableCreator extends DatabaseHandler {
+class GenresTableMaker extends DatabaseHandler {
     constructor() {
         super();
-        this.init();
+        this.ready = this.getReady();
     }
 
-    async init() {
+    async getReady() {
         await this.waitForConnection();
         await this.selectDatabase();
-        await this.createGenresTable();
     }
 
-    async createGenresTable() {
+    async create() {
+        await this.ready;
         const query = `
             CREATE TABLE IF NOT EXISTS genres(
                 id SMALLINT AUTO_INCREMENT PRIMARY KEY,
@@ -26,6 +26,17 @@ class GenresTableCreator extends DatabaseHandler {
             console.error("Error creating genres table:", err);
         }
     }
+
+    async delete() {
+        await this.ready;
+        const query = `DROP TABLE genres`
+        try {
+            await this.dbConnection.execute(query);
+            console.log("'genres' table deleted!");
+        } catch (err) {
+            console.error("Error while deleting 'genres' table:", err);
+        }
+    }
 }
 
-module.exports = GenresTableCreator;
+module.exports = GenresTableMaker;

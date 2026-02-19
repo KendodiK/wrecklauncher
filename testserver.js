@@ -16,7 +16,7 @@ const steamApiKey = process.env.STEAM_API_KEY;
 app.use(cors());
 // --- REQUIRE DATABASE HANDLERS AND CONTROLLERS HERE ---
 const DatabaseHandler = require('./database/DatabaseHandler');
-const DBMaker = require('./database/makers/DBMaker');
+const DBMaker = require('./database/DBCreator');
 const NativeUsersController = require('./database/controllers/NativeUsersController');
 const PlatformUsersController = require('./database/controllers/PlatformUsersController');
 const GameController = require('./database/controllers/GamesController');

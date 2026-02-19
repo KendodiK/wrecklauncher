@@ -1,18 +1,18 @@
 const DatabaseHandler = require("../DatabaseHandler");
 
-class FriendsTableCreator extends DatabaseHandler {
+class FriendsTableMaker extends DatabaseHandler {
     constructor() {
         super();
-        this.init();
+        this.ready = this.getReady();
     }
 
-    async init() {
+    async getReady() {
         await this.waitForConnection();
         await this.selectDatabase();
-        await this.createFriendsTable();
     }
 
-    async createFriendsTable() {
+    async create() {
+        await this.ready;
         const query = `
             CREATE TABLE IF NOT EXISTS friends(
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -27,6 +27,17 @@ class FriendsTableCreator extends DatabaseHandler {
             console.error("Error creating friends table:", err);
         }
     }
+
+    async delete() {
+        await this.ready;
+        const query = `DROP TABLE friends`
+        try {
+            await this.dbConnection.execute(query);
+            console.log("'friends' table deleted!");
+        } catch (err) {
+            console.error("Error while deleting 'friends' table:", err);
+        }
+    }
 }
 
-module.exports = FriendsTableCreator;
+module.exports = FriendsTableMaker;

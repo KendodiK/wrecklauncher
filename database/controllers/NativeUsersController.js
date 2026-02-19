@@ -69,8 +69,7 @@ class NativeUsersController extends Controller {
      * @returns {Array} - native_user object
      */
     async getUserByNameAndPassword(name, password) {
-        await this.waitForConnection();
-        await this.selectDatabase();
+        await this.ready;
 
         const query = 'SELECT * FROM native_users WHERE name = ? AND user_password = ?';
         const values = [name, this.#hashPassword(password)];

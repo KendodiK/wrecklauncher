@@ -1,18 +1,18 @@
 const DatabaseHandler = require("../DatabaseHandler");
 
-class PirateSitesTableCreator extends DatabaseHandler {
+class PirateSitesTableMaker extends DatabaseHandler {
     constructor() {
         super();
-        this.init();
+        this.ready = this.getReady();
     }
 
-    async init() {
+    async getReady() {
         await this.waitForConnection();
         await this.selectDatabase();
-        await this.createPirateSites();
     }
 
-    async createPirateSites() {
+    async create() {
+        await this.ready;
         const query = `
             CREATE TABLE IF NOT EXISTS pirate_sites(
                 id TINYINT AUTO_INCREMENT PRIMARY KEY,
@@ -26,6 +26,17 @@ class PirateSitesTableCreator extends DatabaseHandler {
             console.error("Error creating pirate sites table:", err);
         }
     }
+
+    async delete() {
+        await this.ready;
+        const query = `DROP TABLE pirate_sites`
+        try {
+            await this.dbConnection.execute(query);
+            console.log("'pirate_sites' table deleted!");
+        } catch (err) {
+            console.error("Error while deleting 'pirate_sites' table:", err);
+        }
+    }
 }
 
-module.exports = PirateSitesTableCreator;
+module.exports = PirateSitesTableMaker;

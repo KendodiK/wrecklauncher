@@ -11,7 +11,8 @@ const zlib = require('zlib');
 const { platform } = require('os');
 const crypto = require('crypto');
 
-const DBMaker = require('./database/makers/DBMaker');
+const databaseHandler = require('./database/DatabaseHandler');
+const DBCreator = require('./database/DBCreator');
 
 const nativeUserController = require('./database/controllers/NativeUsersController');
 const platformUsersController = require('./database/controllers/PlatformUsersController');
@@ -20,6 +21,8 @@ const gamesGenresConnnectionController = require('./database/controllers/GamesGe
 const gamesController = require('./database/controllers/GamesController');
 const friendsController = require('./database/controllers/FriendsController');
 const chatsController = require('./database/controllers/ChatsController'); 
+const { errorMonitor } = require('events');
+const { error } = require('console');
 
 const PORT = 3000;
 // Replace with your actual Steam API key and Steam ID
@@ -28,14 +31,41 @@ app.use(cors());
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-
-
 // Global error handlers to avoid silent exits
 process.on('uncaughtException', (err) => {
   console.error('uncaughtException:', err);
 });
 process.on('unhandledRejection', (reason, p) => {
   console.error('unhandledRejection at:', p, 'reason:', reason);
+});
+
+// Start server and attach listeners for better diagnostics
+const server = app.listen(PORT, () => {
+  console.log(`Proxy server running at http://localhost:${PORT}`);
+});
+
+server.on('error', (err) => {
+  console.error('Server error:', err);
+});
+
+server.on('listening', async () => {
+  try {
+    const addr = server.address();
+    if (typeof addr === 'string') {
+      console.log('Server listening on', addr);
+    } else {
+      console.log('Server listening on', `${addr.address}:${addr.port}`);
+    }
+  } catch (err) {
+    console.error('Error retrieving server address:', err);
+  }
+
+  try {
+    const databaseCreator = new DBCreator();
+    await databaseCreator.createTables();
+  } catch (err) {
+    console.error('Error creating database tables on startup:', err);
+  }
 });
 
 
@@ -176,13 +206,10 @@ app.get("/api/games/:id/all", async (req, res) => {
     const {id: gameId } = req.params;
     const gameCtrl = new gamesController();
     const game = await gameCtrl.getWithAllForeign(gameId);
-    if (!game) {
-      return res.status(404).json({ error: 'Game not found' });
-    }
 
     const gamesGenresCtrl = new gamesGenresConnnectionController();
     const gameGenres = await gamesGenresCtrl.getByGameId(gameId);
-    game.genres = gameGenres ?? [];
+    game.genres = gameGenres;
 
     return res.json(game);
   } catch (err) {
@@ -282,137 +309,35 @@ app.get("/api/chat/:friendsId", async (req, res) => {
   }
 });
 
-// -------------------     POST      ------------------ //
-
-/*
-  route: /api/platforms
-  params: -
-  headers: auth token
-  body: { platform_name: string } OR { name: string }
-
-  returns:
-    201 { message, platform: { id, platform_name } }
-    200 { message, platform: { id, platform_name } } (if already exists)
-*/
-app.post('/api/platforms', tokenValidate(), async (req, res) => {
+app.get("/api/platforms/:platformName", async (req, res) => {
   try {
-    const rawName = req.body?.platform_name ?? req.body?.name;
-    const platformName = rawName == null ? '' : String(rawName).trim();
-    if (!platformName) {
-      return res.status(400).json({ error: 'Missing platform_name' });
+    const { platformName } = req.params;
+    const platformCtrl = new platformsController();
+    const result = await platformCtrl.getByPlatformName(platformName);
+    if (result instanceof Error) {
+      return res.status(400).json({ message: 'Iternal server error', error: result });
     }
-
-    const platformsCtrl = new platformsController();
-    const existing = await platformsCtrl.getByPlatformName(platformName);
-    if (existing) {
-      return res.status(200).json({
-        message: 'Platform already exists',
-        platform: { id: existing.id, platform_name: existing.platform_name },
-      });
-    }
-
-    const created = await platformsCtrl.create({ name: platformName });
-    const platform = await platformsCtrl.getByPlatformName(platformName);
-
-    return res.status(201).json({
-      message: 'Platform created',
-      platform: platform ?? { id: created.id, platform_name: platformName },
-    });
-  } catch (error) {
-    console.error('Error in POST /api/platforms:', error);
-    return res.status(500).json({ error: error.message });
+    return res.json(result);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
   }
 });
 
-/*
-  route: /api/platform_users
-  params: -
-  headers: auth token
-  body:
-    {
-      platform_id?: number,
-      platform_name?: string,
-      platform_user_name: string,
-      platform_profile_id: string,
-      platform_password: string
-    }
-
-  returns:
-    201 { message, platformUserId }
-    200 { message, platformUserId } (if already exists)
-*/
-app.post('/api/platform_users', tokenValidate(), async (req, res) => {
+app.get("/api/platform_users", tokenValidate(), async (req, res) => {
   try {
     const { userId } = req.auth;
-
-    const platformUserName = String(req.body?.platform_user_name ?? '').trim();
-    const platformProfileId = String(req.body?.platform_profile_id ?? '').trim();
-    const platformPassword = String(req.body?.platform_password ?? '').trim();
-
-    if (!platformUserName) {
-      return res.status(400).json({ error: 'Missing platform_user_name' });
+    const platformUserCtrl = new platformUsersController();
+    const result = await platformUserCtrl.getByNativeUserId(userId);
+    if (result instanceof Error) {
+      return res.status(400).json({ message: 'Iternal server error', error: result });
     }
-    if (!platformProfileId) {
-      return res.status(400).json({ error: 'Missing platform_profile_id' });
-    }
-    if (!platformPassword) {
-      return res.status(400).json({ error: 'Missing platform_password' });
-    }
-
-    let platformId = req.body?.platform_id ?? null;
-    const platformNameRaw = req.body?.platform_name ?? null;
-    const platformName = platformNameRaw == null ? null : String(platformNameRaw).trim();
-
-    if (platformId != null && platformId !== '') {
-      const n = Number(platformId);
-      if (!Number.isFinite(n) || n <= 0) {
-        return res.status(400).json({ error: 'Invalid platform_id' });
-      }
-      platformId = Math.trunc(n);
-    } else {
-      platformId = null;
-    }
-
-    if (platformId == null && !platformName) {
-      return res.status(400).json({ error: 'Missing platform_id or platform_name' });
-    }
-
-    // Resolve platform id (create if needed)
-    if (platformId == null) {
-      const platformsCtrl = new platformsController();
-      const existingPlatform = await platformsCtrl.getByPlatformName(platformName);
-      if (existingPlatform) {
-        platformId = existingPlatform.id;
-      } else {
-        const created = await platformsCtrl.create({ name: platformName });
-        platformId = created.id;
-      }
-    }
-
-    // Duplicate check for this native user on this platform/profile id
-    const platformUsersCtrl = new platformUsersController();
-    const existingPlatformUsers = await platformUsersCtrl.getByNativeUserId(userId);
-    const existing = (existingPlatformUsers ?? []).find(
-      (row) => Number(row.platform_id) === Number(platformId) && String(row.platform_profile_id) === String(platformProfileId)
-    );
-    if (existing) {
-      return res.status(200).json({ message: 'Platform user already exists', platformUserId: existing.id });
-    }
-
-    const created = await platformUsersCtrl.create({
-      native_user_id: userId,
-      platform_user_name: platformUserName,
-      platform_id: platformId,
-      platform_profile_id: platformProfileId,
-      platform_password: platformPassword,
-    });
-
-    return res.status(201).json({ message: 'Platform user created', platformUserId: created.id });
-  } catch (error) {
-    console.error('Error in POST /api/platform_users:', error);
-    return res.status(500).json({ error: error.message });
+    return res.json(result);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
   }
 });
+
+// -------------------     POST      ------------------ //
 
 /*
   route: /api/login/:username/:password
@@ -505,18 +430,19 @@ app.post('/api/signup', async (req, res) => {
 app.post("/api/games", tokenValidate(), async (req, res) => {
   try {
     const gameCtrl = new gamesController();
-    const existingId = await gameCtrl.getGameIdByAppId(req.body.app_id);
-    if (existingId != null) {
-      return res.status(400).json({ message: 'Game with the same app_id already exists', gameId: existingId });
+    const gameId = await gameCtrl.getGameIdByAppId(req.body.app_id);
+    let err = gameId instanceof Error;
+    if (!err) {
+      return res.status(400).json({ message: 'Game with the same app_id already exists', gameId: gameId });
     }
   } catch (error) {
     console.error('Error in /api/games/upload endpoint:', error);
-    return res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error.message });
   }
 
   try {
     let platf_name = req.body.platform_name ?? null;
-    let platf_id = req.body.platform_id ?? req.body.platfomr_id ?? null;
+    let platf_id = req.body.platfomr_id ?? null;
     if (platf_id == null && platf_name == null) {
       return res.status(400).json({message: 'Cannot upload, no data for platform.\nPlease give platform name or platform id if its in the db'})
     }
@@ -570,6 +496,45 @@ app.post("/api/friends", tokenValidate(), async (req, res) => {
     return res.status(500).json({ error: error.message }); 
   }
 });
+
+app.post("/api/platforms", async (req, res) => {
+  try {
+    const { platformName } = req.body;
+
+    const platformCtrl = new platformsController();
+    const result = await platformCtrl.create({name: platformName});
+    if( result instanceof Error ) {
+      return res.status(400).json({ message: result.message });
+    }
+    return res.status(201).json({message: "platform uploaded", id: result.id})
+  } catch (err) {
+    console.log('Error in /api/platforms endpoint:', err);
+    return res.status(500).json({ error: err.message });
+  }
+})
+
+app.post("api/platform_users", tokenValidate(), async (req, res) => {
+  try {
+    const { userId } = req.auth;
+    const data = {
+      "native_user_id": userId,
+      "platform_user_name": req.body.platformUserName,
+      "platform_id": req.body.platformId,
+      "platform_profile_id": req.body.platfProfId,
+      "platform_password": req.body.platformPassword,
+    }
+
+    const platformUserCtrl = new platformUsersController();
+    const result = await platformUserCtrl.create(data);
+    if( result instanceof Error ) {
+      return res.status(400).json({ message: result.message });
+    }
+    return res.status(201).json({ message: "platform user uploaded", id: result.id });
+  } catch (err) {
+    console.log('Error in /api/platform_users endpoint:', err);
+    return res.status(500).json({ error: err.message });
+  }
+})
 
 // -------------------      PUT       ------------------ //
 
@@ -676,43 +641,3 @@ app.delete("/api/friends/:friendShipId", tokenValidate(), async (req, res) => {
     return res.status(500).json({ error: error.message }); 
   }
 });
-
-// ------------------- Startup ------------------ //
-
-function attachServerDiagnostics(server) {
-  server.on('error', (err) => {
-    console.error('Server error:', err);
-  });
-
-  server.on('listening', () => {
-    try {
-      const addr = server.address();
-      if (typeof addr === 'string') {
-        console.log('Server listening on', addr);
-      } else {
-        console.log('Server listening on', `${addr.address}:${addr.port}`);
-      }
-    } catch (err) {
-      console.error('Error retrieving server address:', err);
-    }
-  });
-}
-
-async function initDatabase() {
-  const dbMaker = new DBMaker();
-  await dbMaker.createDBAndTables();
-}
-
-(async () => {
-  try {
-    await initDatabase();
-
-    const server = app.listen(PORT, () => {
-      console.log(`Proxy server running at http://localhost:${PORT}`);
-    });
-    attachServerDiagnostics(server);
-  } catch (err) {
-    console.error('Failed to initialize DB / start server:', err);
-    process.exit(1);
-  }
-})();

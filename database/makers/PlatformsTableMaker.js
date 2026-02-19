@@ -1,18 +1,18 @@
 const DatabaseHandler = require("../DatabaseHandler");
 
-class PlatformsTableCreator extends DatabaseHandler {
+class PlatformsTableMaker extends DatabaseHandler {
     constructor() {
         super();
-        this.init();
+        this.ready = this.getReady();
     }
 
-    async init() {
+    async getReady() {
         await this.waitForConnection();
         await this.selectDatabase();
-        await this.createPlatformsTable();
     }
 
-    async createPlatformsTable() {
+    async create() {
+        await this.ready;
         const query = `
             CREATE TABLE IF NOT EXISTS platforms(
                 id TINYINT AUTO_INCREMENT PRIMARY KEY,
@@ -26,6 +26,17 @@ class PlatformsTableCreator extends DatabaseHandler {
             console.error("Error creating platforms table:", err);
         }
     }
+
+    async delete() {
+        await this.ready;
+        const query = `DROP TABLE platforms`
+        try {
+            await this.dbConnection.execute(query);
+            console.log("'platforms' table deleted!");
+        } catch (err) {
+            console.error("Error while deleting 'platforms' table:", err);
+        }
+    }
 }
 
-module.exports = PlatformsTableCreator;
+module.exports = PlatformsTableMaker;

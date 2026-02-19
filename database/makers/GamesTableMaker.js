@@ -1,18 +1,18 @@
 const DatabaseHandler = require("../DatabaseHandler");
 
-class GamesTableCreator extends DatabaseHandler {
+class GamesTableMaker extends DatabaseHandler {
     constructor() {
         super();
-        this.init();
+        this.ready = this.getReady();
     }
 
-    async init() {
+    async getReady() {
         await this.waitForConnection();
         await this.selectDatabase();
-        await this.createGamesTable();
     }
 
-    async createGamesTable() {
+    async create() {
+        await this.ready;
         const query = `
             CREATE TABLE IF NOT EXISTS games (
                 id SMALLINT AUTO_INCREMENT PRIMARY KEY,
@@ -32,6 +32,17 @@ class GamesTableCreator extends DatabaseHandler {
             console.error("Error creating games table:", err);
         }
     }
+
+    async delete() {
+        await this.ready;
+        const query = `DROP TABLE games`
+        try {
+            await this.dbConnection.execute(query);
+            console.log("'games' table deleted!");
+        } catch (err) {
+            console.error("Error while deleting 'games' table:", err);
+        }
+    }
 }
 
-module.exports = GamesTableCreator;
+module.exports = GamesTableMaker;

@@ -1,19 +1,19 @@
 const DatabaseHandler = require("../DatabaseHandler");
 
-class NativeUserTableCreator extends DatabaseHandler {
+class NativeUserTableMaker extends DatabaseHandler {
     constructor() {
-        console.log("Creating NativeUserTableCreator");
+        console.log("Creating NativeUserTableMaker");
         super();
-        this.init();
+        this.ready = this.getReady();
     }
 
-    async init() {
+    async getReady() {
         await this.waitForConnection();
         await this.selectDatabase();
-        await this.createNativeUserTable();
     }
 
-    async createNativeUserTable() {
+    async create() {
+        await this.ready;
         const query = `
             CREATE TABLE IF NOT EXISTS native_users(
                 id UUID DEFAULT UUID() PRIMARY KEY,
@@ -32,6 +32,17 @@ class NativeUserTableCreator extends DatabaseHandler {
             console.error("Error creating native users table:", err);
         }
     }
+
+    async delete() {
+        await this.ready;
+        const query = `DROP TABLE native_users`
+        try {
+            await this.dbConnection.execute(query);
+            console.log("'native_users' table deleted!");
+        } catch (err) {
+            console.error("Error while deleting 'native_users' table:", err);
+        }
+    }
 }
 
-module.exports = NativeUserTableCreator;
+module.exports = NativeUserTableMaker;

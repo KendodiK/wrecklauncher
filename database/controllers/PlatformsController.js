@@ -5,25 +5,6 @@ class PlatformsController extends Controller {
         super('platforms');
     }
 
-    /**
-     * Fetch platform row by its platform_name (e.g. "steam").
-     * @param {string} platformName
-     * @returns {object|null}
-     */
-    async getByPlatformName(platformName) {
-        await this.waitForConnection();
-        await this.selectDatabase();
-
-        const query = 'SELECT * FROM platforms WHERE platform_name = ? LIMIT 1;';
-        try {
-            const [rows] = await this.dbConnection.execute(query, [platformName]);
-            return rows[0] ?? null;
-        } catch (err) {
-            console.error(`Error while fetching platform by name from table ${this.tableName}: ${err}`);
-            throw err;
-        }
-    }
-
     async index() {
         return super.index();
     }
@@ -40,16 +21,22 @@ class PlatformsController extends Controller {
     async create(data) {
         await super.create();
 
-        const query = 'INSERT INTO platforms (platform_name) VALUES (?);';
-        const values = [data.name];
+        const { id } = await this.getByPlatformName(data.name);
 
-        try {
-            const [result] = await this.dbConnection.execute(query, values);
-            return { message: `${result.id} Element created in table ${this.tableName}`, id: result.id };
-        } catch (err) {
-            console.error(`Error while adding new element to table ${this.tableName}: ${err}`);
-            throw err;
+        if (id instanceof Error) {
+            const query = 'INSERT INTO platforms (platform_name) VALUES (?);';
+            const values = [data.name];
+
+            try {
+                const [result] = await this.dbConnection.execute(query, values);
+                return { message: `Element created in table ${this.tableName}`, id: result.id };
+            } catch (err) {
+                console.error(`Error while adding new element to table ${this.tableName}: ${err}`);
+                throw err;
+            }
         }
+        
+        return { message: `Element already exists in talba ${this.tableName}`, id: id};
     }
 
     /**
@@ -75,6 +62,24 @@ class PlatformsController extends Controller {
 
     async delete(id) {
         return super.delete(id);
+    }
+
+        /**
+     * Fetch platform row by its platform_name (e.g. "steam").
+     * @param {string} platformName
+     * @returns {object|null}
+     */
+    async getByPlatformName(platformName) {
+        await this.ready;
+
+        const query = 'SELECT * FROM platforms WHERE platform_name = ? LIMIT 1;';
+        try {
+            const [rows] = await this.dbConnection.execute(query, [platformName]);
+            return rows[0];
+        } catch (err) {
+            console.error(`Error while fetching platform by name from table ${this.tableName}: ${err}`);
+            throw err;
+        }
     }
 }
 

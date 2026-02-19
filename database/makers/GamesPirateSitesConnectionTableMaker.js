@@ -1,18 +1,18 @@
 const DatabaseHandler = require("../DatabaseHandler");
 
-class GamesPirateSitesConnectionTableCreator extends DatabaseHandler {
+class GamesPirateSitesConnectionTableMaker extends DatabaseHandler {
     constructor() {
         super();
-        this.init();
+        this.ready = this.getReady();
     }
 
-    async init() {
+    async getReady() {
         await this.waitForConnection();
         await this.selectDatabase();
-        await this.createGamesPirateSitesConnectionTable();
     }
 
-    async createGamesPirateSitesConnectionTable() {
+    async create() {
+        await this.ready;
         const query = `
             CREATE TABLE IF NOT EXISTS game_pirates_sites_connections (
             game_id SMALLINT NOT NULL, INDEX(game_id),
@@ -27,6 +27,17 @@ class GamesPirateSitesConnectionTableCreator extends DatabaseHandler {
             console.error("Error creating games-pirate sites connection table:", err);
         }
     }
+
+        async delete() {
+            await this.ready;
+        const query = `DROP TABLE game_pirates_sites_connections`
+        try {
+            await this.dbConnection.execute(query);
+            console.log("'game_pirates_sites_connections' table deleted!");
+        } catch (err) {
+            console.error("Error while deleting 'game_pirates_sites_connections' table:", err);
+        }
+    }
 }
 
-module.exports = GamesPirateSitesConnectionTableCreator;
+module.exports = GamesPirateSitesConnectionTableMaker;
