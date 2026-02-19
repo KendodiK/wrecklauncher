@@ -1,0 +1,45 @@
+services:
+  db:
+    image: mariadb:11.4
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
+      MARIADB_DATABASE: ${MARIADB_DATABASE}
+      MARIADB_USER: ${MARIADB_USER}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD}
+    ports:
+      - "${DB_PORT_HOST:-3306}:3306"
+    volumes:
+      # Persists DB data between restarts
+      - mariadb_data:/var/lib/mysql
+
+      # Optional: initialize schema on first boot.
+      # Anything in /docker-entrypoint-initdb.d is executed once on first init.
+      # Your repo currently has these as directories (can contain multiple .sql files).
+      - ./database/docker-init.sql:/docker-entrypoint-initdb.d/01-docker-init:ro
+      - ./database/nonofficial.sql:/docker-entrypoint-initdb.d/02-nonofficial:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mariadb-admin ping -h 127.0.0.1 -uroot -p$$MARIADB_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/dockerfile
+    environment:
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USERNAME: ${MARIADB_USER}
+      DB_PASSWORD: ${MARIADB_PASSWORD}
+      DB_NAME: ${MARIADB_DATABASE}
+      STEAM_API_KEY: ${STEAM_API_KEY}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${API_PORT_HOST:-3000}:3000"
+    restart: unless-stopped
+
+volumes:
+  mariadb_data:

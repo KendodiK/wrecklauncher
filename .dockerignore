@@ -1,0 +1,30 @@
+# Node
+node_modules
+npm-debug.log*
+yarn-error.log*
+
+# VCS / editor
+.git
+.vscode
+
+# OS junk
+Thumbs.db
+Desktop.ini
+
+# Docker meta
+Dockerfile
+.dockerignore
+
+# Big repo folders not needed for API image build
+frontend/
+frontendv3/
+temp/
+steamcmd/
+tervek/
+.idea/
+# Local env files
+.env
+env
+
+# SQLite/DB dumps etc (API uses JS files under database/, not SQL dumps)
+database/*.sql
