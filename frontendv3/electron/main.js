@@ -190,7 +190,7 @@ app.whenReady().then(() => {
   });
 
   // Platforms
-  handleAuthed('platform:createPlatform', async ({ token }, platformName) => {
+  handleAuthed('platform:create-platform', async ({ token }, platformName) => {
     const name = String(platformName || '').trim();
     if (!name) throw new Error('platformName is required');
     try {
@@ -206,7 +206,22 @@ app.whenReady().then(() => {
       throw err;
     }
   });
-
+handleAuthed('platform:get', async ({ token }, platformName) => {
+  const name = String(platformName || '').trim();
+  if (!name) throw new Error('platformName is required');
+  try {
+    return await getPlatformsCtrl().getPlatform(token, name);
+  } catch (err) {
+    if (err && typeof err === 'object' && /** @type {any} */ (err).code === 'WRECK_INVALID_TOKEN') {
+      // token rotated/expired: clear + retry once
+      await getUserCtrl()._invalidateToken();
+      const token2 = await getUserCtrl().getToken();
+      if (!token2) throw new Error('Missing auth token');
+      return await getPlatformsCtrl().getPlatform(token2, name);
+      }
+    throw err;
+  }
+});
     handleAuthed('platform:createPlatformUser', async ({ token },  platformName, platformUsername, platformPassword, platformProfileId) => {
       const pName = String(platformName || '').trim();
       const pUsername = String(platformUsername || '').trim();
@@ -239,7 +254,12 @@ app.whenReady().then(() => {
   });
 
   // Game DB details (requires backend support)
-  handleAuthed('games:get-all-details-by-id', async ({ token }, id) => {
+  handleAuthed('games:get-all-details-by-id', async ({ event, token }, id) => {
+    const senderUrl =
+      event?.senderFrame?.url ||
+      (typeof event?.sender?.getURL === 'function' ? event.sender.getURL() : '') ||
+      '(unknown sender)';
+    console.log(`[IPC] games:get-all-details-by-id id=${String(id)} from=${senderUrl}`);
     return await getGamesCtrl().getAllDetailsByID(token, Number(id));
   });
 

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo } from 'react';
 import Storeslider from '../Storeslider.jsx';
-
+import { runSmokeControllers } from '../../smokeControllers.js';
 
 function steamPoster(appid) {
 	const id = Number(appid);
@@ -33,6 +33,13 @@ const DEFAULT_ITEMS = Array.from({ length: 9 }).map((_, i) => {
 
 const Shopveiw = ({ items }) => {
 	const cards = useMemo(() => (items && items.length ? items : DEFAULT_ITEMS), [items]);
+
+	useEffect(() => {
+		if (!import.meta.env.DEV) return;
+		runSmokeControllers().catch((err) => {
+			console.warn('[smoke] runSmokeControllers failed:', err);
+		});
+	}, []);
 	
 	return (
 		<div className="flex-1 px-3 py-4">

@@ -207,6 +207,10 @@ app.get("/api/games/:id/all", async (req, res) => {
     const gameCtrl = new gamesController();
     const game = await gameCtrl.getWithAllForeign(gameId);
 
+    if (!game) {
+      return res.status(404).json({ error: `Game not found: ${gameId}` });
+    }
+
     const gamesGenresCtrl = new gamesGenresConnnectionController();
     const gameGenres = await gamesGenresCtrl.getByGameId(gameId);
     game.genres = gameGenres;
@@ -513,7 +517,7 @@ app.post("/api/platforms", async (req, res) => {
   }
 })
 
-app.post("api/platform_users", tokenValidate(), async (req, res) => {
+app.post("/api/platform_users", tokenValidate(), async (req, res) => {
   try {
     const { userId } = req.auth;
     const data = {
