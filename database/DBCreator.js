@@ -1,14 +1,14 @@
 const DatabaseHandler = require("./DatabaseHandler");
-const ChatsTableMaker = require("./makers_/ChatsTableMaker");
-const FriendsTableMaker = require("./makers_/FriendsTableMaker");
-const GamesGenresConnectionTableMaker = require("./makers_/GamesGenresConnectionTableMaker");
-const GamesPirateSitesConnectionTableMaker = require("./makers_/GamesPirateSitesConnectionTableMaker");
-const GamesTableMaker = require("./makers_/GamesTableMaker");
-const GenresTableMaker = require("./makers_/GenresTableMaker");
-const NativeUserTableMaker = require("./makers_/NativeUserTableMaker");
-const PirateSitesTableMaker = require("./makers_/PirateSitesTableMaker");
-const PlatformsTableMaker = require("./makers_/PlatformsTableMaker");
-const PlatformUsersTableMaker = require("./makers_/PlatformUsersTableMaker");
+const ChatsTableMaker = require("./makers/ChatsTableMaker");
+const FriendsTableMaker = require("./makers/FriendsTableMaker");
+const GamesGenresConnectionTableMaker = require("./makers/GamesGenresConnectionTableMaker");
+const GamesPirateSitesConnectionTableMaker = require("./makers/GamesPirateSitesConnectionTableMaker");
+const GamesTableMaker = require("./makers/GamesTableMaker");
+const GenresTableMaker = require("./makers/GenresTableMaker");
+const NativeUserTableMaker = require("./makers/NativeUserTableMaker");
+const PirateSitesTableMaker = require("./makers/PirateSitesTableMaker");
+const PlatformsTableMaker = require("./makers/PlatformsTableMaker");
+const PlatformUsersTableMaker = require("./makers/PlatformUsersTableMaker");
 
 /**
  * DBMaker

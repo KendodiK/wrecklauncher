@@ -4,15 +4,16 @@ class NativeUserTableMaker extends DatabaseHandler {
     constructor() {
         console.log("Creating NativeUserTableMaker");
         super();
-        this.init();
+        this.ready = this.getReady();
     }
 
-    async init() {
+    async getReady() {
         await this.waitForConnection();
         await this.selectDatabase();
     }
 
     async create() {
+        await this.ready;
         const query = `
             CREATE TABLE IF NOT EXISTS native_users(
                 id UUID DEFAULT UUID() PRIMARY KEY,
@@ -33,6 +34,7 @@ class NativeUserTableMaker extends DatabaseHandler {
     }
 
     async delete() {
+        await this.ready;
         const query = `DROP TABLE native_users`
         try {
             await this.dbConnection.execute(query);

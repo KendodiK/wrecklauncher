@@ -3,15 +3,16 @@ const DatabaseHandler = require("../DatabaseHandler");
 class PlatformsTableMaker extends DatabaseHandler {
     constructor() {
         super();
-        this.init();
+        this.ready = this.getReady();
     }
 
-    async init() {
+    async getReady() {
         await this.waitForConnection();
         await this.selectDatabase();
     }
 
     async create() {
+        await this.ready;
         const query = `
             CREATE TABLE IF NOT EXISTS platforms(
                 id TINYINT AUTO_INCREMENT PRIMARY KEY,
@@ -27,6 +28,7 @@ class PlatformsTableMaker extends DatabaseHandler {
     }
 
     async delete() {
+        await this.ready;
         const query = `DROP TABLE platforms`
         try {
             await this.dbConnection.execute(query);

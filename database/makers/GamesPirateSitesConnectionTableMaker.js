@@ -3,15 +3,16 @@ const DatabaseHandler = require("../DatabaseHandler");
 class GamesPirateSitesConnectionTableMaker extends DatabaseHandler {
     constructor() {
         super();
-        this.init();
+        this.ready = this.getReady();
     }
 
-    async init() {
+    async getReady() {
         await this.waitForConnection();
         await this.selectDatabase();
     }
 
     async create() {
+        await this.ready;
         const query = `
             CREATE TABLE IF NOT EXISTS game_pirates_sites_connections (
             game_id SMALLINT NOT NULL, INDEX(game_id),
@@ -28,6 +29,7 @@ class GamesPirateSitesConnectionTableMaker extends DatabaseHandler {
     }
 
         async delete() {
+            await this.ready;
         const query = `DROP TABLE game_pirates_sites_connections`
         try {
             await this.dbConnection.execute(query);

@@ -3,15 +3,16 @@ const DatabaseHandler = require("../DatabaseHandler");
 class ChatsTableMaker extends DatabaseHandler {
     constructor() {
         super();
-        this.init();
+        this.ready = this.getReady();
     }
 
-    async init() {
+    async getReady() {
         await this.waitForConnection();
         await this.selectDatabase();
     }
 
     async create() {
+        await this.ready;
         const query = `
             CREATE TABLE IF NOT EXISTS chats (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -29,6 +30,7 @@ class ChatsTableMaker extends DatabaseHandler {
     }
 
     async delete() {
+        await this.ready;
         const query = `DROP TABLE chats`
         try {
             await this.dbConnection.execute(query);
