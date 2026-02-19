@@ -149,10 +149,9 @@ class GamesController extends Controller {
      * @returns {int|null} - game.id or null if not found
      */
     async getGameIdByAppId(app_id) {
-        await this.waitForConnection();
-        await this.selectDatabase();
+        await this.ready;
         
-        const query = `SELECT id FROM ${this.tableName} WHERE app_id = ?;`;
+        const query = `SELECT id FROM ${this.tableName} WHERE app_id = ? LIMIT 1;`;
         try {
             const [rows] = await this.dbConnection.execute(query, [app_id]);
             return rows[0].id;
@@ -161,6 +160,7 @@ class GamesController extends Controller {
             throw err;
         }
     }
+
     /**
      * 
      * @param {int} game_id - not app_id !
@@ -177,8 +177,7 @@ class GamesController extends Controller {
      *  ]
      */
     async getWithAllForeign(game_id) {
-        await this.waitForConnection();
-        await this.selectDatabase();
+        await this.ready;
 
         const query = `SELECT 
                             g.id, 
@@ -204,8 +203,7 @@ class GamesController extends Controller {
     }
 
     async #checkForeignKeys(data) {
-        await this.waitForConnection();
-        await this.selectDatabase();
+        await this.ready;
 
         try {
             const [rows] = await this.dbConnection.execute('SELECT id FROM platforms WHERE id = ?', [data.platform_id]);

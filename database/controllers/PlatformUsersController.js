@@ -20,21 +20,28 @@ class PlatformUsersController extends Controller {
     async create(data) {
         await super.create();
         
-        let isThereForeignKey = await this.#checkForeignKeys(data)
-        if (isThereForeignKey != true) {
-            throw isThereForeignKey;
-        }       
+        const id = this.#getIdIfExists(data.native_user_id, data.platform_user_id);
 
-        const query = 'INSERT INTO platform_users (native_user_id, platform_user_name, platform_id, platform_profile_id, platform_password) VALUES (?, ?, ?, ?, ?);';
-        const values = [data.native_user_id, data.platform_user_name, data.platform_id, data.platform_profile_id, data.platform_password];
+        if(id instanceof Error) {
+            let isThereForeignKey = await this.#checkForeignKeys(data)
+            if (isThereForeignKey != true) {
+                throw isThereForeignKey;
+            }       
 
-        try {
-            const [result] = await this.dbConnection.execute(query, values);
-            return { message: `${result.id} Element created in table ${this.tableName}` };
-        } catch (err) {
-            console.error(`Error while adding new element to table ${this.tableName}: ${err}`);
-            throw err;
+            const query = 'INSERT INTO platform_users (native_user_id, platform_user_name, platform_id, platform_profile_id, platform_password) VALUES (?, ?, ?, ?, ?);';
+            const values = [data.native_user_id, data.platform_user_name, data.platform_id, data.platform_profile_id, data.platform_password];
+
+            try {
+                const [result] = await this.dbConnection.execute(query, values);
+                return { message: `Element created in table ${this.tableName}`, id: result.insertId };
+            } catch (err) {
+                console.error(`Error while adding new element to table ${this.tableName}: ${err}`);
+                throw err;
+            }
         }
+
+        return { message: `Element already exists in talbe ${this.tableName}`, id: id};
+        
     }
 
     /**
@@ -45,12 +52,12 @@ class PlatformUsersController extends Controller {
     async update(id, data) {
         await super.update(); 
 
-        var isThereForeignKey = await this.#checkForeignKeys(data)
+        let isThereForeignKey = await this.#checkForeignKeys(data)
         if (isThereForeignKey != true) {
             throw isThereForeignKey;
         }
 
-        var old = await this.show(id); 
+        let old = await this.show(id); 
 
         const query = 'UPDATE platform_users SET native_user_id = ?, platform_user_name = ?, platform_id = ?, platform_profile_id = ?, platform_password = ? WHERE id = ?;';
         const values = [
@@ -107,7 +114,7 @@ class PlatformUsersController extends Controller {
     /**
      * Return all platform users by native user id
      * @param {string} nativeUserId 
-     * @returns {Array} - platform_users objects 
+     * @returns {Array} - platform_users table rows 
      */
     async getByNativeUserId(nativeUserId) {
         await super.waitForConnection();
@@ -124,11 +131,23 @@ class PlatformUsersController extends Controller {
         }
     }
 
-    
+    async #getIdIfExists(nativeUserId, platformUserId) {
+        await super.waitForConnection();
+        await super.selectDatabase();
+
+        const query = 'SELECT id FROM platform_users WHERE native_user_id = ? AND platformUserId = ? LIMIT 1;';
+        const values = [nativeUserId, platformUserId];
+        try {
+            const [rows] = await this.dbConnection.execute(query, values);
+            return rows[0].id;
+        } catch (err) {
+            console.error(`Error while fetching platform users by native user id from table ${this.tableName}: ${err}`);
+            throw err;
+        }
+    }
 
     async #checkForeignKeys(data) {
-        await this.waitForConnection();
-        await this.selectDatabase();
+        await this.ready;
 
         try {
             const [userRows] = await this.dbConnection.execute('SELECT id FROM native_users WHERE id = ?', [data.native_user_id]);

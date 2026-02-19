@@ -21,6 +21,8 @@ const gamesGenresConnnectionController = require('./database/controllers/GamesGe
 const gamesController = require('./database/controllers/GamesController');
 const friendsController = require('./database/controllers/FriendsController');
 const chatsController = require('./database/controllers/ChatsController'); 
+const { errorMonitor } = require('events');
+const { error } = require('console');
 
 const PORT = 3000;
 // Replace with your actual Steam API key and Steam ID
@@ -307,6 +309,34 @@ app.get("/api/chat/:friendsId", async (req, res) => {
   }
 });
 
+app.get("/api/platforms/:platformName", async (req, res) => {
+  try {
+    const { platformName } = req.params;
+    const platformCtrl = new platformsController();
+    const result = await platformCtrl.getByPlatformName(platformName);
+    if (result instanceof Error) {
+      return res.status(400).json({ message: 'Iternal server error', error: result });
+    }
+    return res.json(result);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/platform_users", tokenValidate(), async (req, res) => {
+  try {
+    const { userId } = req.auth;
+    const platformUserCtrl = new platformUsersController();
+    const result = await platformUserCtrl.getByNativeUserId(userId);
+    if (result instanceof Error) {
+      return res.status(400).json({ message: 'Iternal server error', error: result });
+    }
+    return res.json(result);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // -------------------     POST      ------------------ //
 
 /*
@@ -466,6 +496,45 @@ app.post("/api/friends", tokenValidate(), async (req, res) => {
     return res.status(500).json({ error: error.message }); 
   }
 });
+
+app.post("/api/platforms", async (req, res) => {
+  try {
+    const { platformName } = req.body;
+
+    const platformCtrl = new platformsController();
+    const result = await platformCtrl.create({name: platformName});
+    if( result instanceof Error ) {
+      return res.status(400).json({ message: result.message });
+    }
+    return res.status(201).json({message: "platform uploaded", id: result.id})
+  } catch (err) {
+    console.log('Error in /api/platforms endpoint:', err);
+    return res.status(500).json({ error: err.message });
+  }
+})
+
+app.post("api/platform_users", tokenValidate(), async (req, res) => {
+  try {
+    const { userId } = req.auth;
+    const data = {
+      "native_user_id": userId,
+      "platform_user_name": req.body.platformUserName,
+      "platform_id": req.body.platformId,
+      "platform_profile_id": req.body.platfProfId,
+      "platform_password": req.body.platformPassword,
+    }
+
+    const platformUserCtrl = new platformUsersController();
+    const result = await platformUserCtrl.create(data);
+    if( result instanceof Error ) {
+      return res.status(400).json({ message: result.message });
+    }
+    return res.status(201).json({ message: "platform user uploaded", id: result.id });
+  } catch (err) {
+    console.log('Error in /api/platform_users endpoint:', err);
+    return res.status(500).json({ error: err.message });
+  }
+})
 
 // -------------------      PUT       ------------------ //
 

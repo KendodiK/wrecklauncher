@@ -22,7 +22,7 @@ class ChatsController extends Controller {
     async create(data) {
         await super.create();
 
-        var foreignKeyCheck = await this.#checkForeignKeys(data);
+        let foreignKeyCheck = await this.#checkForeignKeys(data);
         if (foreignKeyCheck instanceof Error) {
             throw foreignKeyCheck;
         }
@@ -46,12 +46,12 @@ class ChatsController extends Controller {
     async update(id, data) {
         await super.update();
 
-        var foreignKeyCheck = await this.#checkForeignKeys(data);
+        let foreignKeyCheck = await this.#checkForeignKeys(data);
         if (foreignKeyCheck instanceof Error) {
             throw foreignKeyCheck;
         }
         
-        var old = await this.show(id);
+        let old = await this.show(id);
 
         const query = 'UPDATE `chats` SET friends_id = ?, message = ?, sender_id = ? WHERE id = ?;'
         const values = [

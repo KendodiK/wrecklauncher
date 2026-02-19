@@ -74,8 +74,7 @@ class GamesPirateSitesConncectionController extends Controller {
     }
 
     async #checkForeignKeys(data) {
-        await this.waitForConnection();
-        await this.selectDatabase();
+        await this.ready;
 
         try {
             const [gameRows] = await this.dbConnection.execute('SELECT id FROM games WHERE id = ?', [data.game_id]);

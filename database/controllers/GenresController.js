@@ -20,7 +20,8 @@ class GenresController extends Controller {
     async create(data) {
         await super.create();
 
-        let id = await this.getByGenre(data.genre);
+        let { id } = await this.getByGenre(data.genre);
+
         if(id instanceof Error) {
             const query = 'INSERT INTO `genres` (genre) VALUES (?)';
             const values = [data.genre];
@@ -33,6 +34,7 @@ class GenresController extends Controller {
                 throw err;
             }
         }
+
         return { message: `Element already existed in table ${this.tableName}`, id: id };
     }
 
@@ -61,13 +63,12 @@ class GenresController extends Controller {
      * @returns {int || error} id - the id if its in the database
      */
     async getByGenre(genre) {
-        await this.waitForConnection();
-        await this.selectDatabase();
+        await this.ready;
 
-        const query = `SELECT id FROM ${this.tableName} WHERE genre = ?`
+        const query = `SELECT * FROM ${this.tableName} WHERE genre = ? LIMIT 1`
         try {
-            const [id] = await this.dbConnection.execute(query, [genre]);
-            return id[0];
+            const [rows] = await this.dbConnection.execute(query, [genre]);
+            return rows[0];
         } catch (err) {
             console.error(`Error while geting element from ${this.tableName}: ${err}`);
             throw err;

@@ -60,12 +60,12 @@ class FriendsController extends Controller {
     async update(id, data) {
         await super.update();
         
-        var foreignKeyCheck = await this.#checkForeignKeys(data);
+        let foreignKeyCheck = await this.#checkForeignKeys(data);
         if (foreignKeyCheck instanceof Error) {
             throw foreignKeyCheck;
         }
 
-        var old = await this.show(id);
+        let old = await this.show(id);
 
         const query = 'UPDATE `friends` SET user1_id = ?, user2_id = ? WHERE id = ?;'
         const values = [
@@ -92,8 +92,7 @@ class FriendsController extends Controller {
      * @returns {Array} - Array of friends (native user ids) for the given native user ID
      */
     async getNativeUserFriends(nativeUserId) {
-        await this.waitForConnection();
-        await this.selectDatabase(); 
+        await this.ready; 
     
         const query = 'SELECT * FROM friends WHERE user1_id = ? OR user2_id = ?';
         try {
@@ -106,8 +105,7 @@ class FriendsController extends Controller {
     }
 
     async #checkForeignKeys(data) {
-        await this.waitForConnection();
-        await this.selectDatabase();
+        await this.ready;
 
         try {
             const [rows1] = await this.dbConnection.execute('SELECT id FROM native_users WHERE id = ?', [data.user1_id]);
