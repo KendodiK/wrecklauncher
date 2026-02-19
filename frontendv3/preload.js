@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('user:register', username, password, email),
   getPlatformUserID: (platformName, platformUsername) =>
     ipcRenderer.invoke('user:get-platform-userid', platformName, platformUsername),
+  createPlatform: (platformName) => ipcRenderer.invoke('platform:create', platformName),
+  createPlatformUser: (platformName, platformUsername, platformPassword, platformProfileId) => ipcRenderer.invoke('platform:create-user', platformName, platformUsername, platformPassword, platformProfileId),
   getOwnedGamesFromSteam: (platformUsername) =>
     ipcRenderer.invoke('user:get-owned-games-from-steam', platformUsername),
   getSteamGameDetails: (appID, cc) => ipcRenderer.invoke('steam:get-game-details', appID, cc),

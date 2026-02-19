@@ -53,8 +53,11 @@ class GamesController {
    */
   async getAllDetailsByID(token, id){
     if (!token || !String(token).trim()) throw new Error('Token is required');
-    if (!id || !String(id).trim()) throw new Error('Game ID is required');
-    const url = joinUrl(this.#serverUrl, 'api', 'games', enc(stringify({id})), 'all');
+    // Note: allow numeric 0 check explicitly; reject null/undefined/NaN.
+    if (id === undefined || id === null || Number.isNaN(Number(id))) throw new Error('Game ID is required');
+
+    // Backend endpoint is /api/games/:id/all (path param), not a querystring.
+    const url = joinUrl(this.#serverUrl, 'api', 'games', enc(String(id)), 'all');
 
     const { ok, status, json, text } = await fetchJsonSafe(url,{
       method: 'GET',
@@ -71,17 +74,28 @@ class GamesController {
     }
 
     const obj = json && typeof json === 'object' ? json : null;
-    /*@type {import('../models').UploadGameRequest} */
     console.log('getAllDetailsByID response:', obj);
+
+    const rawGenres = Array.isArray(obj?.genres) ? obj.genres : null;
+    const genreNamesFromBackend = Array.isArray(rawGenres)
+      ? rawGenres
+          .map((g) => (g && typeof g === 'object' ? (g.genre ?? g.name ?? g.description) : null))
+          .filter((v) => typeof v === 'string' && v.trim())
+      : null;
+
     return {
       app_id: obj?.app_id ?? null,
       name: obj?.name ?? null,
-      platform_name: obj?.platform_name ?? null,
+      // Backend currently returns `platform` (see SQL alias); keep `platform_name` for renderer compatibility.
+      platform_name: obj?.platform_name ?? obj?.platform ?? null,
       banner_img: obj?.banner_img ?? null,
       description: obj?.description ?? null,
       minimum_requirements: obj?.minimum_requirements ?? null,
       cost: obj?.cost ?? 0,
-      genre_names: Array.isArray(obj?.genre_names) ? obj.genre_names : null,
+      // Backend returns `genres` as rows; derive `genre_names` for the existing UploadGameRequest shape.
+      genre_names: Array.isArray(obj?.genre_names)
+        ? obj.genre_names
+        : (genreNamesFromBackend && genreNamesFromBackend.length ? genreNamesFromBackend : null),
     };
   }
 }

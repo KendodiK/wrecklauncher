@@ -65,33 +65,6 @@ class UserController extends TokenController {
           apiVariantError = new Error(msg);
         }
       }
-
-      // Variant B (server.js)
-      {
-        const url = joinUrl(this.#serverUrl, 'api', 'platform', 'UserID', enc(platformName), enc(platformUsername), enc(token));
-        const { ok, status, json, text } = await fetchJsonSafe(url, { method: 'GET', headers: { 'Accept': 'application/json' } });
-
-        if (!ok) {
-          const legacyMsg = httpErrorMessage(status, json, text);
-
-          if (status === 401 && /invalid token/i.test(legacyMsg)) {
-            const e = new Error(legacyMsg);
-            // @ts-ignore
-            e.code = 'WRECK_INVALID_TOKEN';
-            throw e;
-          }
-
-          const legacyLooksLikeMissingRoute =
-            status === 404 &&
-            typeof text === 'string' &&
-            /Cannot\s+GET\s+\/api\/platform\/UserID\//i.test(text);
-
-          if (legacyLooksLikeMissingRoute && apiVariantError) throw apiVariantError;
-          throw new Error(legacyMsg);
-        }
-        if (!json) throw new Error(`Invalid JSON from server (HTTP ${status})`);
-        return json.platformUserID ?? null;
-      }
     };
 
     try {

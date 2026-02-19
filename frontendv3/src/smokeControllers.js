@@ -72,6 +72,16 @@ function shouldRun() {
 }
 
 export async function runSmokeControllers() {
+  // React.StrictMode in dev intentionally mounts/unmounts components twice,
+  // which makes effects run twice. Use a global guard so smoke runs once
+  // per page load regardless of component remounts / Fast Refresh.
+  try {
+    if (globalThis.__wreck_smoke_ran__ === true) return;
+    globalThis.__wreck_smoke_ran__ = true;
+  } catch {
+    // ignore (very old runtimes)
+  }
+
   if (!shouldRun()) return;
 
   const api = typeof window !== 'undefined' ? window.electronAPI : null;
@@ -112,6 +122,24 @@ export async function runSmokeControllers() {
       warn('register', e2);
     }
   }
+  try{
+    const platform = await api.createPlatform('testeamplatform');
+    log('createPlatform', platform);
+    try{
+      const platformId = platform?.id;
+      if(platformId){
+        const platformUser = await api.createPlatformUser(token,'freshargentinaccount69912', platformId, 'testpassword','76561199194098023');
+        log('createPlatformUser', platformUser);
+      } else {
+        warn('createPlatformUser', 'No platform ID returned');
+      }      
+    }
+    catch (e2) {
+      warn('createPlatformUser', e2);
+    }
+  } catch (e) {
+    warn('createPlatform', e);
+  }
 
   // try {
   //   const epic = await api.getEpicInstalledGames();
@@ -131,7 +159,7 @@ export async function runSmokeControllers() {
   //   }
   // }
 
-  // Optional: platform/owned games (requires you to set a real Steam username)
+//   // Optional: platform/owned games (requires you to set a real Steam username)
 //   const steamUsername = (import.meta?.env?.VITE_SMOKE_STEAM_USERNAME || 'freshargentinaccount69912').trim();
 //   if (steamUsername) {
 //     try {
@@ -159,18 +187,18 @@ export async function runSmokeControllers() {
 //     lines.push('== ownedGamesFromSteam ==\nSkipped (set VITE_SMOKE_STEAM_USERNAME)');
 //   }
 
-  // GamesController.getAllDetailsByID (optional)
-  const smokeGameIdRaw = String(730).trim();
-  if (smokeGameIdRaw) {
-    try {
-      const details = await api.getAllDetailsByID(Number(smokeGameIdRaw));
-      log(`getAllDetailsByID ${smokeGameIdRaw}`, details);
-    } catch (e) {
-      warn(`getAllDetailsByID ${smokeGameIdRaw}`, e);
-    }
-  } else {
-    lines.push('== getAllDetailsByID ==\nSkipped (set VITE_SMOKE_GAME_ID)');
-  }
+  // // GamesController.getAllDetailsByID (optional)
+  // const smokeGameIdRaw = String(730).trim();
+  // if (smokeGameIdRaw) {
+  //   try {
+  //     const details = await api.getAllDetailsByID(Number(smokeGameIdRaw));
+  //     log(`getAllDetailsByID ${smokeGameIdRaw}`, details);
+  //   } catch (e) {
+  //     warn(`getAllDetailsByID ${smokeGameIdRaw}`, e);
+  //   }
+  // } else {
+  //   lines.push('== getAllDetailsByID ==\nSkipped (set VITE_SMOKE_GAME_ID)');
+  // }
 
   // Optional upload pipeline
   // const doUpload = String(import.meta?.env?.VITE_SMOKE_UPLOAD || '') === '1';

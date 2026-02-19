@@ -85,6 +85,8 @@ app.whenReady().then(() => {
   let gamesCtrl = null;
   /** @type {import('./controllers/EpicGamesController')|null} */
   let epicCtrl = null;
+  /** @type {import('./controllers/PlatformsController')|null} */
+  let platformsCtrl = null;
 
   function getUserCtrl() {
     if (!userCtrl) {
@@ -116,6 +118,14 @@ app.whenReady().then(() => {
       epicCtrl = new EpicGamesController({ serverUrl: backendUrl });
     }
     return epicCtrl;
+  }
+
+  function getPlatformsCtrl() {
+    if (!platformsCtrl) {
+      const PlatformsController = require('./controllers/PlatformsController');
+      platformsCtrl = new PlatformsController({ serverUrl: backendUrl });
+    }
+    return platformsCtrl;
   }
 
   /**
@@ -179,6 +189,45 @@ app.whenReady().then(() => {
     return await getUserCtrl().getOwnedGamesFromSteam(String(platformUsername));
   });
 
+  // Platforms
+  handleAuthed('platform:createPlatform', async ({ token }, platformName) => {
+    const name = String(platformName || '').trim();
+    if (!name) throw new Error('platformName is required');
+    try {
+      return await getPlatformsCtrl().createPlatform(token, name);
+    } catch (err) {
+      if (err && typeof err === 'object' && /** @type {any} */ (err).code === 'WRECK_INVALID_TOKEN') {
+        // token rotated/expired: clear + retry once
+        await getUserCtrl()._invalidateToken();
+        const token2 = await getUserCtrl().getToken();
+        if (!token2) throw new Error('Missing auth token');
+        return await getPlatformsCtrl().createPlatform(token2, name);
+      }
+      throw err;
+    }
+  });
+
+    handleAuthed('platform:createPlatformUser', async ({ token },  platformName, platformUsername, platformPassword, platformProfileId) => {
+      const pName = String(platformName || '').trim();
+      const pUsername = String(platformUsername || '').trim();
+      const pPassword = String(platformPassword || '').trim();
+      const pProfileId = String(platformProfileId || '').trim();
+      if (!pName) throw new Error('platformName is required');
+      if (!pUsername) throw new Error('platformUsername is required');
+      if (!pPassword) throw new Error('platformPassword is required');
+      if (!pProfileId) throw new Error('platformProfileId is required');
+      try {        return await getPlatformsCtrl().createPlatformUser(token, pName, pUsername, pPassword, pProfileId);
+      } catch (err) {
+        if (err && typeof err === 'object' && /** @type {any} */ (err).code === 'WRECK_INVALID_TOKEN') {
+          // token rotated/expired: clear + retry once
+          await getUserCtrl()._invalidateToken();
+          const token2 = await getUserCtrl().getToken();
+          if (!token2) throw new Error('Missing auth token');
+          return await getPlatformsCtrl().createPlatformUser(token2, pName, pUsername, pPassword, pProfileId);
+        }
+        throw err;
+      }
+    });
   // Steam game details: renderer passes (appID, cc). Token is fetched here.
   handleAuthed('steam:get-game-details', async ({ token }, appID, cc) => {
     return await getSteamCtrl().getGamesDetails(token, Number(appID), cc ? String(cc) : undefined);
