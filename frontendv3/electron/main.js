@@ -55,6 +55,18 @@ function createWindow() {
   });
 
   if (isDev) {
+    mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+      const prefix = '[renderer]';
+      const src = sourceId ? String(sourceId).split(/[\\/]/).slice(-1)[0] : '';
+      const loc = src ? `${src}:${line}` : '';
+      const text = loc ? `${message} (${loc})` : message;
+      if (level >= 3) console.error(prefix, text);
+      else if (level === 2) console.warn(prefix, text);
+      else console.log(prefix, text);
+    });
+  }
+
+  if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
     if (process.env.OPEN_DEVTOOLS === '1') {
       mainWindow.webContents.openDevTools();
@@ -222,23 +234,46 @@ handleAuthed('platform:get', async ({ token }, platformName) => {
     throw err;
   }
 });
-    handleAuthed('platform:createPlatformUser', async ({ token },  platformName, platformUsername, platformPassword, platformProfileId) => {
+    handleAuthed('platform:create-user', async ({ token },  platformName, platformUsername, platformPassword, platformProfileId) => {
+      const rawPlatform = platformName;
       const pName = String(platformName || '').trim();
       const pUsername = String(platformUsername || '').trim();
       const pPassword = String(platformPassword || '').trim();
       const pProfileId = String(platformProfileId || '').trim();
-      if (!pName) throw new Error('platformName is required');
+
+      // Accept either a platform name ("steam") or a numeric platform id.
+      let platformId = Number(rawPlatform);
+      if (!Number.isFinite(platformId) || platformId <= 0) {
+        platformId = 0;
+      }
+
+      if (!platformId && !pName) throw new Error('platformName or platformId is required');
       if (!pUsername) throw new Error('platformUsername is required');
       if (!pPassword) throw new Error('platformPassword is required');
       if (!pProfileId) throw new Error('platformProfileId is required');
-      try {        return await getPlatformsCtrl().createPlatformUser(token, pName, pUsername, pPassword, pProfileId);
+
+      const resolvePlatformId = async (tok) => {
+        if (platformId) return platformId;
+        const existing = await getPlatformsCtrl().getPlatform(tok, pName);
+        const id = existing?.id;
+        if (id) return Number(id);
+        const created = await getPlatformsCtrl().createPlatform(tok, pName);
+        const createdId = created?.id;
+        if (!createdId) throw new Error(`Failed to create platform: ${pName}`);
+        return Number(createdId);
+      };
+
+      try {
+        const pid = await resolvePlatformId(token);
+        return await getPlatformsCtrl().createPlatformUserById(token, pid, pUsername, pPassword, pProfileId);
       } catch (err) {
         if (err && typeof err === 'object' && /** @type {any} */ (err).code === 'WRECK_INVALID_TOKEN') {
           // token rotated/expired: clear + retry once
           await getUserCtrl()._invalidateToken();
           const token2 = await getUserCtrl().getToken();
           if (!token2) throw new Error('Missing auth token');
-          return await getPlatformsCtrl().createPlatformUser(token2, pName, pUsername, pPassword, pProfileId);
+          const pid = await resolvePlatformId(token2);
+          return await getPlatformsCtrl().createPlatformUserById(token2, pid, pUsername, pPassword, pProfileId);
         }
         throw err;
       }

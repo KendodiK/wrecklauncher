@@ -3,6 +3,8 @@
 // Disable by setting: localStorage.setItem('wreck_smoke', '0') then reload.
 // Re-enable by setting: localStorage.setItem('wreck_smoke', '1') then reload.
 
+import { platform } from "process";
+
 function ensureNoticeBanner() {
   let el = document.getElementById('notice-banner');
   if (el) return el;
@@ -72,15 +74,19 @@ function shouldRun() {
 }
 
 export async function runSmokeControllers() {
+  console.log('[smoke] runSmokeControllers() called');
   // React.StrictMode in dev intentionally mounts/unmounts components twice,
   // which makes effects run twice. Use a global guard so smoke runs once
   // per page load regardless of component remounts / Fast Refresh.
-  // try {
-  //   if (globalThis.__wreck_smoke_ran__ === true) return;
-  //   globalThis.__wreck_smoke_ran__ = true;
-  // } catch {
-  //   // ignore (very old runtimes)
-  // }
+  try {
+    if (globalThis.__wreck_smoke_ran__ === true) {
+      console.log('[smoke] skipping (already ran)');
+      return;
+    }
+    globalThis.__wreck_smoke_ran__ = true;
+  } catch {
+    // ignore (very old runtimes)
+  }
 
   if (!shouldRun()) return;
 
@@ -110,32 +116,21 @@ export async function runSmokeControllers() {
     console.warn(`[smoke] ${label} failed:`, err);
   };
 
-  const invokeFirst = async (channels, ...args) => {
-    for (const ch of channels) {
-      try {
-        return await api.invoke(ch, ...args);
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        // If the handler doesn't exist, try the next channel.
-        if (/No handler registered/i.test(msg) || /Error occurred in handler/i.test(msg)) {
-          continue;
-        }
-        throw e;
-      }
-    }
-    throw new Error(`No IPC handler available. Tried: ${channels.join(', ')}`);
-  };
-
-  // Token (optional: some endpoints may not require it, but keeping this verifies auth wiring)
+  // Token (optional: some endpoints may not require it, but keeping this verifies auth wiring)  
   let token;
   try {
     token = await api.getToken();
     log('token', token);
+    if (!token) {
+      throw new Error('getToken returned empty');
+    }
   } catch (e) {
     warn('getToken', e);
     try {
       token = await api.register('teszt', 'teszt', 'teszt@example.com');
       log('register', token);
+      if (!token) throw new Error('register returned empty');
+      token = token.token || token; // handle both raw token or { token } object
     } catch (e2) {
       warn('register', e2);
     }
@@ -166,13 +161,7 @@ export async function runSmokeControllers() {
   }catch(e){
     warn('getPlatformUserID steam', e);
     try {
-      const platformUser = await invokeFirst(
-        ['platform:createPlatformUser', 'platform:create-user'],
-        'steam',
-        'freshargentinaccount69912',
-        'testpassword',
-        '76561199194098023',
-      );
+      const platformUser = await api.createPlatformUser('steam', 'freshargentinaccount69912', 'testpassword', '76561199194098023');
       log('createPlatformUser', platformUser);
     } catch (e2) {
       warn('createPlatformUser', e2);

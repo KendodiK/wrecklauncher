@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useParams } from 'react-router-dom';
-
+import { runSmokeControllers } from '../../smokeControllers.js';
 const fallback = {
 	id: null,
 	title: 'Game',
@@ -51,6 +51,7 @@ function parseSteamDetails(details) {
 }
 
 const GamePage = () => {
+
 	const { id } = useParams();
 	const location = useLocation();
 	const [steamDetails, setSteamDetails] = useState(null);

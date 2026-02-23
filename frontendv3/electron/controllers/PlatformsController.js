@@ -60,13 +60,12 @@ class PlatformsController {
       }
       return json;
     }
-    async createPlatformUser(token, platformName, platformUsername, platformPassword, platformProfileId) {
-        const platform = await this.getPlatform(token, platformName);
-        const platformId = platform?.id;
-        if (!platformId) {
-          throw new Error(`Platform not found or missing id for: ${String(platformName)}`);
-        }
 
+    async createPlatformUserById(token, platformId, platformUsername, platformPassword, platformProfileId) {
+        const idNum = Number(platformId);
+        if (!Number.isFinite(idNum) || idNum <= 0) {
+          throw new Error(`Invalid platformId: ${String(platformId)}`);
+        }
         const url = joinUrl(this.#serverUrl, 'api', 'platform_users');
         const { ok, status, json, text } = await fetchJsonSafe(url, {
           method: 'POST',
@@ -77,7 +76,7 @@ class PlatformsController {
           },
           body: JSON.stringify({
             platformUserName: platformUsername,
-            platformId: platformId,
+            platformId: idNum,
             platfProfId: platformProfileId,
             platformPassword: platformPassword,
           }),
@@ -94,6 +93,15 @@ class PlatformsController {
         }
         return json;
     }
+
+      async createPlatformUser(token, platformName, platformUsername, platformPassword, platformProfileId) {
+        const platform = await this.getPlatform(token, platformName);
+        const platformId = platform?.id;
+        if (!platformId) {
+          throw new Error(`Platform not found or missing id for: ${String(platformName)}`);
+        }
+        return await this.createPlatformUserById(token, platformId, platformUsername, platformPassword, platformProfileId);
+      }
 }
 
   module.exports = PlatformsController;

@@ -16,20 +16,31 @@ class NativeUsersController extends Controller {
 
     /**
      * 
-     * @param {Array} data - name, user_password, pfp (optional)
+     * @param {any} data - Supports legacy shape ({ name, user_password, ... })
+     *                    and API shape ({ username, password, email, ... }).
      */
     async create(data) {
         await super.create();
 
-        console.log(data.name);
-        console.log(data.user_password);
+        const name = String(data?.name ?? data?.username ?? '').trim();
+        const password = String(data?.user_password ?? data?.password ?? '').trim();
+        const email = String(data?.email ?? '').trim();
+        const bio = data && Object.prototype.hasOwnProperty.call(data, 'bio') ? (data.bio == null ? null : String(data.bio)) : null;
+        const pfp = data && Object.prototype.hasOwnProperty.call(data, 'pfp') ? (data.pfp == null ? null : String(data.pfp)) : null;
 
-        const query = 'INSERT INTO native_users (token, name, user_password, pfp) VALUES (?, ?, ?, ?);';
-        const values = [this.#generateToken(data.name), data.name, this.#hashPassword(data.user_password), data.pfp || null];
+        if (!name) throw new Error('NativeUsersController.create: username/name is required');
+        if (!password) throw new Error('NativeUsersController.create: password is required');
+        if (!email) throw new Error('NativeUsersController.create: email is required');
+
+        const token = this.#generateToken(name);
+        const query = 'INSERT INTO native_users (token, name, user_password, email, bio, pfp) VALUES (?, ?, ?, ?, ?, ?);';
+        const values = [token, name, this.#hashPassword(password), email, bio, pfp];
 
         try {
-            const [result] = await this.dbConnection.execute(query, values);
-            return { message: `${result.id} Element created in table ${this.tableName}` };
+            await this.dbConnection.execute(query, values);
+            const created = await this.getUserByName(name);
+            if (!created) throw new Error('NativeUsersController.create: insert succeeded but user could not be loaded');
+            return created;
         } catch (err) {
             console.error(`Error while adding new element to table ${this.tableName}: ${err}`);
             throw err;
@@ -39,18 +50,59 @@ class NativeUsersController extends Controller {
     /**
      * 
      * @param {int} id 
-     * @param {Array} data - token (optional true or false), name (optional), user_password (optional), pfp (optional)
+     * @param {any} data - token (optional true), name (optional), user_password/password (optional), email (optional), bio (optional), pfp (optional)
      */
     async update(id, data) {
         await super.update();
 
-        const name = (await this.show(id)).name;
-        
-        const query = 'UPDATE native_users SET name = ?, user_password = ?, pfp = ? WHERE id = ?;';
-        const values = [data.token ? this.#generateToken(name) : null, data.name || null, data.user_password || null, data.pfp || null, id];
+        const user = await this.show(id);
+        if (!user) throw new Error(`NativeUsersController.update: user not found: ${id}`);
+
+        /** @type {string[]} */
+        const sets = [];
+        /** @type {any[]} */
+        const values = [];
+
+        if (data?.token === true) {
+            sets.push('token = ?');
+            values.push(this.#generateToken(user.name));
+        }
+
+        if (typeof data?.name === 'string' && data.name.trim()) {
+            sets.push('name = ?');
+            values.push(data.name.trim());
+        }
+
+        const nextPassword = data?.user_password ?? data?.password;
+        if (typeof nextPassword === 'string' && nextPassword.trim()) {
+            sets.push('user_password = ?');
+            values.push(this.#hashPassword(nextPassword.trim()));
+        }
+
+        if (typeof data?.email === 'string' && data.email.trim()) {
+            sets.push('email = ?');
+            values.push(data.email.trim());
+        }
+
+        if (data && Object.prototype.hasOwnProperty.call(data, 'bio')) {
+            sets.push('bio = ?');
+            values.push(data.bio == null ? null : String(data.bio));
+        }
+
+        if (data && Object.prototype.hasOwnProperty.call(data, 'pfp')) {
+            sets.push('pfp = ?');
+            values.push(data.pfp == null ? null : String(data.pfp));
+        }
+
+        if (!sets.length) {
+            return { message: `${id} No fields to update in table ${this.tableName}` };
+        }
+
+        const query = `UPDATE native_users SET ${sets.join(', ')} WHERE id = ?;`;
+        values.push(id);
 
         try {
-            await this.dbConnection.execute(query, values.filter(v => v !== null));
+            await this.dbConnection.execute(query, values);
             return { message: `${id} Updated successfully in table ${this.tableName}` };
         } catch (err) {
             console.error(`Error while updating element in table ${this.tableName}: ${err}`);
@@ -78,6 +130,27 @@ class NativeUsersController extends Controller {
             return rows[0];
         } catch (err) {
             console.error(`Error while fetching user by name and password: ${err}`);
+            throw err;
+        }
+    }
+
+    /**
+     * @param {string} name
+     * @returns {Promise<any|null>}
+     */
+    async getUserByName(name) {
+        await this.ready;
+
+        const clean = String(name || '').trim();
+        if (!clean) return null;
+
+        const query = 'SELECT * FROM native_users WHERE name = ? LIMIT 1;';
+        try {
+            const [rows] = await this.dbConnection.execute(query, [clean]);
+            // @ts-ignore
+            return rows[0] || null;
+        } catch (err) {
+            console.error(`Error while fetching user by name: ${err}`);
             throw err;
         }
     }

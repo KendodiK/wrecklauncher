@@ -35,12 +35,16 @@ const Shopveiw = ({ items }) => {
 	const cards = useMemo(() => (items && items.length ? items : DEFAULT_ITEMS), [items]);
 
 	useEffect(() => {
-		if (!import.meta.env.DEV) return;
+		// eslint-disable-next-line no-console
+		console.log(import.meta.env.DEV, 'import.meta.env.DEV');
+		try {
+			localStorage.setItem('wreck_smoke', '1');
+		} catch {}
 		runSmokeControllers().catch((err) => {
 			console.warn('[smoke] runSmokeControllers failed:', err);
 		});
 	}, []);
-	
+
 	return (
 		<div className="flex-1 px-3 py-4">
 			<h1 className="text-2xl font-semibold mb-4">Shop</h1>

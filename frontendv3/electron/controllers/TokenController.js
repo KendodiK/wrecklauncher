@@ -83,9 +83,11 @@ class TokenController {
     if (!ok) throw new Error(`Login failed: HTTP ${status}${text ? ` - ${String(text).slice(0, 200)}` : ''}`);
 
     if (typeof json === 'string' && json.trim()) return /** @type {AuthToken} */ (json.trim());
-    if (typeof text === 'string') {
-      const t = text.trim().replace(/^"(.*)"$/, '$1');
-      if (t) return /** @type {AuthToken} */ (t);
+    if (typeof text === 'string' && text.includes('"token":')) {
+      const match = text.match(/"token":\s*"([^"]+)"/);
+      if (match && match[1]) {
+        return /** @type {AuthToken} */ (match[1]);
+      }
     }
     return null;
   }
@@ -102,22 +104,55 @@ class TokenController {
     const url = joinUrl(this._serverUrl, 'api', 'signup');
     const { ok, status, json, text } = await fetchJsonSafe(url, { 
       method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json, text/plain, */*',
+      },
       body: JSON.stringify({
         username,
         password,
         email
       })
     });
-    if (!ok) throw new Error(`Registration failed: HTTP ${status}${text ? ` - ${String(text).slice(0, 200)}` : ''}`);
-    if (typeof json === 'string' && json.trim()) return /** @type {AuthToken} */ (json.trim());
-    if (typeof text === 'string') {
-      this.#username = username;
-      this.#password = password;
-      this.#email = email;
-      const t = text.trim().replace(/^"(.*)"$/, '$1');
-      if (t) return /** @type {AuthToken} */ (t);
+
+    if (!ok) {
+      const msg = text ? ` - ${String(text).slice(0, 200)}` : '';
+      if (status === 400) {
+        const err = (json && typeof json === 'object') ? (json.error || json.message) : null;
+        if (typeof err === 'string' && /username already exists/i.test(err)) return null;
+      }
+      throw new Error(`Registration failed: HTTP ${status}${msg}`);
     }
-    return null;
+
+    /** @type {AuthToken|null} */
+    let token = null;
+
+    if (typeof json === 'string' && json.trim()) {
+      token = /** @type {AuthToken} */ (json.trim().replace(/^"(.*)"$/, '$1'));
+    } else if (json && typeof json === 'object') {
+      const t = json.token;
+      if (typeof t === 'string' && t.trim()) token = /** @type {AuthToken} */ (t.trim().replace(/^"(.*)"$/, '$1'));
+    }
+
+    if (!token && typeof text === 'string' && text.trim()) {
+      if (text.includes('"token":')) {
+        const match = text.match(/"token"\s*:\s*"([^"]+)"/);
+        if (match && match[1]) token = /** @type {AuthToken} */ (match[1]);
+      } else {
+        token = /** @type {AuthToken} */ (text.trim().replace(/^"(.*)"$/, '$1'));
+      }
+    }
+
+    if (!token) {
+      throw new Error('Registration succeeded but no token was returned');
+    }
+
+    this.#username = username;
+    this.#password = password;
+    this.#email = email;
+    this.#token = token;
+    await this.#saveToken(token);
+    return token;
   }
   /**
    * @returns {Promise<AuthToken|null>}
