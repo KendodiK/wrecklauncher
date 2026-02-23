@@ -503,7 +503,7 @@ app.post("/api/friends", tokenValidate(), async (req, res) => {
   }
 });
 
-app.post("/api/platforms", async (req, res) => {
+app.post("/api/platforms", tokenValidate(), async (req, res) => {
   try {
     const { platformName } = req.body;
 

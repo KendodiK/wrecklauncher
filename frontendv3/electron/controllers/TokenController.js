@@ -102,6 +102,10 @@ class TokenController {
     const url = joinUrl(this._serverUrl, 'api', 'signup');
     const { ok, status, json, text } = await fetchJsonSafe(url, { 
       method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json',
+      },
       body: JSON.stringify({
         username,
         password,

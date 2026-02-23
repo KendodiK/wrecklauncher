@@ -3,7 +3,6 @@ const Controller = require('./Controller');
 const PlatformsController = require('./PlatformsController');
 const GenresController = require('./GenresController');
 const GamesGenresConnectionController = require('./GamesGenresConnectionController');
-const { RetryError } = require('got');
 
 class GamesController extends Controller {
     constructor() {
