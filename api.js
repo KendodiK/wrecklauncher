@@ -398,7 +398,8 @@ app.post('/api/signup', async (req, res) => {
 
     const { username, password, email } = req.body;
 
-    const existingUser = await nativeUserCtrl.getUserByName(username); //Kell hogy egyedi legyen a név????
+    const existingUser = await nativeUserCtrl.getUserByNameAndPassword(username, password);
+
     if (existingUser) {
       return res.status(400).json({ error: 'Username already exists' });
     }
@@ -513,7 +514,7 @@ app.post("/api/platforms", async (req, res) => {
   }
 })
 
-app.post("api/platform_users", tokenValidate(), async (req, res) => {
+app.post("/api/platform_users", tokenValidate(), async (req, res) => {
   try {
     const { userId } = req.auth;
     const data = {

@@ -70,7 +70,7 @@ class NativeUsersController extends Controller {
         const values = [
             token, 
             name, 
-            data.user_password ?? old.user_password, 
+            data.user_password ? this.#hashPassword(data.user_password) : old.user_password, 
             data.email ?? old.email, 
             data.bio ?? old.bio, 
             data.pfp ?? old.pfp, 
