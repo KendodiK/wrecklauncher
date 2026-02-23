@@ -1,3 +1,4 @@
+// sourcery skip: remove-redundant-slice-index
 const Controller = require('./Controller');
 const PlatformsController = require('./PlatformsController');
 const GenresController = require('./GenresController');
