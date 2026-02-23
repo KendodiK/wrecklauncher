@@ -23,7 +23,7 @@ class PlatformsController extends Controller {
 
         const { id } = await this.getByPlatformName(data.name);
 
-        if (id instanceof Error) {
+        if (id instanceof Error || id === undefined || id === null) {
             const query = 'INSERT INTO platforms (platform_name) VALUES (?);';
             const values = [data.name];
 
