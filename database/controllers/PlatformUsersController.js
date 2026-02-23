@@ -20,7 +20,7 @@ class PlatformUsersController extends Controller {
     async create(data) {
         await super.create();
         
-        const id = await this.#getIdIfExists(data.native_user_id, data.platform_profile_id);
+        const id = this.#getIdIfExists(data.native_user_id, data.platform_user_id);
 
         if(id instanceof Error) {
             let isThereForeignKey = await this.#checkForeignKeys(data)
@@ -28,13 +28,7 @@ class PlatformUsersController extends Controller {
                 throw isThereForeignKey;
             }       
 
-            // Idempotent insert: if the same (native_user_id, platform_id, platform_profile_id)
-            // already exists, return its id instead of creating a duplicate row.
-            // Requires the UNIQUE KEY added in PlatformUsersTableMaker.
-            const query =
-                'INSERT INTO platform_users (native_user_id, platform_user_name, platform_id, platform_profile_id, platform_password) ' +
-                'VALUES (?, ?, ?, ?, ?) ' +
-                'ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id);';
+            const query = 'INSERT INTO platform_users (native_user_id, platform_user_name, platform_id, platform_profile_id, platform_password) VALUES (?, ?, ?, ?, ?);';
             const values = [data.native_user_id, data.platform_user_name, data.platform_id, data.platform_profile_id, data.platform_password];
 
             try {
@@ -137,15 +131,14 @@ class PlatformUsersController extends Controller {
         }
     }
 
-    async #getIdIfExists(nativeUserId, platformProfileId) {
+    async #getIdIfExists(nativeUserId, platformUserId) {
         await super.waitForConnection();
         await super.selectDatabase();
 
-        const query = 'SELECT id FROM platform_users WHERE native_user_id = ? AND platform_profile_id = ? LIMIT 1;';
-        const values = [nativeUserId, platformProfileId];
+        const query = 'SELECT id FROM platform_users WHERE native_user_id = ? AND platformUserId = ? LIMIT 1;';
+        const values = [nativeUserId, platformUserId];
         try {
             const [rows] = await this.dbConnection.execute(query, values);
-            if (!rows || rows.length === 0) return new Error('Platform user does not exist');
             return rows[0].id;
         } catch (err) {
             console.error(`Error while fetching platform users by native user id from table ${this.tableName}: ${err}`);

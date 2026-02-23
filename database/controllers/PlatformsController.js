@@ -21,27 +21,22 @@ class PlatformsController extends Controller {
     async create(data) {
         await super.create();
 
-        const name = String(data?.name ?? '').trim();
-        if (!name) throw new Error('PlatformsController.create: name is required');
+        const { id } = await this.getByPlatformName(data.name);
 
-        const existing = await this.getByPlatformName(name);
-        if (existing && existing.id != null) {
-            return { message: `Element already exists in table ${this.tableName}`, id: existing.id };
+        if (id instanceof Error) {
+            const query = 'INSERT INTO platforms (platform_name) VALUES (?);';
+            const values = [data.name];
+
+            try {
+                const [result] = await this.dbConnection.execute(query, values);
+                return { message: `Element created in table ${this.tableName}`, id: result.id };
+            } catch (err) {
+                console.error(`Error while adding new element to table ${this.tableName}: ${err}`);
+                throw err;
+            }
         }
-
-        const query = 'INSERT INTO platforms (platform_name) VALUES (?);';
-        const values = [name];
-
-        try {
-            const [result] = await this.dbConnection.execute(query, values);
-            // mysql2 returns insertId for AUTO_INCREMENT
-            // @ts-ignore
-            const id = result?.insertId;
-            return { message: `Element created in table ${this.tableName}`, id };
-        } catch (err) {
-            console.error(`Error while adding new element to table ${this.tableName}: ${err}`);
-            throw err;
-        }
+        
+        return { message: `Element already exists in talba ${this.tableName}`, id: id};
     }
 
     /**
@@ -53,7 +48,7 @@ class PlatformsController extends Controller {
     async update(id, data) {
         await super.update(); 
     
-        const query = 'UPDATE platforms SET platform_name = ? WHERE id = ?;';
+        const query = 'UPDATE platforms SET name = ? WHERE id = ?;';
         const values = [data.name, id];
 
         try {
