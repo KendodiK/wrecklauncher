@@ -20,7 +20,7 @@ class PlatformUsersController extends Controller {
     async create(data) {
         await super.create();
         
-        const id = this.#getIdIfExists(data.native_user_id, data.platform_user_id);
+        const id = await this.#getIdIfExists(data.native_user_id, data.platform_user_id);
 
         if(id instanceof Error) {
             let isThereForeignKey = await this.#checkForeignKeys(data)

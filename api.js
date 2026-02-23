@@ -405,10 +405,11 @@ app.post('/api/signup', async (req, res) => {
     }
 
     const userData = {
-      "username" : username,
-      "password" : password,
-      "email" : email,
-    }
+      "name": username,
+      "user_password": password,
+      "email": email,
+    };
+
     const newUser = await nativeUserCtrl.create(userData);
     return res.status(201).json({newUser, token: newUser.id + "." + newUser.token});
   } catch (error) {
