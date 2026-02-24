@@ -210,19 +210,7 @@ app.whenReady().then(() => {
       throw err;
     }
   });
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-handleAuthed('platform:get', async (platformName) => {
-=======
-handle('platform:get', async (_event,platformName) => {
->>>>>>> Stashed changes
-=======
-handle('platform:get', async (_event,platformName) => {
->>>>>>> Stashed changes
-=======
-handle('platform:get', async (_event,platformName) => {
->>>>>>> Stashed changes
+handle('platform:get', async (_event, platformName) => {
   const name = String(platformName || '').trim();
   if (!name) throw new Error('platformName is required');
   try {
