@@ -91,7 +91,7 @@ app.whenReady().then(() => {
   function getUserCtrl() {
     if (!userCtrl) {
       const UserController = require('./controllers/UserController');
-      userCtrl = new UserController({ username, password, email, tokenFile, serverUrl: backendUrl });
+      userCtrl = new UserController({ serverUrl: backendUrl, tokenFile });
     }
     return userCtrl;
   }
@@ -177,6 +177,10 @@ app.whenReady().then(() => {
   // UserController already extends TokenController; avoid a redundant instance.
   handle('user:get-token', async () => await getUserCtrl().getToken());
 
+  handle('user:login', async (_event, username, password) => {
+    return await getUserCtrl().login(String(username), String(password));
+  });
+
   handle('user:register', async (_event, username, password, email) => {
     return await getUserCtrl().register(String(username), String(password), String(email));
   });
@@ -206,13 +210,15 @@ app.whenReady().then(() => {
       throw err;
     }
   });
-
-  // Public read: does not require auth token.
-  handle('platform:get', async (_event, platformName) => {
-    const name = String(platformName || '').trim();
-    if (!name) throw new Error('platformName is required');
+handle('platform:get', async (_event, platformName) => {
+  const name = String(platformName || '').trim();
+  if (!name) throw new Error('platformName is required');
+  try {
     return await getPlatformsCtrl().getPlatform(name);
-  });
+  } catch (err) {
+    throw err;
+  }
+});
     handleAuthed('platform:create-user', async ({ token },  platformName, platformUsername, platformPassword, platformProfileId) => {
       const pName = String(platformName || '').trim();
       const pUsername = String(platformUsername || '').trim();
@@ -237,6 +243,26 @@ app.whenReady().then(() => {
   // Steam game details: renderer passes (appID, cc). Token is fetched here.
   handleAuthed('steam:get-game-details', async ({ token }, appID, cc) => {
     return await getSteamCtrl().getGamesDetails(token, Number(appID), cc ? String(cc) : undefined);
+  });
+
+  // Open Steam client install prompt for a Steam AppID.
+  handle('steam:install-game', async (_event, appID) => {
+    return await getSteamCtrl().installGame(appID);
+  });
+
+  // Open Steam client uninstall prompt for a Steam AppID.
+  handle('steam:delete-game', async (_event, appID) => {
+    return await getSteamCtrl().deleteSteamGame(appID);
+  });
+
+  // Open Steam store page for a Steam AppID.
+  handle('steam:store-page', async (_event, appID) => {
+    return await getSteamCtrl().storePageSteam(appID);
+  });
+
+  // Run/launch a Steam game by AppID.
+  handle('steam:run-game', async (_event, appID) => {
+    return await getSteamCtrl().runSteamGame(appID);
   });
 
   // Backward/alternate name used by preload API.

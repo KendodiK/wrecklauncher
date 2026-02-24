@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Controller helpers (serverless modules in Electron main)
   getToken: () => ipcRenderer.invoke('user:get-token'),
+  login: (username, password) => ipcRenderer.invoke('user:login', username, password),
   register: (username, password, email) =>
     ipcRenderer.invoke('user:register', username, password, email),
   getPlatformUserID: (platformName, platformUsername) =>
@@ -23,6 +24,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('user:get-owned-games-from-steam', platformUsername),
   getSteamGameDetails: (appID, cc) => ipcRenderer.invoke('steam:get-game-details', appID, cc),
   getSteamGameDetailsAndUpload: (appID, cc) => ipcRenderer.invoke('steam:get-game-details-and-upload', appID, cc),
+  installSteamGame: (appID) => ipcRenderer.invoke('steam:install-game', appID),
+  deleteSteamGame: (appID) => ipcRenderer.invoke('steam:delete-game', appID),
+  storePageSteam: (appID) => ipcRenderer.invoke('steam:store-page', appID),
+  runSteamGame: (appID) => ipcRenderer.invoke('steam:run-game', appID),
   getEpicInstalledGames: () => ipcRenderer.invoke('epic:get-installed-games'),
 
   // GamesController

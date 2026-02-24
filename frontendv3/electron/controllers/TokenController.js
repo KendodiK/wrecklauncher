@@ -27,16 +27,17 @@ class TokenController {
   _serverUrl;
 
   /**
-   * @param {{ username: string, password: string, email: string, tokenFile: string, serverUrl: string }} cfg
+   * 
+   * @param {string} serverurl 
+   * @param {string} tokenFile 
    */
-  constructor(cfg) {
-    this.#username = String(cfg.username || '');
-    this.#password = String(cfg.password || '');
-    this.#email = String(cfg.email || '');
-    this.#tokenFile = String(cfg.tokenFile || 'token.txt');
-    this._serverUrl = normalizeBaseUrl(cfg.serverUrl || '', { defaultProtocol: 'http:' });
+  constructor(serverurl, tokenFile) {
+    this._serverUrl = normalizeBaseUrl(serverurl || '', { defaultProtocol: 'http:' });
+    this.#tokenFile = tokenFile;
+    this.#username = '';
+    this.#password = '';
+    this.#email = '';
   }
-
   /**
    * Clears any cached token and removes the persisted token file.
    * Useful when the backend rotated tokens and the cached one became invalid.
@@ -77,15 +78,21 @@ class TokenController {
    * POST /api/login/:username/:password
    * @returns {Promise<AuthToken|null>}
    */
-  async login() {
-    const url = joinUrl(this._serverUrl, 'api', 'login', enc(this.#username), enc(this.#password));
+  async login(username = this.#username, password = this.#password) {
+    const url = joinUrl(this._serverUrl, 'api', 'login', enc(username), enc(password));
     const { ok, status, json, text } = await fetchJsonSafe(url, { method: 'POST' });
     if (!ok) throw new Error(`Login failed: HTTP ${status}${text ? ` - ${String(text).slice(0, 200)}` : ''}`);
 
     if (typeof json === 'string' && json.trim()) return /** @type {AuthToken} */ (json.trim());
     if (typeof text === 'string') {
-      const t = text.trim().replace(/^"(.*)"$/, '$1');
-      if (t) return /** @type {AuthToken} */ (t);
+      const t = text.trim().replace(/^"(.*)"$/, '$1');      
+      if (t) {
+        this.#username = username;
+        this.#password = password;
+        this.#email = '';
+        this.#token = t;
+        await this.#saveToken(t);
+        return /** @type {AuthToken} */ (t)};
     }
     return null;
   }
@@ -119,7 +126,13 @@ class TokenController {
       this.#password = password;
       this.#email = email;
       const t = text.trim().replace(/^"(.*)"$/, '$1');
-      if (t) return /** @type {AuthToken} */ (t);
+      if (t) {
+        this.#username = username;
+        this.#password = password;
+        this.#email = email;
+        this.#token = t;
+        await this.#saveToken(t);
+        return /** @type {AuthToken} */ (t)};
     }
     return null;
   }
