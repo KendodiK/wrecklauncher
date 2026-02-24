@@ -72,17 +72,17 @@ function shouldRun() {
 }
 
 export async function runSmokeControllers() {
+  if (!shouldRun()) return;
+
   // React.StrictMode in dev intentionally mounts/unmounts components twice,
   // which makes effects run twice. Use a global guard so smoke runs once
   // per page load regardless of component remounts / Fast Refresh.
-  // try {
-  //   if (globalThis.__wreck_smoke_ran__ === true) return;
-  //   globalThis.__wreck_smoke_ran__ = true;
-  // } catch {
-  //   // ignore (very old runtimes)
-  // }
-
-  if (!shouldRun()) return;
+  try {
+    if (globalThis.__wreck_smoke_ran__ === true) return;
+    globalThis.__wreck_smoke_ran__ = true;
+  } catch {
+    // ignore (very old runtimes)
+  }
 
   const api = typeof window !== 'undefined' ? window.electronAPI : null;
   if (!api) {

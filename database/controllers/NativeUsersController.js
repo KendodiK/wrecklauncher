@@ -32,15 +32,12 @@ class NativeUsersController extends Controller {
     async create(data) {
         await super.create();
 
-        console.log(data.name);
-        console.log(data.user_password);
-
-        const query = 'INSERT INTO native_users (token, name, user_password, email, bio, pfp) VALUES (?, ?, ?, ?, ?, ?);';
+        const query = 'INSERT INTO native_users (token, name, user_password, email, bio, pfp) VALUES (?, ?, ?, ?, ?, ?) RETURNING id, token;';
         const values = [this.#generateToken(data.name), data.name, this.#hashPassword(data.user_password), data.email, data.bio ?? null, data.pfp ?? null];
 
         try {
             const [result] = await this.dbConnection.execute(query, values);
-            return { message: `${result.id} Element created in table ${this.tableName}`, id: result.id };
+            return { message: `${result[0].id} Element created in table ${this.tableName}`, id: result[0].id, token: result[0].token };
         } catch (err) {
             console.error(`Error while adding new element to table ${this.tableName}: ${err}`);
             throw err;

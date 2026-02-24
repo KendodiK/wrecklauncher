@@ -21,22 +21,23 @@ class PlatformsController extends Controller {
     async create(data) {
         await super.create();
 
-        const { id } = await this.getByPlatformName(data.name);
+        const existing = await this.getByPlatformName(data.name);
+        const existingId = existing && typeof existing === 'object' ? existing.id : null;
 
-        if (id instanceof Error || id === undefined || id === null) {
+        if (existingId === undefined || existingId === null) {
             const query = 'INSERT INTO platforms (platform_name) VALUES (?);';
             const values = [data.name];
 
             try {
                 const [result] = await this.dbConnection.execute(query, values);
-                return { message: `Element created in table ${this.tableName}`, id: result.id };
+                return { message: `Element created in table ${this.tableName}`, id: result.insertId };
             } catch (err) {
                 console.error(`Error while adding new element to table ${this.tableName}: ${err}`);
                 throw err;
             }
         }
-        
-        return { message: `Element already exists in talba ${this.tableName}`, id: id};
+
+        return { message: `Element already exists in talba ${this.tableName}`, id: existingId};
     }
 
     /**
@@ -48,7 +49,7 @@ class PlatformsController extends Controller {
     async update(id, data) {
         await super.update(); 
     
-        const query = 'UPDATE platforms SET name = ? WHERE id = ?;';
+        const query = 'UPDATE platforms SET platform_name = ? WHERE id = ?;';
         const values = [data.name, id];
 
         try {

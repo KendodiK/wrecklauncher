@@ -409,10 +409,11 @@ app.post('/api/signup', async (req, res) => {
     }
 
     const userData = {
-      "username" : username,
-      "password" : password,
-      "email" : email,
-    }
+      "name": username,
+      "user_password": password,
+      "email": email,
+    };
+
     const newUser = await nativeUserCtrl.create(userData);
     return res.status(201).json({newUser, token: newUser.id + "." + newUser.token});
   } catch (error) {
@@ -502,7 +503,7 @@ app.post("/api/friends", tokenValidate(), async (req, res) => {
   }
 });
 
-app.post("/api/platforms", async (req, res) => {
+app.post("/api/platforms", tokenValidate(), async (req, res) => {
   try {
     const { platformName } = req.body;
 
