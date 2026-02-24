@@ -166,8 +166,7 @@ export async function runSmokeControllers() {
   }catch(e){
     warn('getPlatformUserID steam', e);
     try {
-      const platformUser = await invokeFirst(
-        ['platform:createPlatformUser', 'platform:create-user'],
+      const platformUser = await api.createPlatformUser(
         'steam',
         'freshargentinaccount69912',
         'testpassword',

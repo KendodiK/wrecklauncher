@@ -522,12 +522,23 @@ app.post("/api/platforms", tokenValidate(), async (req, res) => {
 app.post("/api/platform_users", tokenValidate(), async (req, res) => {
   try {
     const { userId } = req.auth;
+
+    const { platformUserName, platformId, platfProfId, platformPassword } = req.body || {};
+    const missing = [];
+    if (platformUserName == null) missing.push('platformUserName');
+    if (platformId == null) missing.push('platformId');
+    if (platfProfId == null) missing.push('platfProfId');
+    if (platformPassword == null) missing.push('platformPassword');
+    if (missing.length) {
+      return res.status(400).json({ message: 'Missing required fields', missing });
+    }
+
     const data = {
       "native_user_id": userId,
-      "platform_user_name": req.body.platformUserName,
-      "platform_id": req.body.platformId,
-      "platform_profile_id": req.body.platfProfId,
-      "platform_password": req.body.platformPassword,
+      "platform_user_name": platformUserName,
+      "platform_id": platformId,
+      "platform_profile_id": platfProfId,
+      "platform_password": platformPassword,
     }
 
     const platformUserCtrl = new platformUsersController();

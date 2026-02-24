@@ -47,7 +47,6 @@ class PlatformsController {
         },
         body: JSON.stringify({ platformName }),
       });
-      console.log('createPlatform response:', { ok, status, json, text });
       if (!ok) {
         const msg = httpErrorMessage(status, json, text);
         if (status === 401 && /invalid token/i.test(msg)) {

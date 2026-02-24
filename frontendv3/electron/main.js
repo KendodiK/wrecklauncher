@@ -215,7 +215,7 @@ handleAuthed('platform:get', async (platformName) => {
     throw err;
   }
 });
-    handleAuthed('platform:createPlatformUser', async ({ token },  platformName, platformUsername, platformPassword, platformProfileId) => {
+    handleAuthed('platform:create-user', async ({ token },  platformName, platformUsername, platformPassword, platformProfileId) => {
       const pName = String(platformName || '').trim();
       const pUsername = String(platformUsername || '').trim();
       const pPassword = String(platformPassword || '').trim();

@@ -15,12 +15,12 @@ class PlatformUsersController extends Controller {
 
     /**
      * 
-     * @param {Array} data - ["native_user_id" = native_users.id, "platform_user_name" = string, "platform_id" = platforms.id, "platform_profile_id" = string, "platform_password" = string ]
+     * @param {Object} data - { native_user_id, platform_user_name, platform_id, platform_profile_id, platform_password }
      */
     async create(data) {
         await super.create();
         
-        const id = await this.#getIdIfExists(data.native_user_id, data.platform_user_id);
+        const id = await this.#getIdIfExists(data.native_user_id, data.platform_id, data.platform_profile_id);
 
         if(id instanceof Error) {
             let isThereForeignKey = await this.#checkForeignKeys(data)
@@ -131,14 +131,17 @@ class PlatformUsersController extends Controller {
         }
     }
 
-    async #getIdIfExists(nativeUserId, platformUserId) {
+    async #getIdIfExists(nativeUserId, platformId, platformProfileId) {
         await super.waitForConnection();
         await super.selectDatabase();
 
-        const query = 'SELECT id FROM platform_users WHERE native_user_id = ? AND platformUserId = ? LIMIT 1;';
-        const values = [nativeUserId, platformUserId];
+        const query = 'SELECT id FROM platform_users WHERE native_user_id = ? AND platform_id = ? AND platform_profile_id = ? LIMIT 1;';
+        const values = [nativeUserId, platformId, platformProfileId];
         try {
             const [rows] = await this.dbConnection.execute(query, values);
+            if (!rows || rows.length === 0 || rows[0]?.id == null) {
+                return new Error('Element not found');
+            }
             return rows[0].id;
         } catch (err) {
             console.error(`Error while fetching platform users by native user id from table ${this.tableName}: ${err}`);
