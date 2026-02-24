@@ -1,9 +1,15 @@
 // @ts-check
 
+const { shell } = require('electron');
 const https = require('https');
 const GamesController = require('./GamesController');
+const PlatformUsersController = require('../../../database/controllers/PlatformUsersController');
 
 class SteamGamesController extends GamesController {
+  /**
+   * @type {string} (false string, in reality its a number converted to string for query param usage, e.g. "730" for CS:GO)
+   */
+  #platformID;
   /**
    * @param {{ serverUrl: string }|undefined} [cfg]
    */
@@ -11,6 +17,7 @@ class SteamGamesController extends GamesController {
     super({
       serverUrl: cfg?.serverUrl || process.env.WRECK_BACKEND_URL || 'http://127.0.0.1:3000',
     });
+    this.#platformID = "";
   }
 
   static #agent = new https.Agent({
@@ -24,7 +31,6 @@ class SteamGamesController extends GamesController {
   static #sleep(ms) {
     return new Promise((r) => setTimeout(r, ms));
   }
-
   /**
    * @param {string} url
    * @param {{ timeoutMs: number, maxBodyBytes: number }} opts
@@ -221,6 +227,77 @@ class SteamGamesController extends GamesController {
 
     return null;
   }
-}
+  /**
+   * 
+   * @param {number} appID the games appID on steam, e.g. 730 for CS:GO
+   * @returns {Promise<{ok: boolean, url: string}>} helps opening the steam client to the install page for the given appID. Returns the URL it attempted to open for reference.
+   * Note: the URL scheme only works if the user has the Steam client installed and properly registered to handle steam:// links.
+   */
+  async installGame(appID) {
+    const appIdNum = Number(appID);
+    if (!Number.isFinite(appIdNum) || appIdNum <= 0) throw new Error(`Invalid Steam AppID: ${String(appID)}`);
 
+    const url = `steam://install/${encodeURIComponent(String(appIdNum))}`;
+    try {
+      await shell.openExternal(url);
+      return { ok: true, url };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`Failed to open Steam install URL (${url}): ${msg}`);
+    }
+}
+/**
+ * 
+ * @param {number} appID the games appID on steam, e.g. 730 for CS:GO
+ * @returns {Promise<{ok: boolean, url: string}>} helps opening the steam client to the install page for the given appID. Returns the URL it attempted to open for reference.
+ * Note: the URL scheme only works if the user has the Steam client installed and properly registered to handle steam:// links.
+ */
+async storePageSteam(appID) {
+  const appIdNum = Number(appID);
+  if (!Number.isFinite(appIdNum) || appIdNum <= 0) throw new Error(`Invalid Steam AppID: ${String(appID)}`);
+  const url = `steam://store/${encodeURIComponent(String(appIdNum))}`;
+  try {
+    await shell.openExternal(url);
+    return { ok: true, url };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Failed to open Steam store URL (${url}): ${msg}`);
+  }
+}
+/**
+ * 
+ * @param {number} appID the games appID on steam, e.g. 730 for CS:GO
+ * @returns {Promise<{ok: boolean, url: string}>} helps opening the steam client to the install page for the given appID. Returns the URL it attempted to open for reference.
+ * Note: the URL scheme only works if the user has the Steam client installed and properly registered to handle steam:// links.
+ */
+async runSteamGame(appID) {
+  const appIdNum = Number(appID);
+  if (!Number.isFinite(appIdNum) || appIdNum <= 0) throw new Error(`Invalid Steam AppID: ${String(appID)}`);
+  const url = `steam://run/${encodeURIComponent(String(appIdNum))}`;
+  try {    await shell.openExternal(url);
+    return { ok: true, url };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Failed to open Steam run URL (${url}): ${msg}`);
+   }
+   }
+  /**
+   * 
+   * @param {number} appID 
+   * @returns {Promise<{ok: boolean, url: string}>} helps opening the steam client to the delete page for the given appID. Returns the URL it attempted to open for reference.
+   * Note: the URL scheme only works if the user has the Steam client installed and properly registered to handle steam:// links.
+   */
+async deleteSteamGame(appID){
+  const appIdNum = Number(appID);
+  if (!Number.isFinite(appIdNum) || appIdNum <= 0) throw new Error(`Invalid Steam AppID: ${String(appID)}`);
+  // Steam supports uninstall via URL scheme. This opens a prompt in Steam.
+  const url = `steam://uninstall/${encodeURIComponent(String(appIdNum))}`;
+  try {    await shell.openExternal(url);
+    return { ok: true, url };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Failed to open Steam uninstall URL (${url}): ${msg}`);
+   }
+  }
+}
 module.exports = SteamGamesController;

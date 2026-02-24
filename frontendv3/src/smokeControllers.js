@@ -25,7 +25,8 @@ function ensureNoticeBanner() {
   el.style.maxHeight = '42vh';
   el.style.overflow = 'auto';
 
-  document.body.appendChild(el);
+  const parent = document.body || document.documentElement;
+  parent.appendChild(el);
   return el;
 }
 
@@ -72,16 +73,33 @@ function shouldRun() {
 }
 
 export async function runSmokeControllers() {
+  try {
+    const hasApi = typeof window !== 'undefined' && !!window.electronAPI;
+    console.log(`[smoke] window.electronAPI ${hasApi ? 'is available' : 'is NOT available'}`);
+  } catch {
+    // ignore
+  }
   if (!shouldRun()) return;
+
+  // If explicitly forced on (wreck_smoke === '1'), allow re-running even
+  // if the one-run guard was set earlier (useful during dev / HMR).
+  let isForced = false;
+  try {
+    isForced = localStorage.getItem('wreck_smoke') === '1';
+  } catch {
+    isForced = false;
+  }
 
   // React.StrictMode in dev intentionally mounts/unmounts components twice,
   // which makes effects run twice. Use a global guard so smoke runs once
   // per page load regardless of component remounts / Fast Refresh.
-  try {
-    if (globalThis.__wreck_smoke_ran__ === true) return;
-    globalThis.__wreck_smoke_ran__ = true;
-  } catch {
-    // ignore (very old runtimes)
+  if (!isForced) {
+    try {
+      if (globalThis.__wreck_smoke_ran__ === true) return;
+      globalThis.__wreck_smoke_ran__ = true;
+    } catch {
+      // ignore (very old runtimes)
+    }
   }
 
   const api = typeof window !== 'undefined' ? window.electronAPI : null;
@@ -139,8 +157,7 @@ export async function runSmokeControllers() {
     } catch (e2) {
       warn('register', e2);
     }
-  }
-
+  }  
   // Platforms
   try {
     const platform = await api.getPlatform('steam');
@@ -159,9 +176,9 @@ export async function runSmokeControllers() {
       warn('createPlatform steam', e2);
     }
   }
-
+let platformUserId;
   try{
-    const platformUserId = await api.getPlatformUserID('steam', 'freshargentinaccount69912');
+    platformUserId = await api.getPlatformUserID('steam', 'freshargentinaccount69912');
     log('getPlatformUserID steam', platformUserId);    
   }catch(e){
     warn('getPlatformUserID steam', e);
@@ -177,6 +194,41 @@ export async function runSmokeControllers() {
       warn('createPlatformUser', e2);
     }
   }
+  try{
+    const owned = await api.getOwnedGamesFromSteam('freshargentinaccount69912');
+    log('getOwnedGamesFromSteam', owned);
+  }catch(e){
+    warn('getOwnedGamesFromSteam', e);
+  }
+  // try {    const details = await api.getSteamGameDetails(730, 'us');
+  //   log('getSteamGameDetails 730', details);
+  // } catch (e) {
+  //   warn('getSteamGameDetails 730', e);
+  // }
+  // try{
+  //   const install = await api.installSteamGame(238320);
+  //   log('installSteamGame 238320', install);
+  // } catch (e) {
+  //   warn('installSteamGame 238320', e);
+  // }
+  // try{
+  //   const store = await api.storePageSteam(238320);
+  //   log('storePageSteam 238320', store);
+  // } catch (e) {
+  //   warn('storePageSteam 238320', e);
+  // }
+  try{
+    const delete1 = await api.deleteSteamGame(239820);
+    log('deleteSteamGame 239820', delete1);
+  } catch (e) {
+    warn('deleteSteamGame 239820', e);
+  }
+  // try{
+  //   const run = await api.runSteamGame(2193490);
+  //   log('runSteamGame 2193490', run);
+  // } catch (e) {
+  //   warn('runSteamGame 2193490', e);
+  // }
 
 
   // try {
@@ -252,4 +304,34 @@ export async function runSmokeControllers() {
   // }
 
   showNotice('Smoke finished', 'See console + details below', lines.join('\n\n'));
+}
+
+// If smoke is explicitly enabled (wreck_smoke === '1'), run automatically
+// even in production builds where pages may not call runSmokeControllers.
+try {
+  if (typeof window !== 'undefined') {
+    const forced = (() => {
+      try {
+        return localStorage.getItem('wreck_smoke') === '1';
+      } catch {
+        return false;
+      }
+    })();
+
+    if (forced) {
+      const start = () => {
+        runSmokeControllers().catch((err) => {
+          console.warn('[smoke] auto-run failed:', err);
+        });
+      };
+
+      if (document.readyState === 'loading') {
+        window.addEventListener('DOMContentLoaded', start, { once: true });
+      } else {
+        setTimeout(start, 0);
+      }
+    }
+  }
+} catch {
+  // ignore
 }
