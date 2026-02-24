@@ -15,7 +15,7 @@ class PlatformUsersController extends Controller {
 
     /**
      * 
-     * @param {Object} data - { native_user_id, platform_user_name, platform_id, platform_profile_id, platform_password }
+     * @param {Array} data - ["native_user_id" = native_users.id, "platform_user_name" = string, "platform_id" = platforms.id, "platform_profile_id" = string, "platform_password" = string ]
      */
     async create(data) {
         await super.create();
