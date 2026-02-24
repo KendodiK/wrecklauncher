@@ -206,15 +206,13 @@ app.whenReady().then(() => {
       throw err;
     }
   });
-handleAuthed('platform:get', async (platformName) => {
-  const name = String(platformName || '').trim();
-  if (!name) throw new Error('platformName is required');
-  try {
+
+  // Public read: does not require auth token.
+  handle('platform:get', async (_event, platformName) => {
+    const name = String(platformName || '').trim();
+    if (!name) throw new Error('platformName is required');
     return await getPlatformsCtrl().getPlatform(name);
-  } catch (err) {
-    throw err;
-  }
-});
+  });
     handleAuthed('platform:create-user', async ({ token },  platformName, platformUsername, platformPassword, platformProfileId) => {
       const pName = String(platformName || '').trim();
       const pUsername = String(platformUsername || '').trim();
