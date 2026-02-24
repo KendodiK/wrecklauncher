@@ -211,7 +211,11 @@ app.whenReady().then(() => {
     }
   });
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
 handleAuthed('platform:get', async (platformName) => {
+=======
+handle('platform:get', async (_event,platformName) => {
+>>>>>>> Stashed changes
 =======
 handle('platform:get', async (_event,platformName) => {
 >>>>>>> Stashed changes
