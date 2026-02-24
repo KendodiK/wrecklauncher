@@ -16,7 +16,7 @@ class PlatformsController {
         this.#serverUrl = normalizeBaseUrl(cfg.serverUrl || '', { defaultProtocol: 'http:' });
     }
     async getPlatform(platformName){
-      const url = joinUrl(this.#serverUrl, 'api', 'platforms', enc(platformName));
+      const url = joinUrl(this.#serverUrl, 'api', 'platforms', enc(platformName));      
         const { ok, status, json, text } = await fetchJsonSafe(url, {
             method: 'GET',
             headers: {
@@ -33,6 +33,7 @@ class PlatformsController {
             }
             throw new Error(msg);
         }
+
         return json;
     }
 
