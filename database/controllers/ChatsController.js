@@ -80,8 +80,7 @@ class ChatsController extends Controller {
      * @returns {Array} The previous chats between that two people
      */
     async getByFriedsId(friendsId, from) {
-        await this.waitForConnection();
-        await this.selectDatabase();
+        await this.ready;
 
         const query = 'SELECT * FROM `chats` WHERE friends_id = ? ORDER BY id  LIMIT 10 OFFSET ?;' //10 can be changed later to any number
 
@@ -94,8 +93,7 @@ class ChatsController extends Controller {
     }
 
     async #checkForeignKeys(data) {
-        await this.waitForConnection();
-        await this.selectDatabase();
+        await this.ready;
 
         try {
             const [friendsRows] = await this.dbConnection.execute('SELECT id FROM friends WHERE id = ?', [data.friends_id]);

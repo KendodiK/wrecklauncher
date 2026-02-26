@@ -162,7 +162,6 @@ export async function runSmokeControllers() {
   try {
     const platform = await api.getPlatform('steam');
     log('getPlatform steam', platform);
-
     if (!platform) {
       const created = await api.createPlatform('steam');
       log('createPlatform steam', created);
