@@ -125,8 +125,8 @@ class GamesController extends Controller {
         const all_genre_ids = Array.isArray(genre_ids) && genre_ids.length > 0 ? genre_ids : [];
         if (Array.isArray(created_genre_ids) && created_genre_ids.length > 0) {
             for (const new_id of created_genre_ids) {
-                console.log(new_id.id);
-                all_genre_ids.push(new_id.id);
+                console.log(new_id);
+                all_genre_ids.push(new_id);
             }
         }
         console.log(all_genre_ids);
