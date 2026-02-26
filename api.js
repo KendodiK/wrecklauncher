@@ -116,6 +116,39 @@ function tokenValidate(req) {
 
   returns: { platform_users.id }
 */
+app.get('/steam/api/getOwnedGames', tokenValidate(), async (req, res) => { 
+  try {
+    const { userId } = req.auth;
+    const platformUserCtrl = new platformUsersController();
+    const platformUsers = await platformUserCtrl.getByNativeUserId(userId);
+    const platformCtrl = new platformsController();
+    const steamPlatform = await platformCtrl.getByPlatformName('steam');
+    if (!steamPlatform) {
+      return res.status(400).json(steamPlatform.error ?? { error: 'Steam platform not found in database' });
+    }
+    const ownedGames = [];
+    for (const platformUser of platformUsers) {
+      if (Number(platformUser.platform_id) === Number(steamPlatform.id)) {
+        const steamApiUrl = `https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key=${steamApiKey}&steamid=${platformUser.platform_profile_id}&include_appinfo=true`;
+        const response = await fetch(steamApiUrl);
+        if (!response.ok) {
+          console.error('Error fetching Steam API:', response.statusText);
+          return res.status(500).json({ error: 'Failed to fetch data from Steam API' });
+        }
+        const data = await response.json();
+        ownedGames.push(...data.response.games);
+      }
+    }
+    if (ownedGames.length === 0) {
+      return res.status(400).json({ error: 'No owned games found for this user on Steam' });
+    }
+    return res.json({ ownedGames });
+  } catch (error) {
+    console.error('Error in /steam/api/getOwnedGames endpoint:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 app.get('/api/platform/user_id/:platformname/:platformUsername', tokenValidate(), async (req, res) => {
     try {
         const { platformname, platformUsername } = req.params;
