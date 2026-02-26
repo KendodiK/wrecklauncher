@@ -15,7 +15,7 @@ class GamesPirateSitesConnectionTableMaker extends DatabaseHandler {
         await this.ready;
         const query = `
             CREATE TABLE IF NOT EXISTS game_pirates_sites_connections (
-            game_id SMALLINT NOT NULL, INDEX(game_id),
+            game_id MEDIUMINT UNSIGNED NOT NULL, INDEX(game_id),
             site_id TINYINT NOT NULL, INDEX(site_id),
             link VARCHAR(516) NOT NULL
         );

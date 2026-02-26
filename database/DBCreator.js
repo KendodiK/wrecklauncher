@@ -9,6 +9,7 @@ const NativeUserTableMaker = require("./makers/NativeUserTableMaker");
 const PirateSitesTableMaker = require("./makers/PirateSitesTableMaker");
 const PlatformsTableMaker = require("./makers/PlatformsTableMaker");
 const PlatformUsersTableMaker = require("./makers/PlatformUsersTableMaker");
+const ShopSpecialsTableMaker = require("./makers/ShopSpecialsTableMaker");
 
 /**
  * DBMaker
@@ -30,6 +31,7 @@ class DBMaker extends DatabaseHandler {
     pirateSitesMkr = new PirateSitesTableMaker();
     platformsMkr = new PlatformsTableMaker();
     platformUsersMkr = new PlatformUsersTableMaker();
+    shopSpecialsMkr = new ShopSpecialsTableMaker();
 
     constructor(tableStructureFilePath = null) {
         super();
@@ -67,6 +69,7 @@ class DBMaker extends DatabaseHandler {
         await this.pirateSitesMkr.create();
         await this.platformsMkr.create();
         await this.platformUsersMkr.create();
+        await this.shopSpecialsMkr.create();
     }
 
     async deleteTables() {
@@ -80,6 +83,7 @@ class DBMaker extends DatabaseHandler {
         await this.pirateSitesMkr.delete();
         await this.platformsMkr.delete();
         await this.platformUsersMkr.delete();
+        await this.shopSpecialsMkr.delete();
     }
 }
 
