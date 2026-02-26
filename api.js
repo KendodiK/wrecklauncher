@@ -108,6 +108,39 @@ function tokenValidate(req) {
 
 // -------------------     GET      ------------------ //
 
+app.get('/steam/api/getOwnedGames', tokenValidate(), async (req, res) => { 
+  try {
+    const { userId } = req.auth;
+    const platformUserCtrl = new platformUsersController();
+    const platformUsers = await platformUserCtrl.getByNativeUserId(userId);
+    const platformCtrl = new platformsController();
+    const steamPlatform = await platformCtrl.getByPlatformName('steam');
+    if (!steamPlatform) {
+      return res.status(400).json(steamPlatform.error ?? { error: 'Steam platform not found in database' });
+    }
+    let ownedGames = [];
+    for (const platformUser of platformUsers) {
+      if (Number(platformUser.platform_id) === Number(steamPlatform.id)) {
+        const steamApiUrl = `https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key=${steamApiKey}&steamid=${platformUser.platform_profile_id}&format=json`;
+        const response = await fetch(steamApiUrl);
+        if (!response.ok) {
+          console.error('Error fetching Steam API:', response.statusText);
+          return res.status(500).json({ error: 'Failed to fetch data from Steam API' });
+        }
+        const data = await response.json();
+        ownedGames.push(...data.response.games);
+      }
+    }
+    if (ownedGames.length === 0) {
+      return res.status(400).json({ error: 'No owned games found for this user on Steam' });
+    }
+    return res.json({ ownedGames });
+  } catch (error) {
+    console.error('Error in /steam/api/getOwnedGames endpoint:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 /*
   route: /api/platform/user_id/:platformname/:platformUsername
   params: platformname (string), platformUsername (string)
@@ -206,6 +239,10 @@ app.get("/api/games/:id/all", async (req, res) => {
     const {id: gameId } = req.params;
     const gameCtrl = new gamesController();
     const game = await gameCtrl.getWithAllForeign(gameId);
+
+    if (!game) {
+      return res.status(404).json({ error: `Game not found: ${gameId}` });
+    }
 
     const gamesGenresCtrl = new gamesGenresConnnectionController();
     const gameGenres = await gamesGenresCtrl.getByGameId(gameId);
@@ -499,7 +536,7 @@ app.post("/api/friends", tokenValidate(), async (req, res) => {
   }
 });
 
-app.post("/api/platforms", async (req, res) => {
+app.post("/api/platforms", tokenValidate(), async (req, res) => {
   try {
     const { platformName } = req.body;
 
@@ -518,12 +555,23 @@ app.post("/api/platforms", async (req, res) => {
 app.post("/api/platform_users", tokenValidate(), async (req, res) => {
   try {
     const { userId } = req.auth;
+
+    const { platformUserName, platformId, platfProfId, platformPassword } = req.body || {};
+    const missing = [];
+    if (platformUserName == null) missing.push('platformUserName');
+    if (platformId == null) missing.push('platformId');
+    if (platfProfId == null) missing.push('platfProfId');
+    if (platformPassword == null) missing.push('platformPassword');
+    if (missing.length) {
+      return res.status(400).json({ message: 'Missing required fields', missing });
+    }
+
     const data = {
       "native_user_id": userId,
-      "platform_user_name": req.body.platformUserName,
-      "platform_id": req.body.platformId,
-      "platform_profile_id": req.body.platfProfId,
-      "platform_password": req.body.platformPassword,
+      "platform_user_name": platformUserName,
+      "platform_id": platformId,
+      "platform_profile_id": platfProfId,
+      "platform_password": platformPassword,
     }
 
     const platformUserCtrl = new platformUsersController();
