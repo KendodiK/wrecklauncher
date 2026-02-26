@@ -1,5 +1,5 @@
 import React from 'react';
-import GameSliderBase from './GameSliderBase.jsx';
+import GameSliderBase from '../shared/GameSliderBase.jsx';
 
 // Styled + animated GameSlider wrapper.
 // - CSS classes are defined in src/index.css under .gs-* selectors

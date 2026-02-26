@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Controller helpers (serverless modules in Electron main)
   getToken: () => ipcRenderer.invoke('user:get-token'),
+  login: (username, password) => ipcRenderer.invoke('user:login', username, password),
   register: (username, password, email) =>
     ipcRenderer.invoke('user:register', username, password, email),
   getPlatformUserID: (platformName, platformUsername) =>

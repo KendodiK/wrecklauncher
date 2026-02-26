@@ -11,6 +11,7 @@ const GameSliderBase = ({
 	cloneCount: cloneCountProp = 5,
 	ariaLabel,
 	onActivateCard,
+	onCardClick,
 	// Styling hooks (wrapper supplies CSS classnames)
 	classNameWrapper = '',
 	classNameCarousel = '',
@@ -98,6 +99,10 @@ const GameSliderBase = ({
 
 	const handleCardClick = (index) => {
 		if (isMoving) return;
+		// Call onCardClick callback if provided (e.g., for scroll-into-view)
+		if (typeof onCardClick === 'function') {
+			onCardClick(cards[index], { index });
+		}
 		setIsMoving(true);
 		setCurrentIndex(index);
 	};

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import GameSliderBase from './GameSliderBase.jsx';
+import GameSliderBase from '../shared/GameSliderBase.jsx';
 
 function steamPoster(appid) {
     const id = Number(appid);
@@ -35,7 +35,7 @@ const DEFAULT_ITEMS = Array.from({ length: 9 }).map((_, i) => {
 // - Structure + behavior comes from GameSliderBase
 // - Design comes from existing CSS in src/index.css (.carousel/.cards/.shop-card...)
 // - Animation comes from getStackMotion() (Motion transforms per offset)
-const Storeslider = ({ items }) => {
+const Storeslider = ({ items, onCardClick }) => {
     const cards = useMemo(() => (items && items.length ? items : DEFAULT_ITEMS), [items]);
     const navigate = useNavigate();
     const [viewportW, setViewportW] = useState(() => (typeof window !== 'undefined' ? window.innerWidth : 1200));
@@ -47,11 +47,11 @@ const Storeslider = ({ items }) => {
     }, []);
 
     const spread = useMemo(() => {
-        // Slightly wider spacing on large/fullscreen windows.
-        if (viewportW >= 1536) return 1.32;
-        if (viewportW >= 1280) return 1.22;
-        if (viewportW >= 1024) return 1.12;
-        return 1;
+        // Fixed spacing values for consistent animations
+        if (viewportW >= 1536) return 1.3;
+        if (viewportW >= 1280) return 1.2;
+        if (viewportW >= 1024) return 1.1;
+        return 1.0;
     }, [viewportW]);
 
     const openGame = (card) => {
@@ -82,6 +82,7 @@ const Storeslider = ({ items }) => {
             mode="stack"
             games={cards}
             onActivateCard={(card) => openGame(card)}
+            onCardClick={onCardClick}
             classNameWrapper=""
             classNameCarousel="carousel"
             classNameContainer="cards"
@@ -101,54 +102,60 @@ const Storeslider = ({ items }) => {
             // Keep the existing Store design: cards are centered & stacked; we animate each
             // card based on how far it is from the active card.
             getStackMotion={({ offset, abs, dir }) => {
-                const visible = Math.abs(offset) <= 3;
-
-                let x = 0;
-                let scale = 1;
-                let opacity = 1;
-                let y = 0;
-                let zIndex = 10;
-                let blur = 0;
+                const visible = abs <= 3;
 
                 if (abs === 0) {
-                    x = 0;
-                    scale = 1;
-                    opacity = 1;
-                    y = 0;
-                    zIndex = 10;
-                    blur = 0;
-                } else if (abs === 1) {
-                    x = dir * (220 * spread);
-                    scale = 0.92;
-                    opacity = 0.75;
-                    y = 10;
-                    zIndex = 8;
-                    blur = 0.5;
-                } else if (abs === 2) {
-                    x = dir * (380 * spread);
-                    scale = 0.84;
-                    opacity = 0.38;
-                    y = 18;
-                    zIndex = 6;
-                    blur = 1.2;
-                } else if (abs === 3) {
-                    x = dir * (520 * spread);
-                    scale = 0.78;
-                    opacity = 0;
-                    y = 24;
-                    zIndex = 4;
-                    blur = 2;
+                    return {
+                        visible,
+                        style: { zIndex: 10 },
+                        animate: {
+                            x: 0,
+                            y: 0,
+                            scale: 1,
+                            opacity: 1,
+                            filter: 'blur(0px)',
+                        },
+                    };
                 }
 
+                if (abs === 1) {
+                    return {
+                        visible,
+                        style: { zIndex: 8 },
+                        animate: {
+                            x: dir * 220 * spread,
+                            y: 10,
+                            scale: 0.92,
+                            opacity: 0.75,
+                            filter: 'blur(0.5px)',
+                        },
+                    };
+                }
+
+                if (abs === 2) {
+                    return {
+                        visible,
+                        style: { zIndex: 6 },
+                        animate: {
+                            x: dir * 380 * spread,
+                            y: 18,
+                            scale: 0.84,
+                            opacity: 0.38,
+                            filter: 'blur(1.2px)',
+                        },
+                    };
+                }
+
+                // abs === 3
                 return {
                     visible,
-                    style: { zIndex },
+                    style: { zIndex: 4 },
                     animate: {
-                        x,
-                        y,
-                        scale,
-                        opacity: visible ? opacity : 0,
-                        filter: `blur(${blur}px)`,
+                        x: dir * 520 * spread,
+                        y: 24,
+                        scale: 0.78,
+                        opacity: 0,
+                        filter: 'blur(2px)',
                     },
                 };
             }}

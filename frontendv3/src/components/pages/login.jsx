@@ -1,51 +1,93 @@
-// Bejelentkezési oldal: statikus teszt felhasználóval és átirányítással a Store oldalra
+// Bejelentkezési oldal: használja a TokenController-t login és register műveletekhez
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-
-// Statikus teszt user, amivel be lehet lépni
-const TEST_USER = {
-  username: 'testuser',
-  password: 'password123',
-  avatarUrl: null,
-};
 
 // onLogin: szülőből érkező callback, ami elmenti a user adatokat globálisan (App-ben)
 const Login = ({ onLogin }) => {
   // Form mezők lokális állapota
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [email, setEmail] = useState('');
+  const [isRegisterMode, setIsRegisterMode] = useState(false);
   const [status, setStatus] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
 
-  // Form elküldése: ellenőrizzük a teszt user adatokat
-  const handleSubmit = (event) => {
+  // Form elküldése: használja a TokenController-t
+  const handleSubmit = async (event) => {
     event.preventDefault();
 
-    if (username === TEST_USER.username && password === TEST_USER.password) {
-      const userData = {
-        username: TEST_USER.username,
-        avatarUrl: TEST_USER.avatarUrl,
-      };
+    if (!username || !password) {
+      setStatus('Please enter username and password');
+      return;
+    }
 
-      // Sikeres belépésnél frissítjük a globális user állapotot
-      if (onLogin) {
-        onLogin(userData);
+    if (isRegisterMode && !email) {
+      setStatus('Please enter your email');
+      return;
+    }
+
+    setIsLoading(true);
+    setStatus('');
+
+    try {
+      if (isRegisterMode) {
+        // Registration logic via TokenController
+        const token = await window.electronAPI.register(username, password, email);
+        
+        // Validate token is a non-empty string
+        if (token && typeof token === 'string' && token.trim().length > 0) {
+          setStatus('Registration successful! Please log in.');
+          setIsRegisterMode(false);
+          setPassword('');
+          setEmail('');
+        } else {
+          setStatus('Registration failed. Username may already exist.');
+        }
+      } else {
+        // Login logic via TokenController
+        const token = await window.electronAPI.login(username, password);
+        
+        // Validate token is a non-empty string
+        if (token && typeof token === 'string' && token.trim().length > 0) {
+          const userData = {
+            username: username,
+            avatarUrl: null,
+            token: token,
+          };
+
+          // Sikeres belépésnél frissítjük a globális user állapotot
+          if (onLogin) {
+            onLogin(userData);
+          }
+
+          // Visszajelzés a felhasználónak, majd átirányítás a Store oldalra
+          setStatus(`Logged in as ${username}`);
+          setTimeout(() => navigate('/store'), 500);
+        } else {
+          setStatus('Login failed. Username or password might be invalid.');
+        }
       }
-
-      // Visszajelzés a felhasználónak, majd átirányítás a Store oldalra
-      setStatus(`Logged in as ${TEST_USER.username}`);
-      navigate('/store');
-    } else {
-      setStatus('Invalid username or password');
+    } catch (error) {
+      console.error('Auth error:', error);
+      setStatus(isRegisterMode 
+        ? 'Registration failed: ' + (error.message || 'Unknown error')
+        : 'Login failed. Username or password might be invalid.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
   return (
     <div className="flex-1 flex items-center justify-center px-4 text-slate-100">
       <div className="w-full max-w-sm bg-slate-900/80 border border-slate-700 rounded-lg shadow-lg p-6">
-        <h1 className="text-2xl font-semibold mb-1 text-center">Login</h1>
+        <h1 className="text-2xl font-semibold mb-1 text-center">
+          {isRegisterMode ? 'Register' : 'Login'}
+        </h1>
         <p className="text-xs text-slate-400 mb-6 text-center">
-          Use <span className="font-mono">testuser</span> / <span className="font-mono">password123</span> to log in.
+          {isRegisterMode 
+            ? 'Create a new account to get started' 
+            : 'Sign in to your account'}
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -57,11 +99,29 @@ const Login = ({ onLogin }) => {
               id="username"
               type="text"
               autoComplete="username"
-              className="w-full rounded bg-slate-800 border border-slate-700 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-sky-500"
+              disabled={isLoading}
+              className="w-full rounded bg-slate-800 border border-slate-700 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-sky-500 disabled:opacity-50"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
             />
           </div>
+
+          {isRegisterMode && (
+            <div>
+              <label className="block text-xs mb-1" htmlFor="email">
+                Email
+              </label>
+              <input
+                id="email"
+                type="email"
+                autoComplete="email"
+                disabled={isLoading}
+                className="w-full rounded bg-slate-800 border border-slate-700 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-sky-500 disabled:opacity-50"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+          )}
 
           <div>
             <label className="block text-xs mb-1" htmlFor="password">
@@ -70,34 +130,45 @@ const Login = ({ onLogin }) => {
             <input
               id="password"
               type="password"
-              autoComplete="current-password"
-              className="w-full rounded bg-slate-800 border border-slate-700 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-sky-500"
+              autoComplete={isRegisterMode ? 'new-password' : 'current-password'}
+              disabled={isLoading}
+              className="w-full rounded bg-slate-800 border border-slate-700 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-sky-500 disabled:opacity-50"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
           </div>
 
-          <div className="flex gap-2 mt-2">
+          <div className="mt-2">
             <button
               type="submit"
-              className="flex-1 rounded bg-sky-600 hover:bg-sky-500 text-sm font-medium py-1.5 transition-colors"
+              disabled={isLoading}
+              className="w-full rounded bg-sky-600 hover:bg-sky-500 text-sm font-medium py-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Sign In
-            </button>
-            <button
-              type="button"
-              className="flex-1 rounded bg-neutral-700 hover:bg-neutral-600 text-sm font-medium py-1.5 transition-colors"
-              onClick={() => navigate('/store')}
-            >
-              Sign Up
+              {isLoading ? 'Please wait...' : (isRegisterMode ? 'Sign Up' : 'Sign In')}
             </button>
           </div>
         </form>
 
+        <div className="mt-4 text-center">
+          <button
+            type="button"
+            disabled={isLoading}
+            onClick={() => {
+              setIsRegisterMode(!isRegisterMode);
+              setStatus('');
+              setPassword('');
+              setEmail('');
+            }}
+            className="text-xs text-slate-400 hover:text-sky-400 transition-colors disabled:opacity-50"
+          >
+            {isRegisterMode ? 'Already have an account? Login' : 'Are you new? Register'}
+          </button>
+        </div>
+
         {status && (
           <div
             className={`mt-4 text-xs text-center ${
-              status.startsWith('Logged in') ? 'text-emerald-400' : 'text-rose-400'
+              status.startsWith('Logged in') || status.includes('successful') ? 'text-emerald-400' : 'text-rose-400'
             }`}
           >
             {status}

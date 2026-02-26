@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Storeslider from '../store/Storeslider.jsx';
 import GameGrid from '../store/GameGrid.jsx';
 import RightSidebar from '../store/RightSidebar.jsx';
@@ -84,11 +84,6 @@ const Shopveiw = ({ items }) => {
 	});
 	const [isLoading, setIsLoading] = useState(false);
 
-	// Refs for carousel sections for scroll-into-view behavior
-	const featuredRef = useRef(null);
-	const discountedRef = useRef(null);
-	const upcomingRef = useRef(null);
-
 	// Calculate filtered games
 	const filteredGames = useMemo(() => {
 		return combineFilters(allGames, filters);
@@ -102,15 +97,6 @@ const Shopveiw = ({ items }) => {
 	// Handle filter changes from sidebar
 	const handleFiltersChange = (newFilters) => {
 		setFilters(newFilters);
-	};
-
-	// Scroll carousel section into view when clicked
-	const scrollToCarousel = (sectionRef) => {
-		if (!sectionRef?.current) return;
-		sectionRef.current.scrollIntoView({
-			behavior: 'smooth',
-			block: 'center',
-		});
 	};
 
 	// Fetch data on mount (mock for now)
@@ -143,39 +129,30 @@ const Shopveiw = ({ items }) => {
 	// );
 
 	return (
-		<div className="flex-1 relative">
+		<div className="flex-1 flex relative">
 			{/* Main content area - reduced width to account for sidebar */}
-			<div className="h-full mr-80 px-3 py-4 overflow-y-auto">
+			<div className="flex-1 mr-80 px-3 py-4 overflow-y-auto">
 				<h1 className="text-2xl font-semibold mb-6 text-slate-100">Store</h1>
 
 				{/* Show carousels when no filters are active */}
 				{!hasFilters && (
 					<div className="space-y-8">
 						{/* Featured Games */}
-						<section ref={featuredRef}>
+						<section>
 							<h2 className="text-2xl font-semibold mb-4 text-slate-100">Featured</h2>
-							<Storeslider 
-								items={FEATURED_GAMES} 
-								onCardClick={() => scrollToCarousel(featuredRef)}
-							/>
+							<Storeslider items={FEATURED_GAMES} />
 						</section>
 
 						{/* Discounted Games */}
-						<section ref={discountedRef}>
+						<section>
 							<h2 className="text-2xl font-semibold mb-4 text-slate-100">Deals & Discounts</h2>
-							<Storeslider 
-								items={DISCOUNTED_GAMES}
-								onCardClick={() => scrollToCarousel(discountedRef)}
-							/>
+							<Storeslider items={DISCOUNTED_GAMES} />
 						</section>
 
 						{/* Upcoming Games */}
-						<section ref={upcomingRef}>
+						<section>
 							<h2 className="text-2xl font-semibold mb-4 text-slate-100">Coming Soon</h2>
-							<Storeslider 
-								items={UPCOMING_GAMES}
-								onCardClick={() => scrollToCarousel(upcomingRef)}
-							/>
+							<Storeslider items={UPCOMING_GAMES} />
 						</section>
 					</div>
 				)}

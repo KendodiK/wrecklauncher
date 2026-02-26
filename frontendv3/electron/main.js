@@ -91,7 +91,7 @@ app.whenReady().then(() => {
   function getUserCtrl() {
     if (!userCtrl) {
       const UserController = require('./controllers/UserController');
-      userCtrl = new UserController({ username, password, email, tokenFile, serverUrl: backendUrl });
+      userCtrl = new UserController({ serverUrl: backendUrl, tokenFile });
     }
     return userCtrl;
   }
@@ -176,7 +176,9 @@ app.whenReady().then(() => {
 
   // UserController already extends TokenController; avoid a redundant instance.
   handle('user:get-token', async () => await getUserCtrl().getToken());
-
+   handle('user:login', async (_event, username, password) => {
+    return await getUserCtrl().login(String(username), String(password));
+  });
   handle('user:register', async (_event, username, password, email) => {
     return await getUserCtrl().register(String(username), String(password), String(email));
   });

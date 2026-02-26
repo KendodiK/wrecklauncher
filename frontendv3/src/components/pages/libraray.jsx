@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import GameSliderStack from '../GameSliderStack.jsx';
+import GameSliderStack from '../library/GameSliderStack.jsx';
 
 const LibraryPage = () => {
 	const games = useMemo(

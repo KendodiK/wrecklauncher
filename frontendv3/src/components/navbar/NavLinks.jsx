@@ -13,6 +13,13 @@ const NavLinks = ({ handleNavClick }) => {
 				Store
 			</a>
 			<a
+				href="/library"
+				className="nav-item text-xs px-2 py-0.5 hover:bg-neutral-800 rounded no-drag"
+				onClick={(e) => handleNavClick(e, '/library')}
+			>
+				Library
+			</a>
+			<a
 				href="/downloads"
 				className="nav-item text-xs px-2 py-0.5 hover:bg-neutral-800 rounded no-drag"
 				onClick={(e) => handleNavClick(e, '/downloads')}
