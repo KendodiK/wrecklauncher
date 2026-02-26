@@ -25,15 +25,15 @@ CREATE TABLE pirate_sites(
 );
 
 CREATE TABLE games (
-    id SMALLINT AUTO_INCREMENT PRIMARY KEY,
+    id MEDIUMINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     app_id INT UNSIGNED NOT NULL,
     platform_id SMALLINT, INDEX(platform_id),
     name VARCHAR(256) NOT NULL,
     banner_img VARCHAR(516),
     cost VARCHAR(7)
 );
-CREATE TABLE game_pirates(
-    game_id SMALLINT NOT NULL, INDEX(game_id),
+CREATE TABLE game_pirates_sites_connections(
+    game_id MEDIUMINT UNSIGNED NOT NULL, INDEX(game_id),
     site_id TINYINT NOT NULL, INDEX(site_id),
     link VARCHAR(516) NOT NULL
 );
@@ -53,7 +53,14 @@ CREATE TABLE genres(
     genre VARCHAR(32) NOT NULL
 );
 
-CREATE TABLE connect_genres(
+CREATE TABLE games_genres_connections(
     genre_id SMALLINT, INDEX(genre_id),
-    game_id SMALLINT, INDEX(game_id)
+    game_id MEDIUMINT UNSIGNED, INDEX(game_id)
 );
+
+CREATE TABLE shop_specials(
+    game_id MEDIUMINT UNSIGNED NOT NULL, INDEX(game_id),
+    featured BOOLEAN,
+    coming_soon BOOLEAN,
+    discounted BOOLEAN
+)
