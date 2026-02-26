@@ -194,12 +194,21 @@ let platformUserId;
       warn('createPlatformUser', e2);
     }
   }
-  try{
-    const owned = await api.getOwnedGamesFromSteam('freshargentinaccount69912');
-    log('getOwnedGamesFromSteam', owned);
-  }catch(e){
-    warn('getOwnedGamesFromSteam', e);
+try{
+  const owned = await api.getOwnedGamesFromSteam('freshargentinaccount69912');
+  log('getOwnedGamesFromSteam', owned);
+  for (const game of owned) {
+    try {
+      const details = await api.getSteamGameDetails(game.appid, 'us');
+      log(`getSteamGameDetails ${game.appid}`, details);
+    } catch (e) {
+      warn(`getSteamGameDetails ${game.appid}`, e);
+    }
   }
+}
+catch(e){
+  warn('getOwnedGamesFromSteam', e);
+}
   // try {    const details = await api.getSteamGameDetails(730, 'us');
   //   log('getSteamGameDetails 730', details);
   // } catch (e) {
@@ -217,12 +226,12 @@ let platformUserId;
   // } catch (e) {
   //   warn('storePageSteam 238320', e);
   // }
-  try{
-    const delete1 = await api.deleteSteamGame(239820);
-    log('deleteSteamGame 239820', delete1);
-  } catch (e) {
-    warn('deleteSteamGame 239820', e);
-  }
+  // try{
+  //   const delete1 = await api.deleteSteamGame(239820);
+  //   log('deleteSteamGame 239820', delete1);
+  // } catch (e) {
+  //   warn('deleteSteamGame 239820', e);
+  // }
   // try{
   //   const run = await api.runSteamGame(2193490);
   //   log('runSteamGame 2193490', run);
