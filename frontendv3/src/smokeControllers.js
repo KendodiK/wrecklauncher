@@ -193,21 +193,22 @@ let platformUserId;
       warn('createPlatformUser', e2);
     }
   }
-try{
-  const owned = await api.getOwnedGamesFromSteam('freshargentinaccount69912');
-  log('getOwnedGamesFromSteam', owned);
-  for (const game of owned) {
-    try {
-      const details = await api.getSteamGameDetails(game.appid, 'us');
-      log(`getSteamGameDetails ${game.appid}`, details);
-    } catch (e) {
-      warn(`getSteamGameDetails ${game.appid}`, e);
-    }
-  }
-}
-catch(e){
-  warn('getOwnedGamesFromSteam', e);
-}
+
+// try{
+//   const owned = await api.getOwnedGamesFromSteam('freshargentinaccount69912');
+//   log('getOwnedGamesFromSteam', owned);
+//   for (const game of owned) {
+//     try {
+//       const details = await api.getSteamGameDetails(game.appid, 'us');
+//       log(`getSteamGameDetails ${game.appid}`, details);
+//     } catch (e) {
+//       warn(`getSteamGameDetails ${game.appid}`, e);
+//     }
+//   }
+// }
+// catch(e){
+//   warn('getOwnedGamesFromSteam', e);
+// }
   // try {    const details = await api.getSteamGameDetails(730, 'us');
   //   log('getSteamGameDetails 730', details);
   // } catch (e) {

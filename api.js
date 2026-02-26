@@ -27,6 +27,9 @@ const { error } = require('console');
 const PORT = 3000;
 // Replace with your actual Steam API key and Steam ID
 const steamApiKey = process.env.STEAM_API_KEY;
+const clientId = process.env.IGDB_CLIENT_ID;
+const clientSecret = process.env.IGDB_CLIENT_SECRET;
+let igdbToken = null;
 app.use(cors());
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -67,6 +70,99 @@ server.on('listening', async () => {
     console.error('Error creating database tables on startup:', err);
   }
 });
+
+
+// ------------------- Helper functions ------------------ //
+async function fetchIGDBToken() {
+  try {
+    const response = await fetch(`https://id.twitch.tv/oauth2/token?client_id=${process.env.IGDB_CLIENT_ID}&client_secret=${process.env.IGDB_CLIENT_SECRET}&grant_type=client_credentials`, {
+      method: 'POST',
+    });
+    const data = await response.json();
+    return data.access_token;
+  } catch (err) {
+    console.error('Error fetching IGDB token:', err);
+    throw err;
+  }
+}
+async function fetchIGDB(endpoint, query) {
+  if (!clientId) {
+    throw new Error('Missing IGDB client id (IGDB_CLIENT_ID)');
+  }
+  if (!igdbToken) {
+    throw new Error('Missing IGDB token; fetchIGDBToken() must run first');
+  }
+
+  const response = await fetch(`https://api.igdb.com/v4/${endpoint}`, {
+    method: 'POST',
+    headers: {
+      'Client-ID': clientId,
+      'Authorization': `Bearer ${igdbToken}`,
+      'Content-Type': 'text/plain',
+      'Accept': 'application/json',
+    },
+    // IGDB expects the query as plain text in the request body
+    body: query,
+  });
+
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`IGDB ${endpoint} HTTP ${response.status}: ${text}`);
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    // If IGDB ever returns non-JSON (unexpected), surface the raw body.
+    return text;
+  }
+}
+// Main function
+async function fetchGamesDaily() {
+  try {
+    igdbToken = await fetchIGDBToken();
+    console.log('Fetched IGDB token successfully');
+  } catch (err) {
+    console.error('Failed to fetch IGDB token:', err);
+    return;
+  }
+
+  console.log("Fetching games...");
+
+  // 1️⃣ Trending / Featured
+  try {
+    const trending = await fetchIGDB(
+      "games",
+      `fields name, cover.url, hypes, follows, external_games.uid;
+       sort hypes desc;
+       limit 10;`
+    );
+    console.log('Fetched trending games successfully');
+    console.log(trending);
+  } catch (err) {
+    console.error('Failed to fetch trending games:', err);
+  }
+  
+  // 2️⃣ Coming Soon
+  try {
+    const upcoming = await fetchIGDB(
+      "games",
+      `fields name, cover.url, first_release_date, external_games.uid;
+       where first_release_date > ${Math.floor(Date.now() / 1000)};
+       sort first_release_date asc;
+       limit 10;`
+    );
+    console.log('Fetched upcoming games successfully');
+    console.log(upcoming);
+  } catch (err) {
+    console.error('Failed to fetch upcoming games:', err);
+  }
+}
+// Run immediately
+fetchGamesDaily();
+
+// Run every 24 hours
+setInterval(fetchGamesDaily, 24 * 60 * 60 * 1000);
 
 
 // ------------------- Middleware ------------------ //

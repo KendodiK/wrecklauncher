@@ -49,7 +49,7 @@ class GamesController {
    * 
    * @param {string} token 
    * @param {number} id 
-   * @returns {Promise<import('../models').UploadGameRequest>}
+    * @returns {Promise<import('../models').GameDetails>}
    */
   async getAllDetailsByID(token, id){
     if (!token || !String(token).trim()) throw new Error('Token is required');

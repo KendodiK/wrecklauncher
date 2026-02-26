@@ -210,14 +210,21 @@ app.whenReady().then(() => {
       throw err;
     }
   });
-handle('platform:get', async (_event, platformName) => {
+handleAuthed('platform:get', async (platformName) => {
   const name = String(platformName || '').trim();
   if (!name) throw new Error('platformName is required');
   try {
     return await getPlatformsCtrl().getPlatform(name);
-  } catch (err) {
-    throw err;
   }
+  catch (err) {
+    if (err && typeof err === 'object' && /** @type {any} */ (err).code === 'WRECK_INVALID_TOKEN') {
+      // token rotated/expired: clear + retry once
+      await getUserCtrl()._invalidateToken();
+      const token2 = await getUserCtrl().getToken();
+      if (!token2) throw new Error('Missing auth token');
+      return await getPlatformsCtrl().getPlatform(name);
+    }
+  }  throw err;
 });
     handleAuthed('platform:create-user', async ({ token },  platformName, platformUsername, platformPassword, platformProfileId) => {
       const pName = String(platformName || '').trim();
@@ -247,27 +254,22 @@ handle('platform:get', async (_event, platformName) => {
 
   // Open Steam client install prompt for a Steam AppID.
   handle('steam:install-game', async (_event, appID) => {
-    return await getSteamCtrl().installGame(appID);
+    return await getSteamCtrl().clientGameControllUtil(appID, 'install');
   });
 
   // Open Steam client uninstall prompt for a Steam AppID.
   handle('steam:delete-game', async (_event, appID) => {
-    return await getSteamCtrl().deleteSteamGame(appID);
+    return await getSteamCtrl().clientGameControllUtil(appID, 'uninstall');
   });
 
   // Open Steam store page for a Steam AppID.
   handle('steam:store-page', async (_event, appID) => {
-    return await getSteamCtrl().storePageSteam(appID);
+    return await getSteamCtrl().clientGameControllUtil(appID, 'store');
   });
 
   // Run/launch a Steam game by AppID.
   handle('steam:run-game', async (_event, appID) => {
-    return await getSteamCtrl().runSteamGame(appID);
-  });
-
-  // Backward/alternate name used by preload API.
-  handleAuthed('steam:get-game-details-and-upload', async ({ token }, appID, cc) => {
-    return await getSteamCtrl().getGamesDetails(token, Number(appID), cc ? String(cc) : undefined);
+    return await getSteamCtrl().clientGameControllUtil(appID, 'run');
   });
 
   // Game DB details (requires backend support)
