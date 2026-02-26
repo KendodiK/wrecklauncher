@@ -9,6 +9,9 @@ body {
 
 /* Custom Electron title bar (replaces native toolbar) */
 .main-navbar {
+  position: sticky;
+  top: 0;
+  z-index: 9999;
   -webkit-app-region: drag;
   padding: 4px 10px; /* small padding around entire navbar */
   background: rgba(15, 23, 42, 0.95);

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Storeslider from '../store/Storeslider.jsx';
 import GameGrid from '../store/GameGrid.jsx';
 import RightSidebar from '../store/RightSidebar.jsx';
+import GameListWithPreview from '../store/GameListWithPreview.jsx';
 import { combineFilters, hasActiveFilters as checkActiveFilters } from '../../utils/gameUtils.js';
 import { runSmokeControllers } from '../../smokeControllers.js';
 
@@ -74,7 +75,130 @@ const GENRES = [
 	{ id: 6, name: 'Sports' },
 ];
 
+// Mock data for top sellers list (with discounts)
+const TOP_SELLERS = [
+	{ 
+		id: 2050650, 
+		appid: 2050650, 
+		title: 'Resident Evil Requiem', 
+		image: steamPoster(2050650), 
+		price: 69.99, 
+		originalPrice: null,
+		discount: null,
+		tags: ['Survival Horror', 'Third-Person Shooter', 'Zombies', 'Horror'],
+		genres: ['Action', 'Horror', 'Survival']
+	},
+	{ 
+		id: 578080, 
+		appid: 578080, 
+		title: 'PUBG: BATTLEGROUNDS', 
+		image: steamPoster(578080), 
+		price: 0, 
+		originalPrice: null,
+		discount: null,
+		tags: ['Survival', 'Shooter', 'Battle Royale', 'Multiplayer'],
+		genres: ['Action', 'Multiplayer']
+	},
+	{ 
+		id: 346110, 
+		appid: 346110, 
+		title: 'ARK: Survival Ascended', 
+		image: steamPoster(346110), 
+		price: 11.24, 
+		originalPrice: 44.99,
+		discount: 75,
+		tags: ['Early Access', 'Survival', 'Open World', 'Multiplayer'],
+		genres: ['Action', 'Adventure', 'Survival']
+	},
+	{ 
+		id: 644930, 
+		appid: 644930, 
+		title: 'ARC Raiders', 
+		image: steamPoster(644930), 
+		price: 39.99, 
+		originalPrice: null,
+		discount: null,
+		tags: ['Extraction Shooter', 'Multiplayer', 'PvP', 'PvE'],
+		genres: ['Action', 'Shooter']
+	},
+	{ 
+		id: 1069420, 
+		appid: 1069420, 
+		title: 'Limbus Company', 
+		image: steamPoster(1069420), 
+		price: 0, 
+		originalPrice: null,
+		discount: null,
+		tags: ['Story Rich', 'Lore-Rich', 'Free to Play', 'Turn-Based Combat'],
+		genres: ['RPG', 'Strategy']
+	},
+	{ 
+		id: 379430, 
+		appid: 379430, 
+		title: 'Kingdom Come: Deliverance II', 
+		image: steamPoster(379430), 
+		price: 29.99, 
+		originalPrice: 59.99,
+		discount: 50,
+		tags: ['RPG', 'Medieval', 'Open World', 'Singleplayer'],
+		genres: ['RPG', 'Action']
+	},
+	{ 
+		id: 1667630, 
+		appid: 1667630, 
+		title: 'Mewgenics', 
+		image: steamPoster(1667630), 
+		price: 28.99, 
+		originalPrice: null,
+		discount: null,
+		tags: ['Turn-Based Tactics', 'Roguelite', 'Turn-Based Strategy', 'Dark Humor'],
+		genres: ['Strategy', 'Simulation']
+	},
+	{ 
+		id: 2296790, 
+		appid: 2296790, 
+		title: 'Marathon', 
+		image: steamPoster(2296790), 
+		price: 39.99, 
+		originalPrice: null,
+		discount: null,
+		tags: ['Extraction Shooter', 'PvP', 'Shooter', 'Multiplayer'],
+		genres: ['Action', 'Shooter']
+	},
+	{ 
+		id: 254700, 
+		appid: 254700, 
+		title: 'Resident Evil 4', 
+		image: steamPoster(254700), 
+		price: 15.99, 
+		originalPrice: 39.99,
+		discount: 60,
+		tags: ['Horror', 'Action', 'Survival Horror', 'Third-Person Shooter'],
+		genres: ['Action', 'Horror']
+	},
+	{ 
+		id: 1061350, 
+		appid: 1061350, 
+		title: 'Super Battle Golf', 
+		image: steamPoster(1061350), 
+		price: 6.39, 
+		originalPrice: 7.99,
+		discount: 20,
+		tags: ['Multiplayer', 'Online Co-Op', 'Co-op', 'Sports'],
+		genres: ['Sports', 'Casual']
+	},
+];
+
 const Shopveiw = ({ items }) => {
+	const didRunSmokeRef = useRef(false);
+// useEffect(() => {
+//         // React.StrictMode runs effects twice in dev; guard so smoke runs once.
+//         if (didRunSmokeRef.current) return;
+//         didRunSmokeRef.current = true;
+//         runSmokeControllers().catch((e) => {
+//             console.warn('[smoke] runSmokeControllers failed:', e);
+//         });
+//     }, []);
 	const [allGames, setAllGames] = useState(ALL_GAMES);
 	const [genres, setGenres] = useState(GENRES);
 	const [filters, setFilters] = useState({
@@ -83,6 +207,7 @@ const Shopveiw = ({ items }) => {
 		priceRange: { min: 0, max: 100 },
 	});
 	const [isLoading, setIsLoading] = useState(false);
+	const [sidebarOpen, setSidebarOpen] = useState(true);
 
 	// Refs for carousel sections for scroll-into-view behavior
 	const featuredRef = useRef(null);
@@ -144,8 +269,25 @@ const Shopveiw = ({ items }) => {
 
 	return (
 		<div className="flex-1 relative">
-			{/* Main content area - reduced width to account for sidebar */}
-			<div className="h-full mr-80 px-3 py-4 overflow-y-auto">
+			{/* Toggle button for filters sidebar */}
+			<button
+				onClick={() => setSidebarOpen(!sidebarOpen)}
+				className="fixed right-4 top-20 z-50 p-2 bg-slate-800/90 hover:bg-slate-700/90 border border-slate-600/50 rounded-lg text-slate-200 transition-all shadow-lg backdrop-blur-sm"
+				title={sidebarOpen ? 'Hide filters' : 'Show filters'}
+			>
+				<svg 
+					className="w-5 h-5 transition-transform duration-300" 
+					style={{ transform: sidebarOpen ? 'rotate(0deg)' : 'rotate(180deg)' }}
+					fill="none" 
+					stroke="currentColor" 
+					viewBox="0 0 24 24"
+				>
+					<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+				</svg>
+			</button>
+
+			{/* Main content area - reduced width to account for sidebar when open */}
+			<div className={`h-full px-3 py-4 overflow-y-auto transition-all duration-300 ${sidebarOpen ? 'mr-80' : 'mr-0'}`}>
 				<h1 className="text-2xl font-semibold mb-6 text-slate-100">Store</h1>
 
 				{/* Show carousels when no filters are active */}
@@ -193,12 +335,21 @@ const Shopveiw = ({ items }) => {
 						/>
 					</section>
 				)}
+
+				{/* Bottom section - Top Sellers list */}
+				<section className="mt-8 mb-6">
+					<GameListWithPreview 
+						games={TOP_SELLERS} 
+						title="Top Sellers"
+					/>
+				</section>
 			</div>
 
-			{/* Right sidebar - always visible */}
+			{/* Right sidebar - toggleable with slide animation */}
 			<RightSidebar 
 				genres={genres}
 				onFiltersChange={handleFiltersChange}
+				className={`transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : 'translate-x-full'}`}
 			/>
 		</div>
 	);
