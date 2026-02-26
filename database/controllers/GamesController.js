@@ -154,6 +154,9 @@ class GamesController extends Controller {
         const query = `SELECT id FROM ${this.tableName} WHERE app_id = ? LIMIT 1;`;
         try {
             const [rows] = await this.dbConnection.execute(query, [app_id]);
+            if (!rows || rows.length === 0 || rows[0]?.id == null) {
+                return null;
+            }
             return rows[0].id;
         } catch (err) {
             console.error(`Error while fetching game id by app_id from table ${this.tableName}: ${err}`);

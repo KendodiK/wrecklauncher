@@ -108,6 +108,39 @@ function tokenValidate(req) {
 
 // -------------------     GET      ------------------ //
 
+app.get('/steam/api/getOwnedGames', tokenValidate(), async (req, res) => { 
+  try {
+    const { userId } = req.auth;
+    const platformUserCtrl = new platformUsersController();
+    const platformUsers = await platformUserCtrl.getByNativeUserId(userId);
+    const platformCtrl = new platformsController();
+    const steamPlatform = await platformCtrl.getByPlatformName('steam');
+    if (!steamPlatform) {
+      return res.status(400).json(steamPlatform.error ?? { error: 'Steam platform not found in database' });
+    }
+    let ownedGames = [];
+    for (const platformUser of platformUsers) {
+      if (Number(platformUser.platform_id) === Number(steamPlatform.id)) {
+        const steamApiUrl = `https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key=${steamApiKey}&steamid=${platformUser.platform_profile_id}&format=json`;
+        const response = await fetch(steamApiUrl);
+        if (!response.ok) {
+          console.error('Error fetching Steam API:', response.statusText);
+          return res.status(500).json({ error: 'Failed to fetch data from Steam API' });
+        }
+        const data = await response.json();
+        ownedGames.push(...data.response.games);
+      }
+    }
+    if (ownedGames.length === 0) {
+      return res.status(400).json({ error: 'No owned games found for this user on Steam' });
+    }
+    return res.json({ ownedGames });
+  } catch (error) {
+    console.error('Error in /steam/api/getOwnedGames endpoint:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 /*
   route: /api/platform/user_id/:platformname/:platformUsername
   params: platformname (string), platformUsername (string)
@@ -436,33 +469,30 @@ app.post('/api/signup', async (req, res) => {
 app.post("/api/games", tokenValidate(), async (req, res) => {
   try {
     const gameCtrl = new gamesController();
-    const gameId = await gameCtrl.getGameIdByAppId(req.body.app_id);
-    let err = gameId instanceof Error;
-    if (!err) {
-      return res.status(400).json({ message: 'Game with the same app_id already exists', gameId: gameId });
+    const existingGameId = await gameCtrl.getGameIdByAppId(req.body.app_id);
+    if (existingGameId != null) {
+      return res.status(400).json({ message: 'Game with the same app_id already exists', gameId: existingGameId });
     }
-  } catch (error) {
-    console.error('Error in /api/games/upload endpoint:', error);
-    return res.status(500).json({ error: error.message });
-  }
 
-  try {
-    let platf_name = req.body.platform_name ?? null;
-    let platf_id = req.body.platform_id ?? req.body.platfomr_id ?? null;
-    if (platf_id == null && platf_name == null) {
-      return res.status(400).json({message: 'Cannot upload, no data for platform.\nPlease give platform name or platform id if its in the db'})
+    const platformName = req.body.platform_name ?? null;
+    // Backward-compatible: accept the old misspelled key too.
+    const platformId = req.body.platform_id ?? req.body.platfomr_id ?? null;
+    if (platformId == null && platformName == null) {
+      return res.status(400).json({
+        message: 'Cannot upload, no data for platform. Please give platform_name or platform_id.'
+      });
     }
 
     const gameData = {
-      "app_id": req.body.app_id,
-      "platform_id": platf_id,
-      "platform_name": platf_name,
-      "name": req.body.name,
-      "banner_img": req.body.banner_img,
-      "description": req.body.description ?? null,
-      "minimum_requirements": req.body.minimum_requirements ?? null,
-      "cost": req.body.cost ?? null,
-    }
+      app_id: req.body.app_id,
+      platform_id: platformId,
+      platform_name: platformName,
+      name: req.body.name,
+      banner_img: req.body.banner_img,
+      description: req.body.description ?? null,
+      minimum_requirements: req.body.minimum_requirements ?? null,
+      cost: req.body.cost ?? null,
+    };
 
     const genreNames = req.body.genre_names;
 

@@ -20,22 +20,22 @@ class GenresController extends Controller {
     async create(data) {
         await super.create();
 
-        let { id } = await this.getByGenre(data.genre);
+        const existing = await this.getByGenre(data.genre);
+        const existingId = existing && typeof existing === 'object' ? existing.id : null;
 
-        if(id instanceof Error) {
-            const query = 'INSERT INTO `genres` (genre) VALUES (?)';
-            const values = [data.genre];
-            try {
-                const [result] = await this.dbConnection.execute(query, values);
-                return { message: `${result.insertId} Element created in table ${this.tableName}`, id: result.insertId };
-            }
-            catch (err) {
-                console.error(`Error while adding new element to table ${this.tableName}: ${err}`);
-                throw err;
-            }
+        if (existingId !== undefined && existingId !== null) {
+            return { message: `Element already existed in table ${this.tableName}`, id: existingId };
         }
 
-        return { message: `Element already existed in table ${this.tableName}`, id: id };
+        const query = 'INSERT INTO `genres` (genre) VALUES (?)';
+        const values = [data.genre];
+        try {
+            const [result] = await this.dbConnection.execute(query, values);
+            return { message: `${result.insertId} Element created in table ${this.tableName}`, id: result.insertId };
+        } catch (err) {
+            console.error(`Error while adding new element to table ${this.tableName}: ${err}`);
+            throw err;
+        }
     }
 
     /**
@@ -68,7 +68,7 @@ class GenresController extends Controller {
         const query = `SELECT * FROM ${this.tableName} WHERE genre = ? LIMIT 1`
         try {
             const [rows] = await this.dbConnection.execute(query, [genre]);
-            return rows[0];
+            return rows[0] ?? null;
         } catch (err) {
             console.error(`Error while geting element from ${this.tableName}: ${err}`);
             throw err;
