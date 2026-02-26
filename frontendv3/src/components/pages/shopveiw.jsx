@@ -35,7 +35,16 @@ const Shopveiw = ({ items }) => {
 	const cards = useMemo(() => (items && items.length ? items : DEFAULT_ITEMS), [items]);
 
 	useEffect(() => {
-		if (!import.meta.env.DEV) return;
+		let forceSmoke = false;
+		try {
+			forceSmoke = localStorage.getItem('wreck_smoke') === '1';
+		} catch {
+			forceSmoke = false;
+		}
+
+		console.log('[smoke] Shopveiw mounted', { dev: import.meta.env.DEV, forceSmoke });
+
+		if (!import.meta.env.DEV && !forceSmoke) return;
 		runSmokeControllers().catch((err) => {
 			console.warn('[smoke] runSmokeControllers failed:', err);
 		});
