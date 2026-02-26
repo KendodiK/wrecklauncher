@@ -443,12 +443,12 @@ app.post("/api/games", tokenValidate(), async (req, res) => {
     }
   } catch (error) {
     console.error('Error in /api/games/upload endpoint:', error);
-    res.status(500).json({ error: error.message });
+    return res.status(500).json({ error: error.message });
   }
 
   try {
     let platf_name = req.body.platform_name ?? null;
-    let platf_id = req.body.platfomr_id ?? null;
+    let platf_id = req.body.platform_id ?? req.body.platfomr_id ?? null;
     if (platf_id == null && platf_name == null) {
       return res.status(400).json({message: 'Cannot upload, no data for platform.\nPlease give platform name or platform id if its in the db'})
     }
