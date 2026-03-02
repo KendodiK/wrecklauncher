@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import PriceRangeSlider from './PriceRangeSlider.jsx';
+import PlatformSelector from './PlatformSelector.jsx';
 
 /**
  * Right sidebar component with genre tabs, search, and advanced filters
@@ -13,6 +14,7 @@ const RightSidebar = ({
 	const [searchQuery, setSearchQuery] = useState('');
 	const [selectedGenres, setSelectedGenres] = useState([]);
 	const [activeGenreTab, setActiveGenreTab] = useState(null);
+	const [selectedPlatforms, setSelectedPlatforms] = useState([]);
 	const [priceRange, setPriceRange] = useState({ min: 0, max: 100 });
 	const [showAdvanced, setShowAdvanced] = useState(false);
 	const searchInputRef = useRef(null);
@@ -44,13 +46,13 @@ const RightSidebar = ({
 
 		// Set new timeout for debounced update
 		searchTimeoutRef.current = setTimeout(() => {
-			notifyFiltersChange(value, selectedGenres, priceRange);
+			notifyFiltersChange(value, selectedGenres, selectedPlatforms, priceRange);
 		}, 300);
 	};
 
 	const handleClearSearch = () => {
 		setSearchQuery('');
-		notifyFiltersChange('', selectedGenres, priceRange);
+		notifyFiltersChange('', selectedGenres, selectedPlatforms, priceRange);
 		searchInputRef.current?.focus();
 	};
 
@@ -59,11 +61,11 @@ const RightSidebar = ({
 		if (activeGenreTab === genreId) {
 			setActiveGenreTab(null);
 			setSelectedGenres([]);
-			notifyFiltersChange(searchQuery, [], priceRange);
+			notifyFiltersChange(searchQuery, [], selectedPlatform, priceRange);
 		} else {
 			setActiveGenreTab(genreId);
 			setSelectedGenres([genreId]);
-			notifyFiltersChange(searchQuery, [genreId], priceRange);
+			notifyFiltersChange(searchQuery, [genreId], selectedPlatforms, priceRange);
 		}
 	};
 
@@ -77,18 +79,24 @@ const RightSidebar = ({
 		
 		setSelectedGenres(newSelected);
 		setActiveGenreTab(newSelected.length === 1 ? newSelected[0] : null);
-		notifyFiltersChange(searchQuery, newSelected, priceRange);
+		notifyFiltersChange(searchQuery, newSelected, selectedPlatforms, priceRange);
+	};
+
+	const handlePlatformsSelect = (platforms) => {
+		setSelectedPlatforms(platforms);
+		notifyFiltersChange(searchQuery, selectedGenres, platforms, priceRange);
 	};
 
 	const handlePriceChange = (newRange) => {
 		setPriceRange(newRange);
-		notifyFiltersChange(searchQuery, selectedGenres, newRange);
+		notifyFiltersChange(searchQuery, selectedGenres, selectedPlatforms, newRange);
 	};
 
-	const notifyFiltersChange = (query, genres, price) => {
+	const notifyFiltersChange = (query, genres, platforms, price) => {
 		onFiltersChange?.({
 			query,
 			genres,
+			platforms,
 			priceRange: price,
 		});
 	};
@@ -97,11 +105,12 @@ const RightSidebar = ({
 		setSearchQuery('');
 		setSelectedGenres([]);
 		setActiveGenreTab(null);
+		setSelectedPlatforms([]);
 		setPriceRange({ min: 0, max: 100 });
-		notifyFiltersChange('', [], { min: 0, max: 100 });
+		notifyFiltersChange('', [], [], { min: 0, max: 100 });
 	};
 
-	const hasActiveFilters = searchQuery !== '' || selectedGenres.length > 0 || priceRange.min > 0 || priceRange.max < 100;
+	const hasActiveFilters = searchQuery !== '' || selectedGenres.length > 0 || selectedPlatforms.length > 0 || priceRange.min > 0 || priceRange.max < 100;
 
 	return (
 		<div className={`fixed right-0 top-[73px] h-[calc(100vh-73px)] w-80 bg-slate-900/95 backdrop-blur-sm border-l border-slate-700/60 flex flex-col overflow-hidden ${className}`}>
@@ -185,7 +194,16 @@ const RightSidebar = ({
 						))}
 					</div>
 				</div>
-
+			{/* Platform Selector */}
+			<div className="px-4 py-4 border-b border-slate-700/40">
+				<label className="block text-sm font-medium text-slate-300 mb-3">
+					Platforms
+				</label>
+				<PlatformSelector 
+					selectedPlatforms={selectedPlatforms}
+					onSelectPlatforms={handlePlatformsSelect}
+				/>
+			</div>
 				{/* Advanced filters - collapsible */}
 				<div className="px-4 py-4">
 					<button

@@ -11,6 +11,7 @@ import FriendsPage from "./components/pages/friends.jsx";
 import SettingsPage from "./components/pages/setting.jsx";
 import ProfilePage from "./components/pages/profle.jsx";
 import GamePage from "./components/pages/gamepage.jsx";
+import AllGamesPage from "./components/pages/AllGamesPage.jsx";
 
 // Protected Route Component - redirects to login if not authenticated
 const ProtectedRoute = ({ user, children }) => {
@@ -36,6 +37,8 @@ function App() {
         <Routes>
           <Route path="/login" element={<Login onLogin={setUser} />} />
           <Route path="/store" element={<Store />} />
+          <Route path="/shop/all-games" element={<AllGamesPage />} />
+          <Route path="/shop/platform/:platform" element={<AllGamesPage />} />
           <Route path="/" element={<Store />} />
           <Route path="/library" element={
             <ProtectedRoute user={user}>

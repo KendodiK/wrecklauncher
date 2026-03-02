@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Storeslider from '../store/Storeslider.jsx';
 import GameGrid from '../store/GameGrid.jsx';
-import RightSidebar from '../store/RightSidebar.jsx';
-import GameListWithPreview from '../store/GameListWithPreview.jsx';
+import FilteredGamesSection from '../store/FilteredGamesSection.jsx';
+import LauncherSelector from '../store/LauncherSelector.jsx';
 import { combineFilters, hasActiveFilters as checkActiveFilters } from '../../utils/gameUtils.js';
-import { runSmokeControllers } from '../../smokeControllers.js';
+//import { runSmokeControllers } from '../../smokeControllers.js';
 
 function steamPoster(appid) {
 	const id = Number(appid);
@@ -51,18 +51,18 @@ const UPCOMING_GAMES = [
 
 // Mock all games data for filtering
 const ALL_GAMES = [
-	{ id: 570, appid: 570, title: 'Dota 2', image: steamPoster(570), price: 0, genres: [1, 4] },
-	{ id: 730, appid: 730, title: 'Counter-Strike 2', image: steamPoster(730), price: 0, genres: [1, 4] },
-	{ id: 440, appid: 440, title: 'Team Fortress 2', image: steamPoster(440), price: 0, genres: [1] },
-	{ id: 271590, appid: 271590, title: 'Grand Theft Auto V', image: steamPoster(271590), price: 29.99, genres: [1, 2] },
-	{ id: 578080, appid: 578080, title: 'PLAYERUNKNOWN\'S BATTLEGROUNDS', image: steamPoster(578080), price: 29.99, genres: [1, 6] },
-	{ id: 1174180, appid: 1174180, title: 'Red Dead Redemption 2', image: steamPoster(1174180), price: 59.99, genres: [1, 2] },
-	{ id: 1245620, appid: 1245620, title: 'ELDEN RING', image: steamPoster(1245620), price: 59.99, genres: [3, 1] },
-	{ id: 359550, appid: 359550, title: "Tom Clancy's Rainbow Six Siege", image: steamPoster(359550), price: 19.99, genres: [1, 4] },
-	{ id: 1086940, appid: 1086940, title: "Baldur's Gate 3", image: steamPoster(1086940), price: 59.99, genres: [3, 2] },
-	{ id: 1237970, appid: 1237970, title: 'Titanfall 2', image: steamPoster(1237970), price: 29.99, genres: [1] },
-	{ id: 292030, appid: 292030, title: 'The Witcher 3: Wild Hunt', image: steamPoster(292030), price: 39.99, genres: [3, 2] },
-	{ id: 489830, appid: 489830, title: 'The Elder Scrolls V: Skyrim', image: steamPoster(489830), price: 19.99, genres: [3, 2] },
+	{ id: 570, appid: 570, title: 'Dota 2', image: steamPoster(570), price: 0, genres: [1, 4], tags: ['MOBA', 'Free to Play', 'Strategy', 'Multiplayer', 'Competitive'], description: 'Every day, millions of players worldwide enter battle as one of over a hundred Dota heroes. And no matter if it\'s their 10th hour of play or 1,000th, there\'s always something new to discover.' },
+	{ id: 730, appid: 730, title: 'Counter-Strike 2', image: steamPoster(730), price: 0, genres: [1, 4], tags: ['FPS', 'Competitive', 'Shooter', 'Tactical', 'Multiplayer'], description: 'For over two decades, Counter-Strike has offered an elite competitive experience, one shaped by millions of players from across the globe. Now the next chapter in the CS story is about to begin.' },
+	{ id: 440, appid: 440, title: 'Team Fortress 2', image: steamPoster(440), price: 0, genres: [1], tags: ['FPS', 'Free to Play', 'Multiplayer', 'Action', 'Comedy'], description: 'Nine distinct classes provide a broad range of tactical abilities and personalities. Constantly updated with new game modes, maps, equipment and, most importantly, hats!' },
+	{ id: 271590, appid: 271590, title: 'Grand Theft Auto V', image: steamPoster(271590), price: 29.99, genres: [1, 2], tags: ['Open World', 'Action', 'Crime', 'Multiplayer', 'Adventure'], description: 'When a young street hustler, a retired bank robber and a terrifying psychopath land themselves in trouble, they must pull off a series of dangerous heists to survive in a city in which they can trust nobody, least of all each other.' },
+	{ id: 578080, appid: 578080, title: 'PLAYERUNKNOWN\'S BATTLEGROUNDS', image: steamPoster(578080), price: 29.99, genres: [1, 6], tags: ['Battle Royale', 'Shooter', 'Survival', 'Multiplayer', 'FPS'], description: 'Land on strategic locations, loot weapons and supplies, and survive to become the last team standing across various battlegrounds.' },
+	{ id: 1174180, appid: 1174180, title: 'Red Dead Redemption 2', image: steamPoster(1174180), price: 59.99, genres: [1, 2], tags: ['Western', 'Story Rich', 'Open World', 'Action', 'Adventure'], description: 'America, 1899. The end of the Wild West era has begun. After a robbery goes badly wrong, Arthur Morgan and the Van der Linde gang are forced to flee.' },
+	{ id: 1245620, appid: 1245620, title: 'ELDEN RING', image: steamPoster(1245620), price: 59.99, genres: [3, 1], tags: ['Souls-like', 'Dark Fantasy', 'RPG', 'Open World', 'Difficult'], description: 'THE NEW FANTASY ACTION RPG. Rise, Tarnished, and be guided by grace to brandish the power of the Elden Ring and become an Elden Lord in the Lands Between.' },
+	{ id: 359550, appid: 359550, title: "Tom Clancy's Rainbow Six Siege", image: steamPoster(359550), price: 19.99, genres: [1, 4], tags: ['Tactical', 'FPS', 'Shooter', 'Multiplayer', 'Strategy'], description: 'Master the art of destruction and gadgetry in Tom Clancy\'s Rainbow Six Siege. Face intense close quarters combat, high lethality, tactical decision making, team play, and explosive action.' },
+	{ id: 1086940, appid: 1086940, title: "Baldur's Gate 3", image: steamPoster(1086940), price: 59.99, genres: [3, 2], tags: ['RPG', 'Turn-Based', 'D&D', 'Story Rich', 'Fantasy'], description: 'Gather your party and return to the Forgotten Realms in a tale of fellowship and betrayal, sacrifice and survival, and the lure of absolute power.' },
+	{ id: 1237970, appid: 1237970, title: 'Titanfall 2', image: steamPoster(1237970), price: 29.99, genres: [1], tags: ['FPS', 'Mechs', 'Shooter', 'Action', 'Multiplayer'], description: 'Respawn Entertainment gives you the most advanced titan technology in its new, single player campaign alongside fast-paced multiplayer action.' },
+	{ id: 292030, appid: 292030, title: 'The Witcher 3: Wild Hunt', image: steamPoster(292030), price: 39.99, genres: [3, 2], tags: ['RPG', 'Open World', 'Story Rich', 'Fantasy', 'Adventure'], description: 'As war rages on throughout the Northern Realms, you take on the greatest contract of your life — tracking down the Child of Prophecy, a living weapon that can alter the shape of the world.' },
+	{ id: 489830, appid: 489830, title: 'The Elder Scrolls V: Skyrim', image: steamPoster(489830), price: 19.99, genres: [3, 2], tags: ['RPG', 'Dragons', 'Open World', 'Fantasy', 'Adventure'], description: 'Epic fantasy adventure across the land of Skyrim. The Empire of Tamriel is on the edge. The High King of Skyrim has been murdered. Alliances form as claims to the throne are made.' },
 ];
 
 // Mock genres
@@ -190,7 +190,7 @@ const TOP_SELLERS = [
 ];
 
 const Shopveiw = ({ items }) => {
-	const didRunSmokeRef = useRef(false);
+	// const didRunSmokeRef = useRef(false);
 // useEffect(() => {
 //         // React.StrictMode runs effects twice in dev; guard so smoke runs once.
 //         if (didRunSmokeRef.current) return;
@@ -207,7 +207,6 @@ const Shopveiw = ({ items }) => {
 		priceRange: { min: 0, max: 100 },
 	});
 	const [isLoading, setIsLoading] = useState(false);
-	const [sidebarOpen, setSidebarOpen] = useState(true);
 
 	// Refs for carousel sections for scroll-into-view behavior
 	const featuredRef = useRef(null);
@@ -268,90 +267,69 @@ const Shopveiw = ({ items }) => {
 	// );
 
 	return (
-		<div className="flex-1 relative">
-			{/* Toggle button for filters sidebar */}
-			<button
-				onClick={() => setSidebarOpen(!sidebarOpen)}
-				className="fixed right-4 top-20 z-50 p-2 bg-slate-800/90 hover:bg-slate-700/90 border border-slate-600/50 rounded-lg text-slate-200 transition-all shadow-lg backdrop-blur-sm"
-				title={sidebarOpen ? 'Hide filters' : 'Show filters'}
-			>
-				<svg 
-					className="w-5 h-5 transition-transform duration-300" 
-					style={{ transform: sidebarOpen ? 'rotate(0deg)' : 'rotate(180deg)' }}
-					fill="none" 
-					stroke="currentColor" 
-					viewBox="0 0 24 24"
-				>
-					<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-				</svg>
-			</button>
-
-			{/* Main content area - reduced width to account for sidebar when open */}
-			<div className={`h-full px-3 py-4 overflow-y-auto transition-all duration-300 ${sidebarOpen ? 'mr-80' : 'mr-0'}`}>
+		<div className="flex-1">
+			{/* Main content area */}
+			<div className="h-full px-3 py-4 overflow-y-auto">
 				<h1 className="text-2xl font-semibold mb-6 text-slate-100">Store</h1>
 
 				{/* Show carousels when no filters are active */}
 				{!hasFilters && (
-					<div className="space-y-8">
-						{/* Featured Games */}
-						<section ref={featuredRef}>
-							<h2 className="text-2xl font-semibold mb-4 text-slate-100">Featured</h2>
-							<Storeslider 
-								items={FEATURED_GAMES} 
-								onCardClick={() => scrollToCarousel(featuredRef)}
-							/>
-						</section>
-
-						{/* Discounted Games */}
-						<section ref={discountedRef}>
-							<h2 className="text-2xl font-semibold mb-4 text-slate-100">Deals & Discounts</h2>
-							<Storeslider 
-								items={DISCOUNTED_GAMES}
-								onCardClick={() => scrollToCarousel(discountedRef)}
-							/>
-						</section>
-
-						{/* Upcoming Games */}
-						<section ref={upcomingRef}>
-							<h2 className="text-2xl font-semibold mb-4 text-slate-100">Coming Soon</h2>
-							<Storeslider 
-								items={UPCOMING_GAMES}
-								onCardClick={() => scrollToCarousel(upcomingRef)}
-							/>
-						</section>
-					</div>
-				)}
-
-				{/* Show grid when filters are active */}
-				{hasFilters && (
-					<section>
-						<h2 className="text-2xl font-semibold mb-4 text-slate-100">
-							Search Results ({filteredGames.length})
-						</h2>
-						<GameGrid 
-							games={filteredGames} 
-							isLoading={isLoading}
-							emptyMessage="No games found matching your filters"
+				<div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+					{/* Featured Games */}
+					<section ref={featuredRef}>
+						<h2 className="text-2xl font-semibold mb-4 text-slate-100">Featured</h2>
+						<Storeslider 
+							items={FEATURED_GAMES} 
+							onCardClick={() => scrollToCarousel(featuredRef)}
 						/>
 					</section>
-				)}
 
-				{/* Bottom section - Top Sellers list */}
-				<section className="mt-8 mb-6">
-					<GameListWithPreview 
-						games={TOP_SELLERS} 
-						title="Top Sellers"
+					{/* Discounted Games */}
+					<section ref={discountedRef}>
+						<h2 className="text-2xl font-semibold mb-4 text-slate-100">Deals & Discounts</h2>
+						<Storeslider 
+							items={DISCOUNTED_GAMES}
+							onCardClick={() => scrollToCarousel(discountedRef)}
+						/>
+					</section>
+
+					{/* Upcoming Games */}
+					<section ref={upcomingRef}>
+						<h2 className="text-2xl font-semibold mb-4 text-slate-100">Coming Soon</h2>
+						<Storeslider 
+							items={UPCOMING_GAMES}
+							onCardClick={() => scrollToCarousel(upcomingRef)}
+						/>
+					</section>
+				{/* Launcher Selection */}
+				<section>
+					<LauncherSelector />
+				</section>					</div>
+			)}
+
+			{/* Show grid when filters are active */}
+			{hasFilters && (
+				<section className="animate-in fade-in slide-in-from-top-4 duration-500">
+					<h2 className="text-2xl font-semibold mb-4 text-slate-100">
+						Search Results ({filteredGames.length})
+					</h2>
+					<GameGrid 
+						games={filteredGames} 
+						isLoading={isLoading}
+						emptyMessage="No games found matching your filters"
 					/>
 				</section>
-			</div>
+			)}
 
-			{/* Right sidebar - toggleable with slide animation */}
-			<RightSidebar 
-				genres={genres}
-				onFiltersChange={handleFiltersChange}
-				className={`transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : 'translate-x-full'}`}
-			/>
+			{/* Filtered games section with compact filters sidebar */}
+			<section className="mt-8 mb-6">
+				<FilteredGamesSection 
+					games={ALL_GAMES} 
+					title="Browse Games"
+				/>
+			</section>
 		</div>
+	</div>
 	);
 };
 

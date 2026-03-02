@@ -89,20 +89,10 @@ const Storeslider = ({ items, onCardClick }) => {
             classNameCard="shop-card"
             classNameCardActive="shop-card-active"
             ariaLabel="Shop carousel"
-            renderBeforeContainer={({ move }) => (
-                <button type="button" className="prev" onClick={() => move(-1)} aria-label="Previous">
-                    ‹
-                </button>
-            )}
-            renderAfterContainer={({ move }) => (
-                <button type="button" className="next" onClick={() => move(1)} aria-label="Next">
-                    ›
-                </button>
-            )}
             // Keep the existing Store design: cards are centered & stacked; we animate each
             // card based on how far it is from the active card.
             getStackMotion={({ offset, abs, dir }) => {
-                const visible = abs <= 3;
+                const visible = abs <= 4;
 
                 if (abs === 0) {
                     return {
@@ -146,16 +136,30 @@ const Storeslider = ({ items, onCardClick }) => {
                     };
                 }
 
-                // abs === 3
+                if (abs === 3) {
+                    return {
+                        visible,
+                        style: { zIndex: 4 },
+                        animate: {
+                            x: dir * 520 * spread,
+                            y: 24,
+                            scale: 0.78,
+                            opacity: 0.2,
+                            filter: 'blur(2px)',
+                        },
+                    };
+                }
+
+                // abs === 4
                 return {
                     visible,
-                    style: { zIndex: 4 },
+                    style: { zIndex: 2 },
                     animate: {
-                        x: dir * 520 * spread,
-                        y: 24,
-                        scale: 0.78,
+                        x: dir * 640 * spread,
+                        y: 28,
+                        scale: 0.72,
                         opacity: 0,
-                        filter: 'blur(2px)',
+                        filter: 'blur(3px)',
                     },
                 };
             }}

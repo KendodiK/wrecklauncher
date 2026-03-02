@@ -9,21 +9,7 @@ function ensureNoticeBanner() {
 
   el = document.createElement('div');
   el.id = 'notice-banner';
-  el.style.display = 'none';
-  el.style.position = 'fixed';
-  el.style.top = '12px';
-  el.style.left = '12px';
-  el.style.right = '12px';
-  el.style.zIndex = '99999';
-  el.style.padding = '10px 12px';
-  el.style.borderRadius = '10px';
-  el.style.background = 'rgba(15, 23, 42, 0.92)';
-  el.style.color = '#e2e8f0';
-  el.style.border = '1px solid rgba(148, 163, 184, 0.25)';
-  el.style.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
-  el.style.fontSize = '12px';
-  el.style.maxHeight = '42vh';
-  el.style.overflow = 'auto';
+  el.className = 'notice-banner';
 
   const parent = document.body || document.documentElement;
   parent.appendChild(el);
@@ -32,7 +18,7 @@ function ensureNoticeBanner() {
 
 function showNotice(title, body, details) {
   const el = ensureNoticeBanner();
-  el.style.display = 'block';
+  el.classList.add('active');
 
   const safeTitle = String(title || '').trim();
   const safeBody = String(body || '').trim();
@@ -48,14 +34,14 @@ function showNotice(title, body, details) {
 
   if (safeBody) {
     const p = document.createElement('div');
-    p.style.marginTop = '6px';
+    p.className = 'notice-banner-body';
     p.textContent = safeBody;
     el.appendChild(p);
   }
 
   if (safeDetails) {
     const pre = document.createElement('pre');
-    pre.style.marginTop = '8px';
+    pre.className = 'notice-banner-details';
     pre.textContent = safeDetails;
     el.appendChild(pre);
   }

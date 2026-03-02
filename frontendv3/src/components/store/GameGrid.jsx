@@ -34,7 +34,7 @@ const GameGrid = ({ games = [], isLoading = false, emptyMessage = 'No games foun
 
 	if (!games || games.length === 0) {
 		return (
-			<div className="flex flex-col items-center justify-center py-16 text-center">
+			<div className="flex flex-col items-center justify-center py-16 text-center animate-in fade-in slide-in-from-bottom-2 duration-500">
 				<svg
 					className="w-16 h-16 text-slate-600 mb-4"
 					fill="none"
@@ -66,7 +66,10 @@ const GameGrid = ({ games = [], isLoading = false, emptyMessage = 'No games foun
 					<div
 						key={gameId}
 						onClick={() => handleCardClick(game)}
-						className="group cursor-pointer rounded-lg overflow-hidden bg-slate-900/20 border border-slate-700/30 hover:border-slate-500/50 transition-all duration-300 hover:scale-[1.02] hover:shadow-lg hover:shadow-slate-900/50"
+						className="group cursor-pointer rounded-lg overflow-hidden bg-slate-900/20 border border-slate-700/30 hover:border-slate-500/50 transition-all duration-300 hover:scale-[1.02] hover:shadow-lg hover:shadow-slate-900/50 animate-in fade-in slide-in-from-bottom-4 animate-stagger"
+						style={{
+							animationDelay: `${index * 30}ms`
+						}}
 					>
 						{/* Game image */}
 						<div className="relative w-full aspect-[3/4] overflow-hidden bg-slate-800/50">

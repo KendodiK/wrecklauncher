@@ -37,6 +37,11 @@ const GameSliderBase = ({
 	const wheelLockRef = useRef(false);
 	const [x, setX] = useState(0);
 	const xRef = useRef(0);
+	
+	// Drag state
+	const dragStartX = useRef(0);
+	const dragCurrentX = useRef(0);
+	const isDragging = useRef(false);
 
 	const baseCards = useMemo(() => {
 		const source = (games && games.length
@@ -215,6 +220,15 @@ const GameSliderBase = ({
 	const onKeyDown = (e) => {
 		if (e.key === 'ArrowRight') move(1);
 		if (e.key === 'ArrowLeft') move(-1);
+		if (e.key === 'Tab') {
+			if (e.shiftKey) {
+				e.preventDefault();
+				move(-1);
+			} else {
+				e.preventDefault();
+				move(1);
+			}
+		}
 		if (e.key === 'Enter') {
 			if (typeof onActivateCard !== 'function') return;
 			const card = cards[currentIndex];
@@ -252,6 +266,58 @@ const GameSliderBase = ({
 
 		el.addEventListener('wheel', handler, { passive: false });
 		return () => el.removeEventListener('wheel', handler, { passive: false });
+	}, [isMoving]);
+
+	// Drag handlers for mouse drag navigation
+	useEffect(() => {
+		const el = carouselRef.current;
+		if (!el) return;
+
+		const handleMouseDown = (e) => {
+			isDragging.current = true;
+			dragStartX.current = e.clientX;
+			dragCurrentX.current = e.clientX;
+			el.style.cursor = 'grabbing';
+		};
+
+		const handleMouseMove = (e) => {
+			if (!isDragging.current) return;
+			dragCurrentX.current = e.clientX;
+		};
+
+		const handleMouseUp = () => {
+			if (!isDragging.current) return;
+			isDragging.current = false;
+			el.style.cursor = 'grab';
+
+			const dragDistance = dragStartX.current - dragCurrentX.current;
+			const threshold = 50; // minimum drag distance to trigger move
+
+			if (Math.abs(dragDistance) > threshold && !isMoving) {
+				move(dragDistance > 0 ? 1 : -1);
+			}
+		};
+
+		const handleMouseLeave = () => {
+			if (isDragging.current) {
+				isDragging.current = false;
+				el.style.cursor = 'grab';
+			}
+		};
+
+		el.style.cursor = 'grab';
+		el.addEventListener('mousedown', handleMouseDown);
+		window.addEventListener('mousemove', handleMouseMove);
+		window.addEventListener('mouseup', handleMouseUp);
+		el.addEventListener('mouseleave', handleMouseLeave);
+
+		return () => {
+			el.style.cursor = '';
+			el.removeEventListener('mousedown', handleMouseDown);
+			window.removeEventListener('mousemove', handleMouseMove);
+			window.removeEventListener('mouseup', handleMouseUp);
+			el.removeEventListener('mouseleave', handleMouseLeave);
+		};
 	}, [isMoving]);
 
 	const effectiveRenderCard = renderCard

@@ -2,10 +2,18 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================
+   GLOBAL STYLES
+   ============================================ */
+
 body {
   margin: 0;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
+
+/* ============================================
+   ELECTRON APP - TITLE BAR & WINDOW CONTROLS
+   ============================================ */
 
 /* Custom Electron title bar (replaces native toolbar) */
 .main-navbar {
@@ -13,21 +21,27 @@ body {
   top: 0;
   z-index: 9999;
   -webkit-app-region: drag;
-  padding: 4px 10px; /* small padding around entire navbar */
+  padding: 4px 10px;
   background: rgba(15, 23, 42, 0.95);
   border-bottom: 1px solid rgba(51, 65, 85, 0.9);
 }
 
+/* Allow interaction with navbar elements */
 .main-navbar .no-drag {
   -webkit-app-region: no-drag;
 }
 
+/* Window control buttons (minimize, maximize, close) */
 .window-controls button {
   width: 36px;
   height: 100%;
 }
 
-/* Game slider (Library page) – Steam-like carousel */
+/* ============================================
+   LIBRARY PAGE - GAME SLIDER CAROUSEL
+   Steam-like carousel for game selection
+   ============================================ */
+
 .gs-carousel-wrapper {
   display: flex;
   justify-content: center;
@@ -51,15 +65,12 @@ body {
   list-style: none;
 }
 
+/* Game card - default state */
 .gs-card {
   flex: 0 0 var(--gs-card-width, 170px);
   opacity: 0.45;
   filter: brightness(0.6);
   transform: scale(1);
-  transition:
-    transform 0.3s cubic-bezier(.2, .8, .2, 1),
-    filter 0.3s ease,
-    opacity 0.3s ease;
   user-select: none;
   cursor: pointer;
 }
@@ -73,6 +84,7 @@ body {
   box-shadow: 0 20px 40px rgba(0,0,0,0.5);
 }
 
+/* Game card - active/selected state */
 .gs-card.gs-card-active {
   flex: 0 0 var(--gs-card-active-width, 240px);
   opacity: 1;
@@ -81,12 +93,17 @@ body {
   z-index: 10;
 }
 
-/* Shop carousel (Store page) – Motion-powered, classnames match old .carousel/.cards idea */
+/* ============================================
+   STORE PAGE - CAROUSEL
+   Motion-powered carousel for featured games
+   ============================================ */
+
 .carousel {
   --shop-card-w: 220px;
   --shop-card-h: 320px;
   position: relative;
-  width: 100%;
+  width: 80%;
+  margin: 0 auto;
   height: calc(var(--shop-card-h) + 60px);
   border: 1px solid rgba(51, 65, 85, 0.55);
   border-radius: 16px;
@@ -100,6 +117,7 @@ body {
   box-shadow: 0 0 0 2px rgba(148, 163, 184, 0.35);
 }
 
+/* Carousel navigation buttons */
 .carousel .prev,
 .carousel .next {
   position: absolute;
@@ -117,7 +135,6 @@ body {
   user-select: none;
   z-index: 100;
   pointer-events: auto;
-  transition: all 0.2s ease;
 }
 
 .carousel .prev:hover,
@@ -134,6 +151,7 @@ body {
   right: 12px;
 }
 
+/* Carousel cards container */
 .carousel .cards {
   list-style: none;
   padding: 0;
@@ -143,6 +161,7 @@ body {
   height: 100%;
 }
 
+/* Individual shop card in carousel */
 .carousel .shop-card {
   position: absolute;
   top: 50%;
@@ -166,6 +185,7 @@ body {
   display: block;
 }
 
+/* Gradient overlay on shop cards */
 .carousel .shop-card::after {
   content: '';
   position: absolute;
@@ -174,6 +194,7 @@ body {
   pointer-events: none;
 }
 
+/* Shop card title */
 .carousel .shop-card-title {
   position: absolute;
   left: 12px;
@@ -188,11 +209,17 @@ body {
   text-overflow: ellipsis;
 }
 
+/* Active shop card highlight */
 .carousel .shop-card.shop-card-active {
   border-color: rgba(52, 211, 153, 0.45);
 }
 
-/* Custom scrollbar styles for sidebar and other scrollable areas */
+/* ============================================
+   SCROLLBAR STYLES
+   Custom scrollbar styling for consistency
+   ============================================ */
+
+/* Thin scrollbar for sidebars and lists */
 .scrollbar-thin {
   scrollbar-width: thin;
   scrollbar-color: rgb(51, 65, 85) rgba(30, 41, 59, 0.5);
@@ -217,10 +244,56 @@ body {
   background: rgb(71, 85, 105);
 }
 
+/* Utility class for scrollbar thumb color */
 .scrollbar-thumb-slate-700 {
   scrollbar-color: rgb(51, 65, 85) rgba(30, 41, 59, 0.5);
 }
 
-.scrollbar-track-slate-800\/50 {
-  /* Handled by scrollbar-color above */
+/* ============================================
+   UTILITY CLASSES
+   ============================================ */
+
+/* Debug/Notice banner - used by smoke testing */
+.notice-banner {
+  display: none;
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  z-index: 99999;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.92);
+  color: #e2e8f0;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  max-height: 42vh;
+  overflow: auto;
 }
+
+.notice-banner.active {
+  display: block;
+}
+
+.notice-banner-body {
+  margin-top: 6px;
+}
+
+.notice-banner-details {
+  margin-top: 8px;
+}
+
+/* Range slider z-index utilities */
+.range-slider-thumb-low {
+  z-index: 3;
+}
+
+.range-slider-thumb-high {
+  z-index: 4;
+}
+
+.range-slider-thumb-overlap {
+  z-index: 5;
+}
+
