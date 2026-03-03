@@ -47,23 +47,20 @@ class GamesController {
   /**
    * Get all details of a game by ID.
    * 
-   * @param {string} token 
    * @param {number} id 
     * @returns {Promise<import('../models').GameDetails>}
    */
-  async getAllDetailsByID(token, id){
-    if (!token || !String(token).trim()) throw new Error('Token is required');
+  async getAllDetailsByID(id){
     // Note: allow numeric 0 check explicitly; reject null/undefined/NaN.
     if (id === undefined || id === null || Number.isNaN(Number(id))) throw new Error('Game ID is required');
 
-    // Backend endpoint is /api/games/:id/all (path param), not a querystring.
+    // Backend endpoint is /api/games/:appId/all where :appId is the platform-specific app id (e.g. Steam appid).
     const url = joinUrl(this.#serverUrl, 'api', 'games', enc(String(id)), 'all');
 
     const { ok, status, json, text } = await fetchJsonSafe(url,{
       method: 'GET',
       headers: {
         'Accept': 'application/json',
-        'Authorization': `Bearer ${token}`,
       },
     });
 

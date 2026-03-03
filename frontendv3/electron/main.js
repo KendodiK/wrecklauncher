@@ -273,13 +273,13 @@ handleAuthed('platform:get', async (platformName) => {
   });
 
   // Game DB details (requires backend support)
-  handleAuthed('games:get-all-details-by-id', async ({ event, token }, id) => {
+  handle('games:get-all-details-by-id', async (event, id) => {
     const senderUrl =
       event?.senderFrame?.url ||
       (typeof event?.sender?.getURL === 'function' ? event.sender.getURL() : '') ||
       '(unknown sender)';
     console.log(`[IPC] games:get-all-details-by-id id=${String(id)} from=${senderUrl}`);
-    return await getGamesCtrl().getAllDetailsByID(token, Number(id));
+    return await getGamesCtrl().getAllDetailsByID(Number(id));
   });
 
   handle('epic:get-installed-games', async () => {

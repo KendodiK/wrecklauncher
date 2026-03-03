@@ -30,7 +30,7 @@
  */
 
 /**
- * Row returned by `/api/games/:id/all` for `genres`.
+ * Row returned by `/api/games/:id/all` or `/api/games/app/:appId/all` for `genres`.
  * Note: current backend query returns `{ id: games.id, genre: genres.genre }`.
  * @typedef {object} GameGenreRow
  * @property {number} id
@@ -38,7 +38,7 @@
  */
 
 /**
- * Game details returned by `/api/games/:id/all`.
+ * Game details returned by `/api/games/:id/all` or `/api/games/app/:appId/all`.
  * The backend currently aliases platform name as `platform`.
  * @typedef {object} GameDetailsResponse
  * @property {number} id
