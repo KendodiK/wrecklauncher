@@ -179,8 +179,10 @@ let platformUserId;
       warn('createPlatformUser', e2);
     }
   }
+
 try{
-  const owned = await api.getOwnedGamesFromSteam('freshargentinaccount69912');
+  let owned = await api.getOwnedGamesFromSteam('freshargentinaccount69912');
+  owned = owned && Array.isArray(owned) ? owned.slice(0, 15) : owned;
   log('getOwnedGamesFromSteam', owned);
   for (const game of owned) {
     try {
@@ -193,7 +195,14 @@ try{
 }
 catch(e){
   warn('getOwnedGamesFromSteam', e);
+} 
+try{
+  const details = await api.getSteamGameDetails(730, 'us');
+  log('getSteamGameDetails 730', details);
+} catch (e) {
+  warn('getSteamGameDetails 730', e);
 }
+
   // try {    const details = await api.getSteamGameDetails(730, 'us');
   //   log('getSteamGameDetails 730', details);
   // } catch (e) {
