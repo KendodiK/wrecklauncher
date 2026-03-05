@@ -25,7 +25,7 @@ class PlatformsController {
         });
         if (!ok) {
             const msg = httpErrorMessage(status, json, text);
-            if (status === 401 && /invalid token/i.test(msg)) {
+          if (status === 401) {
                 const e = new Error(msg);
                 // @ts-ignore
                 e.code = 'WRECK_INVALID_TOKEN';
@@ -50,7 +50,7 @@ class PlatformsController {
       });
       if (!ok) {
         const msg = httpErrorMessage(status, json, text);
-        if (status === 401 && /invalid token/i.test(msg)) {
+        if (status === 401) {
           const e = new Error(msg);
           // @ts-ignore
           e.code = 'WRECK_INVALID_TOKEN';
@@ -85,7 +85,7 @@ class PlatformsController {
         });
         if (!ok) {
           const msg = httpErrorMessage(status, json, text);
-          if (status === 401 && /invalid token/i.test(msg)) {
+          if (status === 401) {
             const e = new Error(msg);
             // @ts-ignore
             e.code = 'WRECK_INVALID_TOKEN';
