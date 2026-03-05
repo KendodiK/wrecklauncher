@@ -21,12 +21,16 @@ const gamesGenresConnnectionController = require('./database/controllers/GamesGe
 const gamesController = require('./database/controllers/GamesController');
 const friendsController = require('./database/controllers/FriendsController');
 const chatsController = require('./database/controllers/ChatsController'); 
+const shopSpecialsController = require('./database/controllers/ShopSpecialsController');
 const { errorMonitor } = require('events');
 const { error } = require('console');
 
 const PORT = 3000;
 // Replace with your actual Steam API key and Steam ID
 const steamApiKey = process.env.STEAM_API_KEY;
+const clientId = process.env.IGDB_CLIENT_ID;
+const clientSecret = process.env.IGDB_CLIENT_SECRET;
+let igdbToken = null;
 app.use(cors());
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -67,6 +71,243 @@ server.on('listening', async () => {
     console.error('Error creating database tables on startup:', err);
   }
 });
+
+
+// ------------------- Helper functions ------------------ //
+async function fetchIGDBToken() {
+  try {
+    const response = await fetch(`https://id.twitch.tv/oauth2/token?client_id=${process.env.IGDB_CLIENT_ID}&client_secret=${process.env.IGDB_CLIENT_SECRET}&grant_type=client_credentials`, {
+      method: 'POST',
+    });
+    const data = await response.json();
+    return data.access_token;
+  } catch (err) {
+    console.error('Error fetching IGDB token:', err);
+    throw err;
+  }
+}
+async function fetchIGDB(endpoint, query) {
+  if (!clientId) {
+    throw new Error('Missing IGDB client id (IGDB_CLIENT_ID)');
+  }
+  if (!igdbToken) {
+    throw new Error('Missing IGDB token; fetchIGDBToken() must run first');
+  }
+
+  const response = await fetch(`https://api.igdb.com/v4/${endpoint}`, {
+    method: 'POST',
+    headers: {
+      'Client-ID': clientId,
+      'Authorization': `Bearer ${igdbToken}`,
+      'Content-Type': 'text/plain',
+      'Accept': 'application/json',
+    },
+    // IGDB expects the query as plain text in the request body
+    body: query,
+  });
+
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`IGDB ${endpoint} HTTP ${response.status}: ${text}`);
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    // If IGDB ever returns non-JSON (unexpected), surface the raw body.
+    return text;
+  }
+}
+
+function normalizeIgdbImageUrl(url) {
+  if (!url) return null;
+  if (url.startsWith('//')) return `https:${url}`;
+  return url;
+}
+
+async function upsertShopSpecialsFromIgdb({ trending = [], upcoming = [] } = {}) {
+  // shop_specials.game_id references games.id, so we ensure the games exist first.
+  const platformsCtrl = new platformsController();
+  const igdbPlatform = await platformsCtrl.create({ name: 'igdb' });
+  const igdbPlatformId = igdbPlatform?.id;
+  if (!igdbPlatformId) {
+    throw new Error('Failed to resolve/create igdb platform');
+  }
+
+  const gamesCtrl = new gamesController();
+  const shopSpecialsCtrl = new shopSpecialsController();
+
+  // Make sure DB connection is ready, then wipe existing specials.
+  // Note: this will also remove any manually-managed flags (e.g. discounted).
+  await shopSpecialsCtrl.ready;
+  try {
+    await shopSpecialsCtrl.dbConnection.execute('TRUNCATE TABLE shop_specials;');
+  } catch (err) {
+    // Some MySQL configs restrict TRUNCATE; fall back to DELETE.
+    try {
+      await shopSpecialsCtrl.dbConnection.execute('DELETE FROM shop_specials;');
+    } catch (err2) {
+      console.error('Failed to wipe shop_specials table:', err2);
+      throw err2;
+    }
+  }
+
+  async function ensureGameId(igdbGame) {
+    const appId = igdbGame?.id;
+    if (appId == null) {
+      console.warn('Skipping IGDB game: missing id', igdbGame);
+      return null;
+    }
+
+    const existingGameId = await gamesCtrl.getGameIdByAppId(appId);
+    if (existingGameId != null) {
+      const numericExisting = Number(existingGameId);
+      return Number.isFinite(numericExisting) ? numericExisting : null;
+    }
+
+    const gameData = {
+      app_id: appId,
+      platform_id: igdbPlatformId,
+      name: igdbGame?.name ?? String(appId),
+      banner_img: normalizeIgdbImageUrl(igdbGame?.cover?.url) ?? '',
+      description: igdbGame?.summary ?? '',
+      minimum_requirements: '',
+      cost: null,
+    };
+
+    const created = await gamesCtrl.create(gameData);
+    const createdId = created?.id;
+    const numericCreated = Number(createdId);
+    if (!Number.isFinite(numericCreated)) {
+      console.warn('Skipping IGDB game: created game missing numeric id', { appId, created });
+      return null;
+    }
+    return numericCreated;
+  }
+
+  // Merge flags so each game_id is inserted once.
+  const gameIdByAppId = new Map();
+  const specialsByGameId = new Map();
+
+  async function addSpecial(igdbGame, flags) {
+    const appId = igdbGame?.id;
+    if (appId == null) return;
+
+    let gameId = gameIdByAppId.get(appId);
+    if (gameId == null) {
+      gameId = await ensureGameId(igdbGame);
+      if (gameId == null) {
+        console.warn('Skipping shop_special: could not resolve game id for IGDB game', { appId, name: igdbGame?.name });
+        return;
+      }
+      gameIdByAppId.set(appId, gameId);
+    }
+
+    // Extra safety: ensure it's numeric before using as a DB foreign key.
+    const numericGameId = Number(gameId);
+    if (!Number.isFinite(numericGameId)) {
+      console.warn('Skipping shop_special: non-numeric game id', { appId, gameId });
+      return;
+    }
+    gameId = numericGameId;
+
+    const current = specialsByGameId.get(gameId) ?? {
+      game_id: gameId,
+      featured: false,
+      coming_soon: false,
+      discounted: false,
+    };
+    specialsByGameId.set(gameId, {
+      ...current,
+      featured: current.featured || !!flags.featured,
+      coming_soon: current.coming_soon || !!flags.coming_soon,
+      // discounted is not provided by IGDB sync; keep false on daily rebuild.
+    });
+  }
+
+  for (const g of trending) {
+    await addSpecial(g, { featured: true });
+  }
+  for (const g of upcoming) {
+    await addSpecial(g, { coming_soon: true });
+  }
+
+  for (const special of specialsByGameId.values()) {
+    const gameId = special?.game_id;
+    if (gameId == null) {
+      console.warn('Skipping shop_special insert: missing game_id', special);
+      continue;
+    }
+
+    // Insert directly to avoid the current ShopSpecialsController.create() foreign-key check bug.
+    await shopSpecialsCtrl.dbConnection.execute(
+      'INSERT INTO shop_specials (game_id, featured, coming_soon, discounted) VALUES (?, ?, ?, ?);',
+      [
+        Number(gameId),
+        special.featured ? 1 : 0,
+        special.coming_soon ? 1 : 0,
+        special.discounted ? 1 : 0,
+      ]
+    );
+  }
+}
+
+// Main function
+async function fetchGamesDaily() {
+  try {
+    igdbToken = await fetchIGDBToken();
+    console.log('Fetched IGDB token successfully');
+  } catch (err) {
+    console.error('Failed to fetch IGDB token:', err);
+    return;
+  }
+
+  console.log("Fetching games...");
+
+  let trending = [];
+  let upcoming = [];
+
+  // 1️⃣ Trending / Featured
+  try {
+    trending = await fetchIGDB(
+      "games",
+      `fields id, name, summary, cover.url, hypes, follows, external_games.uid;
+       sort hypes desc;
+       limit 10;`
+    );
+    console.log('Fetched trending games successfully');
+    console.log(trending);
+  } catch (err) {
+    console.error('Failed to fetch trending games:', err);
+  }
+  
+  // 2️⃣ Coming Soon
+  try {
+    upcoming = await fetchIGDB(
+      "games",
+      `fields id, name, summary, cover.url, first_release_date, external_games.uid;
+       where first_release_date > ${Math.floor(Date.now() / 1000)};
+       sort first_release_date asc;
+       limit 10;`
+    );
+    console.log('Fetched upcoming games successfully');
+    console.log(upcoming);
+  } catch (err) {
+    console.error('Failed to fetch upcoming games:', err);
+  }
+
+  try {
+    await upsertShopSpecialsFromIgdb({ trending, upcoming });
+    console.log('Uploaded IGDB specials to shop_specials successfully');
+  } catch (err) {
+    console.error('Failed to upload IGDB specials to shop_specials:', err);
+  }
+}
+// Run immediately
+fetchGamesDaily();
+
+// Run every 24 hours
+setInterval(fetchGamesDaily, 24 * 60 * 60 * 1000);
 
 
 // ------------------- Middleware ------------------ //
@@ -213,6 +454,44 @@ app.get("/api/games/:id", async (req, res) => { //nem biztos hogy kell használn
     return res.json(game);
   } catch (err) {
       return res.status(500).json({ error: err.message });
+  }
+});
+
+/*
+  route: /api/games/app/:appId/all
+  params: games.app_id (platform-specific id, e.g. Steam appid)
+  headers: -
+  body: -
+
+  returns:
+    Same shape as /api/games/:id/all.
+*/
+app.get("/api/games/:appId/all", async (req, res) => {
+  try {
+    const { appId } = req.params;
+    const appIdNum = Number(appId);
+    if (!Number.isFinite(appIdNum) || appIdNum <= 0) {
+      return res.status(400).json({ error: `Invalid appId: ${String(appId)}` });
+    }
+
+    const gameCtrl = new gamesController();
+    const gameId = await gameCtrl.getGameIdByAppId(appIdNum);
+    if (!gameId) {
+      return res.status(404).json({ error: `Game not found by appId: ${appIdNum}` });
+    }
+
+    const game = await gameCtrl.getWithAllForeign(gameId);
+    if (!game) {
+      return res.status(404).json({ error: `Game not found: ${gameId}` });
+    }
+
+    const gamesGenresCtrl = new gamesGenresConnnectionController();
+    const gameGenres = await gamesGenresCtrl.getByGameId(gameId);
+    game.genres = gameGenres;
+
+    return res.json(game);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
   }
 });
 
