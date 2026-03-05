@@ -245,19 +245,19 @@ export async function runSmokeControllers() {
 
   // Cloudscraper smoke checks
 
-  if (typeof api.fetchFitGirlGameDirectDownloadLink === 'function') {
-    try {
-      const gogHome = await api.fetchFitGirlGameDirectDownloadLink('resident-evil-4-2023');
-      console.log('[smoke] cloudscraperGogGamesHome full response:', gogHome);
-      log('fetchFitGirlGameDirectDownloadLink resident-evil-4-2023', {
-        url: gogHome,
-      });
-    } catch (e) {
-      warn('cloudscraperGogGamesHome', e);
-    }
-  } else {
-    warn('cloudscraperGogGamesHome', new Error('cloudscraper API is not available in preload'));
-  }
+  // if (typeof api.fetchFitGirlGameDirectDownloadLink === 'function') {
+  //   try {
+  //     const gogHome = await api.fetchFitGirlGameDirectDownloadLink('resident-evil-4-2023');
+  //     console.log('[smoke] cloudscraperGogGamesHome full response:', gogHome);
+  //     log('fetchFitGirlGameDirectDownloadLink resident-evil-4-2023', {
+  //       url: gogHome,
+  //     });
+  //   } catch (e) {
+  //     warn('cloudscraperGogGamesHome', e);
+  //   }
+  // } else {
+  //   warn('cloudscraperGogGamesHome', new Error('cloudscraper API is not available in preload'));
+  // }
 
   // if (typeof api.cloudscraperDodiRepacksHome === 'function') {
   //   try {
@@ -382,6 +382,14 @@ export async function runSmokeControllers() {
   // } else {
   //   lines.push('== getAllDetailsByID ==\nSkipped (set VITE_SMOKE_GAME_ID)');
   // }
+
+
+  try{
+    const games = await api.getGames(1);
+    log('getGames from 1', games);
+  } catch (e) {
+    warn('getGames', e);
+  }
 
 
   showNotice('Smoke finished', 'See console + details below', lines.join('\n\n'));

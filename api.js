@@ -578,7 +578,7 @@ app.get("/api/games/:id/all", async (req, res) => {
   }
 });
 
-app.get("/api/games/:from", async (req, res) => {
+app.get("/api/games/list/:from", async (req, res) => {
   try {
     const { from } = req.params;
     const gamesCtrl = new gamesController();

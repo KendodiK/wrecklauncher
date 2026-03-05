@@ -99,6 +99,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     );
   },
   getPlatform: (platformName) => ipcRenderer.invoke('platform:get', platformName),
+  //Steam
   getOwnedGamesFromSteam: (platformUsername) => {
     return resolveAuthToken().then((token) =>
       ipcRenderer.invoke('user:get-owned-games-from-steam', token, platformUsername)
@@ -115,6 +116,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   storePageSteam: (appID) => ipcRenderer.invoke('steam:store-page', appID),
   runSteamGame: (appID) => ipcRenderer.invoke('steam:run-game', appID),
   getEpicInstalledGames: () => ipcRenderer.invoke('epic:get-installed-games'),
+  //Pirate Sites
   cloudscraperFetch: (url, options) => ipcRenderer.invoke('cloudscraper:fetch', url, options),
   cloudscraperGogGamesHome: () => ipcRenderer.invoke('cloudscraper:gog-games-home'),
   cloudscraperGogGamePage: (gameSlug) => ipcRenderer.invoke('cloudscraper:gog-game-page', gameSlug),
@@ -122,6 +124,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   cloudscraperSearchByxatab: (query, page) => ipcRenderer.invoke('cloudscraper:search-byxatab', query, page),
   fetchFitGirlGameDirectDownloadLink: (gameSlug) => ipcRenderer.invoke('cloudscraper:fetch-fitgirl-link', gameSlug),
   // GamesController
+  getGames: (from) => ipcRenderer.invoke('games:get-games', from),
   getAllDetailsByID: (id) => ipcRenderer.invoke('games:get-all-details-by-id', id),
 });
 

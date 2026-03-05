@@ -318,6 +318,10 @@ app.whenReady().then(() => {
   });
 
   // Game DB details (requires backend support)
+  handle('games:get-games', async (_event, from) => {
+    return await getGamesCtrl().getGames(Number(from));
+  });
+
   handle('games:get-all-details-by-id', async (event, id) => {
     const senderUrl =
       event?.senderFrame?.url ||
