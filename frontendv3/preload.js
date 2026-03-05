@@ -115,7 +115,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   storePageSteam: (appID) => ipcRenderer.invoke('steam:store-page', appID),
   runSteamGame: (appID) => ipcRenderer.invoke('steam:run-game', appID),
   getEpicInstalledGames: () => ipcRenderer.invoke('epic:get-installed-games'),
-
+  cloudscraperFetch: (url, options) => ipcRenderer.invoke('cloudscraper:fetch', url, options),
+  cloudscraperGogGamesHome: () => ipcRenderer.invoke('cloudscraper:gog-games-home'),
+  cloudscraperGogGamePage: (gameSlug) => ipcRenderer.invoke('cloudscraper:gog-game-page', gameSlug),
+  cloudscraperDodiRepacksHome: () => ipcRenderer.invoke('cloudscraper:dodi-repacks-home'),
+  cloudscraperSearchByxatab: (query, page) => ipcRenderer.invoke('cloudscraper:search-byxatab', query, page),
+  fetchFitGirlGameDirectDownloadLink: (gameSlug) => ipcRenderer.invoke('cloudscraper:fetch-fitgirl-link', gameSlug),
   // GamesController
   getAllDetailsByID: (id) => ipcRenderer.invoke('games:get-all-details-by-id', id),
 });

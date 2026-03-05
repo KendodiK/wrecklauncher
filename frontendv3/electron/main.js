@@ -73,6 +73,8 @@ app.whenReady().then(() => {
   let epicCtrl = null;
   /** @type {import('./controllers/PlatformsController')|null} */
   let platformsCtrl = null;
+  /** @type {import('./controllers/CloudscraperController')|null} */
+  let cloudscraperCtrl = null;
 
   function getUserCtrl() {
     if (!userCtrl) {
@@ -112,6 +114,14 @@ app.whenReady().then(() => {
       platformsCtrl = new PlatformsController({ serverUrl: backendUrl });
     }
     return platformsCtrl;
+  }
+
+  function getCloudscraperCtrl() {
+    if (!cloudscraperCtrl) {
+      const CloudscraperController = require('./controllers/CloudscraperController');
+      cloudscraperCtrl = new CloudscraperController({ timeoutMs: 20_000 });
+    }
+    return cloudscraperCtrl;
   }
 
   /**
@@ -321,6 +331,29 @@ app.whenReady().then(() => {
     return await getEpicCtrl().getInstalledGames();
   });
 
+  // Cloudscraper helpers
+  handle('cloudscraper:fetch', async (_event, url, options) => {
+    return await getCloudscraperCtrl().fetch(String(url), options && typeof options === 'object' ? options : {});
+  });
+
+  handle('cloudscraper:gog-games-home', async () => {
+    return await getCloudscraperCtrl().fetchGogGamesHome();
+  });
+
+  handle('cloudscraper:gog-game-page', async (_event, gameSlug) => {
+    return await getCloudscraperCtrl().fetchGogGamePage(String(gameSlug));
+  });
+
+  handle('cloudscraper:dodi-repacks-home', async () => {
+    return await getCloudscraperCtrl().fetchDodiRepacksHome();
+  });
+
+  handle('cloudscraper:search-byxatab', async (_event, query, page) => {
+    return await getCloudscraperCtrl().searchByxatab(String(query), Number(page || 1));
+  });
+  handle('cloudscraper:fetch-fitgirl-link', async (_event, gameSlug) => {
+    return await getCloudscraperCtrl().fetchFitGirlGamePage(String(gameSlug));  
+  });
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
