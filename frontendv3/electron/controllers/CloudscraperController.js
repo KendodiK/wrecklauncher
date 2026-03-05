@@ -123,17 +123,23 @@ class CloudscraperController {
     if (!response.ok) {
       throw new Error(`Failed to fetch FitGirl game page for slug "${slug}": HTTP ${response.statusCode}`);
     }
-    const body = response.body; // your HTML string
+    const body = response.body;
+
+    // Log a snippet around any magnet link found so we can see the raw encoding.
+    const rawMagnetIdx = body.indexOf('magnet:');
+    console.log('[FitGirl] body snippet around magnet:', rawMagnetIdx === -1 ? '(not found)' : body.slice(Math.max(0, rawMagnetIdx - 10), rawMagnetIdx + 200));
 
     const match = body.match(/href=["'](magnet:\?xt=urn:btih:[^"']+)["']/i);
-    let magnetLink = null;
-    if (match) {
-    const magnetLink = match[1]
-        .replace(/&amp;/g, '&'); // decode HTML entities
-
-    console.log(magnetLink);
-    return magnetLink;
+    if (!match) {
+      console.warn('[FitGirl] no magnet href found in page body');
+      return null;
     }
+
+    const magnetLink = match[1]
+      .replace(/&#0*38;/g, '&')   // &#038; / &#38;
+      .replace(/&amp;/gi, '&');   // &amp;
+
+    console.log('[FitGirl] decoded magnet:', magnetLink.slice(0, 120));
     return magnetLink;
   }
 }

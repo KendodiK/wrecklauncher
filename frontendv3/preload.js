@@ -118,11 +118,40 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getEpicInstalledGames: () => ipcRenderer.invoke('epic:get-installed-games'),
   //Pirate Sites
   cloudscraperFetch: (url, options) => ipcRenderer.invoke('cloudscraper:fetch', url, options),
-  cloudscraperGogGamesHome: () => ipcRenderer.invoke('cloudscraper:gog-games-home'),
-  cloudscraperGogGamePage: (gameSlug) => ipcRenderer.invoke('cloudscraper:gog-game-page', gameSlug),
   cloudscraperDodiRepacksHome: () => ipcRenderer.invoke('cloudscraper:dodi-repacks-home'),
   cloudscraperSearchByxatab: (query, page) => ipcRenderer.invoke('cloudscraper:search-byxatab', query, page),
   fetchFitGirlGameDirectDownloadLink: (gameSlug) => ipcRenderer.invoke('cloudscraper:fetch-fitgirl-link', gameSlug),
+  // Torrent
+  /**
+   * Start downloading a torrent from a magnet URI.
+   * Progress events are pushed automatically; subscribe with `onTorrentProgress`.
+   * @param {string} magnetUri  Magnet URI returned by fetchFitGirlGameDirectDownloadLink (or any source).
+   * @param {string} [savePath] Absolute directory path. Defaults to the OS Downloads folder.
+   * @returns {Promise<import('./electron/models').TorrentProgress>} Initial snapshot.
+   */
+  torrentStart: (magnetUri, savePath) => ipcRenderer.invoke('torrent:start', magnetUri, savePath),
+  /** @param {string} infoHash */
+  torrentPause: (infoHash) => ipcRenderer.invoke('torrent:pause', infoHash),
+  /** @param {string} infoHash */
+  torrentResume: (infoHash) => ipcRenderer.invoke('torrent:resume', infoHash),
+  /**
+   * @param {string} infoHash
+   * @param {boolean} [deleteFiles] Pass true to remove downloaded files from disk.
+   */
+  torrentRemove: (infoHash, deleteFiles) => ipcRenderer.invoke('torrent:remove', infoHash, deleteFiles),
+  /** @returns {Promise<import('./electron/models').TorrentProgress[]>} */
+  torrentGetStatus: () => ipcRenderer.invoke('torrent:get-status'),
+  /**
+   * Subscribe to live progress pushes from the main process.
+   * Returns an unsubscribe function.
+   * @param {(progress: import('./electron/models').TorrentProgress) => void} cb
+   * @returns {() => void}
+   */
+  onTorrentProgress: (cb) => {
+    const listener = (_event, progress) => cb(progress);
+    ipcRenderer.on('torrent:progress', listener);
+    return () => ipcRenderer.removeListener('torrent:progress', listener);
+  },
   // GamesController
   getGames: (from) => ipcRenderer.invoke('games:get-games', from),
   getAllDetailsByID: (id) => ipcRenderer.invoke('games:get-all-details-by-id', id),

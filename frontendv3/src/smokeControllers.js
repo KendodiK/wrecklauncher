@@ -391,6 +391,70 @@ export async function runSmokeControllers() {
     warn('getGames', e);
   }
 
+  // ── Torrent ──────────────────────────────────────────────────────────────────
+  // torrentGetStatus is always safe: it returns whatever is currently active.
+  if (typeof api.torrentGetStatus === 'function') {
+    try {
+      const status = await api.torrentGetStatus();
+      log('torrentGetStatus', status);
+    } catch (e) {
+      warn('torrentGetStatus', e);
+    }
+  } else {
+    warn('torrentGetStatus', new Error('torrent API not available in preload'));
+  }
+
+  // Full end-to-end: fetch a FitGirl magnet link then start the torrent.
+  // Un-comment the block below and set a real slug + save path to test.
+  // Progress events stream in via onTorrentProgress for the lifetime of the download.
+  
+  if (typeof api.fetchFitGirlGameDirectDownloadLink === 'function' && typeof api.torrentStart === 'function') {
+    let unsub = null;
+    try {
+      const slug = 'the-last-faith'; // replace with any FitGirl slug
+      log('fetchFitGirlGameDirectDownloadLink', `fetching magnet for "${slug}"…`);
+      const magnet = await api.fetchFitGirlGameDirectDownloadLink(slug);
+      log('fetchFitGirlGameDirectDownloadLink', magnet ?? '(null – no magnet found on page)');
+  
+      if (magnet) {
+        // Subscribe to live progress pushes BEFORE calling start so no event is missed.
+        unsub = api.onTorrentProgress((p) => {
+          if (!p || typeof p !== 'object') { console.warn('[smoke] torrent:progress – bad payload', p); return; }
+          const fmt = (n, decimals = 1) => (typeof n === 'number' && !Number.isNaN(n) ? n.toFixed(decimals) : '?');
+          const label = `torrent:progress  ${p.name ?? p.infoHash ?? '?'}`;
+          const summary = {
+            progress:      `${fmt(p.progress * 100, 2)}%`,
+            downloadSpeed: `${fmt((p.downloadSpeed ?? 0) / 1024)} KB/s`,
+            uploadSpeed:   `${fmt((p.uploadSpeed   ?? 0) / 1024)} KB/s`,
+            downloaded:    `${fmt((p.downloaded    ?? 0) / 1024 / 1024, 2)} MB`,
+            length:        `${fmt((p.length        ?? 0) / 1024 / 1024, 2)} MB`,
+            peers:         p.numPeers ?? 0,
+            timeRemaining: (p.timeRemaining < 0 || !Number.isFinite(p.timeRemaining))
+              ? '∞'
+              : `${Math.ceil(p.timeRemaining / 1000)}s`,
+            paused:        p.paused ?? false,
+            done:          p.done   ?? false,
+          };
+          console.log(`[smoke] ${label}:`, summary);
+          // Overwrite the previous progress entry so the banner doesn't grow unboundedly.
+          const entry = `== ${label} ==\n${JSON.stringify(summary, null, 2)}`;
+          const idx = lines.findIndex((l) => l.startsWith(`== torrent:progress`));
+          if (idx !== -1) lines[idx] = entry; else lines.push(entry);
+          showNotice('Smoke – torrent active', 'Live progress below ↓', lines.join('\n\n'));
+        });
+  
+        // savePath defaults to ~/Downloads – override the second arg if needed.
+        const initial = await api.torrentStart(magnet /*, 'C:\\Games\\Downloads' */);
+        log('torrentStart initial snapshot', initial);
+      }
+    } catch (e) {
+      warn('torrentStart', e);
+    }
+    // To stop watching: unsub?.();
+    // To pause:         api.torrentPause(infoHash);
+    // To resume:        api.torrentResume(infoHash);
+    // To remove:        api.torrentRemove(infoHash, deleteFiles);
+  }
 
   showNotice('Smoke finished', 'See console + details below', lines.join('\n\n'));
 }

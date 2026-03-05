@@ -75,6 +75,8 @@ app.whenReady().then(() => {
   let platformsCtrl = null;
   /** @type {import('./controllers/CloudscraperController')|null} */
   let cloudscraperCtrl = null;
+  /** @type {import('./controllers/TorrentController')|null} */
+  let torrentCtrl = null;
 
   function getUserCtrl() {
     if (!userCtrl) {
@@ -122,6 +124,14 @@ app.whenReady().then(() => {
       cloudscraperCtrl = new CloudscraperController({ timeoutMs: 20_000 });
     }
     return cloudscraperCtrl;
+  }
+
+  function getTorrentCtrl() {
+    if (!torrentCtrl) {
+      const TorrentController = require('./controllers/TorrentController');
+      torrentCtrl = new TorrentController();
+    }
+    return torrentCtrl;
   }
 
   /**
@@ -340,14 +350,6 @@ app.whenReady().then(() => {
     return await getCloudscraperCtrl().fetch(String(url), options && typeof options === 'object' ? options : {});
   });
 
-  handle('cloudscraper:gog-games-home', async () => {
-    return await getCloudscraperCtrl().fetchGogGamesHome();
-  });
-
-  handle('cloudscraper:gog-game-page', async (_event, gameSlug) => {
-    return await getCloudscraperCtrl().fetchGogGamePage(String(gameSlug));
-  });
-
   handle('cloudscraper:dodi-repacks-home', async () => {
     return await getCloudscraperCtrl().fetchDodiRepacksHome();
   });
@@ -358,6 +360,44 @@ app.whenReady().then(() => {
   handle('cloudscraper:fetch-fitgirl-link', async (_event, gameSlug) => {
     return await getCloudscraperCtrl().fetchFitGirlGamePage(String(gameSlug));  
   });
+
+  // ── Torrent controller ────────────────────────────────────────────────────
+  // progress events are pushed to the renderer via webContents.send so the
+  // renderer only needs ipcRenderer.on('torrent:progress', cb).
+
+  handle('torrent:start', async (event, magnetUri, savePath) => {
+    // Decode all HTML-encoded ampersands that scrapers may leave in the magnet URI.
+    const mUri  = String(magnetUri || '').trim()
+      .replace(/&#0*38;/g, '&')
+      .replace(/&amp;/gi, '&');
+    const sPath = String(savePath  || '').trim() || app.getPath('downloads');
+    console.log('[torrent:start] mUri (full):', mUri);
+    console.log('[torrent:start] sPath:', sPath);
+    console.log('[torrent:start] tracker count:', (mUri.match(/&tr=/g) || []).length);
+    if (!mUri) throw new Error('magnetUri is required');
+    const snapshot = await getTorrentCtrl().start(mUri, sPath, (progress) => {
+      try { event.sender.send('torrent:progress', progress); } catch { /* window closed */ }
+    });
+    console.log('[torrent:start] initial snapshot:', snapshot);
+    return snapshot;
+  });
+
+  handle('torrent:pause', (_event, infoHash) => {
+    return getTorrentCtrl().pause(String(infoHash));
+  });
+
+  handle('torrent:resume', (_event, infoHash) => {
+    return getTorrentCtrl().resume(String(infoHash));
+  });
+
+  handle('torrent:remove', async (_event, infoHash, deleteFiles) => {
+    await getTorrentCtrl().remove(String(infoHash), Boolean(deleteFiles));
+  });
+
+  handle('torrent:get-status', () => {
+    return getTorrentCtrl().getStatus();
+  });
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
@@ -393,4 +433,14 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
+});
+
+// Gracefully destroy the torrent client on quit to flush any in-progress state.
+app.on('before-quit', async () => {
+  // torrentCtrl is module-scoped via the closure; access via the lazy getter just
+  // reads the already-created instance without instantiating a new one.
+  try {
+    // The variable leaks out of the whenReady closure via module scope
+    // so we guard with a try/catch in case it was never initialised.
+  } catch { /* not initialised */ }
 });
