@@ -205,6 +205,35 @@ class GamesController extends Controller {
         }
     }
 
+    async getAllGamesFrom(from) {
+        await this.ready;
+
+        const query = `SELECT id FROM ${this.tableName} ORDER BY id LIMIT 20 OFFSET ?;`;
+        let game_ids = [];
+        
+        try {
+            const [rows] = await this.dbConnection.execute(query, [from]);
+            for (const row of rows) {
+                game_ids.push(row.id);
+            }
+        } catch (err) {
+            console.error(`Error while fetching game ids from table ${this.tableName}: ${err}`);
+            throw err;
+        }
+
+        let games = [];
+        for (const game_id of game_ids) {
+            const game = await this.getWithAllForeign(game_id);
+            if (game) {
+                games.push(game);
+            } else {
+                console.warn(`Game with id ${game_id} not found in table ${this.tableName}`);
+            }
+        }
+
+        return games;
+    }
+
     async #checkForeignKeys(data) {
         await this.ready;
 
