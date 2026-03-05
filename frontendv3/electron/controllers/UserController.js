@@ -9,10 +9,10 @@ class UserController extends TokenController {
   #serverUrl;
 
   /**
-   * @param {{ username: string, password: string, email: string, tokenFile: string, serverUrl: string }} cfg
+   * @param {{ serverUrl: string }} cfg
    */
   constructor(cfg) {
-    super(cfg.serverUrl, cfg.tokenFile);
+    super(cfg.serverUrl);
     this.#serverUrl = normalizeBaseUrl(cfg.serverUrl || '', { defaultProtocol: 'http:' });
   }
 
