@@ -47,7 +47,7 @@ class UserController extends TokenController {
           const hasMeaningfulJson = !!(json && typeof json === 'object' && (json.error || json.message));
 
           // Token invalid/rotated: caller will retry with a fresh login.
-          if (status === 401 && /invalid token/i.test(msg)) {
+          if (status === 401) {
             const e = new Error(msg);
             // @ts-ignore
             e.code = 'WRECK_INVALID_TOKEN';
@@ -91,7 +91,7 @@ class UserController extends TokenController {
       const { ok, status, json, text } = await fetchJsonSafe(url, { method: 'GET', headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${token}` } });
       if (!ok) {
         const msg = httpErrorMessage(status, json, text);
-        if (status === 401 && /invalid token/i.test(msg)) {
+        if (status === 401) {
           const e = new Error(msg);
           // @ts-ignore
           e.code = 'WRECK_INVALID_TOKEN';

@@ -169,70 +169,65 @@ export async function runSmokeControllers() {
     }
   }  
 
-    try {
-      const details = await api.getSteamGameDetails(730, 'us');
-      log(`getSteamGameDetails ${730}`, details);
-    } catch (e) {
-      warn(`getSteamGameDetails ${730}`, e);
-    }
-  // Platforms
-//   try {
-//     const platform = await api.getPlatform('steam');
-//     log('getPlatform steam', platform);
-//     if (!platform) {
-//       const created = await api.createPlatform('steam');
-//       log('createPlatform steam', created);
-//     }
-//   } catch (e) {
-//     warn('getPlatform steam', e);
-//     try {
-//       const created = await api.createPlatform('steam');
-//       log('createPlatform steam', created);
-//     } catch (e2) {
-//       warn('createPlatform steam', e2);
-//     }
-//   }
-// let platformUserId;
-//   try{
-//     platformUserId = await api.getPlatformUserID('steam', 'freshargentinaccount69912');
-//     log('getPlatformUserID steam', platformUserId);    
-//   }catch(e){
-//     warn('getPlatformUserID steam', e);
-//     try {
-//       const platformUser = await api.createPlatformUser(
-//         'steam',
-//         'freshargentinaccount69912',
-//         'testpassword',
-//         '76561199194098023',
-//       );
-//       log('createPlatformUser', platformUser);
-//     } catch (e2) {
-//       warn('createPlatformUser', e2);
-//     }
-//   }
 
-// try{
-//   let owned = await api.getOwnedGamesFromSteam('freshargentinaccount69912');
-//   owned = owned && Array.isArray(owned) ? owned.slice(0, 15) : owned;
-//   log('getOwnedGamesFromSteam', owned);
-//   for (const game of owned) {
-//     try {
-//       const details = await api.getSteamGameDetails(game.appid, 'us');
-//       log(`getSteamGameDetails ${game.appid}`, details);
-//     } catch (e) {
-//       warn(`getSteamGameDetails ${game.appid}`, e);
-//     }
-//   }
-// }
-// catch(e){
-//   warn('getOwnedGamesFromSteam', e);
-// } 
-// try{
-//   const details = await api.getSteamGameDetails(730, 'us');
-//   log('getSteamGameDetails 730', details);
-// } catch (e) {
-//   warn('getSteamGameDetails 730', e);
-// }
+  // Platforms
+  try {
+    const platform = await api.getPlatform('steam');
+    log('getPlatform steam', platform);
+    if (!platform) {
+      const created = await api.createPlatform('steam');
+      log('createPlatform steam', created);
+    }
+  } catch (e) {
+    warn('getPlatform steam', e);
+    try {
+      const created = await api.createPlatform('steam');
+      log('createPlatform steam', created);
+    } catch (e2) {
+      warn('createPlatform steam', e2);
+    }
+  }
+let platformUserId;
+  try{
+    platformUserId = await api.getPlatformUserID('steam', 'freshargentinaccount69912');
+    log('getPlatformUserID steam', platformUserId);    
+  }catch(e){
+    warn('getPlatformUserID steam', e);
+    try {
+      const platformUser = await api.createPlatformUser(
+        'steam',
+        'freshargentinaccount69912',
+        'testpassword',
+        '76561199194098023',
+      );
+      log('createPlatformUser', platformUser);
+    } catch (e2) {
+      warn('createPlatformUser', e2);
+    }
+  }
+
+try{
+  let owned = await api.getOwnedGamesFromSteam('freshargentinaccount69912');
+  owned = owned && Array.isArray(owned) ? owned.slice(0, 15) : owned;
+  log('getOwnedGamesFromSteam', owned);
+  for (const game of owned) {
+    try {
+      const details = await api.getSteamGameDetails(game.appid, 'us');
+      log(`getSteamGameDetails ${game.appid}`, details);
+    } catch (e) {
+      warn(`getSteamGameDetails ${game.appid}`, e);
+    }
+  }
+}
+catch(e){
+  warn('getOwnedGamesFromSteam', e);
+} 
+try{
+  const details = await api.getSteamGameDetails(730, 'us');
+  log('getSteamGameDetails 730', details);
+} catch (e) {
+  warn('getSteamGameDetails 730', e);
+}
 
   // try {    const details = await api.getSteamGameDetails(730, 'us');
   //   log('getSteamGameDetails 730', details);

@@ -155,6 +155,7 @@ class SteamGamesController extends GamesController {
       const appData = parsed?.[String(appIdNum)];
       if (!appData || !appData.success) return null;
       const data = appData.data || {};
+      const raw = data;
 
       const minimumRequirements =
         (data.pc_requirements && typeof data.pc_requirements === 'object' ? data.pc_requirements.minimum : null) ||
@@ -162,16 +163,21 @@ class SteamGamesController extends GamesController {
         (data.linux_requirements && typeof data.linux_requirements === 'object' ? data.linux_requirements.minimum : null) ||
         null;
 
+      const priceOverviewFinal =
+        typeof data?.price_overview?.final === 'number'
+          ? data.price_overview.final
+          : (data?.is_free === true ? 0 : null);
+
       let gameDetails = {
         appid: data.steam_appid ?? appIdNum,
         name: data.name ?? null,
         bannerimg: data.header_image ?? data.capsule_image ?? null,
         genres: Array.isArray(data.genres) ? data.genres : [],
-        price_overview: data.price_overview?.final ?? null,
+        price_overview: priceOverviewFinal,
         minimum_requirements: typeof minimumRequirements === 'string' && minimumRequirements.trim() ? minimumRequirements : null,
         cc: ccToUse ?? null,
         lang,
-        raw: data,
+        raw,
       };
 
       // Upload normalized game payload to backend.
@@ -182,7 +188,7 @@ class SteamGamesController extends GamesController {
             .filter((s) => typeof s === 'string' && s.trim())
         : [];
 
-      const cost = typeof data.price_overview?.final === 'number' ? data.price_overview.final / 100 : null;
+      const cost = typeof priceOverviewFinal === 'number' ? priceOverviewFinal / 100 : null;
       try{
 
         const uploadResult = await super.uploadGame(token, {
@@ -191,7 +197,7 @@ class SteamGamesController extends GamesController {
           name: gameDetails.name || `steam:${String(gameDetails.appid ?? appIdNum)}`,
           banner_img: gameDetails.bannerimg || '',
           description: typeof data.short_description === 'string' && data.short_description.trim() ? data.short_description : null,
-          minimum_requirements: "teszt",
+          minimum_requirements: gameDetails.minimum_requirements,
           //minimum_requirements: gameDetails.minimum_requirements,
           cost,
           genre_names: genreNames,
@@ -238,9 +244,9 @@ class SteamGamesController extends GamesController {
 
         const msg = err instanceof Error ? err.message : String(err);
         console.error(`Failed to upload game details for appID ${appIdNum}: ${msg}`);
-        return gameDetails;
+        return { ...gameDetails, raw };
       }
-      return gameDetails;
+      return { ...gameDetails, raw };
     };
 
     let result = await attempt(requestedCc, 1);
