@@ -149,73 +149,104 @@ export async function runSmokeControllers() {
   try {
     token = await api.getToken();
     log('token', token);
+
+    if (!token) {
+      try {
+        token = await api.login('teszt', 'teszt');
+        log('login', token);
+      } catch (eLogin) {
+        warn('login', eLogin);
+      }
+
+      if (!token) {
+        try {
+          token = await api.register('teszt', 'teszt', 'teszt@example.com');
+          log('register', token);
+        } catch (eRegister) {
+          warn('register', eRegister);
+        }
+      }
+    }
   } catch (e) {
     warn('getToken', e);
     try {
-      token = await api.register('teszt', 'teszt', 'teszt@example.com');
-      log('register', token);
+      token = await api.login('teszt', 'teszt');
+      log('login', token);
     } catch (e2) {
-      warn('register', e2);
+      warn('login', e2);
+      try {
+        token = await api.register('teszt', 'teszt', 'teszt@example.com');
+        log('register', token);
+      } catch (e3) {
+        warn('register', e3);
+      }
     }
   }  
-  // Platforms
-  try {
-    const platform = await api.getPlatform('steam');
-    log('getPlatform steam', platform);
-    if (!platform) {
-      const created = await api.createPlatform('steam');
-      log('createPlatform steam', created);
-    }
-  } catch (e) {
-    warn('getPlatform steam', e);
-    try {
-      const created = await api.createPlatform('steam');
-      log('createPlatform steam', created);
-    } catch (e2) {
-      warn('createPlatform steam', e2);
-    }
-  }
-let platformUserId;
-  try{
-    platformUserId = await api.getPlatformUserID('steam', 'freshargentinaccount69912');
-    log('getPlatformUserID steam', platformUserId);    
-  }catch(e){
-    warn('getPlatformUserID steam', e);
-    try {
-      const platformUser = await api.createPlatformUser(
-        'steam',
-        'freshargentinaccount69912',
-        'testpassword',
-        '76561199194098023',
-      );
-      log('createPlatformUser', platformUser);
-    } catch (e2) {
-      warn('createPlatformUser', e2);
-    }
-  }
 
-try{
-  let owned = await api.getOwnedGamesFromSteam('freshargentinaccount69912');
-  owned = owned && Array.isArray(owned) ? owned.slice(0, 15) : owned;
-  log('getOwnedGamesFromSteam', owned);
-  for (const game of owned) {
     try {
-      const details = await api.getSteamGameDetails(game.appid, 'us');
-      log(`getSteamGameDetails ${game.appid}`, details);
+      const details = await api.getSteamGameDetails(730, 'us');
+      log(`getSteamGameDetails ${730}`, details);
     } catch (e) {
-      warn(`getSteamGameDetails ${game.appid}`, e);
+      warn(`getSteamGameDetails ${730}`, e);
     }
-  }
-}
-catch(e){
-  warn('getOwnedGamesFromSteam', e);
-} 
-try{
-  const details = await api.getSteamGameDetails(730, 'us');
-  log('getSteamGameDetails 730', details);
-} catch (e) {
-  warn('getSteamGameDetails 730', e);
-}
+  // Platforms
+//   try {
+//     const platform = await api.getPlatform('steam');
+//     log('getPlatform steam', platform);
+//     if (!platform) {
+//       const created = await api.createPlatform('steam');
+//       log('createPlatform steam', created);
+//     }
+//   } catch (e) {
+//     warn('getPlatform steam', e);
+//     try {
+//       const created = await api.createPlatform('steam');
+//       log('createPlatform steam', created);
+//     } catch (e2) {
+//       warn('createPlatform steam', e2);
+//     }
+//   }
+// let platformUserId;
+//   try{
+//     platformUserId = await api.getPlatformUserID('steam', 'freshargentinaccount69912');
+//     log('getPlatformUserID steam', platformUserId);    
+//   }catch(e){
+//     warn('getPlatformUserID steam', e);
+//     try {
+//       const platformUser = await api.createPlatformUser(
+//         'steam',
+//         'freshargentinaccount69912',
+//         'testpassword',
+//         '76561199194098023',
+//       );
+//       log('createPlatformUser', platformUser);
+//     } catch (e2) {
+//       warn('createPlatformUser', e2);
+//     }
+//   }
+
+// try{
+//   let owned = await api.getOwnedGamesFromSteam('freshargentinaccount69912');
+//   owned = owned && Array.isArray(owned) ? owned.slice(0, 15) : owned;
+//   log('getOwnedGamesFromSteam', owned);
+//   for (const game of owned) {
+//     try {
+//       const details = await api.getSteamGameDetails(game.appid, 'us');
+//       log(`getSteamGameDetails ${game.appid}`, details);
+//     } catch (e) {
+//       warn(`getSteamGameDetails ${game.appid}`, e);
+//     }
+//   }
+// }
+// catch(e){
+//   warn('getOwnedGamesFromSteam', e);
+// } 
+// try{
+//   const details = await api.getSteamGameDetails(730, 'us');
+//   log('getSteamGameDetails 730', details);
+// } catch (e) {
+//   warn('getSteamGameDetails 730', e);
+// }
 
   // try {    const details = await api.getSteamGameDetails(730, 'us');
   //   log('getSteamGameDetails 730', details);
@@ -295,30 +326,18 @@ try{
 //   }
 
   // // GamesController.getAllDetailsByID (optional)
-  // const smokeGameIdRaw = String(730).trim();
-  // if (smokeGameIdRaw) {
-  //   try {
-  //     const details = await api.getAllDetailsByID(Number(smokeGameIdRaw));
-  //     log(`getAllDetailsByID ${smokeGameIdRaw}`, details);
-  //   } catch (e) {
-  //     warn(`getAllDetailsByID ${smokeGameIdRaw}`, e);
-  //   }
-  // } else {
-  //   lines.push('== getAllDetailsByID ==\nSkipped (set VITE_SMOKE_GAME_ID)');
-  // }
+  const smokeGameIdRaw = String(730).trim();
+  if (smokeGameIdRaw) {
+    try {
+      const details = await api.getAllDetailsByID(Number(smokeGameIdRaw));
+      log(`getAllDetailsByID ${smokeGameIdRaw}`, details);
+    } catch (e) {
+      warn(`getAllDetailsByID ${smokeGameIdRaw}`, e);
+    }
+  } else {
+    lines.push('== getAllDetailsByID ==\nSkipped (set VITE_SMOKE_GAME_ID)');
+  }
 
-  // Optional upload pipeline
-  // const doUpload = String(import.meta?.env?.VITE_SMOKE_UPLOAD || '') === '1';
-  // if (doUpload) {
-  //   try {
-  //     const upload = await api.getSteamGameDetailsAndUpload(730, 'us');
-  //     log('steamDetailsAndUpload 730', upload);
-  //   } catch (e) {
-  //     warn('getSteamGameDetailsAndUpload 730', e);
-  //   }
-  // } else {
-  //   lines.push('== steamDetailsAndUpload ==\nSkipped (set VITE_SMOKE_UPLOAD=1)');
-  // }
 
   showNotice('Smoke finished', 'See console + details below', lines.join('\n\n'));
 }
