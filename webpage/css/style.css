@@ -113,12 +113,12 @@ body {
 .anchor-image {
     position: relative;
     z-index: 15;
-    width: 15vw;
+    width: 13vw;
     height: auto;
     top: 2vh;
     left: 45vw;
     opacity: 0;
-    transform: translateX(-50%) rotate(-40deg);
+    transform: translateX(-50%);
 
     animation: show-anchor forwards;
     animation-timeline: scroll();
