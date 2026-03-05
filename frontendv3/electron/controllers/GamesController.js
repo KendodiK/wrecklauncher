@@ -95,6 +95,34 @@ class GamesController {
         : (genreNamesFromBackend && genreNamesFromBackend.length ? genreNamesFromBackend : null),
     };
   }
+
+  /**
+   * GET /api/games/:from
+   * Returns up to 20 games starting from the given offset.
+   *
+   * @param {number} from  Row offset (0-based)
+   * @returns {Promise<any[]>}  Array of up to 20 game rows
+   */
+  async getGames(from) {
+    if (from === undefined || from === null || Number.isNaN(Number(from))) throw new Error('from is required');
+
+    const url = joinUrl(this.#serverUrl, 'api', 'games', 'list', enc(String(from)));
+
+    const { ok, status, json, text } = await fetchJsonSafe(url, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+    });
+
+    if (!ok) {
+      const apiError = json && typeof json === 'object' ? (json.error || json.message) : null;
+      const snippet = String(apiError ?? text ?? 'Unknown error').replace(/\s+/g, ' ').trim().slice(0, 300);
+      throw new Error(`Failed to fetch games (HTTP ${status}): ${snippet}`);
+    }
+
+    return Array.isArray(json) ? json : (json ?? []);
+  }
+
+  
 }
 
 module.exports = GamesController;
