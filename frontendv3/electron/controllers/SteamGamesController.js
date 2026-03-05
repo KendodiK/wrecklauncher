@@ -183,18 +183,20 @@ class SteamGamesController extends GamesController {
         : [];
 
       const cost = typeof data.price_overview?.final === 'number' ? data.price_overview.final / 100 : null;
-      const uploadResult = await super.uploadGame(token, {
-        app_id: String(gameDetails.appid ?? appIdNum),
-        platform_name: 'steam',
-        name: gameDetails.name || `steam:${String(gameDetails.appid ?? appIdNum)}`,
-        banner_img: gameDetails.bannerimg || '',
-        description: typeof data.short_description === 'string' && data.short_description.trim() ? data.short_description : null,
-        minimum_requirements: "teszt",
-        //minimum_requirements: gameDetails.minimum_requirements,
-        cost,
-        genre_names: genreNames,
-      });
-      console.log('uploadResult:', uploadResult);
+      try{
+
+        const uploadResult = await super.uploadGame(token, {
+          app_id: String(gameDetails.appid ?? appIdNum),
+          platform_name: 'steam',
+          name: gameDetails.name || `steam:${String(gameDetails.appid ?? appIdNum)}`,
+          banner_img: gameDetails.bannerimg || '',
+          description: typeof data.short_description === 'string' && data.short_description.trim() ? data.short_description : null,
+          minimum_requirements: "teszt",
+          //minimum_requirements: gameDetails.minimum_requirements,
+          cost,
+          genre_names: genreNames,
+        });
+              console.log('uploadResult:', uploadResult);
       console.log('gameDetails sent for upload:', {
         app_id: String(gameDetails.appid ?? appIdNum),
         platform_name: 'steam',
@@ -205,10 +207,39 @@ class SteamGamesController extends GamesController {
         cost,
         genre_names: genreNames,
       });
-      if(!uploadResult.ok && uploadResult.statusCode !== 400){
-        const msg = uploadResult.rawText || uploadResult.response?.error || uploadResult.response?.message || 'Unknown error';
-        throw new Error(`Game upload failed (HTTP ${uploadResult.statusCode}): ${String(msg).slice(0, 300)}`);
-      }      
+      if (!uploadResult.ok) {
+        if (uploadResult.statusCode === 401) {
+          const msg =
+            uploadResult.rawText ||
+            uploadResult.response?.error ||
+            uploadResult.response?.message ||
+            'Unauthorized';
+          const e = new Error(`Unauthorized (token invalid/expired): ${String(msg).slice(0, 300)}`);
+          // @ts-ignore
+          e.code = 'WRECK_INVALID_TOKEN';
+          throw e;
+        }
+
+        // 400 is a "already exists" type case for uploads; treat it as non-fatal.
+        if (uploadResult.statusCode !== 400) {
+          const msg =
+            uploadResult.rawText ||
+            uploadResult.response?.error ||
+            uploadResult.response?.message ||
+            'Unknown error';
+          throw new Error(`Game upload failed (HTTP ${uploadResult.statusCode}): ${String(msg).slice(0, 300)}`);
+        }
+      }
+      } catch (err) {
+        // Let the IPC layer handle token rotation/refresh.
+        if (err && typeof err === 'object' && /** @type {any} */ (err).code === 'WRECK_INVALID_TOKEN') {
+          throw err;
+        }
+
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`Failed to upload game details for appID ${appIdNum}: ${msg}`);
+        return gameDetails;
+      }
       return gameDetails;
     };
 

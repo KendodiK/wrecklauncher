@@ -533,6 +533,17 @@ app.get("/api/games/:id/all", async (req, res) => {
   }
 });
 
+app.get("/api/games/:from", async (req, res) => {
+  try {
+    const { from } = req.params;
+    const gamesCtrl = new gamesController();
+    const games = await gamesCtrl.getAllGamesFrom(from);
+    return res.json(games);
+  } catch (err) {
+      return res.status(500).json({ error: err.message });
+  }
+});
+
 /*
   route: /api/friends/:nativeUserId
   params: native_users.id

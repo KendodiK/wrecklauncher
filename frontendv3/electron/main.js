@@ -1,22 +1,9 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
-const fs = require('fs');
 
 const isDev = process.env.NODE_ENV === 'development';
 
 let mainWindow;
-
-function getTokenFilePath() {
-  // userData is always writable (unlike app.asar)
-  const userData = app.getPath('userData');
-  const dir = path.join(userData, 'wrecklauncher');
-  try {
-    fs.mkdirSync(dir, { recursive: true });
-  } catch {
-    // ignore
-  }
-  return path.join(dir, 'token.txt');
-}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -69,7 +56,6 @@ app.whenReady().then(() => {
 
   // Serverless controller modules (no LocalApi web server).
   const backendUrl = process.env.WRECK_BACKEND_URL || 'http://127.0.0.1:3000';
-  const tokenFile = getTokenFilePath();
 
   //temp
   const username = 'teszt';
@@ -91,7 +77,7 @@ app.whenReady().then(() => {
   function getUserCtrl() {
     if (!userCtrl) {
       const UserController = require('./controllers/UserController');
-      userCtrl = new UserController({ serverUrl: backendUrl, tokenFile });
+      userCtrl = new UserController({ serverUrl: backendUrl });
     }
     return userCtrl;
   }
@@ -167,14 +153,55 @@ app.whenReady().then(() => {
    * @param {(ctx: { event: Electron.IpcMainInvokeEvent, token: string }, ...args: any[]) => Promise<any>} fn
    */
   function handleAuthed(channel, fn) {
-    handle(channel, async (event, ...args) => {
-      const token = await getUserCtrl().getToken();
-      if (!token) throw new Error('Missing auth token');
-      return await fn({ event, token }, ...args);
+    // Renderer passes token as the first argument (stored in renderer localStorage).
+    handle(channel, async (event, token, ...args) => {
+      const tokenStr = typeof token === 'string' ? token.trim() : '';
+      if (!tokenStr) throw new Error('Missing auth token');
+
+      // Keep main-side controller token in sync for retry/login flows.
+      try {
+        getUserCtrl().setToken(tokenStr);
+      } catch {
+        // ignore
+      }
+
+      try {
+        return await fn({ event, token: tokenStr }, ...args);
+      } catch (err) {
+        if (err && typeof err === 'object' && /** @type {any} */ (err).code === 'WRECK_INVALID_TOKEN') {
+          // Token rotated/expired: clear cached token, re-login once (if creds are known), retry.
+          await getUserCtrl()._invalidateToken();
+          let token2 = null;
+          try {
+            token2 = await getUserCtrl().getToken();
+          } catch {
+            token2 = null;
+          }
+
+          if (!token2) {
+            try {
+              event.sender.send('auth:token-cleared');
+            } catch {
+              // ignore
+            }
+            throw err;
+          }
+
+          // Notify renderer to update localStorage.
+          try {
+            event.sender.send('auth:token-updated', token2);
+          } catch {
+            // ignore
+          }
+
+          return await fn({ event, token: token2 }, ...args);
+        }
+        throw err;
+      }
     });
   }
 
-  // UserController already extends TokenController; avoid a redundant instance.
+  // Compatibility: still expose token fetch endpoint for legacy client-side flows.
   handle('user:get-token', async () => await getUserCtrl().getToken());
 
   handle('user:login', async (_event, username, password) => {
@@ -185,11 +212,14 @@ app.whenReady().then(() => {
     return await getUserCtrl().register(String(username), String(password), String(email));
   });
 
-  handle('user:get-platform-userid', async (_event, platformName, platformUsername) => {
+  handleAuthed('user:get-platform-userid', async ({ token }, platformName, platformUsername) => {
+    // Ensure the controller uses the token from renderer.
+    getUserCtrl().setToken(token);
     return await getUserCtrl().getPlatformUserID(String(platformName), String(platformUsername));
   });
 
-  handle('user:get-owned-games-from-steam', async (_event, platformUsername) => {
+  handleAuthed('user:get-owned-games-from-steam', async ({ token }, platformUsername) => {
+    getUserCtrl().setToken(token);
     return await getUserCtrl().getOwnedGamesFromSteam(String(platformUsername));
   });
 
@@ -197,35 +227,16 @@ app.whenReady().then(() => {
   handleAuthed('platform:create-platform', async ({ token }, platformName) => {
     const name = String(platformName || '').trim();
     if (!name) throw new Error('platformName is required');
-    try {
-      return await getPlatformsCtrl().createPlatform(token, name);
-    } catch (err) {
-      if (err && typeof err === 'object' && /** @type {any} */ (err).code === 'WRECK_INVALID_TOKEN') {
-        // token rotated/expired: clear + retry once
-        await getUserCtrl()._invalidateToken();
-        const token2 = await getUserCtrl().getToken();
-        if (!token2) throw new Error('Missing auth token');
-        return await getPlatformsCtrl().createPlatform(token2, name);
-      }
-      throw err;
-    }
+    return await getPlatformsCtrl().createPlatform(token, name);
   });
-handleAuthed('platform:get', async (platformName) => {
-  const name = String(platformName || '').trim();
-  if (!name) throw new Error('platformName is required');
-  try {
+
+  // GET /api/platforms/:platformName does not require auth.
+  handle('platform:get', async (_event, platformName) => {
+    const name = String(platformName || '').trim();
+    if (!name) throw new Error('platformName is required');
     return await getPlatformsCtrl().getPlatform(name);
-  }
-  catch (err) {
-    if (err && typeof err === 'object' && /** @type {any} */ (err).code === 'WRECK_INVALID_TOKEN') {
-      // token rotated/expired: clear + retry once
-      await getUserCtrl()._invalidateToken();
-      const token2 = await getUserCtrl().getToken();
-      if (!token2) throw new Error('Missing auth token');
-      return await getPlatformsCtrl().getPlatform(name);
-    }
-  }  throw err;
-});
+  });
+
     handleAuthed('platform:create-user', async ({ token },  platformName, platformUsername, platformPassword, platformProfileId) => {
       const pName = String(platformName || '').trim();
       const pUsername = String(platformUsername || '').trim();
@@ -235,21 +246,45 @@ handleAuthed('platform:get', async (platformName) => {
       if (!pUsername) throw new Error('platformUsername is required');
       if (!pPassword) throw new Error('platformPassword is required');
       if (!pProfileId) throw new Error('platformProfileId is required');
-      try {        return await getPlatformsCtrl().createPlatformUser(token, pName, pUsername, pPassword, pProfileId);
-      } catch (err) {
-        if (err && typeof err === 'object' && /** @type {any} */ (err).code === 'WRECK_INVALID_TOKEN') {
-          // token rotated/expired: clear + retry once
-          await getUserCtrl()._invalidateToken();
-          const token2 = await getUserCtrl().getToken();
-          if (!token2) throw new Error('Missing auth token');
-          return await getPlatformsCtrl().createPlatformUser(token2, pName, pUsername, pPassword, pProfileId);
-        }
-        throw err;
-      }
+      return await getPlatformsCtrl().createPlatformUser(token, pName, pUsername, pPassword, pProfileId);
     });
-  // Steam game details: renderer passes (appID, cc). Token is fetched here.
-  handleAuthed('steam:get-game-details', async ({ token }, appID, cc) => {
-    return await getSteamCtrl().getGamesDetails(token, Number(appID), cc ? String(cc) : undefined);
+  // Steam game details.
+  // Supports both call styles:
+  // 1) invoke('steam:get-game-details', token, appID, cc)
+  // 2) invoke('steam:get-game-details', appID, cc)
+  // Token is optional; when missing, details are fetched but upload/auth-bound side effects are skipped.
+  handle('steam:get-game-details', async (_event, arg1, arg2, arg3) => {
+    /** @type {string|null} */
+    let token = null;
+    /** @type {any} */
+    let appID;
+    /** @type {any} */
+    let cc;
+
+    const isLikelyAppId = (v) =>
+      typeof v === 'number' ||
+      (typeof v === 'string' && /^\d+$/.test(v.trim()));
+
+    if (isLikelyAppId(arg1)) {
+      // Legacy/no-token style: (appID, cc)
+      appID = arg1;
+      cc = arg2;
+    } else {
+      // Token-first style: (token, appID, cc)
+      token = typeof arg1 === 'string' && arg1.trim() ? arg1.trim() : null;
+      appID = arg2;
+      cc = arg3;
+    }
+
+    if (token) {
+      try {
+        getUserCtrl().setToken(token);
+      } catch {
+        // ignore
+      }
+    }
+
+    return await getSteamCtrl().getGamesDetails(token || '', Number(appID), cc ? String(cc) : undefined);
   });
 
   // Open Steam client install prompt for a Steam AppID.
