@@ -533,7 +533,7 @@ app.get("/api/games/:id/all", async (req, res) => {
   }
 });
 
-app.get("/api/games/:from", async (req, res) => {
+app.get("/api/games/list/:from", async (req, res) => {
   try {
     const { from } = req.params;
     const gamesCtrl = new gamesController();
@@ -662,6 +662,20 @@ app.get("/api/platform_users", tokenValidate(), async (req, res) => {
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
+});
+
+app.get("/api/shop_specials/:filter/:from", async (req, res) => {
+  try {
+    const { filter, from } = req.params;
+    const shopSpecialsCtrl = new shopSpecialsController();
+    let result = shopSpecialsCtrl.getFilteredGamesFrom(filter, from);
+    if (result instanceof Error) {
+      return res.status(400).json({ message: 'Iternal server error', error: result });
+    }
+    return res.json(result);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  } 
 });
 
 // -------------------     POST      ------------------ //
@@ -948,6 +962,22 @@ app.put("/api/games/:id", async (req, res) => {
     console.error('Error in /api/games/:id endpoint:', error);
     return res.status(500).json({ error: error.message });
   }
+});
+
+app.put("/api/shop_specials/:gameId", async (req, res) => {
+  try {
+    const { gameId } = req.params;
+    const { featured, coming_soon, discounted } = req.body;
+    const shopSpecialsCtrl = new shopSpecialsController();
+    const result = await shopSpecialsCtrl.update(gameId, { "featured": featured, "coming_soon": coming_soon, "discounted": discounted });
+    if (result instanceof Error) {
+      return res.status(400).json({ message: result.message });
+    }
+    return res.json(result);
+  } catch (err) {
+    console.error('Error in /api/shop_specials/:gameId endpoint:', error);
+    return res.status(500).json({ error: error.message });
+  } 
 });
 
 // -------------------     DELETE     ------------------ //
