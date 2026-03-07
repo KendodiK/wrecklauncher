@@ -120,7 +120,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   cloudscraperFetch: (url, options) => ipcRenderer.invoke('cloudscraper:fetch', url, options),
   cloudscraperDodiRepacksHome: () => ipcRenderer.invoke('cloudscraper:dodi-repacks-home'),
   cloudscraperSearchByxatab: (query, page) => ipcRenderer.invoke('cloudscraper:search-byxatab', query, page),
-  fetchFitGirlGameDirectDownloadLink: (gameSlug) => ipcRenderer.invoke('cloudscraper:fetch-fitgirl-link', gameSlug),
+  FitGirlMagnetLink: (gameName) => ipcRenderer.invoke('fitgirl:magnet-link', gameName),
+  PcGamesTorrentMagnetLink: (gameName) => ipcRenderer.invoke('pcgamestorrent:magnet-link', gameName),
   // Torrent
   /**
    * Start downloading a torrent from a magnet URI.

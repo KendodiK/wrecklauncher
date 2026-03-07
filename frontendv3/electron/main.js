@@ -75,6 +75,10 @@ app.whenReady().then(() => {
   let platformsCtrl = null;
   /** @type {import('./controllers/CloudscraperController')|null} */
   let cloudscraperCtrl = null;
+  /** @type {import('./controllers/FitGirlController')|null} */
+  let fitGirlCtrl = null;
+  /** @type {import('./controllers/PcGamesTorrentController')|null} */
+  let pcGamesTorrentCtrl = null;
   /** @type {import('./controllers/TorrentController')|null} */
   let torrentCtrl = null;
 
@@ -124,6 +128,22 @@ app.whenReady().then(() => {
       cloudscraperCtrl = new CloudscraperController({ timeoutMs: 20_000 });
     }
     return cloudscraperCtrl;
+  }
+
+  function getFitGirlCtrl() {
+    if (!fitGirlCtrl) {
+      const FitGirlController = require('./controllers/FitGirlController');
+      fitGirlCtrl = new FitGirlController({ timeoutMs: 20_000 });
+    }
+    return fitGirlCtrl;
+  }
+
+  function getPcGamesTorrentCtrl() {
+    if (!pcGamesTorrentCtrl) {
+      const PcGamesTorrentController = require('./controllers/PcGamesTorrentController');
+      pcGamesTorrentCtrl = new PcGamesTorrentController({ timeoutMs: 20_000 });
+    }
+    return pcGamesTorrentCtrl;
   }
 
   function getTorrentCtrl() {
@@ -357,8 +377,12 @@ app.whenReady().then(() => {
   handle('cloudscraper:search-byxatab', async (_event, query, page) => {
     return await getCloudscraperCtrl().searchByxatab(String(query), Number(page || 1));
   });
-  handle('cloudscraper:fetch-fitgirl-link', async (_event, gameSlug) => {
-    return await getCloudscraperCtrl().fetchFitGirlGamePage(String(gameSlug));  
+  handle('fitgirl:magnet-link', async (_event, gameName) => {
+    return await getFitGirlCtrl().FitGirlMagnetLink(String(gameName));
+  });
+
+  handle('pcgamestorrent:magnet-link', async (_event, gameName) => {
+    return await getPcGamesTorrentCtrl().PcGamesTorrentMagnetLink(String(gameName));
   });
 
   // ── Torrent controller ────────────────────────────────────────────────────
