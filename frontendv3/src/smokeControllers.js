@@ -208,7 +208,7 @@ let platformUserId;
 
 try{
   let owned = await api.getOwnedGamesFromSteam('freshargentinaccount69912');
-  owned = owned && Array.isArray(owned) ? owned.slice(0, 15) : owned;
+  owned = owned && Array.isArray(owned) ? owned: owned;
   log('getOwnedGamesFromSteam', owned);
   for (const game of owned) {
     try {

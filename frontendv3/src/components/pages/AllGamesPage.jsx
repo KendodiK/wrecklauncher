@@ -8,28 +8,14 @@ function steamPoster(appid) {
 	return `https://cdn.cloudflare.steamstatic.com/steam/apps/${id}/library_600x900.jpg`;
 }
 
-// Mock all games data
-const ALL_GAMES = [
-	{ id: 570, appid: 570, title: 'Dota 2', image: steamPoster(570), price: 0, genres: [1, 4], tags: ['MOBA', 'Free to Play', 'Strategy', 'Multiplayer', 'Competitive'], description: 'Every day, millions of players worldwide enter battle as one of over a hundred Dota heroes. And no matter if it\'s their 10th hour of play or 1,000th, there\'s always something new to discover.' },
-	{ id: 730, appid: 730, title: 'Counter-Strike 2', image: steamPoster(730), price: 0, genres: [1, 4], tags: ['FPS', 'Competitive', 'Shooter', 'Tactical', 'Multiplayer'], description: 'For over two decades, Counter-Strike has offered an elite competitive experience, one shaped by millions of players from across the globe. Now the next chapter in the CS story is about to begin.' },
-	{ id: 440, appid: 440, title: 'Team Fortress 2', image: steamPoster(440), price: 0, genres: [1], tags: ['FPS', 'Free to Play', 'Multiplayer', 'Action', 'Comedy'], description: 'Nine distinct classes provide a broad range of tactical abilities and personalities. Constantly updated with new game modes, maps, equipment and, most importantly, hats!' },
-	{ id: 271590, appid: 271590, title: 'Grand Theft Auto V', image: steamPoster(271590), price: 29.99, genres: [1, 2], tags: ['Open World', 'Action', 'Crime', 'Multiplayer', 'Adventure'], description: 'When a young street hustler, a retired bank robber and a terrifying psychopath land themselves in trouble, they must pull off a series of dangerous heists to survive in a city in which they can trust nobody, least of all each other.' },
-	{ id: 578080, appid: 578080, title: 'PLAYERUNKNOWN\'S BATTLEGROUNDS', image: steamPoster(578080), price: 29.99, genres: [1, 6], tags: ['Battle Royale', 'Shooter', 'Survival', 'Multiplayer', 'FPS'], description: 'Land on strategic locations, loot weapons and supplies, and survive to become the last team standing across various battlegrounds.' },
-	{ id: 1174180, appid: 1174180, title: 'Red Dead Redemption 2', image: steamPoster(1174180), price: 59.99, genres: [1, 2], tags: ['Western', 'Story Rich', 'Open World', 'Action', 'Adventure'], description: 'America, 1899. The end of the Wild West era has begun. After a robbery goes badly wrong, Arthur Morgan and the Van der Linde gang are forced to flee.' },
-	{ id: 1245620, appid: 1245620, title: 'ELDEN RING', image: steamPoster(1245620), price: 59.99, genres: [3, 1], tags: ['Souls-like', 'Dark Fantasy', 'RPG', 'Open World', 'Difficult'], description: 'THE NEW FANTASY ACTION RPG. Rise, Tarnished, and be guided by grace to brandish the power of the Elden Ring and become an Elden Lord in the Lands Between.' },
-	{ id: 359550, appid: 359550, title: "Tom Clancy's Rainbow Six Siege", image: steamPoster(359550), price: 19.99, genres: [1, 4], tags: ['Tactical', 'FPS', 'Shooter', 'Multiplayer', 'Strategy'], description: 'Master the art of destruction and gadgetry in Tom Clancy\'s Rainbow Six Siege. Face intense close quarters combat, high lethality, tactical decision making, team play, and explosive action.' },
-	{ id: 1086940, appid: 1086940, title: "Baldur's Gate 3", image: steamPoster(1086940), price: 59.99, genres: [3, 2], tags: ['RPG', 'Turn-Based', 'D&D', 'Story Rich', 'Fantasy'], description: 'Gather your party and return to the Forgotten Realms in a tale of fellowship and betrayal, sacrifice and survival, and the lure of absolute power.' },
-	{ id: 1237970, appid: 1237970, title: 'Titanfall 2', image: steamPoster(1237970), price: 29.99, genres: [1], tags: ['FPS', 'Mechs', 'Shooter', 'Action', 'Multiplayer'], description: 'Respawn Entertainment gives you the most advanced titan technology in its new, single player campaign alongside fast-paced multiplayer action.' },
-	{ id: 292030, appid: 292030, title: 'The Witcher 3: Wild Hunt', image: steamPoster(292030), price: 39.99, genres: [3, 2], tags: ['RPG', 'Open World', 'Story Rich', 'Fantasy', 'Adventure'], description: 'As war rages on throughout the Northern Realms, you take on the greatest contract of your life — tracking down the Child of Prophecy, a living weapon that can alter the shape of the world.' },
-	{ id: 489830, appid: 489830, title: 'The Elder Scrolls V: Skyrim', image: steamPoster(489830), price: 19.99, genres: [3, 2], tags: ['RPG', 'Dragons', 'Open World', 'Fantasy', 'Adventure'], description: 'Epic fantasy adventure across the land of Skyrim. The Empire of Tamriel is on the edge. The High King of Skyrim has been murdered. Alliances form as claims to the throne are made.' },
-];
-
 /**
  * Full page for browsing all games with pagination
  */
 const AllGamesPage = () => {
 	const navigate = useNavigate();
 	const { platform } = useParams();
+	const [allGames, setAllGames] = useState([]);
+	const [isLoading, setIsLoading] = useState(true);
 	const [searchQuery, setSearchQuery] = useState('');
 	const [selectedGenres, setSelectedGenres] = useState([]);
 	const [selectedPlatforms, setSelectedPlatforms] = useState([]);
@@ -58,28 +44,73 @@ const AllGamesPage = () => {
 		};
 	}, []);
 
-	// Mock genres
-	const genres = [
-		{ id: 1, name: 'Action' },
-		{ id: 2, name: 'Adventure' },
-		{ id: 3, name: 'RPG' },
-		{ id: 4, name: 'Strategy' },
-		{ id: 5, name: 'Simulation' },
-		{ id: 6, name: 'Sports' },
-		{ id: 7, name: 'Racing' },
-		{ id: 8, name: 'Horror' },
-	];
+	const genres = useMemo(() => {
+		const names = new Set();
+		for (const game of allGames) {
+			for (const g of Array.isArray(game.genres) ? game.genres : []) {
+				if (typeof g === 'string' && g.trim()) names.add(g.trim());
+				if (g && typeof g === 'object') {
+					const v = g.genre || g.name || g.description;
+					if (typeof v === 'string' && v.trim()) names.add(v.trim());
+				}
+			}
+		}
+		return Array.from(names).sort((a, b) => a.localeCompare(b)).map((name, idx) => ({ id: idx + 1, name }));
+	}, [allGames]);
 
-	// Mock platforms
-	const platforms = [
-		{ id: 'steam', name: 'Steam' },
-		{ id: 'epic', name: 'Epic Games' },
-		{ id: 'gog', name: 'GOG' },
-	];
+	const platforms = useMemo(() => {
+		const names = new Set();
+		for (const game of allGames) {
+			const p = game.platform || game.platform_name;
+			if (typeof p === 'string' && p.trim()) names.add(p.trim().toLowerCase());
+		}
+		return Array.from(names).sort((a, b) => a.localeCompare(b)).map((id) => ({
+			id,
+			name: id.charAt(0).toUpperCase() + id.slice(1),
+		}));
+	}, [allGames]);
+
+	useEffect(() => {
+		let cancelled = false;
+		const fetchGames = async () => {
+			setIsLoading(true);
+			try {
+				const backendUrl = 'http://127.0.0.1:3000';
+				const response = await fetch(`${backendUrl}/api/games`);
+				if (!response.ok) throw new Error(`Failed to fetch games: ${response.statusText}`);
+				const gamesData = await response.json();
+				const normalized = (gamesData || []).map((game) => ({
+					id: game.id,
+					app_id: game.app_id,
+					appid: game.app_id,
+					title: game.name,
+					name: game.name,
+					image: game.banner_img || steamPoster(game.app_id || game.id),
+					banner_img: game.banner_img,
+					price: Number(game.cost) || 0,
+					cost: Number(game.cost) || 0,
+					description: game.description || '',
+					platform: game.platform_name || game.platform || 'steam',
+					genres: Array.isArray(game.genres) ? game.genres : [],
+					tags: Array.isArray(game.tags) ? game.tags : [],
+				}));
+				if (!cancelled) setAllGames(normalized);
+			} catch (err) {
+				console.error('Failed to load all games page data:', err);
+				if (!cancelled) setAllGames([]);
+			} finally {
+				if (!cancelled) setIsLoading(false);
+			}
+		};
+		fetchGames();
+		return () => {
+			cancelled = true;
+		};
+	}, []);
 
 	// Filter games based on current filters
 	const filteredGames = useMemo(() => {
-		return ALL_GAMES.filter(game => {
+		return allGames.filter(game => {
 			// Search filter
 			if (searchQuery && !(game.title || game.name || '').toLowerCase().includes(searchQuery.toLowerCase())) {
 				return false;
@@ -108,7 +139,7 @@ const AllGamesPage = () => {
 
 			return true;
 		});
-	}, [searchQuery, selectedGenres, selectedPlatforms, priceRange]);
+	}, [allGames, searchQuery, selectedGenres, selectedPlatforms, priceRange]);
 
 	// Pagination calculations
 	const totalPages = Math.ceil(filteredGames.length / gamesPerPage);
@@ -133,7 +164,7 @@ const AllGamesPage = () => {
 
 	const handlePageChange = (page) => {
 		setCurrentPage(page);
-		window.scrollTo({ top: 0, behavior: 'smooth' });
+		window.scrollTo({ top: 0, behavior: 'auto' });
 	};
 
 	return (
@@ -262,50 +293,32 @@ const AllGamesPage = () => {
 						<button
 							onClick={() => handlePageChange(currentPage - 1)}
 							disabled={currentPage === 1}
-							className="px-4 py-2 bg-slate-800/50 border border-slate-700/50 rounded-lg text-slate-200 transition-all hover:bg-slate-700/50 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+							className="px-4 py-2 bg-slate-800/50 border border-slate-700/50 rounded-lg text-slate-200 hover:bg-slate-700/50 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
 						>
 							Previous
 						</button>
 
-						<div className="flex gap-2">
+						<div className="flex gap-2 max-w-[60vw] overflow-x-auto scrollbar-thin px-1">
 							{Array.from({ length: totalPages }, (_, i) => i + 1)
-								.filter(page => {
-									// Show first page, last page, current page, and pages around current
-									return (
-										page === 1 ||
-										page === totalPages ||
-										Math.abs(page - currentPage) <= 1
-									);
-								})
-								.map((page, idx, arr) => {
-									// Add ellipsis if there's a gap
-									const prevPage = arr[idx - 1];
-									const showEllipsis = prevPage && page - prevPage > 1;
-
-									return (
-										<React.Fragment key={page}>
-											{showEllipsis && (
-												<span className="px-3 py-2 text-slate-500">...</span>
-											)}
-											<button
-												onClick={() => handlePageChange(page)}
-												className={`px-4 py-2 rounded-lg transition-all text-sm ${
-													page === currentPage
-														? 'bg-blue-600 text-white'
-														: 'bg-slate-800/50 border border-slate-700/50 text-slate-200 hover:bg-slate-700/50'
-												}`}
-											>
-												{page}
-											</button>
-										</React.Fragment>
-									);
-								})}
+								.map((page) => (
+									<button
+										key={page}
+										onClick={() => handlePageChange(page)}
+										className={`min-w-10 px-3 py-2 rounded-lg border text-sm ${
+											page === currentPage
+												? 'border-blue-500 bg-blue-600 text-white'
+												: 'border-slate-700/50 bg-slate-800/50 text-slate-200 hover:bg-slate-700/50'
+										}`}
+									>
+										{page}
+									</button>
+								))}
 						</div>
 
 						<button
 							onClick={() => handlePageChange(currentPage + 1)}
 							disabled={currentPage === totalPages}
-							className="px-4 py-2 bg-slate-800/50 border border-slate-700/50 rounded-lg text-slate-200 transition-all hover:bg-slate-700/50 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+							className="px-4 py-2 bg-slate-800/50 border border-slate-700/50 rounded-lg text-slate-200 hover:bg-slate-700/50 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
 					>
 						Next
 					</button>

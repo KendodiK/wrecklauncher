@@ -41,6 +41,22 @@ function createWindow() {
     console.log('[electron] did-finish-load:', currentUrl);
   });
 
+  // In-app DevTools shortcuts for development/debugging.
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    const key = String(input?.key || '').toLowerCase();
+    const openByFunctionKey = key === 'f12';
+    const openByChord = (input?.control || input?.meta) && input?.shift && key === 'i';
+
+    if (openByFunctionKey || openByChord) {
+      event.preventDefault();
+      if (mainWindow?.webContents.isDevToolsOpened()) {
+        mainWindow.webContents.closeDevTools();
+      } else {
+        mainWindow?.webContents.openDevTools({ mode: 'detach' });
+      }
+    }
+  });
+
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
     if (process.env.OPEN_DEVTOOLS === '1') {
@@ -349,6 +365,15 @@ ipcMain.on('window:maximize', () => {
 ipcMain.on('window:close', () => {
   if (mainWindow) {
     mainWindow.close();
+  }
+});
+
+ipcMain.on('window:toggle-devtools', () => {
+  if (!mainWindow) return;
+  if (mainWindow.webContents.isDevToolsOpened()) {
+    mainWindow.webContents.closeDevTools();
+  } else {
+    mainWindow.webContents.openDevTools({ mode: 'detach' });
   }
 });
 

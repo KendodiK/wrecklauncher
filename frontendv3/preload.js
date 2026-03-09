@@ -65,6 +65,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   minimize: () => ipcRenderer.send('window:minimize'),
   maximize: () => ipcRenderer.send('window:maximize'),
   close: () => ipcRenderer.send('window:close'),
+  toggleDevTools: () => ipcRenderer.send('window:toggle-devtools'),
   invoke: (channel, ...args) => invokeWithTokenSync(channel, ...args),
 
   // Controller helpers (serverless modules in Electron main)
@@ -125,5 +126,6 @@ contextBridge.exposeInMainWorld('api', {
   minimize: () => ipcRenderer.send('window:minimize'),
   maximize: () => ipcRenderer.send('window:maximize'),
   close: () => ipcRenderer.send('window:close'),
+  toggleDevTools: () => ipcRenderer.send('window:toggle-devtools'),
   invoke: (channel, ...args) => invokeWithTokenSync(channel, ...args),
 });

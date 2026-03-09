@@ -2,41 +2,12 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import GameSliderBase from '../shared/GameSliderBase.jsx';
 
-function steamPoster(appid) {
-    const id = Number(appid);
-    if (!Number.isFinite(id) || id <= 0) return null;
-    return `https://cdn.cloudflare.steamstatic.com/steam/apps/${id}/library_600x900.jpg`;
-}
-
-const DEFAULT_STEAM_APPIDS = [
-    570, // Dota 2
-    730, // CS2
-    440, // TF2
-    271590, // GTA V
-    578080, // PUBG
-    1174180, // Red Dead Redemption 2
-    1245620, // ELDEN RING
-    359550, // Tom Clancy's Rainbow Six Siege
-    1086940, // Baldur's Gate 3
-];
-
-const DEFAULT_ITEMS = Array.from({ length: 9 }).map((_, i) => {
-    const n = i + 1;
-    const appid = DEFAULT_STEAM_APPIDS[i] ?? null;
-    return {
-        id: `shop-${n}`,
-        appid,
-        title: `Featured Game ${n}`,
-        image: steamPoster(appid) || `https://via.placeholder.com/440x640?text=Featured+${n}`,
-    };
-});
-
 // Store slider wrapper (same pattern as GameSlider):
 // - Structure + behavior comes from GameSliderBase
 // - Design comes from existing CSS in src/index.css (.carousel/.cards/.shop-card...)
 // - Animation comes from getStackMotion() (Motion transforms per offset)
 const Storeslider = ({ items, onCardClick }) => {
-    const cards = useMemo(() => (items && items.length ? items : DEFAULT_ITEMS), [items]);
+    const cards = useMemo(() => (Array.isArray(items) ? items : []), [items]);
     const navigate = useNavigate();
     const [viewportW, setViewportW] = useState(() => (typeof window !== 'undefined' ? window.innerWidth : 1200));
 

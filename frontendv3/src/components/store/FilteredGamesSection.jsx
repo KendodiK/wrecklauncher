@@ -13,9 +13,15 @@ const FilteredGamesSection = ({ games = [], title = "Browse Games" }) => {
 	const [priceRange, setPriceRange] = useState({ min: 0, max: 100 });
 	const [selectedGame, setSelectedGame] = useState(null);
 	const [hoveredGame, setHoveredGame] = useState(null);
+	const [currentPage, setCurrentPage] = useState(1);
 	const hideTimeoutRef = useRef(null);
+	const gamesPerPage = 20;
 
 	const displayGame = hoveredGame || selectedGame;
+	const [previewScreenshots, setPreviewScreenshots] = useState([]);
+	const [previewMovie, setPreviewMovie] = useState('');
+	const [previewLoading, setPreviewLoading] = useState(false);
+	const [previewMediaError, setPreviewMediaError] = useState('');
 
 	// Cleanup timeout on unmount
 	useEffect(() => {
@@ -26,24 +32,124 @@ const FilteredGamesSection = ({ games = [], title = "Browse Games" }) => {
 		};
 	}, []);
 
-	// Mock genres
-	const genres = [
-		{ id: 1, name: 'Action' },
-		{ id: 2, name: 'Adventure' },
-		{ id: 3, name: 'RPG' },
-		{ id: 4, name: 'Strategy' },
-		{ id: 5, name: 'Simulation' },
-		{ id: 6, name: 'Sports' },
-		{ id: 7, name: 'Racing' },
-		{ id: 8, name: 'Horror' },
-	];
+	// Load Steam media (screenshots + movie) for the preview panel.
+	useEffect(() => {
+		let cancelled = false;
 
-	// Mock platforms
-	const platforms = [
-		{ id: 'steam', name: 'Steam' },
-		{ id: 'epic', name: 'Epic Games' },
-		{ id: 'gog', name: 'GOG' },
-	];
+		const loadPreviewMedia = async () => {
+			if (!displayGame) {
+				setPreviewScreenshots([]);
+				setPreviewMovie('');
+				setPreviewMediaError('');
+				setPreviewLoading(false);
+				return;
+			}
+
+			const appId = Number(displayGame.appid || displayGame.app_id || displayGame.id);
+			if (!Number.isFinite(appId) || appId <= 0) {
+				setPreviewScreenshots([]);
+				setPreviewMovie('');
+				setPreviewMediaError('Invalid app id for Steam media');
+				setPreviewLoading(false);
+				return;
+			}
+
+			const api = typeof window !== 'undefined' ? window.electronAPI : null;
+			if (!api || typeof api.getSteamGameDetails !== 'function') {
+				setPreviewScreenshots([]);
+				setPreviewMovie('');
+				setPreviewMediaError('Steam API bridge not available');
+				setPreviewLoading(false);
+				return;
+			}
+
+			setPreviewLoading(true);
+			setPreviewMediaError('');
+			try {
+				const details = await api.getSteamGameDetails(appId, 'us');
+				const raw = details && typeof details === 'object' && details.raw && typeof details.raw === 'object' ? details.raw : {};
+
+				const screenshots = Array.isArray(raw.screenshots)
+					? raw.screenshots
+							.map((s) => (s && typeof s === 'object' ? (s.path_full || s.path_thumbnail) : null))
+							.filter((url) => typeof url === 'string' && url.trim())
+					: [];
+
+				let movie = '';
+				if (Array.isArray(raw.movies) && raw.movies.length) {
+					for (const m of raw.movies) {
+						if (!m || typeof m !== 'object') continue;
+						const mp4 = m.mp4 && typeof m.mp4 === 'object' ? m.mp4 : null;
+						const webm = m.webm && typeof m.webm === 'object' ? m.webm : null;
+						const candidate =
+							(mp4 && (mp4.max || mp4['480'])) ||
+							(webm && (webm.max || webm['480'])) ||
+							'';
+						if (typeof candidate === 'string' && candidate.trim()) {
+							movie = candidate;
+							break;
+						}
+					}
+				}
+
+				console.log('[ShopPreview] Steam media', {
+					appId,
+					screenshots: screenshots.length,
+					movies: Array.isArray(raw.movies) ? raw.movies.length : 0,
+					movieUrlFound: Boolean(movie),
+				});
+
+				if (!cancelled) {
+					setPreviewScreenshots(screenshots);
+					setPreviewMovie(typeof movie === 'string' ? movie : '');
+					if (!movie) {
+						setPreviewMediaError('No playable movie URL found in Steam response');
+					}
+				}
+			} catch (err) {
+				console.error('[ShopPreview] Failed to load Steam media:', err);
+				if (!cancelled) {
+					setPreviewScreenshots([]);
+					setPreviewMovie('');
+					setPreviewMediaError(err instanceof Error ? err.message : 'Failed to load Steam media');
+				}
+			} finally {
+				if (!cancelled) setPreviewLoading(false);
+			}
+		};
+
+		loadPreviewMedia();
+
+		return () => {
+			cancelled = true;
+		};
+	}, [displayGame]);
+
+	const genres = useMemo(() => {
+		const names = new Set();
+		for (const game of games) {
+			for (const g of Array.isArray(game.genres) ? game.genres : []) {
+				if (typeof g === 'string' && g.trim()) names.add(g.trim());
+				if (g && typeof g === 'object') {
+					const v = g.genre || g.name || g.description;
+					if (typeof v === 'string' && v.trim()) names.add(v.trim());
+				}
+			}
+		}
+		return Array.from(names).sort((a, b) => a.localeCompare(b)).map((name, idx) => ({ id: idx + 1, name }));
+	}, [games]);
+
+	const platforms = useMemo(() => {
+		const names = new Set();
+		for (const game of games) {
+			const p = game.platform || game.platform_name;
+			if (typeof p === 'string' && p.trim()) names.add(p.trim().toLowerCase());
+		}
+		return Array.from(names).sort((a, b) => a.localeCompare(b)).map((id) => ({
+			id,
+			name: id.charAt(0).toUpperCase() + id.slice(1),
+		}));
+	}, [games]);
 
 	// Filter games based on current filters
 	const filteredGames = useMemo(() => {
@@ -78,6 +184,22 @@ const FilteredGamesSection = ({ games = [], title = "Browse Games" }) => {
 		});
 	}, [games, searchQuery, selectedGenres, selectedPlatforms, priceRange]);
 
+	const totalPages = Math.max(1, Math.ceil(filteredGames.length / gamesPerPage));
+	const pagedGames = useMemo(() => {
+		const start = (currentPage - 1) * gamesPerPage;
+		return filteredGames.slice(start, start + gamesPerPage);
+	}, [filteredGames, currentPage]);
+
+	useEffect(() => {
+		setCurrentPage(1);
+	}, [searchQuery, selectedGenres, selectedPlatforms, priceRange]);
+
+	useEffect(() => {
+		if (currentPage > totalPages) {
+			setCurrentPage(totalPages);
+		}
+	}, [currentPage, totalPages]);
+
 	const handleGameClick = (game) => {
 		if (game.appid || game.app_id || game.id) {
 			const gameId = game.appid || game.app_id || game.id;
@@ -98,6 +220,7 @@ const FilteredGamesSection = ({ games = [], title = "Browse Games" }) => {
 		setSelectedGenres([]);
 		setSelectedPlatforms([]);
 		setPriceRange({ min: 0, max: 100 });
+		setCurrentPage(1);
 	};
 
 	return (
@@ -121,7 +244,7 @@ const FilteredGamesSection = ({ games = [], title = "Browse Games" }) => {
 				{/* Games list */}
 				<div className="flex-1 overflow-y-auto scrollbar-thin">
 					{filteredGames.length > 0 ? (
-						filteredGames.slice(0, 15).map((game, index) => {
+						pagedGames.map((game, index) => {
 							const gameId = game.appid || game.app_id || game.id;
 							const isSelected = displayGame && (displayGame.appid || displayGame.app_id || displayGame.id) === gameId;
 							
@@ -214,6 +337,26 @@ const FilteredGamesSection = ({ games = [], title = "Browse Games" }) => {
 						</div>
 					)}
 				</div>
+
+				{filteredGames.length > gamesPerPage && (
+					<div className="px-3 py-2 border-t border-slate-700/50 bg-slate-800/60 flex items-center justify-between">
+						<button
+							onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+							disabled={currentPage === 1}
+							className="px-3 py-1 text-xs rounded bg-slate-800/50 border border-slate-700/50 text-slate-200 disabled:opacity-40"
+						>
+							Prev
+						</button>
+						<div className="text-xs text-slate-300">Page {currentPage} / {totalPages}</div>
+						<button
+							onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+							disabled={currentPage === totalPages}
+							className="px-3 py-1 text-xs rounded bg-slate-800/50 border border-slate-700/50 text-slate-200 disabled:opacity-40"
+						>
+							Next
+						</button>
+					</div>
+				)}
 			</div>
 
 			{/* Middle - Game preview (collapsible) */}
@@ -242,8 +385,8 @@ const FilteredGamesSection = ({ games = [], title = "Browse Games" }) => {
 
 						{/* Preview content */}
 						<div className="flex-1 overflow-y-auto p-3 scrollbar-thin">
-						{/* Game image - smaller size */}
-						<div className="w-full aspect-[16/9] rounded overflow-hidden bg-slate-900/50 mb-3">
+							{/* Main image back on top */}
+							<div className="w-full aspect-[16/9] rounded overflow-hidden bg-slate-900/50 mb-3">
 								<img
 									src={displayGame.image || displayGame.banner_img}
 									alt={displayGame.title || displayGame.name}
@@ -252,6 +395,51 @@ const FilteredGamesSection = ({ games = [], title = "Browse Games" }) => {
 										e.target.style.display = 'none';
 									}}
 								/>
+							</div>
+
+							{/* Steam screenshots (replaces single static image) */}
+							<div className="mb-3">
+								<div className="text-xs text-slate-400 mb-2">Screenshots</div>
+								{previewLoading ? (
+									<div className="w-full h-24 rounded bg-slate-900/50 animate-pulse" />
+								) : previewScreenshots.length > 0 ? (
+									<div className="grid grid-cols-2 gap-2">
+										{previewScreenshots.slice(0, 4).map((src, idx) => (
+											<div key={`${src}-${idx}`} className="aspect-video rounded overflow-hidden bg-slate-900/50">
+												<img
+													src={src}
+													alt={`${displayGame.title || displayGame.name} screenshot ${idx + 1}`}
+													className="w-full h-full object-cover"
+													loading="lazy"
+												/>
+											</div>
+										))}
+									</div>
+								) : (
+									<div className="w-full h-24 rounded bg-slate-900/50 flex items-center justify-center text-xs text-slate-500">
+										No screenshots available
+									</div>
+								)}
+							</div>
+
+							{/* Steam movie after screenshots */}
+							<div className="mb-3">
+								<div className="text-xs text-slate-400 mb-2">Trailer</div>
+								{previewMovie ? (
+									<div className="w-full aspect-video rounded overflow-hidden bg-slate-900/50">
+										<video
+											src={previewMovie}
+											controls
+											preload="none"
+												playsInline
+											className="w-full h-full object-cover"
+										/>
+									</div>
+								) : (
+										<div className="w-full h-16 rounded bg-slate-900/50 flex items-center justify-center text-xs text-slate-500 text-center px-2">
+											{previewMediaError || 'No movie available'}
+									</div>
+								)}
 							</div>
 
 							{/* Description */}
