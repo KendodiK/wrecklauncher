@@ -123,6 +123,51 @@
  */
 
 /**
+ * @typedef {object} ItchInstalledGame
+ * @property {string} gameId       - itch.io numeric game ID (as string), or folder name if receipt is missing.
+ * @property {string} title         - Game display name.
+ * @property {string|null} coverUrl  - URL to the game cover image.
+ * @property {string|null} url       - itch.io game page URL.
+ * @property {string} installLocation - Absolute path to the install directory.
+ * @property {string|null} uploadId  - itch.io upload ID (from receipt).
+ * @property {string|null} buildId   - itch.io build ID (from receipt).
+ * @property {any} raw               - Raw receipt.json content.
+ */
+
+/**
+ * @typedef {object} ItchGameDetails
+ * @property {number} gameId
+ * @property {string} title
+ * @property {string|null} coverUrl
+ * @property {string|null} shortText
+ * @property {number} minPrice       - Minimum price in USD (0 = free or pay-what-you-want).
+ * @property {string|null} url
+ * @property {any} raw
+ */
+
+/**
+ * @typedef {object} GogInstalledGame
+ * @property {string} productId      - GOG numeric product ID (as string).
+ * @property {string} gameName       - Game display name.
+ * @property {string|null} installPath - Absolute install directory.
+ * @property {string|null} launchCommand - Executable path or launch command.
+ * @property {string|null} version
+ * @property {string|null} buildId
+ * @property {any} raw               - Raw registry value map.
+ */
+
+/**
+ * @typedef {object} GogGameDetails
+ * @property {string} productId
+ * @property {string} title
+ * @property {string|null} bannerImg
+ * @property {string|null} description
+ * @property {number|null} cost      - Price in USD.
+ * @property {string[]} genreNames
+ * @property {any} raw
+ */
+
+/**
  * @typedef {object} EpicInstalledGame
  * @property {string} manifestPath
  * @property {string|null} appName

@@ -28,6 +28,7 @@ const { error } = require('console');
 const PORT = 3000;
 // Replace with your actual Steam API key and Steam ID
 const steamApiKey = process.env.STEAM_API_KEY;
+const itchApiKey = process.env.ITCH_API_KEY;
 const clientId = process.env.IGDB_CLIENT_ID;
 const clientSecret = process.env.IGDB_CLIENT_SECRET;
 let igdbToken = null;

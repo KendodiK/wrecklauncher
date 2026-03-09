@@ -81,6 +81,10 @@ app.whenReady().then(() => {
   let pcGamesTorrentCtrl = null;
   /** @type {import('./controllers/TorrentController')|null} */
   let torrentCtrl = null;
+  /** @type {import('./controllers/ItchioController')|null} */
+  let itchCtrl = null;
+  /** @type {import('./controllers/GogController')|null} */
+  let gogCtrl = null;
 
   function getUserCtrl() {
     if (!userCtrl) {
@@ -152,6 +156,22 @@ app.whenReady().then(() => {
       torrentCtrl = new TorrentController();
     }
     return torrentCtrl;
+  }
+
+  function getItchCtrl() {
+    if (!itchCtrl) {
+      const ItchioController = require('./controllers/ItchioController');
+      itchCtrl = new ItchioController({ serverUrl: backendUrl });
+    }
+    return itchCtrl;
+  }
+
+  function getGogCtrl() {
+    if (!gogCtrl) {
+      const GogController = require('./controllers/GogController');
+      gogCtrl = new GogController({ serverUrl: backendUrl });
+    }
+    return gogCtrl;
   }
 
   /**
@@ -363,6 +383,52 @@ app.whenReady().then(() => {
 
   handle('epic:get-installed-games', async () => {
     return await getEpicCtrl().getInstalledGames();
+  });
+
+  // ── itch.io ────────────────────────────────────────────────────────────────
+
+  handle('itch:get-installed-games', async () => {
+    return getItchCtrl().getInstalledGames();
+  });
+
+  // Token-first style: (token, gameId). The API key is managed by the backend — not needed here.
+  handle('itch:get-game-details', async (_event, token, gameId) => {
+    const t = typeof token === 'string' ? token.trim() : '';
+    if (!t) throw new Error('Missing auth token');
+    return await getItchCtrl().getGameDetails(t, Number(gameId));
+  });
+
+  handle('itch:open-game', async (_event, gameId) => {
+    return await getItchCtrl().clientGameControlUtil(gameId, 'open');
+  });
+
+  handle('itch:install-game', async (_event, gameId) => {
+    return await getItchCtrl().clientGameControlUtil(gameId, 'install');
+  });
+
+  // ── GOG ───────────────────────────────────────────────────────────────────
+
+  handle('gog:get-installed-games', async () => {
+    return await getGogCtrl().getInstalledGames();
+  });
+
+  // Token-first style: (token, productId)
+  handle('gog:get-game-details', async (_event, token, productId) => {
+    const t = typeof token === 'string' ? token.trim() : '';
+    if (!t) throw new Error('Missing auth token');
+    return await getGogCtrl().getGameDetails(t, String(productId));
+  });
+
+  handle('gog:open-game', async (_event, productId) => {
+    return await getGogCtrl().clientGameControlUtil(productId, 'open');
+  });
+
+  handle('gog:run-game', async (_event, productId) => {
+    return await getGogCtrl().clientGameControlUtil(productId, 'run');
+  });
+
+  handle('gog:install-game', async (_event, productId) => {
+    return await getGogCtrl().clientGameControlUtil(productId, 'install');
   });
 
   // Cloudscraper helpers

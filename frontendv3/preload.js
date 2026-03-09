@@ -116,6 +116,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
   storePageSteam: (appID) => ipcRenderer.invoke('steam:store-page', appID),
   runSteamGame: (appID) => ipcRenderer.invoke('steam:run-game', appID),
   getEpicInstalledGames: () => ipcRenderer.invoke('epic:get-installed-games'),
+  // itch.io
+  getItchInstalledGames: () => ipcRenderer.invoke('itch:get-installed-games'),
+  getItchGameDetails: (gameId) => {
+    return resolveAuthToken().then((token) =>
+      ipcRenderer.invoke('itch:get-game-details', token, gameId)
+    );
+  },
+  openItchGame: (gameId) => ipcRenderer.invoke('itch:open-game', gameId),
+  installItchGame: (gameId) => ipcRenderer.invoke('itch:install-game', gameId),
+  // GOG
+  getGogInstalledGames: () => ipcRenderer.invoke('gog:get-installed-games'),
+  getGogGameDetails: (productId) => {
+    return resolveAuthToken().then((token) =>
+      ipcRenderer.invoke('gog:get-game-details', token, productId)
+    );
+  },
+  openGogGame: (productId) => ipcRenderer.invoke('gog:open-game', productId),
+  runGogGame: (productId) => ipcRenderer.invoke('gog:run-game', productId),
+  installGogGame: (productId) => ipcRenderer.invoke('gog:install-game', productId),
   //Pirate Sites
   cloudscraperFetch: (url, options) => ipcRenderer.invoke('cloudscraper:fetch', url, options),
   cloudscraperDodiRepacksHome: () => ipcRenderer.invoke('cloudscraper:dodi-repacks-home'),
