@@ -125,13 +125,28 @@ function normalizeIgdbImageUrl(url) {
   return url;
 }
 
+function getSteamAppIdFromIgdbGame(igdbGame) {
+  const externalGames = igdbGame?.external_games;
+  if (!Array.isArray(externalGames) || externalGames.length === 0) return null;
+
+  // IGDB: external_games.category indicates the store/platform.
+  // Steam is commonly category = 1.
+  const steamEntry = externalGames.find((eg) => Number(eg?.category) === 1);
+  const uid = steamEntry?.uid;
+  if (uid == null) return null;
+
+  const numeric = Number(uid);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+}
+
 async function upsertShopSpecialsFromIgdb({ trending = [], upcoming = [] } = {}) {
   // shop_specials.game_id references games.id, so we ensure the games exist first.
+  // User requirement: store games as Steam games (platform=steam, app_id=steam appid).
   const platformsCtrl = new platformsController();
-  const igdbPlatform = await platformsCtrl.create({ name: 'igdb' });
-  const igdbPlatformId = igdbPlatform?.id;
-  if (!igdbPlatformId) {
-    throw new Error('Failed to resolve/create igdb platform');
+  const steamPlatform = await platformsCtrl.create({ name: 'steam' });
+  const steamPlatformId = steamPlatform?.id;
+  if (!steamPlatformId) {
+    throw new Error('Failed to resolve/create steam platform');
   }
 
   const gamesCtrl = new gamesController();
@@ -153,22 +168,25 @@ async function upsertShopSpecialsFromIgdb({ trending = [], upcoming = [] } = {})
   }
 
   async function ensureGameId(igdbGame) {
-    const appId = igdbGame?.id;
-    if (appId == null) {
-      console.warn('Skipping IGDB game: missing id', igdbGame);
+    const steamAppId = getSteamAppIdFromIgdbGame(igdbGame);
+    if (!steamAppId) {
+      console.log('Skipping IGDB game: missing Steam appid (external_games category=1):', {
+        igdbId: igdbGame?.id,
+        name: igdbGame?.name,
+      });
       return null;
     }
 
-    const existingGameId = await gamesCtrl.getGameIdByAppId(appId);
+    const existingGameId = await gamesCtrl.getGameIdByAppIdAndPlatform(steamAppId, steamPlatformId);
     if (existingGameId != null) {
       const numericExisting = Number(existingGameId);
       return Number.isFinite(numericExisting) ? numericExisting : null;
     }
 
     const gameData = {
-      app_id: appId,
-      platform_id: igdbPlatformId,
-      name: igdbGame?.name ?? String(appId),
+      app_id: steamAppId,
+      platform_id: steamPlatformId,
+      name: igdbGame?.name ?? String(steamAppId),
       banner_img: normalizeIgdbImageUrl(igdbGame?.cover?.url) ?? '',
       description: igdbGame?.summary ?? '',
       minimum_requirements: '',
@@ -179,7 +197,7 @@ async function upsertShopSpecialsFromIgdb({ trending = [], upcoming = [] } = {})
     const createdId = created?.id;
     const numericCreated = Number(createdId);
     if (!Number.isFinite(numericCreated)) {
-      console.warn('Skipping IGDB game: created game missing numeric id', { appId, created });
+      console.warn('Skipping IGDB game: created game missing numeric id', { steamAppId, created });
       return null;
     }
     return numericCreated;
@@ -190,23 +208,29 @@ async function upsertShopSpecialsFromIgdb({ trending = [], upcoming = [] } = {})
   const specialsByGameId = new Map();
 
   async function addSpecial(igdbGame, flags) {
-    const appId = igdbGame?.id;
-    if (appId == null) return;
+    const steamAppId = getSteamAppIdFromIgdbGame(igdbGame);
+    if (!steamAppId) {
+      console.log('Skipping shop_special: missing Steam appid (external_games category=1):', {
+        igdbId: igdbGame?.id,
+        name: igdbGame?.name,
+      });
+      return;
+    }
 
-    let gameId = gameIdByAppId.get(appId);
+    let gameId = gameIdByAppId.get(steamAppId);
     if (gameId == null) {
       gameId = await ensureGameId(igdbGame);
       if (gameId == null) {
-        console.warn('Skipping shop_special: could not resolve game id for IGDB game', { appId, name: igdbGame?.name });
+        console.warn('Skipping shop_special: could not resolve game id for IGDB game', { steamAppId, name: igdbGame?.name });
         return;
       }
-      gameIdByAppId.set(appId, gameId);
+      gameIdByAppId.set(steamAppId, gameId);
     }
 
     // Extra safety: ensure it's numeric before using as a DB foreign key.
     const numericGameId = Number(gameId);
     if (!Number.isFinite(numericGameId)) {
-      console.warn('Skipping shop_special: non-numeric game id', { appId, gameId });
+      console.warn('Skipping shop_special: non-numeric game id', { steamAppId, gameId });
       return;
     }
     gameId = numericGameId;
@@ -271,12 +295,23 @@ async function fetchGamesDaily() {
   try {
     trending = await fetchIGDB(
       "games",
-      `fields id, name, summary, cover.url, hypes, follows, external_games.uid;
+      `fields id, name, summary, cover.url, hypes, follows, external_games.category, external_games.uid;
+       where external_games.category = 1;
        sort hypes desc;
-       limit 10;`
+       limit 100;`
     );
     console.log('Fetched trending games successfully');
     console.log(trending);
+
+    for (const g of trending) {
+      const steamAppId = getSteamAppIdFromIgdbGame(g);
+      if (!steamAppId) {
+        console.log('IGDB game missing Steam appid (external_games category=1):', {
+          igdbId: g?.id,
+          name: g?.name,
+        });
+      }
+    }
   } catch (err) {
     console.error('Failed to fetch trending games:', err);
   }
@@ -285,13 +320,23 @@ async function fetchGamesDaily() {
   try {
     upcoming = await fetchIGDB(
       "games",
-      `fields id, name, summary, cover.url, first_release_date, external_games.uid;
-       where first_release_date > ${Math.floor(Date.now() / 1000)};
+      `fields id, name, summary, cover.url, first_release_date, external_games.category, external_games.uid;
+       where first_release_date > ${Math.floor(Date.now() / 1000)} & external_games.category = 1;
        sort first_release_date asc;
-       limit 10;`
+       limit 100;`
     );
     console.log('Fetched upcoming games successfully');
     console.log(upcoming);
+
+    for (const g of upcoming) {
+      const steamAppId = getSteamAppIdFromIgdbGame(g);
+      if (!steamAppId) {
+        console.log('IGDB game missing Steam appid (external_games category=1):', {
+          igdbId: g?.id,
+          name: g?.name,
+        });
+      }
+    }
   } catch (err) {
     console.error('Failed to fetch upcoming games:', err);
   }
@@ -533,7 +578,7 @@ app.get("/api/games/:id/all", async (req, res) => {
   }
 });
 
-app.get("/api/games/:from", async (req, res) => {
+app.get("/api/games/list/:from", async (req, res) => {
   try {
     const { from } = req.params;
     const gamesCtrl = new gamesController();
@@ -662,6 +707,20 @@ app.get("/api/platform_users", tokenValidate(), async (req, res) => {
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
+});
+
+app.get("/api/shop_specials/:filter/:from", async (req, res) => {
+  try {
+    const { filter, from } = req.params;
+    const shopSpecialsCtrl = new shopSpecialsController();
+    let result = shopSpecialsCtrl.getFilteredGamesFrom(filter, from);
+    if (result instanceof Error) {
+      return res.status(400).json({ message: 'Iternal server error', error: result });
+    }
+    return res.json(result);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  } 
 });
 
 // -------------------     POST      ------------------ //
@@ -948,6 +1007,22 @@ app.put("/api/games/:id", async (req, res) => {
     console.error('Error in /api/games/:id endpoint:', error);
     return res.status(500).json({ error: error.message });
   }
+});
+
+app.put("/api/shop_specials/:gameId", async (req, res) => {
+  try {
+    const { gameId } = req.params;
+    const { featured, coming_soon, discounted } = req.body;
+    const shopSpecialsCtrl = new shopSpecialsController();
+    const result = await shopSpecialsCtrl.update(gameId, { "featured": featured, "coming_soon": coming_soon, "discounted": discounted });
+    if (result instanceof Error) {
+      return res.status(400).json({ message: result.message });
+    }
+    return res.json(result);
+  } catch (err) {
+    console.error('Error in /api/shop_specials/:gameId endpoint:', error);
+    return res.status(500).json({ error: error.message });
+  } 
 });
 
 // -------------------     DELETE     ------------------ //

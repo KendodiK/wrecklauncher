@@ -20,6 +20,7 @@ const DBMaker = require('./database/DBCreator');
 const NativeUsersController = require('./database/controllers/NativeUsersController');
 const PlatformUsersController = require('./database/controllers/PlatformUsersController');
 const GameController = require('./database/controllers/GamesController');
+const ShopSpecialsController = require('./database/controllers/ShopSpecialsController');
 
 
 app.listen(PORT, () => {
@@ -32,7 +33,9 @@ app.listen(PORT, () => {
 //tryGetNativeUser();
 //tryChangeNativeUser('be70909f-fac1-11f0-a4d3-68f728710017');
 //tryUploadGame();
-tryUploadGameWithAll();
+//tryUploadGameWithAll();
+//tryFillShopSpecials();
+tryChangeShopSpecials(3);
 
 function generateDB() {
     let databaseHandler = new DatabaseHandler();
@@ -134,4 +137,45 @@ async function  tryUploadGameWithAll() {
     } catch (err) {
         console.error('Error in creating game:', err instanceof Error ? err.message : String(err));
     }
+}
+
+async function tryFillShopSpecials() {
+    try {
+        const shopCntr = new ShopSpecialsController();
+        // there are already multiple games in the games table (ids 1..27+)
+        // create shop_specials entries for the first 27 games with varied flags
+        for (let id = 1; id <= 27; id++) {
+            const featured = id % 5 === 0 ? true : false;       // every 5th game
+            const coming_soon = id % 7 === 0 ? true : false;    // every 7th game
+            const discounted = id % 3 === 0 ? true : false;     // every 3rd game
+
+            // skip rows that would only contain the game_id (no flags set)
+            if (!featured && !coming_soon && !discounted) {
+                console.log(`Skipping game_id=${id} (no flags set)`);
+                continue;
+            }
+
+            const data = { "game_id": id, "featured": featured, "coming_soon": coming_soon, "discounted": discounted };
+            try {
+                const res = await shopCntr.create(data);
+                console.log(`Inserted shop_specials for game_id=${id}:`, res.message || res);
+            } catch (err) {
+                console.error(`Error inserting shop_specials for game_id=${id}:`, err instanceof Error ? err.message : String(err));
+            }
+        }
+        console.log('Finished populating shop_specials.');
+    } catch (err) {
+        console.error('Error in tryFillShopSpecials:', err instanceof Error ? err.message : String(err));
+    }
+}
+
+async function tryChangeShopSpecials(id) {
+    try {
+        const shopCntr = new ShopSpecialsController();
+        const data = { "featured": false, "coming_soon": false, "discounted": false };
+        const res = await shopCntr.update(id, data);
+        console.log(`Updated shop_specials for game_id=${id}:`, res.message || res);
+    } catch (err) {
+        console.error('Error in tryChangeShopSpecials:', err instanceof Error ? err.message : String(err));
+    } 
 }
