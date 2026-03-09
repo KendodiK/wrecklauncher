@@ -6,191 +6,32 @@ import LauncherSelector from '../store/LauncherSelector.jsx';
 import { combineFilters, hasActiveFilters as checkActiveFilters } from '../../utils/gameUtils.js';
 //import { runSmokeControllers } from '../../smokeControllers.js';
 
+/**
+ * Shop View Component
+ * 
+ * Data Flow:
+ * 1. On mount: Fetches all games from backend database (GET /api/games)
+ *    - Returns basic game info: id, app_id, name, banner_img, cost, description, etc.
+ * 
+ * 2. When user clicks a game: Navigates to GamePage (/game/:id)
+ *    - GamePage then uses window.electronAPI.getSteamGameDetails(appID, cc) to fetch
+ *      detailed scraped data from Steam (or from cached database)
+ *    - Or uses window.electronAPI.getAllDetailsByID(id) to fetch from database
+ * 
+ * This approach ensures:
+ * - Fast initial load (only basic data)
+ * - Detailed data loaded on-demand
+ * - Uses scraped Steam data for accurate game information
+ */
+
 function steamPoster(appid) {
 	const id = Number(appid);
 	if (!Number.isFinite(id) || id <= 0) return null;
 	return `https://cdn.cloudflare.steamstatic.com/steam/apps/${id}/library_600x900.jpg`;
 }
 
-const DEFAULT_STEAM_APPIDS = [
-	570, // Dota 2
-	730, // CS2
-	440, // TF2
-	271590, // GTA V
-	578080, // PUBG
-	1174180, // Red Dead Redemption 2
-	1245620, // ELDEN RING
-	359550, // Rainbow Six Siege
-	1086940, // Baldur's Gate 3
-];
-
-// Mock data for featured games
-const FEATURED_GAMES = [
-	{ id: 1245620, appid: 1245620, title: 'ELDEN RING', image: steamPoster(1245620), price: 59.99, genres: [3, 1], tags: ['featured'] },
-	{ id: 1086940, appid: 1086940, title: "Baldur's Gate 3", image: steamPoster(1086940), price: 59.99, genres: [3, 2], tags: ['featured'] },
-	{ id: 271590, appid: 271590, title: 'Grand Theft Auto V', image: steamPoster(271590), price: 29.99, genres: [1, 2], tags: ['featured'] },
-	{ id: 1174180, appid: 1174180, title: 'Red Dead Redemption 2', image: steamPoster(1174180), price: 59.99, genres: [1, 2], tags: ['featured'] },
-	{ id: 359550, appid: 359550, title: "Tom Clancy's Rainbow Six Siege", image: steamPoster(359550), price: 19.99, genres: [1, 4], tags: ['featured'] },
-];
-
-// Mock data for discounted games
-const DISCOUNTED_GAMES = [
-	{ id: 578080, appid: 578080, title: 'PLAYERUNKNOWN\'S BATTLEGROUNDS', image: steamPoster(578080), price: 14.99, genres: [1, 6], tags: ['discount'] },
-	{ id: 730, appid: 730, title: 'Counter-Strike 2', image: steamPoster(730), price: 0, genres: [1, 4], tags: ['discount'] },
-	{ id: 440, appid: 440, title: 'Team Fortress 2', image: steamPoster(440), price: 0, genres: [1], tags: ['discount'] },
-	{ id: 271590, appid: 271590, title: 'Grand Theft Auto V', image: steamPoster(271590), price: 14.99, genres: [1, 2], tags: ['discount'] },
-	{ id: 359550, appid: 359550, title: "Tom Clancy's Rainbow Six Siege", image: steamPoster(359550), price: 9.99, genres: [1, 4], tags: ['discount'] },
-];
-
-// Mock data for upcoming games
-const UPCOMING_GAMES = [
-	{ id: 1086940, appid: 1086940, title: "Baldur's Gate 3", image: steamPoster(1086940), price: 59.99, genres: [3, 2], tags: ['upcoming'] },
-	{ id: 1245620, appid: 1245620, title: 'ELDEN RING', image: steamPoster(1245620), price: 59.99, genres: [3, 1], tags: ['upcoming'] },
-	{ id: 1174180, appid: 1174180, title: 'Red Dead Redemption 2', image: steamPoster(1174180), price: 59.99, genres: [1, 2], tags: ['upcoming'] },
-];
-
-// Mock all games data for filtering
-const ALL_GAMES = [
-	{ id: 570, appid: 570, title: 'Dota 2', image: steamPoster(570), price: 0, genres: [1, 4], tags: ['MOBA', 'Free to Play', 'Strategy', 'Multiplayer', 'Competitive'], description: 'Every day, millions of players worldwide enter battle as one of over a hundred Dota heroes. And no matter if it\'s their 10th hour of play or 1,000th, there\'s always something new to discover.' },
-	{ id: 730, appid: 730, title: 'Counter-Strike 2', image: steamPoster(730), price: 0, genres: [1, 4], tags: ['FPS', 'Competitive', 'Shooter', 'Tactical', 'Multiplayer'], description: 'For over two decades, Counter-Strike has offered an elite competitive experience, one shaped by millions of players from across the globe. Now the next chapter in the CS story is about to begin.' },
-	{ id: 440, appid: 440, title: 'Team Fortress 2', image: steamPoster(440), price: 0, genres: [1], tags: ['FPS', 'Free to Play', 'Multiplayer', 'Action', 'Comedy'], description: 'Nine distinct classes provide a broad range of tactical abilities and personalities. Constantly updated with new game modes, maps, equipment and, most importantly, hats!' },
-	{ id: 271590, appid: 271590, title: 'Grand Theft Auto V', image: steamPoster(271590), price: 29.99, genres: [1, 2], tags: ['Open World', 'Action', 'Crime', 'Multiplayer', 'Adventure'], description: 'When a young street hustler, a retired bank robber and a terrifying psychopath land themselves in trouble, they must pull off a series of dangerous heists to survive in a city in which they can trust nobody, least of all each other.' },
-	{ id: 578080, appid: 578080, title: 'PLAYERUNKNOWN\'S BATTLEGROUNDS', image: steamPoster(578080), price: 29.99, genres: [1, 6], tags: ['Battle Royale', 'Shooter', 'Survival', 'Multiplayer', 'FPS'], description: 'Land on strategic locations, loot weapons and supplies, and survive to become the last team standing across various battlegrounds.' },
-	{ id: 1174180, appid: 1174180, title: 'Red Dead Redemption 2', image: steamPoster(1174180), price: 59.99, genres: [1, 2], tags: ['Western', 'Story Rich', 'Open World', 'Action', 'Adventure'], description: 'America, 1899. The end of the Wild West era has begun. After a robbery goes badly wrong, Arthur Morgan and the Van der Linde gang are forced to flee.' },
-	{ id: 1245620, appid: 1245620, title: 'ELDEN RING', image: steamPoster(1245620), price: 59.99, genres: [3, 1], tags: ['Souls-like', 'Dark Fantasy', 'RPG', 'Open World', 'Difficult'], description: 'THE NEW FANTASY ACTION RPG. Rise, Tarnished, and be guided by grace to brandish the power of the Elden Ring and become an Elden Lord in the Lands Between.' },
-	{ id: 359550, appid: 359550, title: "Tom Clancy's Rainbow Six Siege", image: steamPoster(359550), price: 19.99, genres: [1, 4], tags: ['Tactical', 'FPS', 'Shooter', 'Multiplayer', 'Strategy'], description: 'Master the art of destruction and gadgetry in Tom Clancy\'s Rainbow Six Siege. Face intense close quarters combat, high lethality, tactical decision making, team play, and explosive action.' },
-	{ id: 1086940, appid: 1086940, title: "Baldur's Gate 3", image: steamPoster(1086940), price: 59.99, genres: [3, 2], tags: ['RPG', 'Turn-Based', 'D&D', 'Story Rich', 'Fantasy'], description: 'Gather your party and return to the Forgotten Realms in a tale of fellowship and betrayal, sacrifice and survival, and the lure of absolute power.' },
-	{ id: 1237970, appid: 1237970, title: 'Titanfall 2', image: steamPoster(1237970), price: 29.99, genres: [1], tags: ['FPS', 'Mechs', 'Shooter', 'Action', 'Multiplayer'], description: 'Respawn Entertainment gives you the most advanced titan technology in its new, single player campaign alongside fast-paced multiplayer action.' },
-	{ id: 292030, appid: 292030, title: 'The Witcher 3: Wild Hunt', image: steamPoster(292030), price: 39.99, genres: [3, 2], tags: ['RPG', 'Open World', 'Story Rich', 'Fantasy', 'Adventure'], description: 'As war rages on throughout the Northern Realms, you take on the greatest contract of your life — tracking down the Child of Prophecy, a living weapon that can alter the shape of the world.' },
-	{ id: 489830, appid: 489830, title: 'The Elder Scrolls V: Skyrim', image: steamPoster(489830), price: 19.99, genres: [3, 2], tags: ['RPG', 'Dragons', 'Open World', 'Fantasy', 'Adventure'], description: 'Epic fantasy adventure across the land of Skyrim. The Empire of Tamriel is on the edge. The High King of Skyrim has been murdered. Alliances form as claims to the throne are made.' },
-];
-
-// Mock genres
-const GENRES = [
-	{ id: 1, name: 'Action' },
-	{ id: 2, name: 'Adventure' },
-	{ id: 3, name: 'RPG' },
-	{ id: 4, name: 'Strategy' },
-	{ id: 5, name: 'Simulation' },
-	{ id: 6, name: 'Sports' },
-];
-
-// Mock data for top sellers list (with discounts)
-const TOP_SELLERS = [
-	{ 
-		id: 2050650, 
-		appid: 2050650, 
-		title: 'Resident Evil Requiem', 
-		image: steamPoster(2050650), 
-		price: 69.99, 
-		originalPrice: null,
-		discount: null,
-		tags: ['Survival Horror', 'Third-Person Shooter', 'Zombies', 'Horror'],
-		genres: ['Action', 'Horror', 'Survival']
-	},
-	{ 
-		id: 578080, 
-		appid: 578080, 
-		title: 'PUBG: BATTLEGROUNDS', 
-		image: steamPoster(578080), 
-		price: 0, 
-		originalPrice: null,
-		discount: null,
-		tags: ['Survival', 'Shooter', 'Battle Royale', 'Multiplayer'],
-		genres: ['Action', 'Multiplayer']
-	},
-	{ 
-		id: 346110, 
-		appid: 346110, 
-		title: 'ARK: Survival Ascended', 
-		image: steamPoster(346110), 
-		price: 11.24, 
-		originalPrice: 44.99,
-		discount: 75,
-		tags: ['Early Access', 'Survival', 'Open World', 'Multiplayer'],
-		genres: ['Action', 'Adventure', 'Survival']
-	},
-	{ 
-		id: 644930, 
-		appid: 644930, 
-		title: 'ARC Raiders', 
-		image: steamPoster(644930), 
-		price: 39.99, 
-		originalPrice: null,
-		discount: null,
-		tags: ['Extraction Shooter', 'Multiplayer', 'PvP', 'PvE'],
-		genres: ['Action', 'Shooter']
-	},
-	{ 
-		id: 1069420, 
-		appid: 1069420, 
-		title: 'Limbus Company', 
-		image: steamPoster(1069420), 
-		price: 0, 
-		originalPrice: null,
-		discount: null,
-		tags: ['Story Rich', 'Lore-Rich', 'Free to Play', 'Turn-Based Combat'],
-		genres: ['RPG', 'Strategy']
-	},
-	{ 
-		id: 379430, 
-		appid: 379430, 
-		title: 'Kingdom Come: Deliverance II', 
-		image: steamPoster(379430), 
-		price: 29.99, 
-		originalPrice: 59.99,
-		discount: 50,
-		tags: ['RPG', 'Medieval', 'Open World', 'Singleplayer'],
-		genres: ['RPG', 'Action']
-	},
-	{ 
-		id: 1667630, 
-		appid: 1667630, 
-		title: 'Mewgenics', 
-		image: steamPoster(1667630), 
-		price: 28.99, 
-		originalPrice: null,
-		discount: null,
-		tags: ['Turn-Based Tactics', 'Roguelite', 'Turn-Based Strategy', 'Dark Humor'],
-		genres: ['Strategy', 'Simulation']
-	},
-	{ 
-		id: 2296790, 
-		appid: 2296790, 
-		title: 'Marathon', 
-		image: steamPoster(2296790), 
-		price: 39.99, 
-		originalPrice: null,
-		discount: null,
-		tags: ['Extraction Shooter', 'PvP', 'Shooter', 'Multiplayer'],
-		genres: ['Action', 'Shooter']
-	},
-	{ 
-		id: 254700, 
-		appid: 254700, 
-		title: 'Resident Evil 4', 
-		image: steamPoster(254700), 
-		price: 15.99, 
-		originalPrice: 39.99,
-		discount: 60,
-		tags: ['Horror', 'Action', 'Survival Horror', 'Third-Person Shooter'],
-		genres: ['Action', 'Horror']
-	},
-	{ 
-		id: 1061350, 
-		appid: 1061350, 
-		title: 'Super Battle Golf', 
-		image: steamPoster(1061350), 
-		price: 6.39, 
-		originalPrice: 7.99,
-		discount: 20,
-		tags: ['Multiplayer', 'Online Co-Op', 'Co-op', 'Sports'],
-		genres: ['Sports', 'Casual']
-	},
-];
-
 const Shopveiw = ({ items }) => {
-	// const didRunSmokeRef = useRef(false);
+	const didRunSmokeRef = useRef(false);
 // useEffect(() => {
 //         // React.StrictMode runs effects twice in dev; guard so smoke runs once.
 //         if (didRunSmokeRef.current) return;
@@ -199,19 +40,76 @@ const Shopveiw = ({ items }) => {
 //             console.warn('[smoke] runSmokeControllers failed:', e);
 //         });
 //     }, []);
-	const [allGames, setAllGames] = useState(ALL_GAMES);
-	const [genres, setGenres] = useState(GENRES);
+	const [allGames, setAllGames] = useState([]);
 	const [filters, setFilters] = useState({
 		query: '',
 		genres: [],
 		priceRange: { min: 0, max: 100 },
 	});
-	const [isLoading, setIsLoading] = useState(false);
+	const [isLoading, setIsLoading] = useState(true);
 
 	// Refs for carousel sections for scroll-into-view behavior
 	const featuredRef = useRef(null);
 	const discountedRef = useRef(null);
 	const upcomingRef = useRef(null);
+
+	// Derive featured, discounted, and upcoming games from allGames
+	const featuredGames = useMemo(() => {
+		// Keep app_id 500 (Left 4 Dead) first if available, then fill by highest cost.
+		const ordered = [...allGames].sort((a, b) => {
+			const aId = Number(a?.app_id ?? a?.appid ?? a?.id);
+			const bId = Number(b?.app_id ?? b?.appid ?? b?.id);
+			if (aId === 500 && bId !== 500) return -1;
+			if (bId === 500 && aId !== 500) return 1;
+			return (b.cost || 0) - (a.cost || 0);
+		});
+
+		return ordered
+			.slice(0, 5)
+			.map(game => ({
+				id: game.app_id || game.id,
+				appid: game.app_id || game.id,
+				title: game.name,
+				image: game.image || steamPoster(game.app_id || game.id),
+				price: game.cost || 0,
+				description: game.description,
+				genres: game.genres || [],
+				tags: [...(game.tags || []), 'featured']
+			}));
+	}, [allGames]);
+
+	const discountedGames = useMemo(() => {
+		// For now, take some random games as "discounted"
+		// In the future, you can add a discount field to the database
+		return allGames
+			.slice(5, 10)
+			.map(game => ({
+				id: game.app_id || game.id,
+				appid: game.app_id || game.id,
+				title: game.name,
+				image: game.image || steamPoster(game.app_id || game.id),
+				price: game.cost || 0,
+				description: game.description,
+				genres: game.genres || [],
+				tags: [...(game.tags || []), 'discount']
+			}));
+	}, [allGames]);
+
+	const upcomingGames = useMemo(() => {
+		// Take some games as "upcoming"
+		return allGames
+			.slice(10, 13)
+			.map(game => ({
+				id: game.app_id || game.id,
+				appid: game.app_id || game.id,
+				title: game.name,
+				image: game.image || steamPoster(game.app_id || game.id),
+				price: game.cost || 0,
+				description: game.description,
+				genres: game.genres || [],
+				tags: [...(game.tags || []), 'upcoming']
+			}));
+	}, [allGames]);
 
 	// Calculate filtered games
 	const filteredGames = useMemo(() => {
@@ -237,36 +135,71 @@ const Shopveiw = ({ items }) => {
 		});
 	};
 
-	// Fetch data on mount (mock for now)
+	
 	useEffect(() => {
-		// In real implementation, fetch from API:
-		// const fetchData = async () => {
-		// 	setIsLoading(true);
-		// 	try {
-		// 		const [gamesData, genresData] = await Promise.all([
-		// 			window.electronAPI?.getAllGames() || Promise.resolve(ALL_GAMES),
-		// 			window.electronAPI?.getGenres() || Promise.resolve(GENRES),
-		// 		]);
-		// 		setAllGames(gamesData);
-		// 		setGenres(genresData);
-		// 	} catch (error) {
-		// 		console.error('Failed to fetch data:', error);
-		// 	} finally {
-		// 		setIsLoading(false);
-		// 	}
-		// };
-		// fetchData();
+		const fetchData = async () => {
+			setIsLoading(true);
+			try {
+				// Fetch basic game list from backend API (GET /api/games)
+				// This returns all games from the database with basic info
+				const backendUrl = 'http://127.0.0.1:3000';
+				const response = await fetch(`${backendUrl}/api/games`);
+				
+				if (!response.ok) {
+					throw new Error(`Failed to fetch games: ${response.statusText}`);
+				}
+				
+				const gamesData = await response.json();
+				console.log('Fetched games from database:', gamesData);
+				
+				// Transform the data to match our component's expected format
+				// Note: For detailed game data (when user clicks a game), the GamePage 
+				// component will use window.electronAPI.getSteamGameDetails(appID) or 
+				// window.electronAPI.getAllDetailsByID(id) to fetch full scraped data
+				const transformedGames = (gamesData || []).map(game => ({
+					id: game.id,
+					app_id: game.app_id,
+					appid: game.app_id, // Both formats for compatibility
+					name: game.name,
+					title: game.name, // Both formats for compatibility
+					image: game.banner_img || steamPoster(game.app_id),
+					banner_img: game.banner_img,
+					cost: game.cost || 0,
+					price: game.cost || 0, // Both formats for compatibility
+					description: game.description,
+					platform_name: game.platform_name,
+					minimum_requirements: game.minimum_requirements,
+					// Add any genre data if available
+					genres: game.genres || [],
+					tags: game.tags || []
+				}));
+
+				// Put Left 4 Dead (app_id 500) first in shop lists.
+				const prioritizedGames = transformedGames.sort((a, b) => {
+					const aIsL4D = Number(a?.app_id ?? a?.appid ?? a?.id) === 500;
+					const bIsL4D = Number(b?.app_id ?? b?.appid ?? b?.id) === 500;
+					if (aIsL4D && !bIsL4D) return -1;
+					if (bIsL4D && !aIsL4D) return 1;
+					return 0;
+				});
+
+				setAllGames(prioritizedGames);
+			} catch (error) {
+				console.error('Failed to fetch games data:', error);
+				setAllGames([]);
+			} finally {
+				setIsLoading(false);
+			}
+		};
+		fetchData();
 	}, []);
 
-	// Original simple implementation (commented out for reference)
-	// return (
-	// 	<div className="flex-1 px-3 py-4">
-	// 		<h1 className="text-2xl font-semibold mb-4">Shop</h1>
-	// 		<Storeslider items={items || DEFAULT_ITEMS} />
-	// 	</div>
-	// );
+	
+	
 
 	return (
+
+		
 		<div className="flex-1">
 			{/* Main content area */}
 			<div className="h-full px-3 py-4 overflow-y-auto">
@@ -276,35 +209,43 @@ const Shopveiw = ({ items }) => {
 				{!hasFilters && (
 				<div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
 					{/* Featured Games */}
-					<section ref={featuredRef}>
-						<h2 className="text-2xl font-semibold mb-4 text-slate-100">Featured</h2>
-						<Storeslider 
-							items={FEATURED_GAMES} 
-							onCardClick={() => scrollToCarousel(featuredRef)}
-						/>
-					</section>
+					{featuredGames.length > 0 && (
+						<section ref={featuredRef}>
+							<h2 className="text-2xl font-semibold mb-4 text-slate-100">Featured</h2>
+							<Storeslider 
+								items={featuredGames} 
+								onCardClick={() => scrollToCarousel(featuredRef)}
+							/>
+						</section>
+					)}
 
 					{/* Discounted Games */}
-					<section ref={discountedRef}>
-						<h2 className="text-2xl font-semibold mb-4 text-slate-100">Deals & Discounts</h2>
-						<Storeslider 
-							items={DISCOUNTED_GAMES}
-							onCardClick={() => scrollToCarousel(discountedRef)}
-						/>
-					</section>
+					{discountedGames.length > 0 && (
+						<section ref={discountedRef}>
+							<h2 className="text-2xl font-semibold mb-4 text-slate-100">Deals & Discounts</h2>
+							<Storeslider 
+								items={discountedGames}
+								onCardClick={() => scrollToCarousel(discountedRef)}
+							/>
+						</section>
+					)}
 
 					{/* Upcoming Games */}
-					<section ref={upcomingRef}>
-						<h2 className="text-2xl font-semibold mb-4 text-slate-100">Coming Soon</h2>
-						<Storeslider 
-							items={UPCOMING_GAMES}
-							onCardClick={() => scrollToCarousel(upcomingRef)}
-						/>
+					{upcomingGames.length > 0 && (
+						<section ref={upcomingRef}>
+							<h2 className="text-2xl font-semibold mb-4 text-slate-100">Coming Soon</h2>
+							<Storeslider 
+								items={upcomingGames}
+								onCardClick={() => scrollToCarousel(upcomingRef)}
+							/>
+						</section>
+					)}
+
+					{/* Launcher Selection */}
+					<section>
+						<LauncherSelector />
 					</section>
-				{/* Launcher Selection */}
-				<section>
-					<LauncherSelector />
-				</section>					</div>
+				</div>
 			)}
 
 			{/* Show grid when filters are active */}
@@ -324,7 +265,7 @@ const Shopveiw = ({ items }) => {
 			{/* Filtered games section with compact filters sidebar */}
 			<section className="mt-8 mb-6">
 				<FilteredGamesSection 
-					games={ALL_GAMES} 
+					games={allGames} 
 					title="Browse Games"
 				/>
 			</section>

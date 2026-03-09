@@ -12,6 +12,7 @@ import SettingsPage from "./components/pages/setting.jsx";
 import ProfilePage from "./components/pages/profle.jsx";
 import GamePage from "./components/pages/gamepage.jsx";
 import AllGamesPage from "./components/pages/AllGamesPage.jsx";
+import SteamScraperTest from "./components/pages/SteamScraperTest.jsx";
 
 // Protected Route Component - redirects to login if not authenticated
 const ProtectedRoute = ({ user, children }) => {
@@ -34,40 +35,43 @@ function App() {
     <HashRouter>
       <div className="min-h-screen flex flex-col bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
         <MainNavbar user={user} onLogout={handleLogout} />
-        <Routes>
-          <Route path="/login" element={<Login onLogin={setUser} />} />
-          <Route path="/store" element={<Store />} />
-          <Route path="/shop/all-games" element={<AllGamesPage />} />
-          <Route path="/shop/platform/:platform" element={<AllGamesPage />} />
-          <Route path="/" element={<Store />} />
-          <Route path="/library" element={
-            <ProtectedRoute user={user}>
-              <LibraryPage />
-            </ProtectedRoute>
-          } />
-          <Route path="/game" element={<GamePage />} />
-          <Route path="/game/:id" element={<GamePage />} />
-          <Route path="/downloads" element={
-            <ProtectedRoute user={user}>
-              <DownloadsPage />
-            </ProtectedRoute>
-          } />
-          <Route path="/friends" element={
-            <ProtectedRoute user={user}>
-              <FriendsPage />
-            </ProtectedRoute>
-          } />
-          <Route path="/settings" element={
-            <ProtectedRoute user={user}>
-              <SettingsPage />
-            </ProtectedRoute>
-          } />
-          <Route path="/profile" element={
-            <ProtectedRoute user={user}>
-              <ProfilePage user={user} />
-            </ProtectedRoute>
-          } />
-        </Routes>
+        <main className="pt-12 flex-1">
+          <Routes>
+            <Route path="/login" element={<Login onLogin={setUser} />} />
+            <Route path="/store" element={<Store />} />
+            <Route path="/shop/all-games" element={<AllGamesPage />} />
+            <Route path="/shop/platform/:platform" element={<AllGamesPage />} />
+            <Route path="/" element={<Store />} />
+            <Route path="/library" element={
+              <ProtectedRoute user={user}>
+                <LibraryPage />
+              </ProtectedRoute>
+            } />
+            <Route path="/game" element={<GamePage />} />
+            <Route path="/game/:id" element={<GamePage />} />
+            <Route path="/test/steam-scraper" element={<SteamScraperTest />} />
+            <Route path="/downloads" element={
+              <ProtectedRoute user={user}>
+                <DownloadsPage />
+              </ProtectedRoute>
+            } />
+            <Route path="/friends" element={
+              <ProtectedRoute user={user}>
+                <FriendsPage />
+              </ProtectedRoute>
+            } />
+            <Route path="/settings" element={
+              <ProtectedRoute user={user}>
+                <SettingsPage />
+              </ProtectedRoute>
+            } />
+            <Route path="/profile" element={
+              <ProtectedRoute user={user}>
+                <ProfilePage user={user} />
+              </ProtectedRoute>
+            } />
+          </Routes>
+        </main>
       </div>
     </HashRouter>
   );

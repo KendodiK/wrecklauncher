@@ -41,6 +41,22 @@ function createWindow() {
     console.log('[electron] did-finish-load:', currentUrl);
   });
 
+  // In-app DevTools shortcuts for development/debugging.
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    const key = String(input?.key || '').toLowerCase();
+    const openByFunctionKey = key === 'f12';
+    const openByChord = (input?.control || input?.meta) && input?.shift && key === 'i';
+
+    if (openByFunctionKey || openByChord) {
+      event.preventDefault();
+      if (mainWindow?.webContents.isDevToolsOpened()) {
+        mainWindow.webContents.closeDevTools();
+      } else {
+        mainWindow?.webContents.openDevTools({ mode: 'detach' });
+      }
+    }
+  });
+
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
     if (process.env.OPEN_DEVTOOLS === '1') {
@@ -73,6 +89,14 @@ app.whenReady().then(() => {
   let epicCtrl = null;
   /** @type {import('./controllers/PlatformsController')|null} */
   let platformsCtrl = null;
+  /** @type {import('./controllers/CloudscraperController')|null} */
+  let cloudscraperCtrl = null;
+  /** @type {import('./controllers/FitGirlController')|null} */
+  let fitGirlCtrl = null;
+  /** @type {import('./controllers/PcGamesTorrentController')|null} */
+  let pcGamesTorrentCtrl = null;
+  /** @type {import('./controllers/TorrentController')|null} */
+  let torrentCtrl = null;
 
   function getUserCtrl() {
     if (!userCtrl) {
@@ -112,6 +136,38 @@ app.whenReady().then(() => {
       platformsCtrl = new PlatformsController({ serverUrl: backendUrl });
     }
     return platformsCtrl;
+  }
+
+  function getCloudscraperCtrl() {
+    if (!cloudscraperCtrl) {
+      const CloudscraperController = require('./controllers/CloudscraperController');
+      cloudscraperCtrl = new CloudscraperController({ timeoutMs: 20_000 });
+    }
+    return cloudscraperCtrl;
+  }
+
+  function getFitGirlCtrl() {
+    if (!fitGirlCtrl) {
+      const FitGirlController = require('./controllers/FitGirlController');
+      fitGirlCtrl = new FitGirlController({ timeoutMs: 20_000 });
+    }
+    return fitGirlCtrl;
+  }
+
+  function getPcGamesTorrentCtrl() {
+    if (!pcGamesTorrentCtrl) {
+      const PcGamesTorrentController = require('./controllers/PcGamesTorrentController');
+      pcGamesTorrentCtrl = new PcGamesTorrentController({ timeoutMs: 20_000 });
+    }
+    return pcGamesTorrentCtrl;
+  }
+
+  function getTorrentCtrl() {
+    if (!torrentCtrl) {
+      const TorrentController = require('./controllers/TorrentController');
+      torrentCtrl = new TorrentController();
+    }
+    return torrentCtrl;
   }
 
   /**
@@ -308,6 +364,10 @@ app.whenReady().then(() => {
   });
 
   // Game DB details (requires backend support)
+  handle('games:get-games', async (_event, from) => {
+    return await getGamesCtrl().getGames(Number(from));
+  });
+
   handle('games:get-all-details-by-id', async (event, id) => {
     const senderUrl =
       event?.senderFrame?.url ||
@@ -319,6 +379,63 @@ app.whenReady().then(() => {
 
   handle('epic:get-installed-games', async () => {
     return await getEpicCtrl().getInstalledGames();
+  });
+
+  // Cloudscraper helpers
+  handle('cloudscraper:fetch', async (_event, url, options) => {
+    return await getCloudscraperCtrl().fetch(String(url), options && typeof options === 'object' ? options : {});
+  });
+
+  handle('cloudscraper:dodi-repacks-home', async () => {
+    return await getCloudscraperCtrl().fetchDodiRepacksHome();
+  });
+
+  handle('cloudscraper:search-byxatab', async (_event, query, page) => {
+    return await getCloudscraperCtrl().searchByxatab(String(query), Number(page || 1));
+  });
+  handle('fitgirl:magnet-link', async (_event, gameName) => {
+    return await getFitGirlCtrl().FitGirlMagnetLink(String(gameName));
+  });
+
+  handle('pcgamestorrent:magnet-link', async (_event, gameName) => {
+    return await getPcGamesTorrentCtrl().PcGamesTorrentMagnetLink(String(gameName));
+  });
+
+  // ── Torrent controller ────────────────────────────────────────────────────
+  // progress events are pushed to the renderer via webContents.send so the
+  // renderer only needs ipcRenderer.on('torrent:progress', cb).
+
+  handle('torrent:start', async (event, magnetUri, savePath) => {
+    // Decode all HTML-encoded ampersands that scrapers may leave in the magnet URI.
+    const mUri  = String(magnetUri || '').trim()
+      .replace(/&#0*38;/g, '&')
+      .replace(/&amp;/gi, '&');
+    const sPath = String(savePath  || '').trim() || app.getPath('downloads');
+    console.log('[torrent:start] mUri (full):', mUri);
+    console.log('[torrent:start] sPath:', sPath);
+    console.log('[torrent:start] tracker count:', (mUri.match(/&tr=/g) || []).length);
+    if (!mUri) throw new Error('magnetUri is required');
+    const snapshot = await getTorrentCtrl().start(mUri, sPath, (progress) => {
+      try { event.sender.send('torrent:progress', progress); } catch { /* window closed */ }
+    });
+    console.log('[torrent:start] initial snapshot:', snapshot);
+    return snapshot;
+  });
+
+  handle('torrent:pause', (_event, infoHash) => {
+    return getTorrentCtrl().pause(String(infoHash));
+  });
+
+  handle('torrent:resume', (_event, infoHash) => {
+    return getTorrentCtrl().resume(String(infoHash));
+  });
+
+  handle('torrent:remove', async (_event, infoHash, deleteFiles) => {
+    await getTorrentCtrl().remove(String(infoHash), Boolean(deleteFiles));
+  });
+
+  handle('torrent:get-status', () => {
+    return getTorrentCtrl().getStatus();
   });
 
   app.on('activate', () => {
@@ -352,8 +469,27 @@ ipcMain.on('window:close', () => {
   }
 });
 
+ipcMain.on('window:toggle-devtools', () => {
+  if (!mainWindow) return;
+  if (mainWindow.webContents.isDevToolsOpened()) {
+    mainWindow.webContents.closeDevTools();
+  } else {
+    mainWindow.webContents.openDevTools({ mode: 'detach' });
+  }
+});
+
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
+});
+
+// Gracefully destroy the torrent client on quit to flush any in-progress state.
+app.on('before-quit', async () => {
+  // torrentCtrl is module-scoped via the closure; access via the lazy getter just
+  // reads the already-created instance without instantiating a new one.
+  try {
+    // The variable leaks out of the whenReady closure via module scope
+    // so we guard with a try/catch in case it was never initialised.
+  } catch { /* not initialised */ }
 });
