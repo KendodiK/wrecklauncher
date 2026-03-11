@@ -610,6 +610,20 @@ app.get("/api/games/list/:from", async (req, res) => {
   }
 });
 
+app.get("/api/search/:needle", async (req, res) => {
+  try {
+    const { needle } = req.params;
+    const gameCtrl = new gamesController();
+    const result = gameCtrl.search(needle);
+    if (result instanceof Error) {
+      return res.status(400).json({ error: result.error });
+    }
+    return res.json(result);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 /*
   route: /api/friends/:nativeUserId
   params: native_users.id
@@ -734,7 +748,7 @@ app.get("/api/shop_specials/:filter/:from", async (req, res) => {
   try {
     const { filter, from } = req.params;
     const shopSpecialsCtrl = new shopSpecialsController();
-    let result = shopSpecialsCtrl.getFilteredGamesFrom(filter, from);
+    let result = await shopSpecialsCtrl.getFilteredGamesFrom(filter, from);
     if (result instanceof Error) {
       return res.status(400).json({ message: 'Iternal server error', error: result });
     }
