@@ -141,6 +141,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   cloudscraperSearchByxatab: (query, page) => ipcRenderer.invoke('cloudscraper:search-byxatab', query, page),
   FitGirlMagnetLink: (gameName) => ipcRenderer.invoke('fitgirl:magnet-link', gameName),
   PcGamesTorrentMagnetLink: (gameName) => ipcRenderer.invoke('pcgamestorrent:magnet-link', gameName),
+  ComingSoonGames: (from) => ipcRenderer.invoke('shop-specials:coming-soon', from),
+  DiscountedGames: (from) => ipcRenderer.invoke('shop-specials:discounted', from),
+  FeaturedGames: (from) => ipcRenderer.invoke('shop-specials:featured', from),
   // Torrent
   /**
    * Start downloading a torrent from a magnet URI.

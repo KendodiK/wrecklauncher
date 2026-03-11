@@ -383,38 +383,53 @@ export async function runSmokeControllers() {
   //   lines.push('== getAllDetailsByID ==\nSkipped (set VITE_SMOKE_GAME_ID)');
   // }
 
-
-  try{
-    const games = await api.getGames(1);
-    log('getGames from 1', games);
+  try {   const comingSoon = await api.ComingSoonGames(0);
+    log('ComingSoonGames', Array.isArray(comingSoon) ? comingSoon.slice(0, 5) : comingSoon);
   } catch (e) {
-    warn('getGames', e);
+    warn('ComingSoonGames', e);
   }
+  try {   const discounted = await api.DiscountedGames(0);
+    log('DiscountedGames', Array.isArray(discounted) ? discounted.slice(0, 5) : discounted);
+  } catch (e) {
+    warn('DiscountedGames', e);
+  }
+  try {   const featured = await api.FeaturedGames(0);
+    log('FeaturedGames', Array.isArray(featured) ? featured.slice(0, 5) : featured);
+  } catch (e) {
+    warn('FeaturedGames', e);
+  }
+
+  // try{
+  //   const games = await api.getGames(1);
+  //   log('getGames from 1', games);
+  // } catch (e) {
+  //   warn('getGames', e);
+  // }
 
   // ── Torrent ──────────────────────────────────────────────────────────────────
   // torrentGetStatus is always safe: it returns whatever is currently active.
-  if (typeof api.torrentGetStatus === 'function') {
-    try {
-      const status = await api.torrentGetStatus();
-      log('torrentGetStatus', status);
-    } catch (e) {
-      warn('torrentGetStatus', e);
-    }
-  } else {
-    warn('torrentGetStatus', new Error('torrent API not available in preload'));
-  }
+  // if (typeof api.torrentGetStatus === 'function') {
+  //   try {
+  //     const status = await api.torrentGetStatus();
+  //     log('torrentGetStatus', status);
+  //   } catch (e) {
+  //     warn('torrentGetStatus', e);
+  //   }
+  // } else {
+  //   warn('torrentGetStatus', new Error('torrent API not available in preload'));
+  // }
 
   // Full end-to-end: fetch a FitGirl magnet link then start the torrent.
   // Un-comment the block below and set a real slug + save path to test.
   // Progress events stream in via onTorrentProgress for the lifetime of the download.
   
   if (typeof api.PcGamesTorrentMagnetLink === 'function' && typeof api.torrentStart === 'function') {
-    let unsub = null;
-    try {
-      const slug = 'the-roottrees-are-dead-free-download'; // replace with any igg-games slug
-      log('PcGamesTorrentMagnetLink', `fetching magnet for "${slug}"…`);
-      const magnet = await api.PcGamesTorrentMagnetLink(slug);
-      log('PcGamesTorrentMagnetLink', magnet ?? '(null – no magnet found on page)');
+    // let unsub = null;
+    // try {
+    //   const slug = 'the-roottrees-are-dead-free-download'; // replace with any igg-games slug
+    //   log('PcGamesTorrentMagnetLink', `fetching magnet for "${slug}"…`);
+    //   const magnet = await api.PcGamesTorrentMagnetLink(slug);
+    //   log('PcGamesTorrentMagnetLink', magnet ?? '(null – no magnet found on page)');
   
       // if (magnet) {
       //   // Subscribe to live progress pushes BEFORE calling start so no event is missed.
@@ -447,9 +462,9 @@ export async function runSmokeControllers() {
       //   const initial = await api.torrentStart(magnet /*, 'C:\\Games\\Downloads' */);
       //   log('torrentStart initial snapshot', initial);
       // }
-    } catch (e) {
-      warn('torrentStart', e);
-    }
+    // } catch (e) {
+    //   warn('torrentStart', e);
+    // }
     // To stop watching: unsub?.();
     // To pause:         api.torrentPause(infoHash);
     // To resume:        api.torrentResume(infoHash);

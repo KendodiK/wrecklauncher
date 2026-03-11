@@ -57,11 +57,6 @@ app.whenReady().then(() => {
   // Serverless controller modules (no LocalApi web server).
   const backendUrl = process.env.WRECK_BACKEND_URL || 'http://127.0.0.1:3000';
 
-  //temp
-  const username = 'teszt';
-  const password = 'teszt';
-  const email = 'a@b.c';
-
   
   /** @type {import('./controllers/UserController')|null} */
   let userCtrl = null;
@@ -85,6 +80,8 @@ app.whenReady().then(() => {
   let itchCtrl = null;
   /** @type {import('./controllers/GogController')|null} */
   let gogCtrl = null;
+  /** @type {import('./controllers/ShopSpecialsController')|null} */
+  let shopSpecialsCtrl = null;
 
   function getUserCtrl() {
     if (!userCtrl) {
@@ -173,7 +170,13 @@ app.whenReady().then(() => {
     }
     return gogCtrl;
   }
-
+function getShopSpecialsCtrl() {
+    if (!shopSpecialsCtrl) {
+      const ShopSpecialsController = require('./controllers/ShopSpecialsController');
+      shopSpecialsCtrl = new ShopSpecialsController({ serverUrl: backendUrl });
+    }
+    return shopSpecialsCtrl;
+  }
   /**
    * Registers an IPC handler with consistent error logging.
    * @param {string} channel
@@ -487,13 +490,25 @@ app.whenReady().then(() => {
   handle('torrent:get-status', () => {
     return getTorrentCtrl().getStatus();
   });
+//----------------Shop Specials Controller────────────────────────────────────────
 
+handle('shop-specials:coming-soon', async (from) => {
+  return await getShopSpecialsCtrl().getShopSpecials('coming_soon', from);
+});
+handle('shop-specials:featured', async (from) => {
+  return await getShopSpecialsCtrl().getShopSpecials('featured', from);
+});
+handle('shop-specials:discounted', async (from) => {
+  return await getShopSpecialsCtrl().getShopSpecials('discounted', from);
+});
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
     }
   });
 });
+
+
 
 // IPC wiring for window controls – used by MainNavbar via
 // window.electronAPI.* and window.api.* from preload.
