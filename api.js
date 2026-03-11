@@ -584,6 +584,21 @@ app.get("/api/games/:id/all", async (req, res) => {
   }
 });
 
+app.get("/api/games/list/:platformId/all/:from", async (req, res) => {
+  try {
+    const { platformId, from } = req.params;
+    const gameCtrl = new gamesController();
+    const games = gameCtrl.getAllGamesByPlatformFrom(platformId, from);
+
+    if (games instanceof Error) {
+      res.status(404).json({ error: games.message });
+    }
+    return res.json(games);
+  } catch (err) {
+    return res.status(500).json({ error: err.message })
+  }
+});
+
 app.get("/api/games/list/:from", async (req, res) => {
   try {
     const { from } = req.params;

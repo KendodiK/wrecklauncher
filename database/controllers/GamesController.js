@@ -227,6 +227,11 @@ class GamesController extends Controller {
         }
     }
 
+    /**
+     * Get all games with all related data, starting from an offset.
+     * @param {int} from - offset for pagination
+     * @returns {Array} - list of games with all related data
+     */
     async getAllGamesFrom(from) {
         await this.ready;
 
@@ -256,6 +261,39 @@ class GamesController extends Controller {
         return games;
     }
 
+    async getAllGamesByPlatformFrom(platform_id, from) {
+        await this.ready;
+
+        const query = `SELECT id FROM ${this.tableName} WHERE platform_id = ? ORDER BY id LIMIT 20 OFFSET ?;`;
+        let game_ids = [];
+
+        try {
+            const [rows] = await this.dbConnection.execute(query, [platform_id, from]);
+            for (const row of rows) {
+                game_ids.push(row.id);
+            }
+        } catch (err) { 
+            console.error(`Error while fetching game ids by platform_id from table ${this.tableName}: ${err}`);
+            throw err;
+        }
+
+        let games = [];
+        for (const game_id of game_ids) {
+            const game = await this.getWithAllForeign(game_id);
+            if (game) {
+                games.push(game);
+            } else {
+                console.warn(`Game with id ${game_id} not found in table ${this.tableName}`);
+            }
+        }
+        return games;
+    }
+
+    /**
+     * Check if the foreign keys (platform_id) are valid.
+     * @param {Object} data - The data to validate.
+     * @returns {Promise<boolean|Error>} - True if valid, Error otherwise.
+     */
     async #checkForeignKeys(data) {
         await this.ready;
 
