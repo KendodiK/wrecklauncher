@@ -35,7 +35,8 @@ app.listen(PORT, () => {
 //tryUploadGame();
 //tryUploadGameWithAll();
 //tryFillShopSpecials();
-tryChangeShopSpecials(3);
+//tryChangeShopSpecials(3);
+trySearch();
 
 function generateDB() {
     let databaseHandler = new DatabaseHandler();
@@ -178,4 +179,15 @@ async function tryChangeShopSpecials(id) {
     } catch (err) {
         console.error('Error in tryChangeShopSpecials:', err instanceof Error ? err.message : String(err));
     } 
+}
+
+async function trySearch() {
+    const needle = "Gam";
+    try {
+        const gameCtrl = new GameController();
+            const res = await gameCtrl.search(needle);
+            console.log('Search runned succesfully:', res[0]);
+    } catch (err) {
+        console.log('Error in search from games:', err.message);
+    }
 }
