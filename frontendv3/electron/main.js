@@ -1,3 +1,4 @@
+const { get } = require('cloudscraper');
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 
@@ -310,6 +311,10 @@ function getShopSpecialsCtrl() {
       if (!pPassword) throw new Error('platformPassword is required');
       if (!pProfileId) throw new Error('platformProfileId is required');
       return await getPlatformsCtrl().createPlatformUser(token, pName, pUsername, pPassword, pProfileId);
+    });
+
+  handleAuthed('steam:create-user', async ({ token }, platformUsername, platformProfileLink) => {
+      return await getPlatformsCtrl().createSteamPlatformUser(token, platformUsername, platformProfileLink);
     });
   // Steam game details.
   // Supports both call styles:

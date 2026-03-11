@@ -26,9 +26,42 @@ function setAuthToken(token) {
 ipcRenderer.on('auth:token-updated', (_event, token) => {
   setAuthToken(typeof token === 'string' ? token : null);
 });
-ipcRenderer.on('auth:token-cleared', () => {
+
+function notifyAuthExpired() {
   setAuthToken(null);
+  try {
+    window.dispatchEvent(new CustomEvent('wreck:auth-expired'));
+  } catch {
+    // ignore
+  }
+}
+
+ipcRenderer.on('auth:token-cleared', () => {
+  notifyAuthExpired();
 });
+
+// Invokes an authed IPC channel: resolves the token, passes it as first arg,
+// and fires wreck:auth-expired (→ login redirect) if auth fails.
+async function invokeAuthed(channel, ...args) {
+  const token = await resolveAuthToken();
+  if (!token) {
+    notifyAuthExpired();
+    throw new Error('Missing auth token');
+  }
+  try {
+    return await ipcRenderer.invoke(channel, token, ...args);
+  } catch (err) {
+    const msg = String(err?.message || '').toLowerCase();
+    if (
+      msg.includes('missing auth token') ||
+      msg.includes('invalid token') ||
+      msg.includes('unauthorized')
+    ) {
+      notifyAuthExpired();
+    }
+    throw err;
+  }
+}
 
 async function invokeWithTokenSync(channel, ...args) {
   const ch = String(channel || '');
@@ -84,31 +117,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return token;
   },
   getPlatformUserID: (platformName, platformUsername) => {
-    return resolveAuthToken().then((token) =>
-      ipcRenderer.invoke('user:get-platform-userid', token, platformName, platformUsername)
-    );
+    return invokeAuthed('user:get-platform-userid', platformName, platformUsername);
   },
   createPlatform: (platformName) => {
-    return resolveAuthToken().then((token) =>
-      ipcRenderer.invoke('platform:create-platform', token, platformName)
-    );
+    return invokeAuthed('platform:create-platform', platformName);
   },
   createPlatformUser: (platformName, platformUsername, platformPassword, platformProfileId) => {
-    return resolveAuthToken().then((token) =>
-      ipcRenderer.invoke('platform:create-user', token, platformName, platformUsername, platformPassword, platformProfileId)
-    );
+    return invokeAuthed('platform:create-user', platformName, platformUsername, platformPassword, platformProfileId);
+  },
+  createSteamPlatformUser: (platformUsername, platformProfileLink) => {
+    return invokeAuthed('steam:create-user', platformUsername, platformProfileLink);
   },
   getPlatform: (platformName) => ipcRenderer.invoke('platform:get', platformName),
   //Steam
   getOwnedGamesFromSteam: (platformUsername) => {
-    return resolveAuthToken().then((token) =>
-      ipcRenderer.invoke('user:get-owned-games-from-steam', token, platformUsername)
-    );
+    return invokeAuthed('user:get-owned-games-from-steam', platformUsername);
   },
   getSteamGameDetails: (appID, cc) => {
-    return resolveAuthToken().then((token) =>
-      ipcRenderer.invoke('steam:get-game-details', token, appID, cc)
-    );
+    return invokeAuthed('steam:get-game-details', appID, cc);
   },
   getSteamGameDetailsAndUpload: (appID, cc) => ipcRenderer.invoke('steam:get-game-details-and-upload', appID, cc),
   installSteamGame: (appID) => ipcRenderer.invoke('steam:install-game', appID),
@@ -119,18 +145,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // itch.io
   getItchInstalledGames: () => ipcRenderer.invoke('itch:get-installed-games'),
   getItchGameDetails: (gameId) => {
-    return resolveAuthToken().then((token) =>
-      ipcRenderer.invoke('itch:get-game-details', token, gameId)
-    );
+    return invokeAuthed('itch:get-game-details', gameId);
   },
   openItchGame: (gameId) => ipcRenderer.invoke('itch:open-game', gameId),
   installItchGame: (gameId) => ipcRenderer.invoke('itch:install-game', gameId),
   // GOG
   getGogInstalledGames: () => ipcRenderer.invoke('gog:get-installed-games'),
   getGogGameDetails: (productId) => {
-    return resolveAuthToken().then((token) =>
-      ipcRenderer.invoke('gog:get-game-details', token, productId)
-    );
+    return invokeAuthed('gog:get-game-details', productId);
   },
   openGogGame: (productId) => ipcRenderer.invoke('gog:open-game', productId),
   runGogGame: (productId) => ipcRenderer.invoke('gog:run-game', productId),

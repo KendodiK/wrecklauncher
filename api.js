@@ -397,6 +397,25 @@ function tokenValidate(req) {
 
 // -------------------     GET      ------------------ //
 
+app.get('/api/steam/profile_id/:vanityurl', async (req, res) => {
+  try {
+    const { vanityurl } = req.params;
+    const response = await fetch(
+      `https://api.steampowered.com/ISteamUser/ResolveVanityURL/v0001/?key=${steamApiKey}&vanityurl=${encodeURIComponent(vanityurl)}`
+    );
+    if (!response.ok) {
+      return res.status(502).json({ error: 'Steam API error' });
+    }
+    const data = await response.json();
+    if (data?.response?.success !== 1) {
+      return res.status(404).json({ error: 'Vanity URL not found' });
+    }
+    return res.json({ steamid: data.response.steamid });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/steam/api/getOwnedGames', tokenValidate(), async (req, res) => { 
   try {
     const { userId } = req.auth;

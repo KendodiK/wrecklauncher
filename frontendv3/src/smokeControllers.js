@@ -183,42 +183,41 @@ export async function runSmokeControllers() {
     }
   }  
 
+//  Platforms
+  try {
+    const platform = await api.getPlatform('steam');
+    log('getPlatform steam', platform);
+    if (!platform) {
+      const created = await api.createPlatform('steam');
+      log('createPlatform steam', created);
+    }
+  } catch (e) {
+    warn('getPlatform steam', e);
+    try {
+      const created = await api.createPlatform('steam');
+      log('createPlatform steam', created);
+    } catch (e2) {
+      warn('createPlatform steam', e2);
+    }
+  }
+  
 
-  // Platforms
-//   try {
-//     const platform = await api.getPlatform('steam');
-//     log('getPlatform steam', platform);
-//     if (!platform) {
-//       const created = await api.createPlatform('steam');
-//       log('createPlatform steam', created);
-//     }
-//   } catch (e) {
-//     warn('getPlatform steam', e);
-//     try {
-//       const created = await api.createPlatform('steam');
-//       log('createPlatform steam', created);
-//     } catch (e2) {
-//       warn('createPlatform steam', e2);
-//     }
-//   }
-// let platformUserId;
-//   try{
-//     platformUserId = await api.getPlatformUserID('steam', 'freshargentinaccount69912');
-//     log('getPlatformUserID steam', platformUserId);    
-//   }catch(e){
-//     warn('getPlatformUserID steam', e);
-//     try {
-//       const platformUser = await api.createPlatformUser(
-//         'steam',
-//         'freshargentinaccount69912',
-//         'testpassword',
-//         '76561199194098023',
-//       );
-//       log('createPlatformUser', platformUser);
-//     } catch (e2) {
-//       warn('createPlatformUser', e2);
-//     }
-//   }
+let platformUserId;
+  try{
+    platformUserId = await api.getPlatformUserID('steam', 'plati69');
+    log('getPlatformUserID steam', platformUserId);    
+  }catch(e){
+    warn('getPlatformUserID steam', e);
+    try {
+      const platformUser = await api.createSteamPlatformUser(
+        'plati69',
+        'https://steamcommunity.com/id/plati69/',
+      );
+      log('createPlatformUser', platformUser);
+    } catch (e2) {
+      warn('createPlatformUser', e2);
+    }
+  }
 
 // try{
 //   let owned = await api.getOwnedGamesFromSteam('freshargentinaccount69912');
@@ -383,21 +382,21 @@ export async function runSmokeControllers() {
   //   lines.push('== getAllDetailsByID ==\nSkipped (set VITE_SMOKE_GAME_ID)');
   // }
 
-  try {   const comingSoon = await api.ComingSoonGames(0);
-    log('ComingSoonGames', Array.isArray(comingSoon) ? comingSoon.slice(0, 5) : comingSoon);
-  } catch (e) {
-    warn('ComingSoonGames', e);
-  }
-  try {   const discounted = await api.DiscountedGames(0);
-    log('DiscountedGames', Array.isArray(discounted) ? discounted.slice(0, 5) : discounted);
-  } catch (e) {
-    warn('DiscountedGames', e);
-  }
-  try {   const featured = await api.FeaturedGames(0);
-    log('FeaturedGames', Array.isArray(featured) ? featured.slice(0, 5) : featured);
-  } catch (e) {
-    warn('FeaturedGames', e);
-  }
+  // try {   const comingSoon = await api.ComingSoonGames(0);
+  //   log('ComingSoonGames', Array.isArray(comingSoon) ? comingSoon.slice(0, 5) : comingSoon);
+  // } catch (e) {
+  //   warn('ComingSoonGames', e);
+  // }
+  // try {   const discounted = await api.DiscountedGames(0);
+  //   log('DiscountedGames', Array.isArray(discounted) ? discounted.slice(0, 5) : discounted);
+  // } catch (e) {
+  //   warn('DiscountedGames', e);
+  // }
+  // try {   const featured = await api.FeaturedGames(0);
+  //   log('FeaturedGames', Array.isArray(featured) ? featured.slice(0, 5) : featured);
+  // } catch (e) {
+  //   warn('FeaturedGames', e);
+  // }
 
   // try{
   //   const games = await api.getGames(1);
