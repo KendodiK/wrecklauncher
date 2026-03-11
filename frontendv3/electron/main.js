@@ -492,13 +492,13 @@ function getShopSpecialsCtrl() {
   });
 //----------------Shop Specials Controller────────────────────────────────────────
 
-handle('shop-specials:coming-soon', async (from) => {
+handle('shop-specials:coming-soon', async (event, from) => {
   return await getShopSpecialsCtrl().getShopSpecials('coming_soon', from);
 });
-handle('shop-specials:featured', async (from) => {
+handle('shop-specials:featured', async (event, from) => {
   return await getShopSpecialsCtrl().getShopSpecials('featured', from);
 });
-handle('shop-specials:discounted', async (from) => {
+handle('shop-specials:discounted', async (event, from) => {
   return await getShopSpecialsCtrl().getShopSpecials('discounted', from);
 });
   app.on('activate', () => {

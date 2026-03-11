@@ -735,7 +735,7 @@ app.get("/api/shop_specials/:filter/:from", async (req, res) => {
   try {
     const { filter, from } = req.params;
     const shopSpecialsCtrl = new shopSpecialsController();
-    let result = shopSpecialsCtrl.getFilteredGamesFrom(filter, from);
+    let result = await shopSpecialsCtrl.getFilteredGamesFrom(filter, from);
     if (result instanceof Error) {
       return res.status(400).json({ message: 'Iternal server error', error: result });
     }
