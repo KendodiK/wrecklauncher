@@ -18,7 +18,8 @@ class GamesTableMaker extends DatabaseHandler {
                 game_id MEDIUMINT UNSIGNED NOT NULL, INDEX(game_id),
                 featured BOOLEAN,
                 coming_soon BOOLEAN,
-                discounted BOOLEAN
+                discounted BOOLEAN,
+                UNIQUE (game_id)
             );
         `;
         try {

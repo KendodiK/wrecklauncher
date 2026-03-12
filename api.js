@@ -26,6 +26,7 @@ const pirateSitesController = require('./database/controllers/PirateSitesControl
 const gamesPirateSitesConnectionController = require('./database/controllers/GamesPirateSitesConnectionController');
 const { errorMonitor } = require('events');
 const { error } = require('console');
+const NativeUsersController = require('./database/controllers/NativeUsersController');
 
 const PORT = 3000;
 // Replace with your actual Steam API key and Steam ID
@@ -1120,9 +1121,35 @@ app.delete("/api/friends/:friendShipId", tokenValidate(), async (req, res) => {
     if (result instanceof Error) {
       return res.status(400).json({ message: result.message });
     }
-    return res.status(201).json(result);
-  } catch (error) {
-    console.error('Error in /api/friends endpoint:', error);
-    return res.status(500).json({ error: error.message }); 
+    return res.status(201).json({});
+  } catch (err) {
+    console.error('Error in /api/friends endpoint:', err);
+    return res.status(500).json({ error: err.message }); 
   }
-}); 
+});
+
+app.delete("/api/platform_user/:id", tokenValidate(), async (req, res) => {
+  try {
+    const { platformId } = req.params;
+
+    const platformUserCtrl = new platformsController();
+    const result = await platformUserCtrl.delete(platformId);
+    return res.status(201).json({});
+  } catch (err) {
+    console.error("Error in /api/platform_user endpoint:", err);
+    return res.status(500).json({error: err.message});
+  }
+});
+
+app.delete("/api/native_user", tokenValidate(), async (req, res) => {
+  try {
+    const { userId } = req.auth;
+
+    const natvieUserCtrl = new NativeUsersController();
+    const result = await natvieUserCtrl.delete(userId);
+    return res.status(201).json({});
+  } catch (err) {
+    console.error("Error on /api/native_user endpoint:", err);
+    return res.status(500).json({error: err.message});
+  }
+});

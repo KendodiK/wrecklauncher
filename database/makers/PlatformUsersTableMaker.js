@@ -21,6 +21,7 @@ class PlatformUsersTableMaker extends DatabaseHandler {
                 platform_id SMALLINT NOT NULL, INDEX(platform_id),
                 platform_profile_id VARCHAR(17) NOT NULL,
                 platform_password VARCHAR(64) NOT NULL
+                UNIQUE KEY uq_user_platform_profile (native_user_id, platform_id, platform_profile_id)
             );
         `;
         try {
