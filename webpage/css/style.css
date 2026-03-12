@@ -34,7 +34,7 @@ body {
     margin-bottom: 35vh;
 }
 
-.wrapper > p {
+.wrapper > h2 {
     font-size: 2vw;
     margin-bottom: 5vh;
 }
@@ -123,6 +123,10 @@ body {
     animation: show-anchor forwards;
     animation-timeline: scroll();
     animation-range: 45vh 50vh;
+}
+
+.chain-container {
+    position: relative;
 }
 
 @keyframes move-steam {
