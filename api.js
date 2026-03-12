@@ -1150,11 +1150,21 @@ app.delete("/api/friends/:friendShipId", tokenValidate(), async (req, res) => {
 
 app.delete("/api/platform_user/:id", tokenValidate(), async (req, res) => {
   try {
-    const { platformId } = req.params;
+    const { userId } = req.auth;
+    const { id } = req.params;
 
-    const platformUserCtrl = new platformsController();
-    const result = await platformUserCtrl.delete(platformId);
-    return res.status(201).json({});
+    const platformUserCtrl = new platformUsersController();
+    const result = await platformUserCtrl.deleteByNativeUserId(id, userId);
+    if (result instanceof Error) {
+      return res.status(400).json({ message: result.message });
+    }
+    if (!result.deleted) {
+      return res.status(404).json({
+        message: 'Platform user not found for authenticated user',
+        ...result,
+      });
+    }
+    return res.status(200).json(result);
   } catch (err) {
     console.error("Error in /api/platform_user endpoint:", err);
     return res.status(500).json({error: err.message});

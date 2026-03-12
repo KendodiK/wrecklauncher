@@ -199,22 +199,53 @@ export async function runSmokeControllers() {
     } catch (e2) {
       warn('createPlatform steam', e2);
     }
-  }
-  for (let i = 0; i < 5; i++) {
-      try {
-      const platformUser = await api.createSteamPlatformUser(
-        'teszt',
-        'https://steamcommunity.com/profiles/76561199194098023/',
-      );
-      log('createPlatformUser', platformUser);
-    } catch (e2) {
-      warn('createPlatformUser', e2);
-    }
-}
-let platformUsers;
+  }  
+    // try {
+    //   const platformUser = await api.createSteamPlatformUser(
+    //     'teszt',
+    //     'https://steamcommunity.com/profiles/76561199194098023/',
+    //   );
+    //   log('createPlatformUser', platformUser);
+    // } catch (e2) {
+    //   warn('createPlatformUser', e2);
+    // }
+  let platformUsers;
   try {
-    platformUsers = await api.getPlatformUsers('steam');
+    platformUsers = await api.getPlatformUsers();
     log('getPlatformUsers steam', platformUsers);
+
+    if (!Array.isArray(platformUsers) || platformUsers.length === 0) {
+      try {
+        const createdUser = await api.createSteamPlatformUser(
+          'teszt',
+          'https://steamcommunity.com/profiles/76561199194098023/',
+        );
+        log('createPlatformUser', createdUser);
+      } catch (eCreateUser) {
+        warn('createPlatformUser', eCreateUser);
+      }
+
+      platformUsers = await api.getPlatformUsers();
+      log('getPlatformUsers steam after create', platformUsers);
+    }
+
+    if (Array.isArray(platformUsers) && platformUsers.length > 0) {
+      try {
+        const firstUser = platformUsers[0] || null;
+        const firstUserId = firstUser?.id;
+        if (firstUserId == null) {
+          throw new Error('No valid platform user id found to delete');
+        }
+        const deleted = await api.deletePlatformUser(firstUserId);
+        log('deletePlatformUser', deleted);
+        const afterDelete = await api.getPlatformUsers();
+        log('getPlatformUsers after delete', afterDelete);
+      } catch (eDelete) {
+        warn('deletePlatformUser', eDelete);
+      }
+    } else {
+      warn('getPlatformUsers steam', new Error('No platform users found to delete even after create attempt'));
+    }
   } catch (e) {
     warn('getPlatformUsers steam', e);
   }

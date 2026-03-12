@@ -320,6 +320,13 @@ function getShopSpecialsCtrl() {
   handleAuthed('platform:get-users', async ({ token }) => {
     return await getPlatformsCtrl().getPlatformUserIDAll(token);
   });
+
+  handleAuthed('platform:delete-user', async ({ token }, platformUserId) => {
+    const id = String(platformUserId || '').trim();
+    if (!id) throw new Error('platformUserId is required');
+    return await getPlatformsCtrl().deletePlatformUser(token, id);
+  });
+
   // Steam game details.
   // Supports both call styles:
   // 1) invoke('steam:get-game-details', token, appID, cc)
