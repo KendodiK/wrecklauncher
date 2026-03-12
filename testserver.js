@@ -35,8 +35,9 @@ app.listen(PORT, () => {
 //tryUploadGame();
 //tryUploadGameWithAll();
 //tryFillShopSpecials();
-//tryChangeShopSpecials(3);
+////tryChangeShopSpecials(3);
 tryGetFromShopSpecials();
+trySearch();
 
 function generateDB() {
     let databaseHandler = new DatabaseHandler();
@@ -188,5 +189,16 @@ async function tryGetFromShopSpecials() {
         console.log('Successfuly got elements form shop_specials table: ', resp[0]);
     } catch (err) {
         console.error('Failed to get elements form shop_specials table: ', err);
+    }
+}
+
+async function trySearch() {
+    const needle = "Gam";
+    try {
+        const gameCtrl = new GameController();
+            const res = await gameCtrl.search(needle);
+            console.log('Search runned succesfully:', res[0]);
+    } catch (err) {
+        console.log('Error in search from games:', err.message);
     }
 }

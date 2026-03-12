@@ -16,7 +16,8 @@ class PirateSitesTableMaker extends DatabaseHandler {
         const query = `
             CREATE TABLE IF NOT EXISTS pirate_sites(
                 id TINYINT AUTO_INCREMENT PRIMARY KEY,
-                name VARCHAR(10) NOT NULL
+                name VARCHAR(10) NOT NULL,
+                UNIQUE (name)
             );
         `;
         try {

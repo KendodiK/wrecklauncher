@@ -261,6 +261,37 @@ class GamesController extends Controller {
         return games;
     }
 
+    async search (needle) {
+        await this.ready;
+
+        let game_ids = [];
+        try {
+            const query = `SELECT id FROM ${this.tableName} WHERE name LIKE ?;`;
+            const like = `%${needle}%`;
+            const [rows] = await this.dbConnection.execute(query, [like]);
+            for (const row of rows) {
+                if (row && row.id != null) {
+                    game_ids.push(row.id);
+                }
+            }
+        } catch (err) {
+            console.error(`Error while fetching game ids from table ${this.tableName}: ${err}`);
+            throw err;
+        }
+
+        let games = [];
+        for (const game_id of game_ids) {
+            const game = await this.getWithAllForeign(game_id);
+            if (game) {
+                games.push(game);
+            } else {
+                console.warn(`Game with id ${game_id} not found in table ${this.tableName}`);
+            }
+        }
+
+        return games;
+    }
+
     async getAllGamesByPlatformFrom(platform_id, from) {
         await this.ready;
 

@@ -16,7 +16,8 @@ class PlatformsTableMaker extends DatabaseHandler {
         const query = `
             CREATE TABLE IF NOT EXISTS platforms(
                 id TINYINT AUTO_INCREMENT PRIMARY KEY,
-                platform_name VARCHAR(10)
+                platform_name VARCHAR(10),
+                UNIQUE (platform_name)
             );
         `;
         try {
