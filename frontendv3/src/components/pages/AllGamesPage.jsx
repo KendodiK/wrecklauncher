@@ -75,10 +75,7 @@ const AllGamesPage = () => {
 		const fetchGames = async () => {
 			setIsLoading(true);
 			try {
-				const backendUrl = 'http://127.0.0.1:3000';
-				const response = await fetch(`${backendUrl}/api/games`);
-				if (!response.ok) throw new Error(`Failed to fetch games: ${response.statusText}`);
-				const gamesData = await response.json();
+				const gamesData = await window.electronAPI.getGames(0);
 				const normalized = (gamesData || []).map((game) => ({
 					id: game.id,
 					app_id: game.app_id,
@@ -150,7 +147,7 @@ const AllGamesPage = () => {
 	const handleGameClick = (game) => {
 		if (game.appid || game.app_id || game.id) {
 			const gameId = game.appid || game.app_id || game.id;
-			navigate(`/game/${gameId}`);
+			navigate(`/store/game/${gameId}`, { state: { game } });
 		}
 	};
 

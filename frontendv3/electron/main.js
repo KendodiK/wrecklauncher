@@ -1,4 +1,3 @@
-const { get } = require('cloudscraper');
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 
@@ -72,7 +71,7 @@ app.whenReady().then(() => {
   createWindow();
 
   // Serverless controller modules (no LocalApi web server).
-  const backendUrl = process.env.WRECK_BACKEND_URL || 'http://127.0.0.1:3000';
+  const backendUrl = "https://api.anchorlauncher.hu";
 
   
   /** @type {import('./controllers/UserController')|null} */
@@ -99,6 +98,8 @@ app.whenReady().then(() => {
   let gogCtrl = null;
   /** @type {import('./controllers/ShopSpecialsController')|null} */
   let shopSpecialsCtrl = null;
+  /** @type {import('./controllers/SettingsController')|null} */
+  let settingsCtrl = null;
 
   function getUserCtrl() {
     if (!userCtrl) {
@@ -127,7 +128,7 @@ app.whenReady().then(() => {
   function getEpicCtrl() {
     if (!epicCtrl) {
       const EpicGamesController = require('./controllers/EpicGamesController');
-      epicCtrl = new EpicGamesController({ serverUrl: backendUrl });
+      epicCtrl = new EpicGamesController();
     }
     return epicCtrl;
   }
@@ -193,6 +194,14 @@ function getShopSpecialsCtrl() {
       shopSpecialsCtrl = new ShopSpecialsController({ serverUrl: backendUrl });
     }
     return shopSpecialsCtrl;
+  }
+
+  function getSettingsCtrl() {
+    if (!settingsCtrl) {
+      const SettingsController = require('./controllers/SettingsController');
+      settingsCtrl = new SettingsController();
+    }
+    return settingsCtrl;
   }
   /**
    * Registers an IPC handler with consistent error logging.
@@ -301,6 +310,31 @@ function getShopSpecialsCtrl() {
   handleAuthed('user:get-owned-games-from-steam', async ({ token }, platformUsername) => {
     getUserCtrl().setToken(token);
     return await getUserCtrl().getOwnedGamesFromSteam(String(platformUsername));
+  });
+
+  // Settings (no auth required for now - using global settings)
+  handle('settings:get', async () => {
+    return await getSettingsCtrl().getSettings();
+  });
+
+  handle('settings:update', async (_event, category, key, value) => {
+    return await getSettingsCtrl().updateSetting(String(category), String(key), value);
+  });
+
+  handle('settings:update-bulk', async (_event, newSettings) => {
+    return await getSettingsCtrl().updateSettings(newSettings);
+  });
+
+  handle('settings:reset', async () => {
+    return await getSettingsCtrl().resetToDefaults();
+  });
+
+  handle('settings:clear-cache', async () => {
+    return await getSettingsCtrl().clearCache();
+  });
+
+  handle('settings:update-platform', async (_event, platform, connected, username) => {
+    return await getSettingsCtrl().updatePlatformConnection(String(platform), Boolean(connected), String(username || ''));
   });
 
   // Platforms

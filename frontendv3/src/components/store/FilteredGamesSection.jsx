@@ -203,7 +203,7 @@ const FilteredGamesSection = ({ games = [], title = "Browse Games" }) => {
 	const handleGameClick = (game) => {
 		if (game.appid || game.app_id || game.id) {
 			const gameId = game.appid || game.app_id || game.id;
-			navigate(`/game/${gameId}`);
+			navigate(`/store/game/${gameId}`, { state: { game } });
 		}
 	};
 

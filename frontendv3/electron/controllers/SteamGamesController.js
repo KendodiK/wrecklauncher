@@ -11,11 +11,15 @@ class SteamGamesController extends GamesController {
    */
   #platformID;
   /**
-   * @param {{ serverUrl: string }|undefined} [cfg]
+   * @param {{ serverUrl: string }} cfg
    */
   constructor(cfg) {
+    if (!cfg?.serverUrl) {
+      throw new Error('SteamGamesController requires serverUrl from main.js');
+    }
+
     super({
-      serverUrl: cfg?.serverUrl || process.env.WRECK_BACKEND_URL || 'http://127.0.0.1:3000',
+      serverUrl: cfg.serverUrl,
     });
     this.#platformID = "";
   }
@@ -184,8 +188,8 @@ class SteamGamesController extends GamesController {
       // Keep it separate from the Steam details object.
       const genreNames = Array.isArray(data.genres)
         ? data.genres
-            .map((g) => (g && typeof g === 'object' ? g.description : null))
-            .filter((s) => typeof s === 'string' && s.trim())
+            .map((/** @type {any} */ g) => (g && typeof g === 'object' ? g.description : null))
+            .filter((/** @type {any} */ s) => typeof s === 'string' && s.trim())
         : [];
 
       const cost = typeof priceOverviewFinal === 'number' ? priceOverviewFinal / 100 : null;

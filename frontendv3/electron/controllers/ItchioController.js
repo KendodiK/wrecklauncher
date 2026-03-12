@@ -12,10 +12,14 @@ class ItchioController extends GamesController {
   #serverUrl;
 
   /**
-   * @param {{ serverUrl: string }|undefined} [cfg]
+   * @param {{ serverUrl: string }} cfg
    */
   constructor(cfg) {
-    const serverUrl = cfg?.serverUrl || process.env.WRECK_BACKEND_URL || 'http://127.0.0.1:3000';
+    if (!cfg?.serverUrl) {
+      throw new Error('ItchioController requires serverUrl from main.js');
+    }
+
+    const serverUrl = cfg.serverUrl;
     super({ serverUrl });
     this.#serverUrl = normalizeBaseUrl(serverUrl, { defaultProtocol: 'http:' });
   }

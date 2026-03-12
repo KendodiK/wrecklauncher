@@ -10,7 +10,7 @@ const GameGrid = ({ games = [], isLoading = false, emptyMessage = 'No games foun
 
 	const handleCardClick = (game) => {
 		if (game.id || game.appid) {
-			navigate(`/game/${game.id || game.appid}`);
+			navigate(`/store/game/${game.id || game.appid}`, { state: { game } });
 		}
 	};
 

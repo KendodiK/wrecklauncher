@@ -10,11 +10,12 @@ import { combineFilters, hasActiveFilters as checkActiveFilters } from '../../ut
  * Shop View Component
  * 
  * Data Flow:
- * 1. On mount: Fetches all games from backend database (GET /api/games)
+ * 1. On mount: Fetches all games from backend database via Electron IPC
+ *    which maps to GET /api/games/list/:from on the backend.
  *    - Returns basic game info: id, app_id, name, banner_img, cost, description, etc.
  * 
- * 2. When user clicks a game: Navigates to GamePage (/game/:id)
- *    - GamePage then uses window.electronAPI.getSteamGameDetails(appID, cc) to fetch
+ * 2. When user clicks a game in the shop: Navigates to StoreGamePage (/store/game/:id)
+ *    - StoreGamePage then uses window.electronAPI.getSteamGameDetails(appID, cc) to fetch
  *      detailed scraped data from Steam (or from cached database)
  *    - Or uses window.electronAPI.getAllDetailsByID(id) to fetch from database
  * 
@@ -140,16 +141,8 @@ const Shopveiw = ({ items }) => {
 		const fetchData = async () => {
 			setIsLoading(true);
 			try {
-				// Fetch basic game list from backend API (GET /api/games)
-				// This returns all games from the database with basic info
-				const backendUrl = 'http://127.0.0.1:3000';
-				const response = await fetch(`${backendUrl}/api/games`);
-				
-				if (!response.ok) {
-					throw new Error(`Failed to fetch games: ${response.statusText}`);
-				}
-				
-				const gamesData = await response.json();
+				// Fetch the first page of games through the preload bridge.
+				const gamesData = await window.electronAPI.getGames(0);
 				console.log('Fetched games from database:', gamesData);
 				
 				// Transform the data to match our component's expected format

@@ -12,6 +12,7 @@ const GameSliderBase = ({
 	ariaLabel,
 	onActivateCard,
 	onCardClick,
+	onCurrentCardChange,
 	// Styling hooks (wrapper supplies CSS classnames)
 	classNameWrapper = '',
 	classNameCarousel = '',
@@ -217,6 +218,13 @@ const GameSliderBase = ({
 		setCurrentIndex(initialIndex);
 	}, [initialIndex, baseCards.length]);
 
+	useEffect(() => {
+		if (typeof onCurrentCardChange !== 'function') return;
+		const card = cards[currentIndex];
+		if (!card) return;
+		onCurrentCardChange(card, { index: currentIndex });
+	}, [cards, currentIndex, onCurrentCardChange]);
+
 	const onKeyDown = (e) => {
 		if (e.key === 'ArrowRight') move(1);
 		if (e.key === 'ArrowLeft') move(-1);
@@ -410,13 +418,15 @@ const GameSliderBase = ({
 									onActivateCard(card, { index });
 								}}
 							>
-								<img
-									src={card.image}
-									alt={card.title}
-									decoding="async"
-									loading={Math.abs(index - currentIndex) <= 2 ? 'eager' : 'lazy'}
-									fetchPriority={index === currentIndex ? 'high' : 'auto'}
-								/>
+								{effectiveRenderCard({
+									card,
+									offset: index - currentIndex,
+									abs: Math.abs(index - currentIndex),
+									dir: index === currentIndex ? 0 : index > currentIndex ? 1 : -1,
+									index,
+									currentIndex,
+									classNameCardActive,
+								})}
 							</li>
 						))}
 					</motion.ul>

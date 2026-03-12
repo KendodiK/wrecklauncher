@@ -30,7 +30,7 @@ const Storeslider = ({ items, onCardClick }) => {
         const appid = Number(card.appid);
         const routeId = Number.isFinite(appid) && appid > 0 ? String(appid) : (card.id != null ? String(card.id) : 'unknown');
 
-        navigate(`/game/${encodeURIComponent(routeId)}`, {
+        navigate(`/store/game/${encodeURIComponent(routeId)}`, {
             state: {
                 game: {
                     id: routeId,

@@ -15,7 +15,7 @@ const GameListWithPreview = ({ games = [], title = "Top Sellers" }) => {
 	const handleGameClick = (game) => {
 		if (game.appid || game.app_id || game.id) {
 			const gameId = game.appid || game.app_id || game.id;
-			navigate(`/game/${gameId}`);
+			navigate(`/store/game/${gameId}`, { state: { game } });
 		}
 	};
 

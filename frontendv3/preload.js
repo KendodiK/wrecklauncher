@@ -201,6 +201,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // GamesController
   getGames: (from) => ipcRenderer.invoke('games:get-games', from),
   getAllDetailsByID: (id) => ipcRenderer.invoke('games:get-all-details-by-id', id),
+  
+  // SettingsController
+  getSettings: () => ipcRenderer.invoke('settings:get'),
+  updateSetting: (category, key, value) => ipcRenderer.invoke('settings:update', category, key, value),
+  updateSettings: (newSettings) => ipcRenderer.invoke('settings:update-bulk', newSettings),
+  resetSettings: () => ipcRenderer.invoke('settings:reset'),
+  clearCache: () => ipcRenderer.invoke('settings:clear-cache'),
+  updatePlatformConnection: (platform, connected, username) => 
+    ipcRenderer.invoke('settings:update-platform', platform, connected, username),
 });
 
 // Optional legacy-style alias used by some code paths
