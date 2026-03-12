@@ -400,6 +400,12 @@ function getShopSpecialsCtrl() {
     return await getGamesCtrl().getAllDetailsByID(Number(id));
   });
 
+  handle('games:scrape', async (_event, gameUrl) => {
+    const url = _event?.senderFrame?.url || (typeof _event?.sender?.getURL === 'function' ? _event.sender.getURL() : '') || '(unknown sender)';
+    //implement later mert Barni lusta volt átírni az url szerkezetet
+  });
+
+
   handle('epic:get-installed-games', async () => {
     return await getEpicCtrl().getInstalledGames();
   });
@@ -470,6 +476,7 @@ function getShopSpecialsCtrl() {
     return await getPcGamesTorrentCtrl().PcGamesTorrentMagnetLink(String(gameName));
   });
 
+  
   // ── Torrent controller ────────────────────────────────────────────────────
   // progress events are pushed to the renderer via webContents.send so the
   // renderer only needs ipcRenderer.on('torrent:progress', cb).

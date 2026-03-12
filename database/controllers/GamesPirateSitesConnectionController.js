@@ -130,7 +130,7 @@ class GamesPirateSitesConncectionController extends Controller {
     async getConnectionsByGameId(gameId) {
         await this.ready;
 
-        const query = `SELECT pirate_sites.name AS site_name, link FROM ${this.tableName} WHERE game_id = ? JOIN pirate_sites ON site_id = pirate_sites.id;`;
+            const query = `SELECT pirate_sites.name AS site_name, link FROM ${this.tableName} JOIN pirate_sites ON site_id = pirate_sites.id WHERE game_id = ?;`;
         try {
             const [rows] = await this.dbConnection.execute(query, [gameId]);
             return rows;

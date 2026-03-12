@@ -4,7 +4,7 @@ import GameGrid from '../store/GameGrid.jsx';
 import FilteredGamesSection from '../store/FilteredGamesSection.jsx';
 import LauncherSelector from '../store/LauncherSelector.jsx';
 import { combineFilters, hasActiveFilters as checkActiveFilters } from '../../utils/gameUtils.js';
-//import { runSmokeControllers } from '../../smokeControllers.js';
+import { runSmokeControllers } from '../../smokeControllers.js';
 
 /**
  * Shop View Component
@@ -32,14 +32,14 @@ function steamPoster(appid) {
 
 const Shopveiw = ({ items }) => {
 	const didRunSmokeRef = useRef(false);
-// useEffect(() => {
-//         // React.StrictMode runs effects twice in dev; guard so smoke runs once.
-//         if (didRunSmokeRef.current) return;
-//         didRunSmokeRef.current = true;
-//         runSmokeControllers().catch((e) => {
-//             console.warn('[smoke] runSmokeControllers failed:', e);
-//         });
-//     }, []);
+	useEffect(() => {
+		// React.StrictMode runs effects twice in dev; guard so smoke runs once.
+		if (didRunSmokeRef.current) return;
+		didRunSmokeRef.current = true;
+		runSmokeControllers().catch((e) => {
+			console.warn('[smoke] runSmokeControllers failed:', e);
+		});
+	}, []);
 	const [allGames, setAllGames] = useState([]);
 	const [filters, setFilters] = useState({
 		query: '',

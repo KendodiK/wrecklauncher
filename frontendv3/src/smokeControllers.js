@@ -53,6 +53,8 @@ function showNotice(title, body, details) {
     el.appendChild(p);
   }
 
+
+   
   if (safeDetails) {
     const pre = document.createElement('pre');
     pre.style.marginTop = '8px';
@@ -184,22 +186,22 @@ export async function runSmokeControllers() {
   }  
 
 //  Platforms
-  try {
-    const platform = await api.getPlatform('steam');
-    log('getPlatform steam', platform);
-    if (!platform) {
-      const created = await api.createPlatform('steam');
-      log('createPlatform steam', created);
-    }
-  } catch (e) {
-    warn('getPlatform steam', e);
-    try {
-      const created = await api.createPlatform('steam');
-      log('createPlatform steam', created);
-    } catch (e2) {
-      warn('createPlatform steam', e2);
-    }
-  }  
+  // try {
+  //   const platform = await api.getPlatform('steam');
+  //   log('getPlatform steam', platform);
+  //   if (!platform) {
+  //     const created = await api.createPlatform('steam');
+  //     log('createPlatform steam', created);
+  //   }
+  // } catch (e) {
+  //   warn('getPlatform steam', e);
+  //   try {
+  //     const created = await api.createPlatform('steam');
+  //     log('createPlatform steam', created);
+  //   } catch (e2) {
+  //     warn('createPlatform steam', e2);
+  //   }
+  // }  
     // try {
     //   const platformUser = await api.createSteamPlatformUser(
     //     'teszt',
@@ -209,46 +211,46 @@ export async function runSmokeControllers() {
     // } catch (e2) {
     //   warn('createPlatformUser', e2);
     // }
-  let platformUsers;
-  try {
-    platformUsers = await api.getPlatformUsers();
-    log('getPlatformUsers steam', platformUsers);
+  // let platformUsers;
+  // try {
+  //   platformUsers = await api.getPlatformUsers();
+  //   log('getPlatformUsers steam', platformUsers);
 
-    if (!Array.isArray(platformUsers) || platformUsers.length === 0) {
-      try {
-        const createdUser = await api.createSteamPlatformUser(
-          'teszt',
-          'https://steamcommunity.com/profiles/76561199194098023/',
-        );
-        log('createPlatformUser', createdUser);
-      } catch (eCreateUser) {
-        warn('createPlatformUser', eCreateUser);
-      }
+  //   if (!Array.isArray(platformUsers) || platformUsers.length === 0) {
+  //     try {
+  //       const createdUser = await api.createSteamPlatformUser(
+  //         'teszt',
+  //         'https://steamcommunity.com/profiles/76561199194098023/',
+  //       );
+  //       log('createPlatformUser', createdUser);
+  //     } catch (eCreateUser) {
+  //       warn('createPlatformUser', eCreateUser);
+  //     }
 
-      platformUsers = await api.getPlatformUsers();
-      log('getPlatformUsers steam after create', platformUsers);
-    }
+  //     platformUsers = await api.getPlatformUsers();
+  //     log('getPlatformUsers steam after create', platformUsers);
+  //   }
 
-    if (Array.isArray(platformUsers) && platformUsers.length > 0) {
-      try {
-        const firstUser = platformUsers[0] || null;
-        const firstUserId = firstUser?.id;
-        if (firstUserId == null) {
-          throw new Error('No valid platform user id found to delete');
-        }
-        const deleted = await api.deletePlatformUser(firstUserId);
-        log('deletePlatformUser', deleted);
-        const afterDelete = await api.getPlatformUsers();
-        log('getPlatformUsers after delete', afterDelete);
-      } catch (eDelete) {
-        warn('deletePlatformUser', eDelete);
-      }
-    } else {
-      warn('getPlatformUsers steam', new Error('No platform users found to delete even after create attempt'));
-    }
-  } catch (e) {
-    warn('getPlatformUsers steam', e);
-  }
+  //   if (Array.isArray(platformUsers) && platformUsers.length > 0) {
+  //     try {
+  //       const firstUser = platformUsers[0] || null;
+  //       const firstUserId = firstUser?.id;
+  //       if (firstUserId == null) {
+  //         throw new Error('No valid platform user id found to delete');
+  //       }
+  //       const deleted = await api.deletePlatformUser(firstUserId);
+  //       log('deletePlatformUser', deleted);
+  //       const afterDelete = await api.getPlatformUsers();
+  //       log('getPlatformUsers after delete', afterDelete);
+  //     } catch (eDelete) {
+  //       warn('deletePlatformUser', eDelete);
+  //     }
+  //   } else {
+  //     warn('getPlatformUsers steam', new Error('No platform users found to delete even after create attempt'));
+  //   }
+  // } catch (e) {
+  //   warn('getPlatformUsers steam', e);
+  // }
 
 
 // let platformUserId;
@@ -519,7 +521,26 @@ export async function runSmokeControllers() {
     // To remove:        api.torrentRemove(infoHash, deleteFiles);
   }
 
-  showNotice('Smoke finished', 'See console + details below', lines.join('\n\n'));
+  // ── Itch.io scrape test ──────────────────────────────────────────────────
+  let itchGames;
+  try {
+    itchGames = await api.getItchGameDetails(3184368);
+    log('getItchGameDetails', Array.isArray(itchGames) ? itchGames.slice(0, 5) : itchGames);
+  } catch (e) {
+    warn('getItchGameDetails', e);
+  }
+
+
+
+  // ── GOG scrape test ──────────────────────────────────────────────────────
+  let gogGames;
+  try {
+    gogGames = await api.getGogGameDetails(1900078583);
+    log('getGogGameDetails', gogGames);
+  } catch (e) {
+    warn('getGogGameDetails', e);
+  }
+  showNotice('Smoke done', 'See console + details below', lines.join('\n\n'));
 }
 
 // If smoke is explicitly enabled (wreck_smoke === '1'), run automatically
