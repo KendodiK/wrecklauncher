@@ -86,6 +86,7 @@ class PcGamesTorrentController {
   }
 
   /**
+   * INTENTIONALLY SLOW! This is not meant to be a general-purpose fetch. It loads the full page with JS execution, waits for redirects, and extracts the magnet link from the final page. Use fetch() for simple HTML fetching without JS.
    * Fetches the magnet link for a FitGirl repack by game name (slug).
    * @param {string} gameName
    * @returns {Promise<string | null>}
