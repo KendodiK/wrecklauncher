@@ -111,31 +111,6 @@ class CloudscraperController {
 
     return await this.fetch('https://byxatab.com/index.php', { qs });
   }
-/**
- * 
- * @param {string} slug 
- * @returns 
- */
-  async fetchFitGirlGamePage(slug){
-        if (!slug || !String(slug).trim()) throw new Error('Game slug is required');
-    const url = `https://fitgirl-repacks.site/${encodeURIComponent(String(slug).trim())}`;
-    const response = await this.fetch(url);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch FitGirl game page for slug "${slug}": HTTP ${response.statusCode}`);
-    }
-    const body = response.body; // your HTML string
-
-    const match = body.match(/href=["'](magnet:\?xt=urn:btih:[^"']+)["']/i);
-    let magnetLink = null;
-    if (match) {
-    const magnetLink = match[1]
-        .replace(/&amp;/g, '&'); // decode HTML entities
-
-    console.log(magnetLink);
-    return magnetLink;
-    }
-    return magnetLink;
-  }
 }
 
 module.exports = CloudscraperController;

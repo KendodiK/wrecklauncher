@@ -97,11 +97,13 @@ class GamesController {
   }
 
   /**
-   * GET /api/games/:from
+   * GET /api/games/list/:from
    * Returns up to 20 games starting from the given offset.
+   * Each element is a joined row of `games` + `platforms` as returned by the backend
+   * (`GamesController.getWithAllForeign`); see {@link import('../models').GameListItem}.
    *
    * @param {number} from  Row offset (0-based)
-   * @returns {Promise<any[]>}  Array of up to 20 game rows
+   * @returns {Promise<import('../models').GameListItem[]>}  Array of up to 20 game rows
    */
   async getGames(from) {
     if (from === undefined || from === null || Number.isNaN(Number(from))) throw new Error('from is required');

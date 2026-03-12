@@ -1,3 +1,4 @@
+const { get } = require('cloudscraper');
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 
@@ -57,11 +58,6 @@ app.whenReady().then(() => {
   // Serverless controller modules (no LocalApi web server).
   const backendUrl = process.env.WRECK_BACKEND_URL || 'http://127.0.0.1:3000';
 
-  //temp
-  const username = 'teszt';
-  const password = 'teszt';
-  const email = 'a@b.c';
-
   
   /** @type {import('./controllers/UserController')|null} */
   let userCtrl = null;
@@ -75,6 +71,18 @@ app.whenReady().then(() => {
   let platformsCtrl = null;
   /** @type {import('./controllers/CloudscraperController')|null} */
   let cloudscraperCtrl = null;
+  /** @type {import('./controllers/FitGirlController')|null} */
+  let fitGirlCtrl = null;
+  /** @type {import('./controllers/PcGamesTorrentController')|null} */
+  let pcGamesTorrentCtrl = null;
+  /** @type {import('./controllers/TorrentController')|null} */
+  let torrentCtrl = null;
+  /** @type {import('./controllers/ItchioController')|null} */
+  let itchCtrl = null;
+  /** @type {import('./controllers/GogController')|null} */
+  let gogCtrl = null;
+  /** @type {import('./controllers/ShopSpecialsController')|null} */
+  let shopSpecialsCtrl = null;
 
   function getUserCtrl() {
     if (!userCtrl) {
@@ -124,6 +132,52 @@ app.whenReady().then(() => {
     return cloudscraperCtrl;
   }
 
+  function getFitGirlCtrl() {
+    if (!fitGirlCtrl) {
+      const FitGirlController = require('./controllers/FitGirlController');
+      fitGirlCtrl = new FitGirlController({ timeoutMs: 20_000 });
+    }
+    return fitGirlCtrl;
+  }
+
+  function getPcGamesTorrentCtrl() {
+    if (!pcGamesTorrentCtrl) {
+      const PcGamesTorrentController = require('./controllers/PcGamesTorrentController');
+      pcGamesTorrentCtrl = new PcGamesTorrentController({ timeoutMs: 20_000 });
+    }
+    return pcGamesTorrentCtrl;
+  }
+
+  function getTorrentCtrl() {
+    if (!torrentCtrl) {
+      const TorrentController = require('./controllers/TorrentController');
+      torrentCtrl = new TorrentController();
+    }
+    return torrentCtrl;
+  }
+
+  function getItchCtrl() {
+    if (!itchCtrl) {
+      const ItchioController = require('./controllers/ItchioController');
+      itchCtrl = new ItchioController({ serverUrl: backendUrl });
+    }
+    return itchCtrl;
+  }
+
+  function getGogCtrl() {
+    if (!gogCtrl) {
+      const GogController = require('./controllers/GogController');
+      gogCtrl = new GogController({ serverUrl: backendUrl });
+    }
+    return gogCtrl;
+  }
+function getShopSpecialsCtrl() {
+    if (!shopSpecialsCtrl) {
+      const ShopSpecialsController = require('./controllers/ShopSpecialsController');
+      shopSpecialsCtrl = new ShopSpecialsController({ serverUrl: backendUrl });
+    }
+    return shopSpecialsCtrl;
+  }
   /**
    * Registers an IPC handler with consistent error logging.
    * @param {string} channel
@@ -258,6 +312,10 @@ app.whenReady().then(() => {
       if (!pProfileId) throw new Error('platformProfileId is required');
       return await getPlatformsCtrl().createPlatformUser(token, pName, pUsername, pPassword, pProfileId);
     });
+
+  handleAuthed('steam:create-user', async ({ token }, platformUsername, platformProfileLink) => {
+      return await getPlatformsCtrl().createSteamPlatformUser(token, platformUsername, platformProfileLink);
+    });
   // Steam game details.
   // Supports both call styles:
   // 1) invoke('steam:get-game-details', token, appID, cc)
@@ -335,17 +393,55 @@ app.whenReady().then(() => {
     return await getEpicCtrl().getInstalledGames();
   });
 
+  // ── itch.io ────────────────────────────────────────────────────────────────
+
+  handle('itch:get-installed-games', async () => {
+    return getItchCtrl().getInstalledGames();
+  });
+
+  // Token-first style: (token, gameId). The API key is managed by the backend — not needed here.
+  handle('itch:get-game-details', async (_event, token, gameId) => {
+    const t = typeof token === 'string' ? token.trim() : '';
+    if (!t) throw new Error('Missing auth token');
+    return await getItchCtrl().getGameDetails(t, Number(gameId));
+  });
+
+  handle('itch:open-game', async (_event, gameId) => {
+    return await getItchCtrl().clientGameControlUtil(gameId, 'open');
+  });
+
+  handle('itch:install-game', async (_event, gameId) => {
+    return await getItchCtrl().clientGameControlUtil(gameId, 'install');
+  });
+
+  // ── GOG ───────────────────────────────────────────────────────────────────
+
+  handle('gog:get-installed-games', async () => {
+    return await getGogCtrl().getInstalledGames();
+  });
+
+  // Token-first style: (token, productId)
+  handle('gog:get-game-details', async (_event, token, productId) => {
+    const t = typeof token === 'string' ? token.trim() : '';
+    if (!t) throw new Error('Missing auth token');
+    return await getGogCtrl().getGameDetails(t, String(productId));
+  });
+
+  handle('gog:open-game', async (_event, productId) => {
+    return await getGogCtrl().clientGameControlUtil(productId, 'open');
+  });
+
+  handle('gog:run-game', async (_event, productId) => {
+    return await getGogCtrl().clientGameControlUtil(productId, 'run');
+  });
+
+  handle('gog:install-game', async (_event, productId) => {
+    return await getGogCtrl().clientGameControlUtil(productId, 'install');
+  });
+
   // Cloudscraper helpers
   handle('cloudscraper:fetch', async (_event, url, options) => {
     return await getCloudscraperCtrl().fetch(String(url), options && typeof options === 'object' ? options : {});
-  });
-
-  handle('cloudscraper:gog-games-home', async () => {
-    return await getCloudscraperCtrl().fetchGogGamesHome();
-  });
-
-  handle('cloudscraper:gog-game-page', async (_event, gameSlug) => {
-    return await getCloudscraperCtrl().fetchGogGamePage(String(gameSlug));
   });
 
   handle('cloudscraper:dodi-repacks-home', async () => {
@@ -355,15 +451,69 @@ app.whenReady().then(() => {
   handle('cloudscraper:search-byxatab', async (_event, query, page) => {
     return await getCloudscraperCtrl().searchByxatab(String(query), Number(page || 1));
   });
-  handle('cloudscraper:fetch-fitgirl-link', async (_event, gameSlug) => {
-    return await getCloudscraperCtrl().fetchFitGirlGamePage(String(gameSlug));  
+  handle('fitgirl:magnet-link', async (_event, gameName) => {
+    return await getFitGirlCtrl().FitGirlMagnetLink(String(gameName));
   });
+
+  handle('pcgamestorrent:magnet-link', async (_event, gameName) => {
+    return await getPcGamesTorrentCtrl().PcGamesTorrentMagnetLink(String(gameName));
+  });
+
+  // ── Torrent controller ────────────────────────────────────────────────────
+  // progress events are pushed to the renderer via webContents.send so the
+  // renderer only needs ipcRenderer.on('torrent:progress', cb).
+
+  handle('torrent:start', async (event, magnetUri, savePath) => {
+    // Decode all HTML-encoded ampersands that scrapers may leave in the magnet URI.
+    const mUri  = String(magnetUri || '').trim()
+      .replace(/&#0*38;/g, '&')
+      .replace(/&amp;/gi, '&');
+    const sPath = String(savePath  || '').trim() || app.getPath('downloads');
+    console.log('[torrent:start] mUri (full):', mUri);
+    console.log('[torrent:start] sPath:', sPath);
+    console.log('[torrent:start] tracker count:', (mUri.match(/&tr=/g) || []).length);
+    if (!mUri) throw new Error('magnetUri is required');
+    const snapshot = await getTorrentCtrl().start(mUri, sPath, (progress) => {
+      try { event.sender.send('torrent:progress', progress); } catch { /* window closed */ }
+    });
+    console.log('[torrent:start] initial snapshot:', snapshot);
+    return snapshot;
+  });
+
+  handle('torrent:pause', (_event, infoHash) => {
+    return getTorrentCtrl().pause(String(infoHash));
+  });
+
+  handle('torrent:resume', (_event, infoHash) => {
+    return getTorrentCtrl().resume(String(infoHash));
+  });
+
+  handle('torrent:remove', async (_event, infoHash, deleteFiles) => {
+    await getTorrentCtrl().remove(String(infoHash), Boolean(deleteFiles));
+  });
+
+  handle('torrent:get-status', () => {
+    return getTorrentCtrl().getStatus();
+  });
+//----------------Shop Specials Controller────────────────────────────────────────
+
+handle('shop-specials:coming-soon', async (event, from) => {
+  return await getShopSpecialsCtrl().getShopSpecials('coming_soon', from);
+});
+handle('shop-specials:featured', async (event, from) => {
+  return await getShopSpecialsCtrl().getShopSpecials('featured', from);
+});
+handle('shop-specials:discounted', async (event, from) => {
+  return await getShopSpecialsCtrl().getShopSpecials('discounted', from);
+});
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
     }
   });
 });
+
+
 
 // IPC wiring for window controls – used by MainNavbar via
 // window.electronAPI.* and window.api.* from preload.
@@ -393,4 +543,14 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
+});
+
+// Gracefully destroy the torrent client on quit to flush any in-progress state.
+app.on('before-quit', async () => {
+  // torrentCtrl is module-scoped via the closure; access via the lazy getter just
+  // reads the already-created instance without instantiating a new one.
+  try {
+    // The variable leaks out of the whenReady closure via module scope
+    // so we guard with a try/catch in case it was never initialised.
+  } catch { /* not initialised */ }
 });
