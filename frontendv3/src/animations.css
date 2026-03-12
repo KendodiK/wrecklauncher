@@ -100,3 +100,39 @@
 .carousel .next {
   transition: all 0.2s ease;
 }
+
+/* ============================================
+   LIBRARY PAGE ANIMATIONS
+   ============================================ */
+
+/* Game strip card transitions */
+.lib-strip-card {
+  transition:
+    flex 0.3s cubic-bezier(.2, .8, .2, 1),
+    height 0.3s cubic-bezier(.2, .8, .2, 1),
+    transform 0.3s cubic-bezier(.2, .8, .2, 1),
+    border-color 0.3s ease,
+    opacity 0.3s ease,
+    box-shadow 0.3s ease;
+}
+
+/* Progress bar shine animation */
+@keyframes lib-progress-shine {
+  to {
+    transform: translateX(120%);
+  }
+}
+
+.library-progress-line::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0));
+  transform: translateX(-120%);
+  animation: lib-progress-shine 2.8s infinite;
+}
+
+/* Hero background cross-fade */
+.library-hero-bg {
+  transition: background-image 0.6s ease;
+}
