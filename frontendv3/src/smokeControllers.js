@@ -175,7 +175,7 @@ export async function runSmokeControllers() {
     } catch (e2) {
       warn('login', e2);
       try {
-        token = await api.register('teszt', 'teszt', 'teszt@example.com');
+        token = await api.register('teszt', 'teszt', 'a@b.c');
         log('register', token);
       } catch (e3) {
         warn('register', e3);
@@ -200,24 +200,42 @@ export async function runSmokeControllers() {
       warn('createPlatform steam', e2);
     }
   }
-  
-
-let platformUserId;
-  try{
-    platformUserId = await api.getPlatformUserID('steam', 'plati69');
-    log('getPlatformUserID steam', platformUserId);    
-  }catch(e){
-    warn('getPlatformUserID steam', e);
-    try {
+  for (let i = 0; i < 5; i++) {
+      try {
       const platformUser = await api.createSteamPlatformUser(
-        'plati69',
-        'https://steamcommunity.com/id/plati69/',
+        'teszt',
+        'https://steamcommunity.com/profiles/76561199194098023/',
       );
       log('createPlatformUser', platformUser);
     } catch (e2) {
       warn('createPlatformUser', e2);
     }
+}
+let platformUsers;
+  try {
+    platformUsers = await api.getPlatformUsers('steam');
+    log('getPlatformUsers steam', platformUsers);
+  } catch (e) {
+    warn('getPlatformUsers steam', e);
   }
+
+
+// let platformUserId;
+//   try{
+//     platformUserId = await api.getPlatformUserID('steam', 'plati69');
+//     log('getPlatformUserID steam', platformUserId);    
+//   }catch(e){
+//     warn('getPlatformUserID steam', e);
+//     try {
+//       const platformUser = await api.createSteamPlatformUser(
+//         'plati69',
+//         'https://steamcommunity.com/id/plati69/',
+//       );
+//       log('createPlatformUser', platformUser);
+//     } catch (e2) {
+//       warn('createPlatformUser', e2);
+//     }
+//   }
 
 // try{
 //   let owned = await api.getOwnedGamesFromSteam('freshargentinaccount69912');

@@ -7,11 +7,11 @@ const GamesController = require('./GamesController');
 
 class GogController extends GamesController {
   /**
-   * @param {{ serverUrl: string }|undefined} [cfg]
+   * @param {{ serverUrl: string }} cfg
    */
   constructor(cfg) {
     super({
-      serverUrl: cfg?.serverUrl || process.env.WRECK_BACKEND_URL || 'http://127.0.0.1:3000',
+      serverUrl: cfg?.serverUrl,
     });
   }
 

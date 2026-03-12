@@ -2,22 +2,42 @@
 
 const { shell } = require('electron');
 const https = require('https');
+const { joinUrl, normalizeBaseUrl } = require('../lib/url');
+const { fetchJsonSafe } = require('../lib/http');
 const GamesController = require('./GamesController');
-const PlatformUsersController = require('../../../database/controllers/PlatformUsersController');
 
 class SteamGamesController extends GamesController {
   /**
    * @type {string} (false string, in reality its a number converted to string for query param usage, e.g. "730" for CS:GO)
    */
   #platformID;
+  /** @type {string} */
+  #serverUrl;
   /**
-   * @param {{ serverUrl: string }|undefined} [cfg]
+   * @param {{ serverUrl: string }} cfg
    */
   constructor(cfg) {
-    super({
-      serverUrl: cfg?.serverUrl || process.env.WRECK_BACKEND_URL || 'http://127.0.0.1:3000',
+    const serverUrl = cfg?.serverUrl;
+    super({ serverUrl });
+    this.#serverUrl = normalizeBaseUrl(serverUrl, { defaultProtocol: 'https:' });
+    this.#platformID = '';
+  }
+
+  /**
+   * Lazily fetches and caches the Steam platform ID from the backend.
+   * @returns {Promise<string>}
+   */
+  async #resolvePlatformID() {
+    if (this.#platformID) return this.#platformID;
+    const url = joinUrl(this.#serverUrl, 'api', 'platforms', 'steam');
+    const { ok, json } = await fetchJsonSafe(url, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
     });
-    this.#platformID = "";
+    if (ok && json && typeof json === 'object' && json.id) {
+      this.#platformID = String(json.id);
+    }
+    return this.#platformID;
   }
 
   static #agent = new https.Agent({
@@ -101,6 +121,9 @@ class SteamGamesController extends GamesController {
   async getGamesDetails(token, appID, cc = 'de') {
     const appIdNum = Number(appID);
     if (!Number.isFinite(appIdNum) || appIdNum <= 0) throw new Error(`Invalid Steam AppID: ${String(appID)}`);
+
+    // Resolve platform ID once before fetching game details.
+    await this.#resolvePlatformID();
 
     const lang = 'en';
     const timeoutMs = 8000;

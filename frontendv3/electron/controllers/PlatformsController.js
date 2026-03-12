@@ -125,6 +125,27 @@ async createSteamPlatformUser(token, platformUsername, platformProfileLink) {
 
   return this.createPlatformUser(token, 'steam', platformUsername, '', platformProfileId);
 }
+async getPlatformUserIDAll(token) {
+  const url = joinUrl(this.#serverUrl, 'api', 'platform_users');
+  const { ok, status, json, text } = await fetchJsonSafe(url, {
+    method: 'GET',
+    headers: {
+      'Accept': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+  });
+  if (!ok) {
+    const msg = httpErrorMessage(status, json, text);
+    if (status === 401) {
+      const e = new Error(msg);
+      // @ts-ignore
+      e.code = 'WRECK_INVALID_TOKEN';
+      throw e;
+    }
+    throw new Error(msg);
+  }
+  return json;
+}
 }
 
   module.exports = PlatformsController;
