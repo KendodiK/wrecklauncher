@@ -22,12 +22,15 @@ const gamesController = require('./database/controllers/GamesController');
 const friendsController = require('./database/controllers/FriendsController');
 const chatsController = require('./database/controllers/ChatsController'); 
 const shopSpecialsController = require('./database/controllers/ShopSpecialsController');
+const pirateSitesController = require('./database/controllers/PirateSitesController');
+const gamesPirateSitesConnectionController = require('./database/controllers/GamesPirateSitesConnectionController');
 const { errorMonitor } = require('events');
 const { error } = require('console');
 
 const PORT = 3000;
 // Replace with your actual Steam API key and Steam ID
 const steamApiKey = process.env.STEAM_API_KEY;
+const itchApiKey = process.env.ITCH_API_KEY;
 const clientId = process.env.IGDB_CLIENT_ID;
 const clientSecret = process.env.IGDB_CLIENT_SECRET;
 let igdbToken = null;
@@ -394,6 +397,25 @@ function tokenValidate(req) {
 
 // -------------------     GET      ------------------ //
 
+app.get('/api/steam/profile_id/:vanityurl', async (req, res) => {
+  try {
+    const { vanityurl } = req.params;
+    const response = await fetch(
+      `https://api.steampowered.com/ISteamUser/ResolveVanityURL/v0001/?key=${steamApiKey}&vanityurl=${encodeURIComponent(vanityurl)}`
+    );
+    if (!response.ok) {
+      return res.status(502).json({ error: 'Steam API error' });
+    }
+    const data = await response.json();
+    if (data?.response?.success !== 1) {
+      return res.status(404).json({ error: 'Vanity URL not found' });
+    }
+    return res.json({ steamid: data.response.steamid });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/steam/api/getOwnedGames', tokenValidate(), async (req, res) => { 
   try {
     const { userId } = req.auth;
@@ -534,6 +556,10 @@ app.get("/api/games/:appId/all", async (req, res) => {
     const gameGenres = await gamesGenresCtrl.getByGameId(gameId);
     game.genres = gameGenres;
 
+    const gamesPirateSitesConnCtrl = new gamesPirateSitesConnectionController();
+    const pirateSites = await gamesPirateSitesConnCtrl.getConnectionsByGameId(gameId);
+    game.pirate_sites = pirateSites;
+
     return res.json(game);
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -575,6 +601,21 @@ app.get("/api/games/:id/all", async (req, res) => {
     return res.json(game);
   } catch (err) {
       return res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/games/list/:platformId/all/:from", async (req, res) => {
+  try {
+    const { platformId, from } = req.params;
+    const gameCtrl = new gamesController();
+    const games = gameCtrl.getAllGamesByPlatformFrom(platformId, from);
+
+    if (games instanceof Error) {
+      res.status(404).json({ error: games.message });
+    }
+    return res.json(games);
+  } catch (err) {
+    return res.status(500).json({ error: err.message })
   }
 });
 
@@ -713,7 +754,7 @@ app.get("/api/shop_specials/:filter/:from", async (req, res) => {
   try {
     const { filter, from } = req.params;
     const shopSpecialsCtrl = new shopSpecialsController();
-    let result = shopSpecialsCtrl.getFilteredGamesFrom(filter, from);
+    let result = await shopSpecialsCtrl.getFilteredGamesFrom(filter, from);
     if (result instanceof Error) {
       return res.status(400).json({ message: 'Iternal server error', error: result });
     }
@@ -932,6 +973,28 @@ app.post("/api/platform_users", tokenValidate(), async (req, res) => {
   }
 })
 
+app.put("/api/pirate_sites/:gameId", async (req, res) => {
+  try {
+    const {gameId} = req.params;
+    const {link, siteId, siteName} = req.body;
+    const gamesPirateSitesConnCtrl = new gamesPirateSitesConnectionController();
+    const data = {
+      "game_id": gameId,
+      "pirate_site_id": siteId ?? null,
+      "site_name": siteName ?? null,
+      "link": link,
+    }
+    const result = await gamesPirateSitesConnCtrl.createWithAll(data);
+    if (result instanceof Error) {
+      return res.status(400).json({ message: result.message });
+    }
+    return res.json(result);
+  } catch (err) {
+    console.error('Error in /api/pirate_sites/:gameId/siteId endpoint:', error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 // -------------------      PUT       ------------------ //
 
 /*
@@ -1025,6 +1088,22 @@ app.put("/api/shop_specials/:gameId", async (req, res) => {
   } 
 });
 
+app.put("/api/pirate_sites/:gameId/siteId", async (req, res) => {
+  try {
+    const {gameId, siteId} = req.params;
+    const {link} = req.body;
+    const gamesPirateSitesConnCtrl = new gamesPirateSitesConnectionController();
+    const result = await gamesPirateSitesConnCtrl.update(gameId, siteId, link);
+    if (result instanceof Error) {
+      return res.status(400).json({ message: result.message });
+    }
+    return res.json(result);
+  } catch (err) {
+    console.error('Error in /api/pirate_sites/:gameId/siteId endpoint:', error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 // -------------------     DELETE     ------------------ //
 
 /*
@@ -1052,4 +1131,4 @@ app.delete("/api/friends/:friendShipId", tokenValidate(), async (req, res) => {
     console.error('Error in /api/friends endpoint:', error);
     return res.status(500).json({ error: error.message }); 
   }
-});
+}); 

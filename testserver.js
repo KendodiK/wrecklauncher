@@ -35,7 +35,8 @@ app.listen(PORT, () => {
 //tryUploadGame();
 //tryUploadGameWithAll();
 //tryFillShopSpecials();
-tryChangeShopSpecials(3);
+//tryChangeShopSpecials(3);
+tryGetFromShopSpecials();
 
 function generateDB() {
     let databaseHandler = new DatabaseHandler();
@@ -142,14 +143,11 @@ async function  tryUploadGameWithAll() {
 async function tryFillShopSpecials() {
     try {
         const shopCntr = new ShopSpecialsController();
-        // there are already multiple games in the games table (ids 1..27+)
-        // create shop_specials entries for the first 27 games with varied flags
         for (let id = 1; id <= 27; id++) {
             const featured = id % 5 === 0 ? true : false;       // every 5th game
             const coming_soon = id % 7 === 0 ? true : false;    // every 7th game
             const discounted = id % 3 === 0 ? true : false;     // every 3rd game
 
-            // skip rows that would only contain the game_id (no flags set)
             if (!featured && !coming_soon && !discounted) {
                 console.log(`Skipping game_id=${id} (no flags set)`);
                 continue;
@@ -178,4 +176,17 @@ async function tryChangeShopSpecials(id) {
     } catch (err) {
         console.error('Error in tryChangeShopSpecials:', err instanceof Error ? err.message : String(err));
     } 
+}
+
+async function tryGetFromShopSpecials() {
+    const filter = "featured";
+    const from = 0;
+
+    try {
+        const shopCntr = new ShopSpecialsController();
+        const resp = await shopCntr.getFilteredGamesFrom(filter, from);
+        console.log('Successfuly got elements form shop_specials table: ', resp[0]);
+    } catch (err) {
+        console.error('Failed to get elements form shop_specials table: ', err);
+    }
 }

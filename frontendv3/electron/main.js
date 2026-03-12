@@ -1,3 +1,4 @@
+const { get } = require('cloudscraper');
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 
@@ -73,11 +74,6 @@ app.whenReady().then(() => {
   // Serverless controller modules (no LocalApi web server).
   const backendUrl = process.env.WRECK_BACKEND_URL || 'http://127.0.0.1:3000';
 
-  //temp
-  const username = 'teszt';
-  const password = 'teszt';
-  const email = 'a@b.c';
-
   
   /** @type {import('./controllers/UserController')|null} */
   let userCtrl = null;
@@ -97,6 +93,12 @@ app.whenReady().then(() => {
   let pcGamesTorrentCtrl = null;
   /** @type {import('./controllers/TorrentController')|null} */
   let torrentCtrl = null;
+  /** @type {import('./controllers/ItchioController')|null} */
+  let itchCtrl = null;
+  /** @type {import('./controllers/GogController')|null} */
+  let gogCtrl = null;
+  /** @type {import('./controllers/ShopSpecialsController')|null} */
+  let shopSpecialsCtrl = null;
 
   function getUserCtrl() {
     if (!userCtrl) {
@@ -170,6 +172,28 @@ app.whenReady().then(() => {
     return torrentCtrl;
   }
 
+  function getItchCtrl() {
+    if (!itchCtrl) {
+      const ItchioController = require('./controllers/ItchioController');
+      itchCtrl = new ItchioController({ serverUrl: backendUrl });
+    }
+    return itchCtrl;
+  }
+
+  function getGogCtrl() {
+    if (!gogCtrl) {
+      const GogController = require('./controllers/GogController');
+      gogCtrl = new GogController({ serverUrl: backendUrl });
+    }
+    return gogCtrl;
+  }
+function getShopSpecialsCtrl() {
+    if (!shopSpecialsCtrl) {
+      const ShopSpecialsController = require('./controllers/ShopSpecialsController');
+      shopSpecialsCtrl = new ShopSpecialsController({ serverUrl: backendUrl });
+    }
+    return shopSpecialsCtrl;
+  }
   /**
    * Registers an IPC handler with consistent error logging.
    * @param {string} channel
@@ -304,6 +328,10 @@ app.whenReady().then(() => {
       if (!pProfileId) throw new Error('platformProfileId is required');
       return await getPlatformsCtrl().createPlatformUser(token, pName, pUsername, pPassword, pProfileId);
     });
+
+  handleAuthed('steam:create-user', async ({ token }, platformUsername, platformProfileLink) => {
+      return await getPlatformsCtrl().createSteamPlatformUser(token, platformUsername, platformProfileLink);
+    });
   // Steam game details.
   // Supports both call styles:
   // 1) invoke('steam:get-game-details', token, appID, cc)
@@ -381,6 +409,52 @@ app.whenReady().then(() => {
     return await getEpicCtrl().getInstalledGames();
   });
 
+  // ── itch.io ────────────────────────────────────────────────────────────────
+
+  handle('itch:get-installed-games', async () => {
+    return getItchCtrl().getInstalledGames();
+  });
+
+  // Token-first style: (token, gameId). The API key is managed by the backend — not needed here.
+  handle('itch:get-game-details', async (_event, token, gameId) => {
+    const t = typeof token === 'string' ? token.trim() : '';
+    if (!t) throw new Error('Missing auth token');
+    return await getItchCtrl().getGameDetails(t, Number(gameId));
+  });
+
+  handle('itch:open-game', async (_event, gameId) => {
+    return await getItchCtrl().clientGameControlUtil(gameId, 'open');
+  });
+
+  handle('itch:install-game', async (_event, gameId) => {
+    return await getItchCtrl().clientGameControlUtil(gameId, 'install');
+  });
+
+  // ── GOG ───────────────────────────────────────────────────────────────────
+
+  handle('gog:get-installed-games', async () => {
+    return await getGogCtrl().getInstalledGames();
+  });
+
+  // Token-first style: (token, productId)
+  handle('gog:get-game-details', async (_event, token, productId) => {
+    const t = typeof token === 'string' ? token.trim() : '';
+    if (!t) throw new Error('Missing auth token');
+    return await getGogCtrl().getGameDetails(t, String(productId));
+  });
+
+  handle('gog:open-game', async (_event, productId) => {
+    return await getGogCtrl().clientGameControlUtil(productId, 'open');
+  });
+
+  handle('gog:run-game', async (_event, productId) => {
+    return await getGogCtrl().clientGameControlUtil(productId, 'run');
+  });
+
+  handle('gog:install-game', async (_event, productId) => {
+    return await getGogCtrl().clientGameControlUtil(productId, 'install');
+  });
+
   // Cloudscraper helpers
   handle('cloudscraper:fetch', async (_event, url, options) => {
     return await getCloudscraperCtrl().fetch(String(url), options && typeof options === 'object' ? options : {});
@@ -437,13 +511,25 @@ app.whenReady().then(() => {
   handle('torrent:get-status', () => {
     return getTorrentCtrl().getStatus();
   });
+//----------------Shop Specials Controller────────────────────────────────────────
 
+handle('shop-specials:coming-soon', async (event, from) => {
+  return await getShopSpecialsCtrl().getShopSpecials('coming_soon', from);
+});
+handle('shop-specials:featured', async (event, from) => {
+  return await getShopSpecialsCtrl().getShopSpecials('featured', from);
+});
+handle('shop-specials:discounted', async (event, from) => {
+  return await getShopSpecialsCtrl().getShopSpecials('discounted', from);
+});
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
     }
   });
 });
+
+
 
 // IPC wiring for window controls – used by MainNavbar via
 // window.electronAPI.* and window.api.* from preload.

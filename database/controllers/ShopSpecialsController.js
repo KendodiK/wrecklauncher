@@ -105,30 +105,36 @@ class ShopSpecialsController extends Controller {
     async getFilteredGamesFrom(filter, from) {
         await this.ready;
 
-        let offset = from == 0 ? "" : `OFFSET ${from}`;
-        let query;
+        let column;
         switch (filter) {
             case 'featured':
-                query = `SELECT * FROM shop_specials WHERE featured = true ORDER BY game_id LIMIT 20 ${offset};`;
+                column = 'featured';
                 break;
             case 'coming_soon':
-                query = `SELECT * FROM shop_specials WHERE coming_soon = true ORDER BY game_id LIMIT 20 ${offset};`;
+                column = 'coming_soon';
                 break;
             case 'discounted':
-                query = `SELECT * FROM shop_specials WHERE discounted = true ORDER BY game_id LIMIT 20 ${offset};`;
+                column = 'discounted';
                 break;
             default:
                 throw new Error(`Invalid filter: ${filter}`);
         }
 
+        let query = `SELECT * FROM shop_specials WHERE ${column} = true ORDER BY game_id LIMIT ?`;
+        const params = [20];
+        if (from > 0) {
+            query += ' OFFSET ?';
+            params.push(from);
+        }
+
         const ids = [];
         try {
-            const [rows] = await this.dbConnection.execute(query, [from]);
+            const [rows] = await this.dbConnection.execute(query, params);
             for (const row of rows) {
                 ids.push(row.game_id);
             }
         } catch (err) {
-            console.error(`Error while fetching featured games from table ${this.tableName}: ${err}`);
+            console.error(`Error while fetching filtered games from table ${this.tableName}: ${err}`);
             throw err;
         }
 

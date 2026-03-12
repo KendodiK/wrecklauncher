@@ -95,6 +95,36 @@ class PlatformsController {
         }
         return json;
     }
+async createSteamPlatformUser(token, platformUsername, platformProfileLink) {
+  const getSteamIdFromProfileLink = async (link) => {
+    const s = String(link ?? '');
+
+    // Direct SteamID64: steamcommunity.com/profiles/76561198xxxxxxxxx
+    const profilesMatch = s.match(/\/profiles\/(\d{17})/);
+    if (profilesMatch) return profilesMatch[1];
+
+    // Vanity URL: steamcommunity.com/id/vanityname  OR bare vanity name (e.g. "plati69")
+    const vanityMatch = s.match(/\/id\/([^/?&#]+)/);
+    const vanityName = vanityMatch ? vanityMatch[1] : (s.includes('/') ? null : s.trim());
+    if (vanityName) {
+      const { ok, status, json, text } = await fetchJsonSafe(
+        joinUrl(this.#serverUrl, 'api', 'steam', 'profile_id', enc(vanityName)),
+        { method: 'GET' }
+      );
+      if (!ok) throw new Error(`Failed to resolve Steam vanity URL: ${httpErrorMessage(status, json, text)}`);
+      return json?.steamid ?? null;
+    }
+
+    return null;
+  };
+
+  const platformProfileId = await getSteamIdFromProfileLink(platformProfileLink);
+  if (!platformProfileId) {
+    throw new Error(`Could not extract Steam ID from profile link: ${String(platformProfileLink)}`);
+  }
+
+  return this.createPlatformUser(token, 'steam', platformUsername, '', platformProfileId);
+}
 }
 
   module.exports = PlatformsController;
