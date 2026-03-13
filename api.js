@@ -150,6 +150,37 @@ function getSteamHeaderImageUrl(appId) {
   return `https://cdn.akamai.steamstatic.com/steam/apps/${numericAppId}/header.jpg`;
 }
 
+/**
+ * Verify that a Steam app ID exists by calling the Steam store API.
+ * Returns true if the app exists, false otherwise.
+ * @param {number} appId - The Steam app ID to verify
+ * @returns {Promise<boolean>}
+ */
+async function verifySteamGameExists(appId) {
+  try {
+    const numericAppId = Number(appId);
+    if (!Number.isFinite(numericAppId) || numericAppId <= 0) return false;
+
+    const url = `https://store.steampowered.com/api/appdetails?appids=${numericAppId}`;
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'WreckLauncher/1.0',
+      },
+    });
+
+    if (!response.ok) return false;
+
+    const data = await response.json();
+    const appData = data[numericAppId];
+    
+    // Check if the app exists and is not marked as unavailable
+    return appData?.success === true;
+  } catch (err) {
+    console.error(`Error verifying Steam game ${appId}:`, err);
+    return false;
+  }
+}
+
 function getFirstStringByPaths(source, paths) {
   for (const path of paths) {
     let cursor = source;
@@ -398,6 +429,72 @@ async function fetchItchGameDetails(appId, { includeRaw = false, includePageDeta
   } catch (err) {
     console.warn('Failed to fetch itch game details:', { appId: numericAppId, err: err?.message });
     return null;
+  }
+}
+
+/**
+ * Fetch the user's itch.io library (owned games) using the API key.
+ * Automatically fetches ALL pages and returns the complete list.
+ * @returns {Promise<{ owned_keys: Array<{ game_id: number, game: object, download_key_id: number, created_at: string }>, total: number } | null>}
+ */
+async function fetchItchLibrary() {
+  if (!itchApiKey) return null;
+
+  const pageSize = 50;
+  const allKeys = [];
+  let page = 1;
+  let hasMore = true;
+
+  try {
+    while (hasMore) {
+      const endpoint = `https://itch.io/api/1/${itchApiKey}/my-owned-keys?page=${page}&page_size=${pageSize}`;
+      const response = await fetch(endpoint);
+      if (!response.ok) {
+        if (page === 1) return null; // First page failed, return null
+        break; // Subsequent page failed, return what we have
+      }
+
+      const payload = await response.json();
+      if (!payload || typeof payload !== 'object') break;
+
+      const ownedKeys = Array.isArray(payload.owned_keys) ? payload.owned_keys : [];
+      if (ownedKeys.length === 0) {
+        hasMore = false;
+      } else {
+        for (const key of ownedKeys) {
+          allKeys.push({
+            game_id: key.game_id ?? key.game?.id ?? null,
+            download_key_id: key.download_key_id ?? key.id ?? null,
+            created_at: key.created_at ?? null,
+            game: key.game ? {
+              id: key.game.id ?? null,
+              title: key.game.title ?? null,
+              url: key.game.url ?? null,
+              cover_url: key.game.cover_url ?? key.game.still_cover_url ?? null,
+              short_text: key.game.short_text ?? null,
+              classification: key.game.classification ?? null,
+              min_price: key.game.min_price ?? null,
+              user: key.game.user ? {
+                id: key.game.user.id ?? null,
+                username: key.game.user.username ?? null,
+                url: key.game.user.url ?? null,
+              } : null,
+            } : null,
+          });
+        }
+        // If we got fewer than pageSize, we're done
+        hasMore = ownedKeys.length >= pageSize;
+        page++;
+      }
+    }
+
+    return {
+      owned_keys: allKeys,
+      total: allKeys.length,
+    };
+  } catch (err) {
+    console.warn('Failed to fetch itch library:', err?.message);
+    return allKeys.length > 0 ? { owned_keys: allKeys, total: allKeys.length } : null;
   }
 }
 
@@ -664,6 +761,18 @@ async function fetchItadDealsDaily() {
     const appId = appIdsByShopAndItadId.get(`${shopId}:${itadGameId}`);
     if (!appId) continue;
 
+    // For Steam, verify the app actually exists on Steam API
+    if (platformInfo.platformName === 'steam') {
+      const steamExists = await verifySteamGameExists(appId);
+      if (!steamExists) {
+        console.log('Skipping ITAD game: Steam app not verified', {
+          itadId: itadGameId,
+          steamAppId: appId,
+        });
+        continue;
+      }
+    }
+
     const itchDetails = platformInfo.platformName === 'itch'
       ? await fetchItchGameDetails(appId, { includePageDetails: true })
       : null;
@@ -884,6 +993,17 @@ async function upsertShopSpecialsFromIgdb({ trending = [], upcoming = [] } = {})
       console.log('Skipping IGDB game: missing Steam appid (external_games category=1):', {
         igdbId: igdbGame?.id,
         name: igdbGame?.name,
+      });
+      return null;
+    }
+
+    // Verify the Steam game actually exists on Steam API before using it
+    const steamExists = await verifySteamGameExists(steamAppId);
+    if (!steamExists) {
+      console.log('Skipping IGDB game: Steam app not verified (may be itch-only or other platform):', {
+        igdbId: igdbGame?.id,
+        name: igdbGame?.name,
+        steamAppId,
       });
       return null;
     }
@@ -1188,6 +1308,18 @@ app.get('/api/itch/game/:appId', async (req, res) => {
     };
 
     return res.json(result);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/itch/library', async (req, res) => {
+  try {
+    const library = await fetchItchLibrary();
+    if (!library) {
+      return res.status(404).json({ error: 'Could not fetch itch.io library (ITCH_API_KEY may be missing)' });
+    }
+    return res.json(library);
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

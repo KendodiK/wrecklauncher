@@ -416,6 +416,40 @@ function getShopSpecialsCtrl() {
     return getItchCtrl().getInstalledGames();
   });
 
+  // Get itch.io OAuth client ID from environment
+  handle('itch:get-client-id', async () => {
+    return process.env.ITCH_CLIENT_ID || null;
+  });
+
+  // OAuth-based library (uses user's own token)
+  handle('itch:get-library', async () => {
+    return await getItchCtrl().getLibraryWithUserToken();
+  });
+
+  handle('itch:oauth-login', async (_event, clientId) => {
+    // Use provided clientId or fall back to env
+    const id = "e0ee61cc2f4a3ad1a984914d3d833341";
+    if (!id) throw new Error('itch.io OAuth client ID is required. Set ITCH_CLIENT_ID in .env or pass it as argument.');
+    return await getItchCtrl().login(id);
+  });
+
+  handle('itch:oauth-logout', async () => {
+    getItchCtrl().logout();
+    return { success: true };
+  });
+
+  handle('itch:oauth-status', async () => {
+    const ctrl = getItchCtrl();
+    return {
+      isLoggedIn: ctrl.isLoggedIn(),
+      hasToken: !!ctrl.getAccessToken(),
+    };
+  });
+
+  handle('itch:get-profile', async () => {
+    return await getItchCtrl().getProfile();
+  });
+
   // Token-first style: (token, gameId). The API key is managed by the backend — not needed here.
   handle('itch:get-game-details', async (_event, token, gameId) => {
     const t = typeof token === 'string' ? token.trim() : '';

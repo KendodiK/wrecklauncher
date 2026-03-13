@@ -150,6 +150,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getEpicInstalledGames: () => ipcRenderer.invoke('epic:get-installed-games'),
   // itch.io
   getItchInstalledGames: () => ipcRenderer.invoke('itch:get-installed-games'),
+  getItchClientId: () => ipcRenderer.invoke('itch:get-client-id'),
+  getItchLibrary: () => ipcRenderer.invoke('itch:get-library'),
+  itchOAuthLogin: (clientId) => ipcRenderer.invoke('itch:oauth-login', clientId),
+  itchOAuthLogout: () => ipcRenderer.invoke('itch:oauth-logout'),
+  itchOAuthStatus: () => ipcRenderer.invoke('itch:oauth-status'),
+  getItchProfile: () => ipcRenderer.invoke('itch:get-profile'),
   getItchGameDetails: (gameId) => {
     return invokeAuthed('itch:get-game-details', gameId);
   },
