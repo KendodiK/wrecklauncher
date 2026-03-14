@@ -4,19 +4,20 @@ const { execFile } = require('child_process');
 const https = require('https');
 const { shell } = require('electron');
 const GamesController = require('./GamesController');
+const { joinUrl, normalizeBaseUrl } = require('../lib/url');
+const { fetchJsonSafe } = require('../lib/http');
 
 class GogController extends GamesController {
+  /** @type {string} */
+  #serverUrl;
+
   /**
    * @param {{ serverUrl: string }} cfg
    */
   constructor(cfg) {
-    if (!cfg?.serverUrl) {
-      throw new Error('GogController requires serverUrl from main.js');
-    }
-
-    super({
-      serverUrl: cfg.serverUrl,
-    });
+    const serverUrl = cfg?.serverUrl;
+    super({ serverUrl });
+    this.#serverUrl = normalizeBaseUrl(serverUrl, { defaultProtocol: 'https:' });
   }
 
   static #agent = new https.Agent({
@@ -221,105 +222,75 @@ class GogController extends GamesController {
    * @returns {Promise<import('../models').GogGameDetails|null>}
    */
   async getGameDetails(token, productId) {
+    if (!token || !String(token).trim()) throw new Error('Auth token is required');
     const id = String(productId).trim();
     if (!id || !/^\d+$/.test(id)) throw new Error(`Invalid GOG product ID: ${String(productId)}`);
 
-    const retries = 3;
-    const retryDelay = 700;
+    // 1) Prefer DB data first.
+    const dbUrl = joinUrl(this.#serverUrl, 'api', 'games', id, 'all');
+    const dbRes = await fetchJsonSafe(dbUrl, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+    });
 
-    const attempt = async (/** @type {number} */ tryNum) => {
-      const url = `https://api.gog.com/products/${encodeURIComponent(id)}?expand=description,screenshots`;
-      const { statusCode, body } = await GogController.#httpsGetText(url);
+    if (dbRes.ok && dbRes.json && typeof dbRes.json === 'object') {
+      const platformName = String(dbRes.json.platform_name ?? dbRes.json.platform ?? '').trim().toLowerCase();
+      if (platformName === 'gog') {
+        const genreNames = Array.isArray(dbRes.json.genres)
+          ? dbRes.json.genres
+              .map((/** @type {any} */ g) => (typeof g === 'string' ? g : g?.genre ?? g?.name))
+              .filter((/** @type {any} */ v) => typeof v === 'string' && v.trim())
+          : [];
 
-      if (statusCode === 429) {
-        if (tryNum < retries) {
-          await GogController.#sleep(retryDelay * tryNum);
-          return attempt(tryNum + 1);
-        }
-        throw new Error(`GOG API rate limited (HTTP 429)`);
+        return {
+          productId: id,
+          title: dbRes.json.name ?? `gog:${id}`,
+          bannerImg: dbRes.json.banner_img ?? null,
+          description: dbRes.json.description ?? null,
+          cost: typeof dbRes.json.cost === 'number' ? dbRes.json.cost : null,
+          genreNames,
+          raw: {
+            ...dbRes.json,
+            source: 'database',
+          },
+        };
       }
+    }
 
-      // 404 = product not found (may be a DLC or regional restriction)
-      if (statusCode === 404) return null;
+    // 2) Fallback to scrape endpoint, which also uploads to DB when missing.
+    const url = `${joinUrl(this.#serverUrl, 'api', 'gog', 'game', id)}?ensureUpload=true`;
+    const { ok, status, json } = await fetchJsonSafe(url, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+    });
 
-      if (statusCode < 200 || statusCode >= 300) {
-        throw new Error(`GOG API error: HTTP ${statusCode}`);
+    if (!ok) {
+      if (status === 401) {
+        const msg = (json && typeof json === 'object' ? json.error : null) || 'Unauthorized';
+        const e = new Error(`Unauthorized (token invalid/expired): ${String(msg).slice(0, 300)}`);
+        // @ts-ignore
+        e.code = 'WRECK_INVALID_TOKEN';
+        throw e;
       }
+      if (status === 404) return null;
+      const msg = (json && typeof json === 'object' ? json.error : null) || `HTTP ${status}`;
+      throw new Error(`GOG game fetch failed: ${String(msg).slice(0, 300)}`);
+    }
 
-      let data;
-      try {
-        data = JSON.parse(body);
-      } catch {
-        throw new Error('GOG API returned non-JSON body');
-      }
+    if (!json || typeof json !== 'object') return null;
 
-      if (!data || typeof data !== 'object') return null;
-
-      const title = typeof data.title === 'string' ? data.title.trim() : `gog:${id}`;
-      const backgroundImg = data.images?.background ? String(data.images.background).replace(/^\/\//, 'https://') : null;
-      const logoImg = data.images?.logo ? String(data.images.logo).replace(/^\/\//, 'https://') : null;
-      const bannerImg = backgroundImg || logoImg;
-      const leadDesc = data.description?.lead ? String(data.description.lead) : null;
-      const fullDesc = data.description?.full ? String(data.description.full) : null;
-      const description = leadDesc || fullDesc;
-
-      // Price: data.price.final is a string like "9.99" in USD
-      let cost = null;
-      if (data.price?.final !== undefined && data.price.final !== null) {
-        const parsed = parseFloat(String(data.price.final));
-        if (Number.isFinite(parsed)) cost = parsed;
-      }
-
-      // Genres
-      const genreNames = Array.isArray(data.genres)
-        ? data.genres.map((/** @type {any} */ g) => typeof g === 'string' ? g : (typeof g?.name === 'string' ? g.name : null)).filter(Boolean)
-        : [];
-
-      /** @type {import('../models').GogGameDetails} */
-      const details = {
-        productId: id,
-        title,
-        bannerImg,
-        description,
-        cost,
-        genreNames,
-        raw: data,
-      };
-
-      // Upload to backend
-      try {
-        const uploadResult = await super.uploadGame(token, {
-          app_id: id,
-          platform_name: 'gog',
-          name: title,
-          banner_img: bannerImg || '',
-          description,
-          cost,
-          genre_names: genreNames,
-        });
-
-        if (!uploadResult.ok) {
-          if (uploadResult.statusCode === 401) {
-            const msg = uploadResult.rawText || uploadResult.response?.error || 'Unauthorized';
-            const e = new Error(`Unauthorized (token invalid/expired): ${String(msg).slice(0, 300)}`);
-            // @ts-ignore
-            e.code = 'WRECK_INVALID_TOKEN';
-            throw e;
-          }
-          if (uploadResult.statusCode !== 400) {
-            const msg = uploadResult.rawText || uploadResult.response?.error || 'Unknown error';
-            throw new Error(`Game upload failed (HTTP ${uploadResult.statusCode}): ${String(msg).slice(0, 300)}`);
-          }
-        }
-      } catch (err) {
-        if (err && typeof err === 'object' && /** @type {any} */ (err).code === 'WRECK_INVALID_TOKEN') throw err;
-        console.error(`[GogController] Failed to upload GOG game ${id}: ${err instanceof Error ? err.message : String(err)}`);
-      }
-
-      return details;
+    return {
+      productId: id,
+      title: typeof json.title === 'string' ? json.title : `gog:${id}`,
+      bannerImg: json.bannerImg ?? json.banner_img ?? json.cover_url ?? null,
+      description: json.description ?? null,
+      cost: typeof json.cost === 'number' ? json.cost : (typeof json.min_price === 'number' ? json.min_price : null),
+      genreNames: Array.isArray(json.genreNames) ? json.genreNames : (Array.isArray(json.genres) ? json.genres : []),
+      raw: {
+        ...json,
+        source: 'scrape-endpoint',
+      },
     };
-
-    return attempt(1);
   }
 
   /**

@@ -129,6 +129,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   createSteamPlatformUser: (platformUsername, platformProfileLink) => {
     return invokeAuthed('steam:create-user', platformUsername, platformProfileLink);
   },
+  getPlatformUsers: () => {
+    return invokeAuthed('platform:get-users');
+  },
+  deletePlatformUser: (platformUserId) => {
+    return invokeAuthed('platform:delete-user', platformUserId);
+  },
   getPlatform: (platformName) => ipcRenderer.invoke('platform:get', platformName),
   //Steam
   getOwnedGamesFromSteam: (platformUsername) => {

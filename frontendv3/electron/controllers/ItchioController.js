@@ -15,11 +15,7 @@ class ItchioController extends GamesController {
    * @param {{ serverUrl: string }} cfg
    */
   constructor(cfg) {
-    if (!cfg?.serverUrl) {
-      throw new Error('ItchioController requires serverUrl from main.js');
-    }
-
-    const serverUrl = cfg.serverUrl;
+    const serverUrl = cfg?.serverUrl;
     super({ serverUrl });
     this.#serverUrl = normalizeBaseUrl(serverUrl, { defaultProtocol: 'http:' });
   }
@@ -119,12 +115,44 @@ class ItchioController extends GamesController {
     const id = Number(gameId);
     if (!Number.isFinite(id) || id <= 0) throw new Error(`Invalid itch.io game ID: ${String(gameId)}`);
 
-    const url = joinUrl(this.#serverUrl, 'api', 'itch', 'game', String(id));
+    // 1) Prefer DB data first.
+    const dbUrl = joinUrl(this.#serverUrl, 'api', 'games', String(id), 'all');
+    const dbRes = await fetchJsonSafe(dbUrl, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+    });
+
+    if (dbRes.ok && dbRes.json && typeof dbRes.json === 'object') {
+      const platformName = String(dbRes.json.platform_name ?? dbRes.json.platform ?? '').trim().toLowerCase();
+      if (platformName === 'itch' || platformName === 'itch.io') {
+        const genres = Array.isArray(dbRes.json.genres)
+          ? dbRes.json.genres
+              .map((/** @type {any} */ g) => (typeof g === 'string' ? g : g?.genre ?? g?.name))
+              .filter((/** @type {any} */ v) => typeof v === 'string' && v.trim())
+          : [];
+
+        return {
+          gameId: id,
+          title: dbRes.json.name ?? `itch:${id}`,
+          coverUrl: dbRes.json.banner_img ?? null,
+          shortText: dbRes.json.description ?? null,
+          minPrice: typeof dbRes.json.cost === 'number' ? dbRes.json.cost : 0,
+          url: null,
+          raw: {
+            ...dbRes.json,
+            genres,
+            source: 'database',
+          },
+        };
+      }
+    }
+
+    // 2) Fallback to scrape endpoint, which also uploads to DB when missing.
+    const url = `${joinUrl(this.#serverUrl, 'api', 'itch', 'game', String(id))}?ensureUpload=true`;
     const { ok, status, json } = await fetchJsonSafe(url, {
       method: 'GET',
       headers: {
         'Accept': 'application/json',
-        'Authorization': `Bearer ${token}`,
       },
     });
 
@@ -143,13 +171,16 @@ class ItchioController extends GamesController {
     if (!json || typeof json !== 'object') return null;
 
     return {
-      gameId: typeof json.gameId === 'number' ? json.gameId : id,
+      gameId: typeof json.gameId === 'number' ? json.gameId : (typeof json.app_id === 'number' ? json.app_id : id),
       title: typeof json.title === 'string' ? json.title : `itch:${id}`,
-      coverUrl: json.coverUrl ?? null,
-      shortText: json.shortText ?? null,
-      minPrice: typeof json.minPrice === 'number' ? json.minPrice : 0,
+      coverUrl: json.coverUrl ?? json.cover_url ?? json.banner_img ?? null,
+      shortText: json.shortText ?? json.short_text ?? json.description ?? null,
+      minPrice: typeof json.minPrice === 'number' ? json.minPrice : (typeof json.min_price === 'number' ? json.min_price : 0),
       url: json.url ?? null,
-      raw: json,
+      raw: {
+        ...json,
+        source: 'scrape-endpoint',
+      },
     };
   }
 

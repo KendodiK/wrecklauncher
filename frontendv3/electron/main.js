@@ -1,3 +1,4 @@
+const { get } = require('cloudscraper');
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 
@@ -41,22 +42,6 @@ function createWindow() {
     console.log('[electron] did-finish-load:', currentUrl);
   });
 
-  // In-app DevTools shortcuts for development/debugging.
-  mainWindow.webContents.on('before-input-event', (event, input) => {
-    const key = String(input?.key || '').toLowerCase();
-    const openByFunctionKey = key === 'f12';
-    const openByChord = (input?.control || input?.meta) && input?.shift && key === 'i';
-
-    if (openByFunctionKey || openByChord) {
-      event.preventDefault();
-      if (mainWindow?.webContents.isDevToolsOpened()) {
-        mainWindow.webContents.closeDevTools();
-      } else {
-        mainWindow?.webContents.openDevTools({ mode: 'detach' });
-      }
-    }
-  });
-
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
     if (process.env.OPEN_DEVTOOLS === '1') {
@@ -71,7 +56,7 @@ app.whenReady().then(() => {
   createWindow();
 
   // Serverless controller modules (no LocalApi web server).
-  const backendUrl = "https://api.anchorlauncher.hu";
+  const backendUrl = 'https://api.anchorlauncher.hu';
 
   
   /** @type {import('./controllers/UserController')|null} */
@@ -98,8 +83,6 @@ app.whenReady().then(() => {
   let gogCtrl = null;
   /** @type {import('./controllers/ShopSpecialsController')|null} */
   let shopSpecialsCtrl = null;
-  /** @type {import('./controllers/SettingsController')|null} */
-  let settingsCtrl = null;
 
   function getUserCtrl() {
     if (!userCtrl) {
@@ -128,7 +111,7 @@ app.whenReady().then(() => {
   function getEpicCtrl() {
     if (!epicCtrl) {
       const EpicGamesController = require('./controllers/EpicGamesController');
-      epicCtrl = new EpicGamesController();
+      epicCtrl = new EpicGamesController({ serverUrl: backendUrl });
     }
     return epicCtrl;
   }
@@ -194,14 +177,6 @@ function getShopSpecialsCtrl() {
       shopSpecialsCtrl = new ShopSpecialsController({ serverUrl: backendUrl });
     }
     return shopSpecialsCtrl;
-  }
-
-  function getSettingsCtrl() {
-    if (!settingsCtrl) {
-      const SettingsController = require('./controllers/SettingsController');
-      settingsCtrl = new SettingsController();
-    }
-    return settingsCtrl;
   }
   /**
    * Registers an IPC handler with consistent error logging.
@@ -312,31 +287,6 @@ function getShopSpecialsCtrl() {
     return await getUserCtrl().getOwnedGamesFromSteam(String(platformUsername));
   });
 
-  // Settings (no auth required for now - using global settings)
-  handle('settings:get', async () => {
-    return await getSettingsCtrl().getSettings();
-  });
-
-  handle('settings:update', async (_event, category, key, value) => {
-    return await getSettingsCtrl().updateSetting(String(category), String(key), value);
-  });
-
-  handle('settings:update-bulk', async (_event, newSettings) => {
-    return await getSettingsCtrl().updateSettings(newSettings);
-  });
-
-  handle('settings:reset', async () => {
-    return await getSettingsCtrl().resetToDefaults();
-  });
-
-  handle('settings:clear-cache', async () => {
-    return await getSettingsCtrl().clearCache();
-  });
-
-  handle('settings:update-platform', async (_event, platform, connected, username) => {
-    return await getSettingsCtrl().updatePlatformConnection(String(platform), Boolean(connected), String(username || ''));
-  });
-
   // Platforms
   handleAuthed('platform:create-platform', async ({ token }, platformName) => {
     const name = String(platformName || '').trim();
@@ -366,6 +316,17 @@ function getShopSpecialsCtrl() {
   handleAuthed('steam:create-user', async ({ token }, platformUsername, platformProfileLink) => {
       return await getPlatformsCtrl().createSteamPlatformUser(token, platformUsername, platformProfileLink);
     });
+
+  handleAuthed('platform:get-users', async ({ token }) => {
+    return await getPlatformsCtrl().getPlatformUserIDAll(token);
+  });
+
+  handleAuthed('platform:delete-user', async ({ token }, platformUserId) => {
+    const id = String(platformUserId || '').trim();
+    if (!id) throw new Error('platformUserId is required');
+    return await getPlatformsCtrl().deletePlatformUser(token, id);
+  });
+
   // Steam game details.
   // Supports both call styles:
   // 1) invoke('steam:get-game-details', token, appID, cc)
@@ -439,6 +400,12 @@ function getShopSpecialsCtrl() {
     return await getGamesCtrl().getAllDetailsByID(Number(id));
   });
 
+  handle('games:scrape', async (_event, gameUrl) => {
+    const url = _event?.senderFrame?.url || (typeof _event?.sender?.getURL === 'function' ? _event.sender.getURL() : '') || '(unknown sender)';
+    //implement later mert Barni lusta volt átírni az url szerkezetet
+  });
+
+
   handle('epic:get-installed-games', async () => {
     return await getEpicCtrl().getInstalledGames();
   });
@@ -509,6 +476,7 @@ function getShopSpecialsCtrl() {
     return await getPcGamesTorrentCtrl().PcGamesTorrentMagnetLink(String(gameName));
   });
 
+  
   // ── Torrent controller ────────────────────────────────────────────────────
   // progress events are pushed to the renderer via webContents.send so the
   // renderer only needs ipcRenderer.on('torrent:progress', cb).
@@ -586,15 +554,6 @@ ipcMain.on('window:maximize', () => {
 ipcMain.on('window:close', () => {
   if (mainWindow) {
     mainWindow.close();
-  }
-});
-
-ipcMain.on('window:toggle-devtools', () => {
-  if (!mainWindow) return;
-  if (mainWindow.webContents.isDevToolsOpened()) {
-    mainWindow.webContents.closeDevTools();
-  } else {
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
   }
 });
 

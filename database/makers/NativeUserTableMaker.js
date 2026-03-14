@@ -22,7 +22,8 @@ class NativeUserTableMaker extends DatabaseHandler {
                 user_password VARCHAR(100) NOT NULL,
                 email VARCHAR(256) NOT NULL,
                 bio VARCHAR(512),
-                pfp VARCHAR(516)
+                pfp VARCHAR(516),
+                UNIQUE KEY uq_user_profile (name)
             );
         `;
         try {
