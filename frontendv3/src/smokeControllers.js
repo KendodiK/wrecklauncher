@@ -184,7 +184,24 @@ export async function runSmokeControllers() {
       }
     }
   }  
-
+  try{
+    const installedGames = await api.getSteamInstalledGames();
+    log('getSteamInstalledGames', installedGames);
+  } catch (e) {
+    warn('getSteamInstalledGames', e);
+  }  
+  try{
+    const details = await api.getAllDetailsByAppIDAndPlatform('271590', 'steam');
+    log('getAllDetailsByAppIDAndPlatform', details);
+  } catch (e) {
+    warn('getAllDetailsByAppIDAndPlatform', e);
+  }
+  try{
+    const magnetlink = await api.FitGirlMagnetLink('grand-theft-auto-v');
+    log('FitGirlMagnetLink', magnetlink);
+  } catch (e) {
+    warn('FitGirlMagnetLink', e);
+  }
 //  Platforms
   // try {
   //   const platform = await api.getPlatform('steam');
@@ -522,25 +539,25 @@ export async function runSmokeControllers() {
   }
 
   // ── Itch.io scrape test ──────────────────────────────────────────────────
-  let itchGames;
-  try {
-    itchGames = await api.getItchGameDetails(3184368);
-    log('getItchGameDetails', Array.isArray(itchGames) ? itchGames.slice(0, 5) : itchGames);
-  } catch (e) {
-    warn('getItchGameDetails', e);
-  }
+  // let itchGames;
+  // try {
+  //   itchGames = await api.getItchGameDetails(3184368);
+  //   log('getItchGameDetails', Array.isArray(itchGames) ? itchGames.slice(0, 5) : itchGames);
+  // } catch (e) {
+  //   warn('getItchGameDetails', e);
+  // }
 
 
 
   // ── GOG scrape test ──────────────────────────────────────────────────────
-  let gogGames;
-  try {
-    gogGames = await api.getGogGameDetails(1900078583);
-    log('getGogGameDetails', gogGames);
-  } catch (e) {
-    warn('getGogGameDetails', e);
-  }
-  showNotice('Smoke done', 'See console + details below', lines.join('\n\n'));
+//   let gogGames;
+//   try {
+//     gogGames = await api.getGogGameDetails(1900078583);
+//     log('getGogGameDetails', gogGames);
+//   } catch (e) {
+//     warn('getGogGameDetails', e);
+//   }
+//   showNotice('Smoke done', 'See console + details below', lines.join('\n\n'));
 }
 
 // If smoke is explicitly enabled (wreck_smoke === '1'), run automatically

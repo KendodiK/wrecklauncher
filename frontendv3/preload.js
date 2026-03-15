@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, app } = require('electron');
 
 const AUTH_TOKEN_KEY = 'wrecklauncher.authToken';
 
@@ -136,6 +136,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   getPlatform: (platformName) => ipcRenderer.invoke('platform:get', platformName),
   //Steam
+  getSteamInstalledGames: () => ipcRenderer.invoke('steam:get-installed-games'),
   getOwnedGamesFromSteam: (platformUsername) => {
     return invokeAuthed('user:get-owned-games-from-steam', platformUsername);
   },
@@ -212,6 +213,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // GamesController
   getGames: (from) => ipcRenderer.invoke('games:get-games', from),
   getAllDetailsByID: (id) => ipcRenderer.invoke('games:get-all-details-by-id', id),
+  getAllDetailsByAppIDAndPlatform: (platform, appId) => ipcRenderer.invoke('games:get-all-details-by-appid-and-platform', {platform}, {appId}),
 });
 
 // Optional legacy-style alias used by some code paths

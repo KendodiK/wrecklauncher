@@ -689,7 +689,8 @@ async function fetchItadDealsDaily() {
   const dealsResp = await fetchItad('/deals/v2', {
     query: {
       country: 'US',
-      limit: 100,
+      limit: 500,
+      sort: '-cut',
       shops: matchedShops.map((s) => s.shopId).join(','),
       mature: 'false',
     },
@@ -760,19 +761,6 @@ async function fetchItadDealsDaily() {
 
     const appId = appIdsByShopAndItadId.get(`${shopId}:${itadGameId}`);
     if (!appId) continue;
-
-    // For Steam, verify the app actually exists on Steam API
-    if (platformInfo.platformName === 'steam') {
-      const steamExists = await verifySteamGameExists(appId);
-      if (!steamExists) {
-        console.log('Skipping ITAD game: Steam app not verified', {
-          itadId: itadGameId,
-          steamAppId: appId,
-        });
-        continue;
-      }
-    }
-
     const itchDetails = platformInfo.platformName === 'itch'
       ? await fetchItchGameDetails(appId, { includePageDetails: true })
       : null;
@@ -1157,30 +1145,74 @@ async function fetchGamesDaily() {
   let trending = [];
   let upcoming = [];
 
-  // 1️⃣ Trending / Featured
-  try {
-    trending = await fetchIGDB(
-      "games",
-      `fields id, name, summary, cover.url, genres.name, hypes, follows, external_games.category, external_games.uid;
-       where external_games.category = 1;
-       sort hypes desc;
-       limit 100;`
-    );
-    console.log('Fetched trending games successfully');
-    console.log(trending);
 
-    for (const g of trending) {
-      const steamAppId = getSteamAppIdFromIgdbGame(g);
-      if (!steamAppId) {
-        console.log('IGDB game missing Steam appid (external_games category=1):', {
-          igdbId: g?.id,
-          name: g?.name,
-        });
-      }
-    }
-  } catch (err) {
-    console.error('Failed to fetch trending games:', err);
+  //#1 Popular games based on visits (can change later but eh)
+  try{
+  rows = await fetchIGDB(
+    "popularity_primitives",
+    "fields game_id,value,popularity_type; where popularity_type = (1,3,5,6) & value > 0; limit 500;"
+  );
+  console.log('Fetched popularity primitives successfully');
+  const scores = {};
+  const weights = {
+  1:0.2,
+  3:0.3,
+  5:1,
+  6:0.2
+};
+  for (const r of rows) {
+  if (!weights[r.popularity_type]) continue;
+
+  if (!scores[r.game_id]) scores[r.game_id] = 0;
+
+  scores[r.game_id] += r.value * weights[r.popularity_type];
   }
+  const ranked = Object.entries(scores)
+  .map(([game_id, score]) => ({ game_id: Number(game_id), score }))
+  .sort((a,b) => b.score - a.score)
+  .slice(0,10);
+  try{
+  const ids = ranked.map(g => g.game_id).join(",")
+  const trending = await fetchIGDB(
+    "games",
+    `fields name,external_games.category, external_games.uid,summary,genres.name,external_games.uid;
+     where id = (${ids}) & external_games.category in (1,5,11);`
+  );
+  console.log('Fetched trending games successfully');
+  console.log(trending.length);
+  }catch(err){
+    console.error('Failed to extract game IDs from popularity primitives:', err);
+  }
+  }catch(err){
+    console.error('Failed to fetch popularity primitives from IGDB:', err);
+  }
+ 
+
+
+  // 1️⃣ Trending / Featured
+  // try {
+  //   trending = await fetchIGDB(
+  //     "games",
+  //     `fields id, name, summary, cover.url, genres.name, hypes, follows, external_games.category, external_games.uid;
+  //      where external_games.category = 1;
+  //      sort hypes desc;
+  //      limit 100;`
+  //   );
+  //   console.log('Fetched trending games successfully');
+  //   console.log(trending);
+
+  //   for (const g of trending) {
+  //     const steamAppId = getSteamAppIdFromIgdbGame(g);
+  //     if (!steamAppId) {
+  //       console.log('IGDB game missing Steam appid (external_games category=1):', {
+  //         igdbId: g?.id,
+  //         name: g?.name,
+  //       });
+  //     }
+  //   }
+  // } catch (err) {
+  //   console.error('Failed to fetch trending games:', err);
+  // }
   
   // 2️⃣ Coming Soon
   try {
@@ -1192,17 +1224,7 @@ async function fetchGamesDaily() {
        limit 100;`
     );
     console.log('Fetched upcoming games successfully');
-    console.log(upcoming);
-
-    for (const g of upcoming) {
-      const steamAppId = getSteamAppIdFromIgdbGame(g);
-      if (!steamAppId) {
-        console.log('IGDB game missing Steam appid (external_games category=1):', {
-          igdbId: g?.id,
-          name: g?.name,
-        });
-      }
-    }
+    console.log(upcoming.length);
   } catch (err) {
     console.error('Failed to fetch upcoming games:', err);
   }

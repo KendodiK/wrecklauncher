@@ -5,7 +5,10 @@ const https = require('https');
 const { joinUrl, normalizeBaseUrl } = require('../lib/url');
 const { fetchJsonSafe } = require('../lib/http');
 const GamesController = require('./GamesController');
-
+const fs = require("fs");
+const path = require("path");
+const vdf = require("vdf");
+const winReg = require('winreg');
 class SteamGamesController extends GamesController {
   /**
    * @type {string} (false string, in reality its a number converted to string for query param usage, e.g. "730" for CS:GO)
@@ -207,7 +210,9 @@ class SteamGamesController extends GamesController {
       // Keep it separate from the Steam details object.
       const genreNames = Array.isArray(data.genres)
         ? data.genres
+        // @ts-ignore
             .map((g) => (g && typeof g === 'object' ? g.description : null))
+        // @ts-ignore
             .filter((s) => typeof s === 'string' && s.trim())
         : [];
 
@@ -307,5 +312,55 @@ class SteamGamesController extends GamesController {
       throw new Error(`Failed to open Steam client URL (${url}): ${msg}`);
     }
   }
+
+async getInstalledGames() {
+  const regKey = new winReg({
+  hive: winReg.HKCU,
+  key: "\\Software\\Valve\\Steam"
+});
+const steamPath = await new Promise((resolve, reject) => {
+  regKey.get("SteamPath", (err, item) => {
+    if (err) {
+      console.error("Steam not found:", err);
+      reject(err);
+    } else {
+      console.log("Steam path found:", item.value);
+      resolve(item.value);
+    }
+  });
+});
+  const libraryFile = path.join(steamPath, "steamapps/libraryfolders.vdf");
+  const libraries = vdf.parse(fs.readFileSync(libraryFile, "utf8"));
+
+  const libraryPaths = Object.values(libraries.libraryfolders)
+    .map(lib => lib.path);
+
+  let games = [];
+
+  for (const lib of libraryPaths) {
+    const steamapps = path.join(lib, "steamapps");
+
+    const files = fs.readdirSync(steamapps);
+
+    for (const file of files) {
+      if (file.startsWith("appmanifest_") && file.endsWith(".acf")) {
+        const data = vdf.parse(
+          fs.readFileSync(path.join(steamapps, file), "utf8")
+        );
+
+        const app = data.AppState;
+
+        games.push({
+          appid: app.appid,
+          name: app.name,
+          installdir: app.installdir
+        });
+      }
+    }
+  }
+
+  return games;
+}
+
 }
 module.exports = SteamGamesController;

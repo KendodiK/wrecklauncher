@@ -35,6 +35,7 @@ class PcGamesTorrentController {
       });
 
       let settled = false;
+      // @ts-ignore
       const settle = (val) => {
         if (settled) return;
         settled = true;
@@ -99,19 +100,15 @@ class PcGamesTorrentController {
       throw new Error(`Failed to fetch IggGames game page for "${gameName}": HTTP ${response.statusCode}`);
     }
     const body = response.body;
-    console.log(`[PcGamesTorrent] fetched page body for "${gameName}", length ${body.length}`);
     // Log a snippet around any magnet link found so we can see the raw encoding.
     const rawpcgamestorrentlink = body.indexOf('pcgamestorrents.com');
-    console.log('[PcGamesTorrent] body snippet around link:', rawpcgamestorrentlink === -1 ? '(not found)' : body.slice(Math.max(0, rawpcgamestorrentlink - 10), rawpcgamestorrentlink + 200));
     // Match a pcgamestorrents.com link that has a path beyond just the root slash (not homepage nav links).
     const allPcMatches = [...body.matchAll(/href=["'](https?:\/\/pcgamestorrents\.com\/[^"'/][^"']*)["']/gi)];
-    console.log('[PcGamesTorrent] all pcgamestorrents.com hrefs found:', allPcMatches.map(m => m[1]));
     const match = allPcMatches[0];
     if (!match) {
       console.warn('[PcGamesTorrent] no pcgamestorrents.com href found in page body');
       return null;
     }
-    console.log('[PcGamesTorrent] using pcgamestorrents.com href:', match[1]);
     const pcgamestorrentBody = await this.#scraper.fetch(match[1]);
     if (!pcgamestorrentBody.ok) {
       throw new Error(`Failed to fetch PcGamesTorrent page for "${gameName}": HTTP ${pcgamestorrentBody.statusCode}`);
@@ -119,14 +116,12 @@ class PcGamesTorrentController {
     const magnetMatch = pcgamestorrentBody.body.match(/href=["'](https?:\/\/[^"']*gamedownloadurl\.autos\/url-generator\.php\?url=[^"']+)["']/i);
     if (!magnetMatch) {
       console.warn('[PcGamesTorrent] no gamedownloadurl.autos href found in PcGamesTorrent page body');
-      console.log('[PcGamesTorrent] pcgamestorrents page body snippet (first 500):', pcgamestorrentBody.body.slice(0, 500));
       return null;
     }
 
     const magnetLinkWebSite = magnetMatch[1]
       .replace(/&#0*38;/g, '&')
       .replace(/&amp;/gi, '&');
-    console.log('[PcGamesTorrent] fetching download page via BrowserWindow:', magnetLinkWebSite.slice(0, 120));
 
     // The gamedownloadurl.autos page requires JS execution to set the magnet link.
     // Use a hidden BrowserWindow so JS runs, then intercept will-navigate or read btnDownload.href.
