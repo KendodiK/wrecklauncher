@@ -9,6 +9,9 @@ import FriendsPage from "./components/pages/friends.jsx";
 import SettingsPage from "./components/pages/setting.jsx";
 import ProfilePage from "./components/pages/profle.jsx";
 import GamePage from "./components/pages/gamepage.jsx";
+import StoreGamePage from "./components/pages/StoreGamePage.jsx";
+import LibraryPage from "./components/pages/libraray.jsx";
+import AllGamesPage from "./components/pages/AllGamesPage.jsx";
 
 // Listens for auth-expired events and redirects to the login page.
 function AuthExpiredGuard({ onLogout }) {
@@ -41,6 +44,11 @@ function App() {
         <Routes>
           <Route path="/login" element={<Login onLogin={setUser} />} />
           <Route path="/store" element={<Store />} />
+          <Route path="/store/game/:platform/:id" element={<StoreGamePage />} />
+          <Route path="/library" element={<LibraryPage />} />
+          <Route path="/all-games" element={<AllGamesPage />} />
+          <Route path="/shop/all-games" element={<AllGamesPage />} />
+          <Route path="/shop/platform/:platform" element={<AllGamesPage />} />
           <Route path="/game" element={<GamePage />} />
           <Route path="/game/:id" element={<GamePage />} />
           <Route path="/downloads" element={<DownloadsPage />} />

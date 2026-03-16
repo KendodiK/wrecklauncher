@@ -1,5 +1,5 @@
 // main.js
-const { app, BrowserWindow, ipcMain, Tray, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu, globalShortcut } = require('electron');
 const { spawn } = require('child_process');
 const net = require('net');
 const http = require('http');
@@ -276,6 +276,11 @@ function createWindow() {
   });
 
   win.loadFile('index.html');
+  
+  // Open dev tools once the content is loaded
+  win.webContents.on('did-finish-load', () => {
+    win.webContents.openDevTools();
+  });
 }
 
 ipcMain.handle('window:minimize', () => win.minimize());
@@ -298,6 +303,13 @@ app.whenReady().then(async () => {
 
   createWindow();
 
+  // Register F12 to toggle dev tools
+  globalShortcut.register('F12', () => {
+    if (win && win.webContents) {
+      win.webContents.toggleDevTools();
+    }
+  });
+
   // Tray icon is optional; don't crash app startup if missing.
   const trayIconPath = path.join(__dirname, 'img', 'oneletrajz.png');
   if (fs.existsSync(trayIconPath)) {
@@ -314,6 +326,7 @@ app.whenReady().then(async () => {
 });
 
 app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
   stopLocalApi();
 });
 

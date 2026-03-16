@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer, app } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
 
 const AUTH_TOKEN_KEY = 'wrecklauncher.authToken';
 
@@ -98,6 +98,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   minimize: () => ipcRenderer.send('window:minimize'),
   maximize: () => ipcRenderer.send('window:maximize'),
   close: () => ipcRenderer.send('window:close'),
+  toggleDevTools: () => ipcRenderer.send('window:toggle-devtools'),
   invoke: (channel, ...args) => invokeWithTokenSync(channel, ...args),
 
   // Controller helpers (serverless modules in Electron main)
@@ -136,7 +137,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   getPlatform: (platformName) => ipcRenderer.invoke('platform:get', platformName),
   //Steam
-  getSteamInstalledGames: () => ipcRenderer.invoke('steam:get-installed-games'),
   getOwnedGamesFromSteam: (platformUsername) => {
     return invokeAuthed('user:get-owned-games-from-steam', platformUsername);
   },
@@ -151,12 +151,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getEpicInstalledGames: () => ipcRenderer.invoke('epic:get-installed-games'),
   // itch.io
   getItchInstalledGames: () => ipcRenderer.invoke('itch:get-installed-games'),
-  getItchClientId: () => ipcRenderer.invoke('itch:get-client-id'),
-  getItchLibrary: () => ipcRenderer.invoke('itch:get-library'),
-  itchOAuthLogin: (clientId) => ipcRenderer.invoke('itch:oauth-login', clientId),
-  itchOAuthLogout: () => ipcRenderer.invoke('itch:oauth-logout'),
-  itchOAuthStatus: () => ipcRenderer.invoke('itch:oauth-status'),
-  getItchProfile: () => ipcRenderer.invoke('itch:get-profile'),
   getItchGameDetails: (gameId) => {
     return invokeAuthed('itch:get-game-details', gameId);
   },
@@ -213,13 +207,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // GamesController
   getGames: (from) => ipcRenderer.invoke('games:get-games', from),
   getAllDetailsByID: (id) => ipcRenderer.invoke('games:get-all-details-by-id', id),
-  getAllDetailsByAppIDAndPlatform: (platform, appId, token) => ipcRenderer.invoke('games:get-all-details-by-appid-and-platform', {platform}, {appId}, {token}),
+  
+  // SettingsController
+  getSettings: () => ipcRenderer.invoke('settings:get'),
+  updateSetting: (category, key, value) => ipcRenderer.invoke('settings:update', category, key, value),
+  updateSettings: (newSettings) => ipcRenderer.invoke('settings:update-bulk', newSettings),
+  resetSettings: () => ipcRenderer.invoke('settings:reset'),
+  clearCache: () => ipcRenderer.invoke('settings:clear-cache'),
+  updatePlatformConnection: (platform, connected, username) => 
+    ipcRenderer.invoke('settings:update-platform', platform, connected, username),
 });
+
+ //getAllDetailsByAppIDAndPlatform: (platform, appId) => ipcRenderer.invoke('games:get-all-details-by-appid-and-platform', {platform}, {appId}),
 
 // Optional legacy-style alias used by some code paths
 contextBridge.exposeInMainWorld('api', {
   minimize: () => ipcRenderer.send('window:minimize'),
   maximize: () => ipcRenderer.send('window:maximize'),
   close: () => ipcRenderer.send('window:close'),
+  toggleDevTools: () => ipcRenderer.send('window:toggle-devtools'),
   invoke: (channel, ...args) => invokeWithTokenSync(channel, ...args),
 });

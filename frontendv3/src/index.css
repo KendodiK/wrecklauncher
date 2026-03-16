@@ -425,6 +425,11 @@ body {
   color: rgba(148, 163, 184, 0.45);
 }
 
+.library-scope-divider {
+  margin: 8px 0;
+  border-top: 1px solid rgba(51, 65, 85, 0.45);
+}
+
 .library-scope-btn {
   display: block;
   width: 100%;
@@ -467,6 +472,22 @@ body {
 .library-scope-btn-open-all:hover {
   border-color: rgba(148, 163, 184, 0.45);
   color: #e2e8f0;
+}
+
+.library-action-notice {
+  margin-top: 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  background: rgba(16, 185, 129, 0.1);
+  padding: 10px 12px;
+  font-size: 12px;
+  color: #bbf7d0;
+}
+
+.library-action-notice-error {
+  border-color: rgba(248, 113, 113, 0.35);
+  background: rgba(239, 68, 68, 0.1);
+  color: #fecaca;
 }
 
 /* ---- Launcher Tabs ---- */
@@ -516,67 +537,16 @@ body {
 .library-dock-inner {
   margin: 0 auto;
   width: 100%;
-  padding: 4px 16px 12px;
+  padding: 8px 16px 12px;
 }
 
 .library-dock-strip-area {
   position: relative;
 }
 
-/* Hover action buttons */
-.library-dock-actions {
-  position: absolute;
-  right: 0;
-  top: 16px;
-  z-index: 10;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  opacity: 0;
-  transition: opacity 0.3s ease;
-}
-
-.library-dock-strip-area:hover .library-dock-actions {
-  opacity: 1;
-}
-
-.library-dock-action-primary {
-  border-radius: 4px;
-  border: 1px solid rgba(52, 211, 153, 0.6);
-  background: rgba(52, 211, 153, 0.25);
-  padding: 6px 12px;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  color: #a7f3d0;
-  cursor: pointer;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  backdrop-filter: blur(4px);
-  transition: background-color 0.2s ease;
-}
-
-.library-dock-action-primary:hover {
-  background: rgba(52, 211, 153, 0.4);
-}
-
-.library-dock-action-secondary {
-  border-radius: 4px;
-  border: 1px solid rgba(148, 163, 184, 0.3);
-  background: rgba(15, 23, 42, 0.6);
-  padding: 6px 12px;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  color: rgba(226, 232, 240, 0.9);
-  cursor: pointer;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  backdrop-filter: blur(4px);
-  transition: border-color 0.2s ease, color 0.2s ease;
-}
-
-.library-dock-action-secondary:hover {
-  border-color: rgba(148, 163, 184, 0.5);
-  color: #e2e8f0;
+.library-play-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 /* ---- Status Bar ---- */
@@ -699,7 +669,7 @@ body {
   justify-content: center;
   position: relative;
   width: 100%;
-  padding: 48px 0 8px;
+  padding: 24px 0 8px;
 }
 
 .lib-strip-carousel {
@@ -711,22 +681,23 @@ body {
 .lib-strip-cards {
   display: flex;
   align-items: flex-end;
-  gap: 8px;
+  gap: 10px;
   padding: 0;
   margin: 0;
   list-style: none;
 }
 
 .lib-strip-card {
-  flex: 0 0 156px;
-  height: 96px;
+  flex: 0 0 184px;
+  height: 104px;
   position: relative;
   overflow: hidden;
-  border-radius: 4px;
+  border-radius: 10px;
   border: 1px solid rgba(148, 163, 184, 0.4);
   cursor: pointer;
   user-select: none;
   opacity: 1;
+  background: rgba(15, 23, 42, 0.35);
 }
 
 .lib-strip-card:hover {
@@ -734,21 +705,23 @@ body {
   opacity: 1;
 }
 
-.lib-strip-card img {
+.lib-strip-card-image {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  object-position: center center;
   display: block;
+  transform: scale(1);
 }
 
 .lib-strip-card-active {
-  flex: 0 0 170px;
-  height: 256px;
-  border-radius: 8px;
+  flex: 0 0 256px;
+  height: 144px;
+  border-radius: 14px;
   border-color: rgba(52, 211, 153, 0.85);
   opacity: 1;
-  transform: translateY(-32px);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+  transform: translateY(-18px);
+  box-shadow: 0 24px 42px rgba(0, 0, 0, 0.42);
   z-index: 10;
 }
 
@@ -763,11 +736,54 @@ body {
   background: linear-gradient(to top, rgba(15, 23, 42, 0.88) 0%, rgba(15, 23, 42, 0.1) 50%, transparent 100%);
 }
 
+.lib-strip-card-popover {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(15, 23, 42, 0.9);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.32);
+  opacity: 0;
+  transform: translateY(-6px);
+  pointer-events: none;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.lib-strip-card-active:hover .lib-strip-card-popover {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.lib-strip-card-popover-btn {
+  min-width: 132px;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(30, 41, 59, 0.85);
+  padding: 8px 10px;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(226, 232, 240, 0.94);
+  cursor: pointer;
+  transition: border-color 0.18s ease, background-color 0.18s ease;
+}
+
+.lib-strip-card-popover-btn:hover {
+  border-color: rgba(125, 211, 252, 0.55);
+  background: rgba(51, 65, 85, 0.95);
+}
+
 .lib-strip-card-info {
   position: absolute;
-  bottom: 4px;
-  left: 8px;
-  right: 8px;
+  bottom: 10px;
+  left: 12px;
+  right: 12px;
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
@@ -785,7 +801,7 @@ body {
 }
 
 .lib-strip-card-active .lib-strip-card-title {
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .lib-strip-card-cracked {
@@ -938,7 +954,13 @@ body {
 
   .lib-strip-card-active {
     transform: none !important;
-    height: 160px;
+    flex-basis: 188px;
+    height: 108px;
+  }
+
+  .library-status-right {
+    width: 100%;
+    text-align: left;
   }
 }
 

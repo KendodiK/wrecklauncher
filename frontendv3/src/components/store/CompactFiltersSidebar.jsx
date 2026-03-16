@@ -29,7 +29,7 @@ const CompactFiltersSidebar = ({
 	// All platforms
 	const platforms = [
 		{ id: 'steam', name: 'Steam' },
-		{ id: 'epic', name: 'Epic Games' },
+		{ id: 'itchio', name: 'Itch.io' },
 		{ id: 'gog', name: 'GOG' },
 	];
 

@@ -23,14 +23,13 @@ const LauncherSelector = () => {
 			)
 		},
 		{
-			id: 'epic',
-			name: 'Epic Games',
-			color: 'from-slate-700 to-slate-900',
-			hoverColor: 'hover:from-slate-600 hover:to-slate-800',
+			id: 'itchio',
+			name: 'Itch.io',
+			color: 'from-rose-600 to-rose-800',
+			hoverColor: 'hover:from-rose-500 hover:to-rose-700',
 			icon: (
 				<svg className="w-16 h-16" viewBox="0 0 24 24" fill="currentColor">
-					<path d="M20.8 3.2L12 2 3.2 3.2 2 12l1.2 8.8L12 22l8.8-1.2L22 12l-1.2-8.8zM12 19c-3.9 0-7-3.1-7-7s3.1-7 7-7 7 3.1 7 7-3.1 7-7 7z"/>
-					<path d="M12 8v4l3 3"/>
+					<path d="M4.5 5.5h15a1.5 1.5 0 011.5 1.5v3.2c0 1.1-.6 2.1-1.6 2.6l-1.2.6v3.6a1.5 1.5 0 01-1.5 1.5h-1.7l-1.1-2.1a1 1 0 00-1.8 0L10 19h-1.7a1.5 1.5 0 01-1.5-1.5v-3.6l-1.2-.6A2.9 2.9 0 014 10.2V7a1.5 1.5 0 011.5-1.5zm3.3 4.2a1.2 1.2 0 100 2.4 1.2 1.2 0 000-2.4zm8.4 0a1.2 1.2 0 100 2.4 1.2 1.2 0 000-2.4z"/>
 				</svg>
 			)
 		},
@@ -69,7 +68,7 @@ const LauncherSelector = () => {
 							border-2 border-slate-600/50 hover:border-slate-500
 							transition-all duration-300
 							transform hover:scale-105 hover:-translate-y-2
-							shadow-lg hover:shadow-2xl hover:shadow-${launcher.id === 'steam' ? 'blue' : launcher.id === 'epic' ? 'slate' : 'purple'}-500/50
+							shadow-lg hover:shadow-2xl hover:shadow-slate-900/70
 							group
 						`}
 						aria-label={`Browse ${launcher.name} games`}

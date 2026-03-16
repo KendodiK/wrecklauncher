@@ -1,0 +1,39 @@
+{
+  "display": {
+    "theme": "dark",
+    "language": "en",
+    "uiScale": 100,
+    "animations": true
+  },
+  "library": {
+    "autoRefreshHours": 24,
+    "viewMode": "carousel",
+    "gamesPerPage": 20
+  },
+  "downloads": {
+    "path": "C:\\Users\\sziln\\Downloads\\WreckLauncher",
+    "concurrent": 3
+  },
+  "account": {
+    "platforms": {
+      "steam": {
+        "connected": true,
+        "username": "SzBarni06",
+        "profileLink": "https://steamcommunity.com/profiles/76561198393464936/"
+      },
+      "gog": {
+        "connected": false,
+        "username": ""
+      },
+      "epic": {
+        "connected": false,
+        "username": ""
+      },
+      "itch": {
+        "connected": false,
+        "username": ""
+      }
+    },
+    "syncFrequencyHours": 1
+  }
+}

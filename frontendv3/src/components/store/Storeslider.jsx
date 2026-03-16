@@ -6,7 +6,7 @@ import GameSliderBase from '../shared/GameSliderBase.jsx';
 // - Structure + behavior comes from GameSliderBase
 // - Design comes from existing CSS in src/index.css (.carousel/.cards/.shop-card...)
 // - Animation comes from getStackMotion() (Motion transforms per offset)
-const Storeslider = ({ items, onCardClick }) => {
+const Storeslider = ({ items, onCardClick, onNearEnd, nearEndThreshold = 5 }) => {
     const cards = useMemo(() => (Array.isArray(items) ? items : []), [items]);
     const navigate = useNavigate();
     const [viewportW, setViewportW] = useState(() => (typeof window !== 'undefined' ? window.innerWidth : 1200));
@@ -29,8 +29,12 @@ const Storeslider = ({ items, onCardClick }) => {
         if (!card) return;
         const appid = Number(card.appid);
         const routeId = Number.isFinite(appid) && appid > 0 ? String(appid) : (card.id != null ? String(card.id) : 'unknown');
+        const normalizedPlatform = String(card.platform_name || card.platform || 'steam').trim().toLowerCase();
+        const platform = normalizedPlatform === 'itch' || normalizedPlatform === 'itch.io' || normalizedPlatform === 'itchio'
+            ? 'itchio'
+            : (normalizedPlatform === 'epic games' || normalizedPlatform === 'epic_games' ? 'steam' : (normalizedPlatform || 'steam'));
 
-        navigate(`/game/${encodeURIComponent(routeId)}`, {
+        navigate(`/store/game/${encodeURIComponent(platform)}/${encodeURIComponent(routeId)}`, {
             state: {
                 game: {
                     id: routeId,
@@ -48,12 +52,32 @@ const Storeslider = ({ items, onCardClick }) => {
         });
     };
 
+    const handleCurrentCardChange = (card) => {
+        if (typeof onNearEnd !== 'function') return;
+        if (!Array.isArray(cards) || cards.length <= nearEndThreshold) return;
+
+        const currentKey = String(card?.appid ?? card?.app_id ?? card?.id ?? '').trim();
+        if (!currentKey) return;
+
+        const currentPos = cards.findIndex((entry) => {
+            const entryKey = String(entry?.appid ?? entry?.app_id ?? entry?.id ?? '').trim();
+            return entryKey && entryKey === currentKey;
+        });
+
+        if (currentPos < 0) return;
+        const remaining = cards.length - 1 - currentPos;
+        if (remaining <= nearEndThreshold) {
+            onNearEnd();
+        }
+    };
+
     return (
         <GameSliderBase
             mode="stack"
             games={cards}
             onActivateCard={(card) => openGame(card)}
             onCardClick={onCardClick}
+            onCurrentCardChange={handleCurrentCardChange}
             classNameWrapper=""
             classNameCarousel="carousel"
             classNameContainer="cards"
@@ -138,6 +162,11 @@ const Storeslider = ({ items, onCardClick }) => {
             renderCard={({ card, abs }) => (
                 <>
                     <img src={card.image} alt={card.title} loading={abs <= 1 ? 'eager' : 'lazy'} />
+                    {Number(card.discountPercent) > 0 ? (
+                        <div className="absolute left-3 top-3 rounded-md bg-emerald-500/95 px-2 py-1 text-xs font-bold text-white shadow-lg">
+                            -{Math.round(Number(card.discountPercent))}%
+                        </div>
+                    ) : null}
                     <div className="shop-card-title">{card.title}</div>
                 </>
             )}
