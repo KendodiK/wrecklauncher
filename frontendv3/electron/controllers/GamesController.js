@@ -198,6 +198,7 @@ class GamesController {
         throw new Error('Each pirate site must be a non-empty string');
       }    
     const url = joinUrl(this.#serverUrl, 'api', 'pirate_sites', enc(String(json.id)));
+    console.log('Uploading pirate sites to:', url, 'Sites:', pirateSites);
     const { ok: uploadOk, status: uploadStatus, json: uploadJson, text: uploadText } = await fetchJsonSafe(url, {
       method: 'PUT',
       headers: {

@@ -213,7 +213,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // GamesController
   getGames: (from) => ipcRenderer.invoke('games:get-games', from),
   getAllDetailsByID: (id) => ipcRenderer.invoke('games:get-all-details-by-id', id),
-  getAllDetailsByAppIDAndPlatform: (platform, appId) => ipcRenderer.invoke('games:get-all-details-by-appid-and-platform', {platform}, {appId}),
+  getAllDetailsByAppIDAndPlatform: (platform, appId, token) => ipcRenderer.invoke('games:get-all-details-by-appid-and-platform', {platform}, {appId}, {token}),
 });
 
 // Optional legacy-style alias used by some code paths

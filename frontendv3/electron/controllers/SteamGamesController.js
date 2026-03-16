@@ -230,17 +230,6 @@ class SteamGamesController extends GamesController {
           cost,
           genre_names: genreNames,
         });
-              console.log('uploadResult:', uploadResult);
-      console.log('gameDetails sent for upload:', {
-        app_id: String(gameDetails.appid ?? appIdNum),
-        platform_name: 'steam',
-        name: gameDetails.name || `steam:${String(gameDetails.appid ?? appIdNum)}`,
-        banner_img: gameDetails.bannerimg || '',
-        description: typeof data.short_description === 'string' && data.short_description.trim() ? data.short_description : null,
-        minimum_requirements: gameDetails.minimum_requirements,
-        cost,
-        genre_names: genreNames,
-      });
       if (!uploadResult.ok) {
         if (uploadResult.statusCode === 401) {
           const msg =
