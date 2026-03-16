@@ -1148,12 +1148,12 @@ app.delete("/api/friends/:friendShipId", tokenValidate(), async (req, res) => {
   }
 });
 
-app.delete("/api/platform_user/:id", tokenValidate(), async (req, res) => {
+app.delete("/api/platform_user/:platfromUserId", tokenValidate(), async (req, res) => {
   try {
-    const { platformId } = req.params;
+    const { platfromUserId } = req.params;
 
     const platformUserCtrl = new platformsController();
-    const result = await platformUserCtrl.delete(platformId);
+    const result = await platformUserCtrl.delete(platfromUserId);
     return res.status(201).json({});
   } catch (err) {
     console.error("Error in /api/platform_user endpoint:", err);
