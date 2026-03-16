@@ -13,7 +13,13 @@ function normalizePlatformId(value) {
 /**
  * Filtered games section with list on left and compact filters on right
  */
-const FilteredGamesSection = ({ games = [], title = "Browse Games" }) => {
+const FilteredGamesSection = ({
+	games = [],
+	title = "Browse Games",
+	onRequestNextPage,
+	canLoadMore = false,
+	isLoadingMore = false,
+}) => {
 	const navigate = useNavigate();
 	const [searchQuery, setSearchQuery] = useState('');
 	const [selectedGenres, setSelectedGenres] = useState([]);
@@ -84,6 +90,8 @@ const FilteredGamesSection = ({ games = [], title = "Browse Games" }) => {
 	}, [games, searchQuery, selectedGenres, selectedPlatforms, priceRange]);
 
 	const totalPages = Math.max(1, Math.ceil(filteredGames.length / gamesPerPage));
+	const showPagination = filteredGames.length > gamesPerPage || canLoadMore || currentPage > 1;
+	const pageCountLabel = canLoadMore ? `${totalPages}+` : String(totalPages);
 	const pagedGames = useMemo(() => {
 		const start = (currentPage - 1) * gamesPerPage;
 		return filteredGames.slice(start, start + gamesPerPage);
@@ -131,6 +139,20 @@ const FilteredGamesSection = ({ games = [], title = "Browse Games" }) => {
 		setSelectedPlatforms([]);
 		setPriceRange({ min: 0, max: 100 });
 		setCurrentPage(1);
+	};
+
+	const handleNextPage = async () => {
+		if (currentPage < totalPages) {
+			setCurrentPage((p) => Math.min(totalPages, p + 1));
+			return;
+		}
+
+		if (canLoadMore && typeof onRequestNextPage === 'function') {
+			const loaded = await onRequestNextPage();
+			if (loaded) {
+				setCurrentPage((p) => p + 1);
+			}
+		}
 	};
 
 	return (
@@ -233,7 +255,7 @@ const FilteredGamesSection = ({ games = [], title = "Browse Games" }) => {
 					)}
 				</div>
 
-				{filteredGames.length > gamesPerPage && (
+				{showPagination && (
 					<div className="px-3 py-2 border-t border-slate-700/50 bg-slate-800/60 flex items-center justify-between">
 						<button
 							onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
@@ -242,13 +264,13 @@ const FilteredGamesSection = ({ games = [], title = "Browse Games" }) => {
 						>
 							Prev
 						</button>
-						<div className="text-xs text-slate-300">Page {currentPage} / {totalPages}</div>
+						<div className="text-xs text-slate-300">Page {currentPage} / {pageCountLabel}</div>
 						<button
-							onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-							disabled={currentPage === totalPages}
+							onClick={handleNextPage}
+							disabled={isLoadingMore || (currentPage === totalPages && !canLoadMore)}
 							className="px-3 py-1 text-xs rounded bg-slate-800/50 border border-slate-700/50 text-slate-200 disabled:opacity-40"
 						>
-							Next
+							{isLoadingMore ? 'Loading...' : 'Next'}
 						</button>
 					</div>
 				)}

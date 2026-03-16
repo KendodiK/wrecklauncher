@@ -53,8 +53,6 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  createWindow();
-
   // Serverless controller modules (no LocalApi web server).
   const backendUrl = 'https://api.anchorlauncher.hu';
 
@@ -83,6 +81,8 @@ app.whenReady().then(() => {
   let gogCtrl = null;
   /** @type {import('./controllers/ShopSpecialsController')|null} */
   let shopSpecialsCtrl = null;
+  /** @type {import('./controllers/SettingsController')|null} */
+  let settingsCtrl = null;
 
   function getUserCtrl() {
     if (!userCtrl) {
@@ -178,12 +178,21 @@ function getShopSpecialsCtrl() {
     }
     return shopSpecialsCtrl;
   }
+
+  function getSettingsCtrl() {
+    if (!settingsCtrl) {
+      const SettingsController = require('./controllers/SettingsController');
+      settingsCtrl = new SettingsController();
+    }
+    return settingsCtrl;
+  }
   /**
    * Registers an IPC handler with consistent error logging.
    * @param {string} channel
    * @param {(event: Electron.IpcMainInvokeEvent, ...args: any[]) => Promise<any>} fn
    */
   function handle(channel, fn) {
+    ipcMain.removeHandler(channel);
     ipcMain.handle(channel, async (event, ...args) => {
       try {
         return await fn(event, ...args);
@@ -285,6 +294,31 @@ function getShopSpecialsCtrl() {
   handleAuthed('user:get-owned-games-from-steam', async ({ token }, platformUsername) => {
     getUserCtrl().setToken(token);
     return await getUserCtrl().getOwnedGamesFromSteam(String(platformUsername));
+  });
+
+  // Settings (global app settings)
+  handle('settings:get', async () => {
+    return await getSettingsCtrl().getSettings();
+  });
+
+  handle('settings:update', async (_event, category, key, value) => {
+    return await getSettingsCtrl().updateSetting(String(category), String(key), value);
+  });
+
+  handle('settings:update-bulk', async (_event, newSettings) => {
+    return await getSettingsCtrl().updateSettings(newSettings);
+  });
+
+  handle('settings:reset', async () => {
+    return await getSettingsCtrl().resetToDefaults();
+  });
+
+  handle('settings:clear-cache', async () => {
+    return await getSettingsCtrl().clearCache();
+  });
+
+  handle('settings:update-platform', async (_event, platform, connected, username) => {
+    return await getSettingsCtrl().updatePlatformConnection(String(platform), Boolean(connected), String(username || ''));
   });
 
   // Platforms
@@ -608,6 +642,9 @@ handle('shop-specials:featured', async (event, from) => {
 handle('shop-specials:discounted', async (event, from) => {
   return await getShopSpecialsCtrl().getShopSpecials('discounted', from);
 });
+
+  createWindow();
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();

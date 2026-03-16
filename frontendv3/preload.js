@@ -218,6 +218,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('settings:update-platform', platform, connected, username),
 });
 
+ //getAllDetailsByAppIDAndPlatform: (platform, appId) => ipcRenderer.invoke('games:get-all-details-by-appid-and-platform', {platform}, {appId}),
+
 // Optional legacy-style alias used by some code paths
 contextBridge.exposeInMainWorld('api', {
   minimize: () => ipcRenderer.send('window:minimize'),

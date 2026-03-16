@@ -6,7 +6,7 @@ import GameSliderBase from '../shared/GameSliderBase.jsx';
 // - Structure + behavior comes from GameSliderBase
 // - Design comes from existing CSS in src/index.css (.carousel/.cards/.shop-card...)
 // - Animation comes from getStackMotion() (Motion transforms per offset)
-const Storeslider = ({ items, onCardClick }) => {
+const Storeslider = ({ items, onCardClick, onNearEnd, nearEndThreshold = 5 }) => {
     const cards = useMemo(() => (Array.isArray(items) ? items : []), [items]);
     const navigate = useNavigate();
     const [viewportW, setViewportW] = useState(() => (typeof window !== 'undefined' ? window.innerWidth : 1200));
@@ -52,12 +52,32 @@ const Storeslider = ({ items, onCardClick }) => {
         });
     };
 
+    const handleCurrentCardChange = (card) => {
+        if (typeof onNearEnd !== 'function') return;
+        if (!Array.isArray(cards) || cards.length <= nearEndThreshold) return;
+
+        const currentKey = String(card?.appid ?? card?.app_id ?? card?.id ?? '').trim();
+        if (!currentKey) return;
+
+        const currentPos = cards.findIndex((entry) => {
+            const entryKey = String(entry?.appid ?? entry?.app_id ?? entry?.id ?? '').trim();
+            return entryKey && entryKey === currentKey;
+        });
+
+        if (currentPos < 0) return;
+        const remaining = cards.length - 1 - currentPos;
+        if (remaining <= nearEndThreshold) {
+            onNearEnd();
+        }
+    };
+
     return (
         <GameSliderBase
             mode="stack"
             games={cards}
             onActivateCard={(card) => openGame(card)}
             onCardClick={onCardClick}
+            onCurrentCardChange={handleCurrentCardChange}
             classNameWrapper=""
             classNameCarousel="carousel"
             classNameContainer="cards"

@@ -3,19 +3,43 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { app } = require('electron');
 
 class SettingsController {
   /** @type {string} */
   #userDataDir;
 
   constructor() {
-    // Use user-data folder in project root
-    this.#userDataDir = path.join(__dirname, '..', '..', 'user-data');
-    
-    // Ensure user-data directory exists
-    if (!fs.existsSync(this.#userDataDir)) {
-      fs.mkdirSync(this.#userDataDir, { recursive: true });
+    const candidates = [];
+
+    try {
+      if (app && typeof app.getPath === 'function') {
+        candidates.push(path.join(app.getPath('userData')));
+      }
+    } catch {
+      // ignore and fall back
     }
+
+    candidates.push(path.join(__dirname, '..', '..', 'user-data'));
+    candidates.push(path.join(os.homedir(), '.wrecklauncher'));
+
+    let selected = null;
+    for (const dir of candidates) {
+      try {
+        fs.mkdirSync(dir, { recursive: true });
+        fs.accessSync(dir, fs.constants.W_OK);
+        selected = dir;
+        break;
+      } catch {
+        // try next candidate
+      }
+    }
+
+    if (!selected) {
+      throw new Error('Unable to initialize writable settings directory');
+    }
+
+    this.#userDataDir = selected;
   }
 
   /**

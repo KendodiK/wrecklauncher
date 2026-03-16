@@ -1,5 +1,89 @@
 import React, { useState, useEffect } from 'react';
 
+const DEFAULT_SETTINGS = {
+	display: {
+		theme: 'dark',
+		language: 'en',
+		uiScale: 100,
+		animations: true,
+	},
+	library: {
+		autoRefreshHours: 24,
+		viewMode: 'carousel',
+		gamesPerPage: 20,
+	},
+	downloads: {
+		path: 'Downloads/WreckLauncher',
+		concurrent: 3,
+	},
+	account: {
+		platforms: {
+			steam: { connected: false, username: '', profileLink: '' },
+			gog: { connected: false, username: '' },
+			epic: { connected: false, username: '' },
+			itch: { connected: false, username: '' },
+		},
+		syncFrequencyHours: 6,
+	},
+};
+
+function mergeWithDefaults(defaults, incoming) {
+	if (Array.isArray(defaults)) {
+		return Array.isArray(incoming) ? incoming : defaults;
+	}
+	if (typeof defaults !== 'object' || defaults === null) {
+		return incoming === undefined ? defaults : incoming;
+	}
+
+	const source = (incoming && typeof incoming === 'object') ? incoming : {};
+	const merged = { ...defaults };
+
+	for (const key of Object.keys(defaults)) {
+		merged[key] = mergeWithDefaults(defaults[key], source[key]);
+	}
+
+	for (const key of Object.keys(source)) {
+		if (!(key in merged)) {
+			merged[key] = source[key];
+		}
+	}
+
+	return merged;
+}
+
+function normalizeSettings(data) {
+	return mergeWithDefaults(DEFAULT_SETTINGS, data);
+}
+
+function sleep(ms) {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isMissingSettingsHandlerError(error, channel) {
+	const message = String(error?.message || '');
+	return message.includes(`No handler registered for '${channel}'`);
+}
+
+async function fetchSettingsWithRetry(api, attempts = 8, delayMs = 150) {
+	let lastError = null;
+
+	for (let attempt = 1; attempt <= attempts; attempt += 1) {
+		try {
+			return await api.getSettings();
+		} catch (error) {
+			lastError = error;
+			const message = String(error?.message || '');
+			const isMissingHandler = message.includes("No handler registered for 'settings:get'");
+			if (!isMissingHandler || attempt === attempts) {
+				throw error;
+			}
+			await sleep(delayMs);
+		}
+	}
+
+	throw lastError || new Error('Failed to load settings');
+}
+
 const SettingsPage = () => {
 	const [settings, setSettings] = useState(null);
 	const [loading, setLoading] = useState(true);
@@ -16,15 +100,22 @@ const SettingsPage = () => {
 	const loadSettings = async () => {
 		try {
 			setLoading(true);
-			const data = await window.electronAPI.getSettings();
-			setSettings(data);
+			const data = await fetchSettingsWithRetry(window.electronAPI, 8, 150);
+			const normalized = normalizeSettings(data);
+			setSettings(normalized);
 			setSteamForm({
-				username: data?.account?.platforms?.steam?.username || '',
-				profileLink: data?.account?.platforms?.steam?.profileLink || '',
+				username: normalized?.account?.platforms?.steam?.username || '',
+				profileLink: normalized?.account?.platforms?.steam?.profileLink || '',
 			});
 		} catch (error) {
 			console.error('Failed to load settings:', error);
-			setMessage({ type: 'error', text: 'Failed to load settings' });
+			const fallbackSettings = normalizeSettings(null);
+			setSettings(fallbackSettings);
+			setSteamForm({
+				username: fallbackSettings.account.platforms.steam.username,
+				profileLink: fallbackSettings.account.platforms.steam.profileLink,
+			});
+			setMessage({ type: 'error', text: 'Settings endpoint unavailable, using defaults' });
 		} finally {
 			setLoading(false);
 		}
@@ -34,12 +125,26 @@ const SettingsPage = () => {
 		try {
 			setSaving(true);
 			const updated = await window.electronAPI.updateSetting(category, key, value);
-			setSettings(updated);
+			setSettings(normalizeSettings(updated));
 			setMessage({ type: 'success', text: 'Setting saved' });
 			setTimeout(() => setMessage({ type: '', text: '' }), 2000);
 		} catch (error) {
 			console.error('Failed to update setting:', error);
-			setMessage({ type: 'error', text: 'Failed to save setting' });
+			if (isMissingSettingsHandlerError(error, 'settings:update')) {
+				setSettings((prev) => {
+					const base = normalizeSettings(prev);
+					return {
+						...base,
+						[category]: {
+							...base[category],
+							[key]: value,
+						},
+					};
+				});
+				setMessage({ type: 'error', text: 'Settings backend unavailable, change kept locally' });
+			} else {
+				setMessage({ type: 'error', text: 'Failed to save setting' });
+			}
 		} finally {
 			setSaving(false);
 		}
@@ -77,19 +182,45 @@ const SettingsPage = () => {
 	};
 
 	const persistSteamSettings = async (connected, username, profileLink) => {
-		const updated = await window.electronAPI.updateSettings({
-			account: {
-				platforms: {
-					steam: {
-						connected,
-						username,
-						profileLink,
+		try {
+			const updated = await window.electronAPI.updateSettings({
+				account: {
+					platforms: {
+						steam: {
+							connected,
+							username,
+							profileLink,
+						},
 					},
 				},
-			},
-		});
-		setSettings(updated);
-		return updated;
+			});
+			const normalized = normalizeSettings(updated);
+			setSettings(normalized);
+			return normalized;
+		} catch (error) {
+			if (!isMissingSettingsHandlerError(error, 'settings:update-bulk')) {
+				throw error;
+			}
+
+			const localUpdated = normalizeSettings({
+				...settings,
+				account: {
+					...(settings?.account || {}),
+					platforms: {
+						...(settings?.account?.platforms || {}),
+						steam: {
+							...(settings?.account?.platforms?.steam || {}),
+							connected,
+							username,
+							profileLink,
+						},
+					},
+				},
+			});
+			setSettings(localUpdated);
+			setMessage({ type: 'error', text: 'Settings backend unavailable, Steam state kept locally' });
+			return localUpdated;
+		}
 	};
 
 	const handleSteamConnection = async () => {
