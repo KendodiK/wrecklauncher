@@ -2,14 +2,26 @@
 
 const fs = require('fs');
 const path = require('path');
-const { shell } = require('electron');
+const { shell, BrowserWindow } = require('electron');
 const GamesController = require('./GamesController');
 const { joinUrl, normalizeBaseUrl } = require('../lib/url');
 const { fetchJsonSafe } = require('../lib/http');
 
+/**
+ * @typedef {Object} ItchOAuthToken
+ * @property {string} access_token
+ * @property {number} [expires_at] - Unix timestamp
+ */
+
 class ItchioController extends GamesController {
   /** @type {string} */
   #serverUrl;
+
+  /** @type {ItchOAuthToken|null} */
+  #oauthToken = null;
+
+  /** @type {string|null} */
+  static #tokenFilePath = null;
 
   /**
    * @param {{ serverUrl: string }} cfg
@@ -18,6 +30,73 @@ class ItchioController extends GamesController {
     const serverUrl = cfg?.serverUrl;
     super({ serverUrl });
     this.#serverUrl = normalizeBaseUrl(serverUrl, { defaultProtocol: 'http:' });
+    this.#loadTokenFromDisk();
+  }
+
+  /**
+   * Get the token storage path.
+   * @returns {string}
+   */
+  static getTokenFilePath() {
+    if (!ItchioController.#tokenFilePath) {
+      const appData = process.env.APPDATA || path.join(process.env.USERPROFILE || 'C:\\Users\\Default', 'AppData', 'Roaming');
+      ItchioController.#tokenFilePath = path.join(appData, 'wrecklauncher', 'itch-oauth-token.json');
+    }
+    return ItchioController.#tokenFilePath;
+  }
+
+  /**
+   * Load OAuth token from disk if it exists.
+   */
+  #loadTokenFromDisk() {
+    try {
+      const tokenPath = ItchioController.getTokenFilePath();
+      if (fs.existsSync(tokenPath)) {
+        const data = JSON.parse(fs.readFileSync(tokenPath, 'utf8'));
+        if (data?.access_token) {
+          this.#oauthToken = data;
+        }
+      }
+    } catch {
+      // Ignore errors, token will be null
+    }
+  }
+
+  /**
+   * Save OAuth token to disk.
+   * @param {ItchOAuthToken|null} token
+   */
+  #saveTokenToDisk(token) {
+    try {
+      const tokenPath = ItchioController.getTokenFilePath();
+      const dir = path.dirname(tokenPath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      if (token) {
+        fs.writeFileSync(tokenPath, JSON.stringify(token, null, 2), 'utf8');
+      } else {
+        if (fs.existsSync(tokenPath)) fs.unlinkSync(tokenPath);
+      }
+    } catch (err) {
+      console.warn('Failed to save itch OAuth token:', err?.message);
+    }
+  }
+
+  /**
+   * Check if user is logged in to itch.io via OAuth.
+   * @returns {boolean}
+   */
+  isLoggedIn() {
+    return !!this.#oauthToken?.access_token;
+  }
+
+  /**
+   * Get current OAuth token (if logged in).
+   * @returns {string|null}
+   */
+  getAccessToken() {
+    return this.#oauthToken?.access_token ?? null;
   }
 
   /**
@@ -182,6 +261,269 @@ class ItchioController extends GamesController {
         source: 'scrape-endpoint',
       },
     };
+  }
+
+  /**
+   * Fetch the user's itch.io library (all owned games) using their OAuth token.
+   * This calls itch.io API directly with the user's personal token.
+   *
+   * @returns {Promise<{ owned_keys: Array<any>, total: number }|null>}
+   */
+  async getLibraryWithUserToken() {
+    const token = this.#oauthToken?.access_token;
+    if (!token) {
+      throw new Error('Not logged in to itch.io. Please login first.');
+    }
+
+    const pageSize = 50;
+    const allKeys = [];
+    let page = 1;
+    let hasMore = true;
+
+    try {
+      while (hasMore) {
+        const endpoint = `https://itch.io/api/1/${token}/my-owned-keys?page=${page}&page_size=${pageSize}`;
+        const response = await fetch(endpoint);
+        
+        if (!response.ok) {
+          if (response.status === 401 || response.status === 403) {
+            // Token is invalid, clear it
+            this.#oauthToken = null;
+            this.#saveTokenToDisk(null);
+            throw new Error('itch.io OAuth token expired or invalid. Please login again.');
+          }
+          if (page === 1) throw new Error(`Failed to fetch library: HTTP ${response.status}`);
+          break;
+        }
+
+        const payload = await response.json();
+        if (!payload || typeof payload !== 'object') break;
+
+        const ownedKeys = Array.isArray(payload.owned_keys) ? payload.owned_keys : [];
+        if (ownedKeys.length === 0) {
+          hasMore = false;
+        } else {
+          for (const key of ownedKeys) {
+            allKeys.push({
+              game_id: key.game_id ?? key.game?.id ?? null,
+              download_key_id: key.download_key_id ?? key.id ?? null,
+              created_at: key.created_at ?? null,
+              game: key.game ? {
+                id: key.game.id ?? null,
+                title: key.game.title ?? null,
+                url: key.game.url ?? null,
+                cover_url: key.game.cover_url ?? key.game.still_cover_url ?? null,
+                short_text: key.game.short_text ?? null,
+                classification: key.game.classification ?? null,
+                min_price: key.game.min_price ?? null,
+                user: key.game.user ? {
+                  id: key.game.user.id ?? null,
+                  username: key.game.user.username ?? null,
+                  url: key.game.user.url ?? null,
+                } : null,
+              } : null,
+            });
+          }
+          hasMore = ownedKeys.length >= pageSize;
+          page++;
+        }
+      }
+
+      return { owned_keys: allKeys, total: allKeys.length };
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('expired')) throw err;
+      console.warn('Failed to fetch itch library with user token:', err?.message);
+      return allKeys.length > 0 ? { owned_keys: allKeys, total: allKeys.length } : null;
+    }
+  }
+
+  /**
+   * Get the user's itch.io profile using their OAuth token.
+   * @returns {Promise<{ id: number, username: string, url: string, cover_url: string|null, display_name: string|null }|null>}
+   */
+  async getProfile() {
+    const token = this.#oauthToken?.access_token;
+    if (!token) {
+      throw new Error('Not logged in to itch.io. Please login first.');
+    }
+
+    try {
+      const response = await fetch(`https://itch.io/api/1/${token}/me`);
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          this.#oauthToken = null;
+          this.#saveTokenToDisk(null);
+          throw new Error('itch.io OAuth token expired or invalid. Please login again.');
+        }
+        throw new Error(`Failed to fetch profile: HTTP ${response.status}`);
+      }
+
+      const payload = await response.json();
+      const user = payload?.user ?? payload;
+      if (!user || typeof user !== 'object') return null;
+
+      return {
+        id: user.id ?? null,
+        username: user.username ?? null,
+        display_name: user.display_name ?? user.username ?? null,
+        url: user.url ?? null,
+        cover_url: user.cover_url ?? null,
+      };
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('expired')) throw err;
+      console.warn('Failed to fetch itch profile:', err?.message);
+      return null;
+    }
+  }
+
+  /**
+   * Start itch.io OAuth login flow using a BrowserWindow.
+   * The user will be prompted to authorize the app.
+   * 
+   * Note: You need an itch.io OAuth client ID. Get one at:
+   * https://itch.io/user/settings/oauth-apps
+   *
+   * @param {string} clientId - Your itch.io OAuth client ID
+   * @returns {Promise<{ success: boolean, user?: { id: number, username: string } }>}
+   */
+  async login(clientId) {
+    if (!clientId || !String(clientId).trim()) {
+      throw new Error('itch.io OAuth client ID is required');
+    }
+
+    return new Promise((resolve, reject) => {
+      // Create a hidden window for OAuth
+      const authWindow = new BrowserWindow({
+        width: 600,
+        height: 700,
+        show: true,
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true,
+        },
+      });
+
+      // itch.io OAuth URL - using implicit grant (token in URL fragment)
+      const redirectUri = 'urn:ietf:wg:oauth:2.0:oob';
+      const scope = 'profile:me';
+      const authUrl = `https://itch.io/user/oauth?client_id=${encodeURIComponent(clientId)}&scope=${encodeURIComponent(scope)}&response_type=token&redirect_uri=${encodeURIComponent(redirectUri)}`;
+
+      authWindow.loadURL(authUrl);
+
+      // Listen for page title changes - itch.io shows token in the title after auth
+      authWindow.webContents.on('page-title-updated', async (event, title) => {
+        // When using oob redirect, itch.io shows "Authorization - itch.io" then displays token
+        // We need to check the page content for the token
+      });
+
+      // Listen for navigation to detect the token in the URL or page
+      authWindow.webContents.on('did-navigate', async (event, url) => {
+        // Check if we're on the authorization success page
+        if (url.includes('itch.io/user/oauth') || url.includes('oauth/authorize')) {
+          // Try to extract token from the page
+          try {
+            const token = await authWindow.webContents.executeJavaScript(`
+              (function() {
+                // Look for token in various places
+                const codeEl = document.querySelector('code');
+                if (codeEl) return codeEl.textContent.trim();
+                
+                const preEl = document.querySelector('pre');
+                if (preEl) return preEl.textContent.trim();
+                
+                // Check for token in URL hash
+                if (window.location.hash) {
+                  const params = new URLSearchParams(window.location.hash.substring(1));
+                  const accessToken = params.get('access_token');
+                  if (accessToken) return accessToken;
+                }
+                
+                return null;
+              })()
+            `);
+
+            if (token && typeof token === 'string' && token.length > 10) {
+              // Save the token
+              this.#oauthToken = { access_token: token };
+              this.#saveTokenToDisk(this.#oauthToken);
+
+              // Get user profile to confirm login
+              try {
+                const profile = await this.getProfile();
+                authWindow.close();
+                resolve({
+                  success: true,
+                  user: profile ? { id: profile.id, username: profile.username } : undefined,
+                });
+              } catch {
+                authWindow.close();
+                resolve({ success: true });
+              }
+            }
+          } catch (err) {
+            // Ignore - might not be on the right page yet
+          }
+        }
+      });
+
+      // Also check when page finishes loading
+      authWindow.webContents.on('did-finish-load', async () => {
+        try {
+          const token = await authWindow.webContents.executeJavaScript(`
+            (function() {
+              const codeEl = document.querySelector('code');
+              if (codeEl) return codeEl.textContent.trim();
+              
+              const preEl = document.querySelector('pre');
+              if (preEl) return preEl.textContent.trim();
+              
+              // Check URL hash
+              if (window.location.hash) {
+                const params = new URLSearchParams(window.location.hash.substring(1));
+                const accessToken = params.get('access_token');
+                if (accessToken) return accessToken;
+              }
+              
+              return null;
+            })()
+          `);
+
+          if (token && typeof token === 'string' && token.length > 10) {
+            this.#oauthToken = { access_token: token };
+            this.#saveTokenToDisk(this.#oauthToken);
+
+            try {
+              const profile = await this.getProfile();
+              authWindow.close();
+              resolve({
+                success: true,
+                user: profile ? { id: profile.id, username: profile.username } : undefined,
+              });
+            } catch {
+              authWindow.close();
+              resolve({ success: true });
+            }
+          }
+        } catch {
+          // Ignore
+        }
+      });
+
+      // Handle window close (user cancelled)
+      authWindow.on('closed', () => {
+        if (!this.#oauthToken) {
+          resolve({ success: false });
+        }
+      });
+    });
+  }
+
+  /**
+   * Logout from itch.io OAuth (clear stored token).
+   */
+  logout() {
+    this.#oauthToken = null;
+    this.#saveTokenToDisk(null);
   }
 
   /**

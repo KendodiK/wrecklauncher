@@ -39,6 +39,8 @@
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "react-router-dom": "^7.13.0",
-    "webtorrent": "^2.8.5"
+    "vdf": "^0.0.2",
+    "webtorrent": "^2.8.5",
+    "winreg": "^1.2.5"
   }
 }

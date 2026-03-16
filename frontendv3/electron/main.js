@@ -326,7 +326,9 @@ function getShopSpecialsCtrl() {
     if (!id) throw new Error('platformUserId is required');
     return await getPlatformsCtrl().deletePlatformUser(token, id);
   });
-
+handle('steam:get-installed-games', async () => {
+    return await getSteamCtrl().getInstalledGames();
+  });
   // Steam game details.
   // Supports both call styles:
   // 1) invoke('steam:get-game-details', token, appID, cc)
@@ -389,8 +391,56 @@ function getShopSpecialsCtrl() {
   // Game DB details (requires backend support)
   handle('games:get-games', async (_event, from) => {
     return await getGamesCtrl().getGames(Number(from));
-  });
+  });  
+  async function makeNameSlug(name) {
+    return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
+  }
+  async function getPirateSitesForGame(name) {
+    let sites = [];
+    try {
+      const fitGirlLink = await getFitGirlCtrl().FitGirlMagnetLink(await makeNameSlug(name));
+      if (fitGirlLink) {        
+        sites.push({ name: 'FitGirl Repacks', url: fitGirlLink });
+      }
+    } catch (e) {
+      console.warn('Failed to fetch FitGirl link:', e);
+    }
+    console.log('Attempting to fetch PCGamesTorrent link for game:', await makeNameSlug(name));
+    try {
+      const pcGamesTorrentLink = await getPcGamesTorrentCtrl().PcGamesTorrentMagnetLink(await makeNameSlug(name));
+      if (pcGamesTorrentLink) {
+        sites.push({ name: 'PCGamesTorrent', url: pcGamesTorrentLink });
+      }
+    } catch (e) {
+      console.warn('Failed to fetch PCGamesTorrent link:', e);
+    }
+    return sites;
+  }
 
+  handle('games:get-all-details-by-appid-and-platform', async (_event, { platform }, { appId }, { token }) => {
+    console.log(`[IPC] games:get-all-details-by-appid-and-platform url=${_event.senderFrame.url.split('/')}`);
+    //nem biztos hogy működik url-lel, check later
+    if(!appId){
+      appId = _event.senderFrame.url.split('/').slice(-1)[0];
+    }
+    if(!platform){
+      platform = _event.senderFrame.url.split('/').slice(-2)[0];
+    }
+    let gameDetails = await getGamesCtrl().getAllDetailsByAppIDAndPlatform(String(platform), String(appId));
+    console.log('Fetched game details:', gameDetails);
+    console.log('Pirate sites from backend:', gameDetails.pirate_sites);
+      if(gameDetails.pirate_sites.length === 0){
+        gameDetails.pirate_sites = await getPirateSitesForGame(gameDetails.name);
+        for (const site of gameDetails.pirate_sites) {
+          //FINISH THIS LATER!!!!!
+          // await getGamesCtrl().uploadPirateSites(token, gameDetails.app_id, gameDetails.platform_name, [site]);
+        }
+        console.log('Fetched pirate sites:', gameDetails.pirate_sites);
+        return gameDetails;
+      } else {
+        return gameDetails;
+      }
+  });
   handle('games:get-all-details-by-id', async (event, id) => {
     const senderUrl =
       event?.senderFrame?.url ||
@@ -414,6 +464,40 @@ function getShopSpecialsCtrl() {
 
   handle('itch:get-installed-games', async () => {
     return getItchCtrl().getInstalledGames();
+  });
+
+  // Get itch.io OAuth client ID from environment
+  handle('itch:get-client-id', async () => {
+    return process.env.ITCH_CLIENT_ID || null;
+  });
+
+  // OAuth-based library (uses user's own token)
+  handle('itch:get-library', async () => {
+    return await getItchCtrl().getLibraryWithUserToken();
+  });
+
+  handle('itch:oauth-login', async (_event, clientId) => {
+    // Use provided clientId or fall back to env
+    const id = "e0ee61cc2f4a3ad1a984914d3d833341";
+    if (!id) throw new Error('itch.io OAuth client ID is required. Set ITCH_CLIENT_ID in .env or pass it as argument.');
+    return await getItchCtrl().login(id);
+  });
+
+  handle('itch:oauth-logout', async () => {
+    getItchCtrl().logout();
+    return { success: true };
+  });
+
+  handle('itch:oauth-status', async () => {
+    const ctrl = getItchCtrl();
+    return {
+      isLoggedIn: ctrl.isLoggedIn(),
+      hasToken: !!ctrl.getAccessToken(),
+    };
+  });
+
+  handle('itch:get-profile', async () => {
+    return await getItchCtrl().getProfile();
   });
 
   // Token-first style: (token, gameId). The API key is managed by the backend — not needed here.
