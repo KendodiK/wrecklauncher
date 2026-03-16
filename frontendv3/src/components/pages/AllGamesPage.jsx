@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import CompactFiltersSidebar from '../store/CompactFiltersSidebar.jsx';
 
@@ -6,6 +6,63 @@ function steamPoster(appid) {
 	const id = Number(appid);
 	if (!Number.isFinite(id) || id <= 0) return null;
 	return `https://cdn.cloudflare.steamstatic.com/steam/apps/${id}/library_600x900.jpg`;
+}
+
+function normalizePlatformId(value) {
+	const normalized = String(value || '').trim().toLowerCase();
+	if (!normalized) return '';
+	if (normalized === 'itch' || normalized === 'itch.io' || normalized === 'itchio') return 'itchio';
+	if (normalized === 'epic games' || normalized === 'epic_games') return '';
+	return normalized;
+}
+
+function pickSpecialsArray(payload) {
+	if (Array.isArray(payload)) return payload;
+	if (!payload || typeof payload !== 'object') return [];
+	const candidates = [payload.items, payload.games, payload.data, payload.results];
+	for (const candidate of candidates) {
+		if (Array.isArray(candidate)) return candidate;
+	}
+	return [];
+}
+
+function extractGameId(game) {
+	const id = Number(game?.app_id ?? game?.appid ?? game?.id);
+	return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+function parseDiscountPercent(game) {
+	const rawCandidates = [
+		game.discount_percent,
+		game.discountPercentage,
+		game.discount_percentage,
+		game.discount,
+		game.percentage,
+		game.sale_percentage,
+	];
+
+	for (const raw of rawCandidates) {
+		const value = Number(raw);
+		if (!Number.isFinite(value) || value <= 0) continue;
+		return value <= 1 ? Math.round(value * 100) : Math.round(value);
+	}
+
+	return 0;
+}
+
+async function fetchAllGamesInBatches(api, batchSize = 20) {
+	const all = [];
+	let from = 0;
+
+	while (true) {
+		const batch = await api.getGames(from);
+		if (!Array.isArray(batch) || batch.length === 0) break;
+		all.push(...batch);
+		if (batch.length < batchSize) break;
+		from += batchSize;
+	}
+
+	return all;
 }
 
 /**
@@ -22,27 +79,19 @@ const AllGamesPage = () => {
 	const [priceRange, setPriceRange] = useState({ min: 0, max: 100 });
 	const [currentPage, setCurrentPage] = useState(1);
 	const [selectedGame, setSelectedGame] = useState(null);
-	const [hoveredGame, setHoveredGame] = useState(null);
-	const hideTimeoutRef = useRef(null);
 	const gamesPerPage = 20;
 
-	const displayGame = hoveredGame || selectedGame;
+	const displayGame = selectedGame;
 
 	// Initialize platform selection from URL parameter
 	useEffect(() => {
-		if (platform && ['steam', 'epic', 'gog'].includes(platform)) {
-			setSelectedPlatforms([platform]);
+		const normalized = normalizePlatformId(platform);
+		if (normalized && ['steam', 'itchio', 'gog'].includes(normalized)) {
+			setSelectedPlatforms([normalized]);
+		} else {
+			setSelectedPlatforms([]);
 		}
 	}, [platform]);
-
-	// Cleanup timeout on unmount
-	useEffect(() => {
-		return () => {
-			if (hideTimeoutRef.current) {
-				clearTimeout(hideTimeoutRef.current);
-			}
-		};
-	}, []);
 
 	const genres = useMemo(() => {
 		const names = new Set();
@@ -61,12 +110,12 @@ const AllGamesPage = () => {
 	const platforms = useMemo(() => {
 		const names = new Set();
 		for (const game of allGames) {
-			const p = game.platform || game.platform_name;
-			if (typeof p === 'string' && p.trim()) names.add(p.trim().toLowerCase());
+			const p = normalizePlatformId(game.platform || game.platform_name);
+			if (p) names.add(p);
 		}
 		return Array.from(names).sort((a, b) => a.localeCompare(b)).map((id) => ({
 			id,
-			name: id.charAt(0).toUpperCase() + id.slice(1),
+			name: id === 'itchio' ? 'Itch.io' : id.charAt(0).toUpperCase() + id.slice(1),
 		}));
 	}, [allGames]);
 
@@ -75,7 +124,22 @@ const AllGamesPage = () => {
 		const fetchGames = async () => {
 			setIsLoading(true);
 			try {
-				const gamesData = await window.electronAPI.getGames(0);
+				const [gamesResult, featuredResult, discountedResult, upcomingResult] = await Promise.allSettled([
+					fetchAllGamesInBatches(window.electronAPI, 20),
+					window.electronAPI.FeaturedGames(0),
+					window.electronAPI.DiscountedGames(0),
+					window.electronAPI.ComingSoonGames(0),
+				]);
+
+				if (gamesResult.status !== 'fulfilled') {
+					throw gamesResult.reason;
+				}
+
+				const gamesData = gamesResult.value;
+				const featuredSpecials = featuredResult.status === 'fulfilled' ? pickSpecialsArray(featuredResult.value) : [];
+				const discountedSpecials = discountedResult.status === 'fulfilled' ? pickSpecialsArray(discountedResult.value) : [];
+				const upcomingSpecials = upcomingResult.status === 'fulfilled' ? pickSpecialsArray(upcomingResult.value) : [];
+
 				const normalized = (gamesData || []).map((game) => ({
 					id: game.id,
 					app_id: game.app_id,
@@ -87,11 +151,49 @@ const AllGamesPage = () => {
 					price: Number(game.cost) || 0,
 					cost: Number(game.cost) || 0,
 					description: game.description || '',
-					platform: game.platform_name || game.platform || 'steam',
+					platform: normalizePlatformId(game.platform_name || game.platform || 'steam') || 'steam',
 					genres: Array.isArray(game.genres) ? game.genres : [],
 					tags: Array.isArray(game.tags) ? game.tags : [],
+					discountPercent: parseDiscountPercent(game),
 				}));
-				if (!cancelled) setAllGames(normalized);
+
+				const prioritized = [...normalized].sort((a, b) => {
+					const aId = Number(a?.app_id ?? a?.appid ?? a?.id);
+					const bId = Number(b?.app_id ?? b?.appid ?? b?.id);
+					if (aId === 500 && bId !== 500) return -1;
+					if (bId === 500 && aId !== 500) return 1;
+					return 0;
+				});
+
+				let featuredIds = featuredSpecials.map(extractGameId).filter(Boolean);
+				let discountedIds = discountedSpecials.map(extractGameId).filter(Boolean);
+				let upcomingIds = upcomingSpecials.map(extractGameId).filter(Boolean);
+
+				if (!featuredIds.length) {
+					featuredIds = prioritized.slice(0, 5).map(extractGameId).filter(Boolean);
+				}
+				if (!discountedIds.length) {
+					discountedIds = prioritized
+						.filter((game) => Number(game.discountPercent) > 0)
+						.slice(0, 12)
+						.map(extractGameId)
+						.filter(Boolean);
+				}
+				if (!discountedIds.length) {
+					discountedIds = prioritized.slice(5, 10).map(extractGameId).filter(Boolean);
+				}
+				if (!upcomingIds.length) {
+					upcomingIds = prioritized.slice(10, 15).map(extractGameId).filter(Boolean);
+				}
+
+				const excludedIds = new Set([...featuredIds, ...discountedIds, ...upcomingIds]);
+				const withoutCarouselGames = prioritized.filter((game) => {
+					const id = extractGameId(game);
+					if (!id) return true;
+					return !excludedIds.has(id);
+				});
+
+				if (!cancelled) setAllGames(withoutCarouselGames);
 			} catch (err) {
 				console.error('Failed to load all games page data:', err);
 				if (!cancelled) setAllGames([]);
@@ -124,7 +226,7 @@ const AllGamesPage = () => {
 			}
 
 			// Platform filter
-			if (selectedPlatforms.length > 0 && !selectedPlatforms.includes(game.platform)) {
+			if (selectedPlatforms.length > 0 && !selectedPlatforms.includes(normalizePlatformId(game.platform))) {
 				return false;
 			}
 
@@ -145,19 +247,36 @@ const AllGamesPage = () => {
 	const currentGames = filteredGames.slice(startIndex, endIndex);
 
 	const handleGameClick = (game) => {
-		if (game.appid || game.app_id || game.id) {
-			const gameId = game.appid || game.app_id || game.id;
-			navigate(`/store/game/${gameId}`, { state: { game } });
-		}
+		setSelectedGame(game);
+	};
+
+	const toStoreGameUrl = (game) => {
+		const gameId = game?.appid || game?.app_id || game?.id;
+		if (!gameId) return '';
+		const platformId = normalizePlatformId(game?.platform_name || game?.platform) || 'steam';
+		return `/store/game/${encodeURIComponent(platformId)}/${encodeURIComponent(gameId)}`;
 	};
 
 	const handleResetFilters = () => {
 		setSearchQuery('');
 		setSelectedGenres([]);
-		setSelectedPlatforms([]);
+		const normalized = normalizePlatformId(platform);
+		setSelectedPlatforms(normalized ? [normalized] : []);
 		setPriceRange({ min: 0, max: 100 });
 		setCurrentPage(1);
 	};
+
+	useEffect(() => {
+		if (!currentGames.length) {
+			setSelectedGame(null);
+			return;
+		}
+		const selectedId = selectedGame?.appid || selectedGame?.app_id || selectedGame?.id;
+		const existsOnPage = currentGames.some((game) => (game.appid || game.app_id || game.id) === selectedId);
+		if (!existsOnPage) {
+			setSelectedGame(currentGames[0]);
+		}
+	}, [currentGames, selectedGame]);
 
 	const handlePageChange = (page) => {
 		setCurrentPage(page);
@@ -203,18 +322,6 @@ const AllGamesPage = () => {
 											: 'hover:bg-slate-700/30'
 									}`}
 									onClick={() => handleGameClick(game)}
-								onMouseEnter={() => {
-									if (hideTimeoutRef.current) {
-										clearTimeout(hideTimeoutRef.current);
-										hideTimeoutRef.current = null;
-									}
-									setHoveredGame(game);
-								}}
-								onMouseLeave={() => {
-									hideTimeoutRef.current = setTimeout(() => {
-										setHoveredGame(null);
-									}, 150);
-								}}
 								>
 									{/* Game thumbnail */}
 									<div className="w-20 h-11 flex-shrink-0 rounded overflow-hidden bg-slate-900/50">
@@ -326,18 +433,7 @@ const AllGamesPage = () => {
 			{/* Middle - Game preview (collapsible) */}
 			{displayGame && (
 			<div 
-				className="w-[30%] bg-slate-800/40 backdrop-blur-sm rounded-lg border border-slate-700/50 overflow-hidden flex flex-col transition-all duration-500 ease-in-out animate-in slide-in-from-right"
-				onMouseEnter={() => {
-					if (hideTimeoutRef.current) {
-						clearTimeout(hideTimeoutRef.current);
-						hideTimeoutRef.current = null;
-					}
-				}}
-				onMouseLeave={() => {
-					hideTimeoutRef.current = setTimeout(() => {
-						setHoveredGame(null);
-					}, 150);
-				}}
+				className="w-[30%] bg-slate-800/40 backdrop-blur-sm rounded-lg border border-slate-700/50 overflow-hidden flex flex-col"
 			>
 				<>
 					{/* Header */}
@@ -367,6 +463,17 @@ const AllGamesPage = () => {
 									{displayGame.description}
 								</p>
 							)}
+
+							<button
+								onClick={() => {
+									const target = toStoreGameUrl(displayGame);
+									if (!target) return;
+									navigate(target, { state: { game: displayGame } });
+								}}
+								className="w-full rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-sm font-semibold py-2 transition-colors mb-3"
+							>
+								Open Game Page
+							</button>
 
 							{/* Tags (max 5) */}
 							<div className="flex flex-wrap gap-1">

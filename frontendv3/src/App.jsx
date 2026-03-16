@@ -44,9 +44,11 @@ function App() {
         <Routes>
           <Route path="/login" element={<Login onLogin={setUser} />} />
           <Route path="/store" element={<Store />} />
-          <Route path="/store/game/:id" element={<StoreGamePage />} />
+          <Route path="/store/game/:platform/:id" element={<StoreGamePage />} />
           <Route path="/library" element={<LibraryPage />} />
           <Route path="/all-games" element={<AllGamesPage />} />
+          <Route path="/shop/all-games" element={<AllGamesPage />} />
+          <Route path="/shop/platform/:platform" element={<AllGamesPage />} />
           <Route path="/game" element={<GamePage />} />
           <Route path="/game/:id" element={<GamePage />} />
           <Route path="/downloads" element={<DownloadsPage />} />

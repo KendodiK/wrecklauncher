@@ -29,8 +29,12 @@ const Storeslider = ({ items, onCardClick }) => {
         if (!card) return;
         const appid = Number(card.appid);
         const routeId = Number.isFinite(appid) && appid > 0 ? String(appid) : (card.id != null ? String(card.id) : 'unknown');
+        const normalizedPlatform = String(card.platform_name || card.platform || 'steam').trim().toLowerCase();
+        const platform = normalizedPlatform === 'itch' || normalizedPlatform === 'itch.io' || normalizedPlatform === 'itchio'
+            ? 'itchio'
+            : (normalizedPlatform === 'epic games' || normalizedPlatform === 'epic_games' ? 'steam' : (normalizedPlatform || 'steam'));
 
-        navigate(`/store/game/${encodeURIComponent(routeId)}`, {
+        navigate(`/store/game/${encodeURIComponent(platform)}/${encodeURIComponent(routeId)}`, {
             state: {
                 game: {
                     id: routeId,
@@ -138,6 +142,11 @@ const Storeslider = ({ items, onCardClick }) => {
             renderCard={({ card, abs }) => (
                 <>
                     <img src={card.image} alt={card.title} loading={abs <= 1 ? 'eager' : 'lazy'} />
+                    {Number(card.discountPercent) > 0 ? (
+                        <div className="absolute left-3 top-3 rounded-md bg-emerald-500/95 px-2 py-1 text-xs font-bold text-white shadow-lg">
+                            -{Math.round(Number(card.discountPercent))}%
+                        </div>
+                    ) : null}
                     <div className="shop-card-title">{card.title}</div>
                 </>
             )}

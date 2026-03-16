@@ -8,9 +8,19 @@ import { useNavigate } from 'react-router-dom';
 const GameGrid = ({ games = [], isLoading = false, emptyMessage = 'No games found' }) => {
 	const navigate = useNavigate();
 
+	const normalizePlatform = (value) => {
+		const normalized = String(value || '').trim().toLowerCase();
+		if (!normalized) return 'steam';
+		if (normalized === 'itch' || normalized === 'itch.io' || normalized === 'itchio') return 'itchio';
+		if (normalized === 'epic games' || normalized === 'epic_games') return 'steam';
+		return normalized;
+	};
+
 	const handleCardClick = (game) => {
 		if (game.id || game.appid) {
-			navigate(`/store/game/${game.id || game.appid}`, { state: { game } });
+			const gameId = game.id || game.appid;
+			const platform = normalizePlatform(game.platform_name || game.platform);
+			navigate(`/store/game/${encodeURIComponent(platform)}/${encodeURIComponent(gameId)}`, { state: { game } });
 		}
 	};
 

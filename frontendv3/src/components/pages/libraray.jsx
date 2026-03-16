@@ -220,7 +220,7 @@ const LibraryPage = () => {
 	const handleOpenStorePage = (game) => {
 		const appId = Number(game?.appid ?? game?.id);
 		if (!Number.isFinite(appId) || appId <= 0) return;
-		navigate(`/store/game/${appId}`, {
+		navigate(`/store/game/steam/${appId}`, {
 			state: {
 				game,
 			},

@@ -28,6 +28,66 @@ function steamImages(appid) {
 	};
 }
 
+function normalizePlatformName(value) {
+	const normalized = String(value || '').trim().toLowerCase();
+	if (!normalized) return 'steam';
+	if (normalized === 'itch' || normalized === 'itchio' || normalized === 'itch.io') return 'itchio';
+	if (normalized === 'epic games' || normalized === 'epic_games') return 'steam';
+	return normalized;
+}
+
+function normalizeSiteLinksFromAny(value) {
+	if (!value) return [];
+	if (Array.isArray(value)) {
+		return value
+			.map((entry, index) => {
+				if (!entry) return null;
+				if (typeof entry === 'string') {
+					if (!/^https?:\/\//i.test(entry)) return null;
+					return { id: `site-${index}`, label: 'Store', href: entry };
+				}
+				const href = String(entry.href || entry.url || entry.link || '').trim();
+				if (!/^https?:\/\//i.test(href)) return null;
+				return {
+					id: String(entry.id || entry.label || entry.name || `site-${index}`),
+					label: String(entry.label || entry.name || entry.platform || 'Store'),
+					href,
+				};
+			})
+			.filter(Boolean);
+	}
+	if (typeof value === 'object') {
+		return Object.entries(value)
+			.map(([key, entry], index) => {
+				if (typeof entry === 'string') {
+					if (!/^https?:\/\//i.test(entry)) return null;
+					return { id: key, label: key, href: entry };
+				}
+				if (!entry || typeof entry !== 'object') return null;
+				const href = String(entry.href || entry.url || entry.link || '').trim();
+				if (!/^https?:\/\//i.test(href)) return null;
+				return {
+					id: String(entry.id || key || `site-${index}`),
+					label: String(entry.label || entry.name || key || 'Store'),
+					href,
+				};
+			})
+			.filter(Boolean);
+	}
+	return [];
+}
+
+function defaultSiteForPlatform(platform, appId) {
+	if (!appId) return [];
+	if (platform === 'gog') {
+		return [{ id: 'gog', label: 'GOG Store', href: `https://www.gog.com/game/${appId}` }];
+	}
+	if (platform === 'itchio') {
+		return [{ id: 'itchio', label: 'Itch.io', href: 'https://itch.io/' }];
+	}
+	return [{ id: 'steam', label: 'Steam Store', href: `https://store.steampowered.com/app/${appId}` }];
+}
+
 function parseSteamDetails(details) {
 	if (!details || typeof details !== 'object') return null;
 	const appid = Number(details.appid);
@@ -58,6 +118,53 @@ function parseSteamDetails(details) {
 	};
 }
 
+function parsePlatformDetails(platform, details, appId) {
+	if (!details || typeof details !== 'object') return null;
+
+	if (platform === 'steam') {
+		return parseSteamDetails(details);
+	}
+
+	if (platform === 'gog') {
+		const genres = Array.isArray(details.genreNames) ? details.genreNames : [];
+		const siteLinks = normalizeSiteLinksFromAny(details.url || details.store_url || details.storeUrl || details.links || details.sites);
+		return {
+			id: Number(appId) || null,
+			appid: Number(appId) || null,
+			title: details.title || fallback.title,
+			description: details.description || '',
+			longDescription: details.description || '',
+			tags: genres,
+			screenshots: [],
+			minimumRequirements: '',
+			price: typeof details.cost === 'number' ? details.cost : null,
+			coverImage: details.bannerImg || '',
+			heroImage: details.bannerImg || '',
+			sites: siteLinks,
+		};
+	}
+
+	if (platform === 'itchio') {
+		const siteLinks = normalizeSiteLinksFromAny(details.url || details.store_url || details.storeUrl || details.links || details.sites);
+		return {
+			id: Number(appId) || null,
+			appid: Number(appId) || null,
+			title: details.title || fallback.title,
+			description: details.shortText || '',
+			longDescription: details.shortText || '',
+			tags: [],
+			screenshots: [],
+			minimumRequirements: '',
+			price: typeof details.minPrice === 'number' ? details.minPrice : null,
+			coverImage: details.coverUrl || '',
+			heroImage: details.coverUrl || '',
+			sites: siteLinks,
+		};
+	}
+
+	return null;
+}
+
 function normalizeLocationState(locationState) {
 	const state = locationState ?? {};
 	const game = state?.game && typeof state.game === 'object' ? state.game : state;
@@ -69,23 +176,25 @@ function normalizeLocationState(locationState) {
 		heroImage: game?.heroImage || game?.heroUrl || fallback.heroImage,
 		longDescription: game?.longDescription || fallback.longDescription,
 		tags: Array.isArray(game?.tags) ? game.tags : fallback.tags,
-		sites: Array.isArray(game?.sites) ? game.sites : fallback.sites,
+		sites: normalizeSiteLinksFromAny(game?.sites),
 		screenshots: Array.isArray(game?.screenshots) ? game.screenshots : fallback.screenshots,
 		price: typeof game?.price === 'number' ? game.price : fallback.price,
+		platform_name: normalizePlatformName(game?.platform_name || game?.platform || fallback.platform_name),
 	};
 }
 
 const StoreGamePage = () => {
-	const { id } = useParams();
+	const { id, platform } = useParams();
 	const location = useLocation();
 	const navigate = useNavigate();
-	const [steamDetails, setSteamDetails] = useState(null);
+	const [platformDetails, setPlatformDetails] = useState(null);
 	const [dbDetails, setDbDetails] = useState(null);
 	const [errorMessage, setErrorMessage] = useState('');
 	const [currentScreenshot, setCurrentScreenshot] = useState(0);
 	const [loading, setLoading] = useState(true);
 
 	const routeState = useMemo(() => normalizeLocationState(location?.state), [location?.state]);
+	const requestedPlatform = useMemo(() => normalizePlatformName(platform || routeState.platform_name), [platform, routeState.platform_name]);
 
 	const appId = useMemo(() => {
 		const routeId = Number(id);
@@ -100,7 +209,7 @@ const StoreGamePage = () => {
 
 	useEffect(() => {
 		let cancelled = false;
-		setSteamDetails(null);
+		setPlatformDetails(null);
 		setDbDetails(null);
 		setErrorMessage('');
 		setLoading(true);
@@ -119,16 +228,29 @@ const StoreGamePage = () => {
 				return;
 			}
 
+			let effectivePlatform = requestedPlatform;
+
 			try {
 				const dbData = await api.getAllDetailsByID(appId);
+				if (dbData) {
+					effectivePlatform = normalizePlatformName(dbData.platform_name || effectivePlatform);
+				}
 				if (!cancelled && dbData) setDbDetails(dbData);
 			} catch {
 				// optional enrichment only
 			}
 
 			try {
-				const details = await api.getSteamGameDetails(appId, 'us');
-				if (!cancelled) setSteamDetails(details);
+				if (effectivePlatform === 'gog') {
+					const details = await api.getGogGameDetails(String(appId));
+					if (!cancelled) setPlatformDetails(details);
+				} else if (effectivePlatform === 'itchio') {
+					const details = await api.getItchGameDetails(Number(appId));
+					if (!cancelled) setPlatformDetails(details);
+				} else {
+					const details = await api.getSteamGameDetails(appId, 'us');
+					if (!cancelled) setPlatformDetails(details);
+				}
 			} catch (error) {
 				if (!cancelled) setErrorMessage(error instanceof Error ? error.message : String(error));
 			} finally {
@@ -139,10 +261,11 @@ const StoreGamePage = () => {
 		return () => {
 			cancelled = true;
 		};
-	}, [appId]);
+	}, [appId, requestedPlatform]);
 
 	const model = useMemo(() => {
-		const parsedSteam = parseSteamDetails(steamDetails);
+		const parsedPlatform = parsePlatformDetails(requestedPlatform, platformDetails, appId);
+		const dbSites = normalizeSiteLinksFromAny(dbDetails?.sites || dbDetails?.links || dbDetails?.store_links || dbDetails?.storeLinks || dbDetails?.urls);
 		const parsedDb = dbDetails
 			? {
 				id: Number(dbDetails.app_id) || null,
@@ -153,6 +276,8 @@ const StoreGamePage = () => {
 				tags: Array.isArray(dbDetails.genre_names) ? dbDetails.genre_names : [],
 				minimumRequirements: dbDetails.minimum_requirements || '',
 				price: typeof dbDetails.cost === 'number' ? dbDetails.cost : routeState.price,
+				platform_name: normalizePlatformName(dbDetails.platform_name || routeState.platform_name),
+				sites: dbSites,
 			}
 			: null;
 
@@ -160,41 +285,124 @@ const StoreGamePage = () => {
 		const merged = {
 			...routeState,
 			...(parsedDb || {}),
-			...(parsedSteam || {}),
+			...(parsedPlatform || {}),
 		};
+		const resolvedPlatform = normalizePlatformName(merged.platform_name || requestedPlatform);
+		const links = Array.isArray(merged.sites) && merged.sites.length
+			? normalizeSiteLinksFromAny(merged.sites)
+			: defaultSiteForPlatform(resolvedPlatform, appId);
 
 		return {
 			...fallback,
 			...merged,
+			platform_name: resolvedPlatform,
 			id: merged.id ?? appId ?? null,
 			appid: merged.appid ?? appId ?? null,
-			coverImage: merged.coverImage || steam?.cover || steam?.capsule || fallback.coverImage,
-			heroImage: merged.heroImage || steam?.hero || steam?.header || fallback.heroImage,
+			coverImage: merged.coverImage || merged.bannerImg || steam?.cover || steam?.capsule || fallback.coverImage,
+			heroImage: merged.heroImage || merged.bannerImg || steam?.hero || steam?.header || fallback.heroImage,
 			longDescription: merged.longDescription || merged.description || '',
 			tags: Array.isArray(merged.tags) ? merged.tags : [],
 			screenshots: Array.isArray(merged.screenshots) ? merged.screenshots : [],
 			price: typeof merged.price === 'number' ? merged.price : null,
-			sites: Array.isArray(merged.sites) && merged.sites.length
-				? merged.sites
-				: appId
-					? [{ id: 'steam', label: 'Steam Store', href: `https://store.steampowered.com/app/${appId}` }]
-					: [],
+			sites: links,
 		};
-	}, [appId, dbDetails, routeState, steamDetails]);
+	}, [appId, dbDetails, platformDetails, requestedPlatform, routeState]);
+
+	const gameDetailsRows = useMemo(() => {
+		const platform = normalizePlatformName(model.platform_name);
+		const rows = [];
+
+		if (platform === 'steam' && platformDetails && typeof platformDetails === 'object') {
+			const steam = platformDetails;
+			const genres = Array.isArray(steam.genres)
+				? steam.genres
+					.map((genre) => (genre && typeof genre === 'object' ? genre.description : ''))
+					.filter(Boolean)
+					.join(', ')
+				: '';
+			rows.push(
+				{ label: 'App ID', value: steam.appid != null ? String(steam.appid) : '' },
+				{ label: 'Name', value: steam.name || '' },
+				{ label: 'Country', value: steam.cc || '' },
+				{ label: 'Language', value: steam.lang || '' },
+				{ label: 'Price', value: typeof steam.price_overview === 'number' ? `$${(steam.price_overview / 100).toFixed(2)}` : '' },
+				{ label: 'Genres', value: genres },
+				{ label: 'Minimum Requirements', value: steam.minimum_requirements || '' },
+				{ label: 'Banner Image', value: steam.bannerimg || '' },
+			);
+		} else if (platform === 'gog' && platformDetails && typeof platformDetails === 'object') {
+			const gog = platformDetails;
+			rows.push(
+				{ label: 'Product ID', value: gog.productId || '' },
+				{ label: 'Title', value: gog.title || '' },
+				{ label: 'Price', value: typeof gog.cost === 'number' ? `$${Number(gog.cost).toFixed(2)}` : '' },
+				{ label: 'Genres', value: Array.isArray(gog.genreNames) ? gog.genreNames.join(', ') : '' },
+				{ label: 'Banner Image', value: gog.bannerImg || '' },
+				{ label: 'Description', value: gog.description || '' },
+			);
+		} else if (platform === 'itchio' && platformDetails && typeof platformDetails === 'object') {
+			const itch = platformDetails;
+			rows.push(
+				{ label: 'Game ID', value: itch.gameId != null ? String(itch.gameId) : '' },
+				{ label: 'Title', value: itch.title || '' },
+				{ label: 'Minimum Price', value: typeof itch.minPrice === 'number' ? `$${Number(itch.minPrice).toFixed(2)}` : '' },
+				{ label: 'Cover', value: itch.coverUrl || '' },
+				{ label: 'Description', value: itch.shortText || '' },
+				{ label: 'Store URL', value: itch.url || '' },
+			);
+		}
+
+		if (dbDetails && typeof dbDetails === 'object') {
+			const dbGenres = Array.isArray(dbDetails.genre_names) ? dbDetails.genre_names.filter(Boolean).join(', ') : '';
+			rows.push(
+				{ label: 'DB App ID', value: dbDetails.app_id != null ? String(dbDetails.app_id) : '' },
+				{ label: 'DB Platform', value: dbDetails.platform_name || '' },
+				{ label: 'DB Name', value: dbDetails.name || '' },
+				{ label: 'DB Price', value: typeof dbDetails.cost === 'number' ? `$${Number(dbDetails.cost).toFixed(2)}` : '' },
+				{ label: 'DB Banner', value: dbDetails.banner_img || '' },
+				{ label: 'DB Genres', value: dbGenres },
+				{ label: 'DB Minimum Requirements', value: dbDetails.minimum_requirements || '' },
+				{ label: 'DB Description', value: dbDetails.description || '' },
+			);
+		}
+
+		const deduped = [];
+		const seen = new Set();
+		for (const row of rows) {
+			const value = String(row.value || '').trim();
+			if (!value) continue;
+			const key = `${row.label}:${value}`;
+			if (seen.has(key)) continue;
+			seen.add(key);
+			deduped.push({ label: row.label, value });
+		}
+
+		return deduped;
+	}, [dbDetails, model.platform_name, platformDetails]);
 
 	const screenshot = model.screenshots[currentScreenshot] || model.heroImage || model.coverImage;
+	const activePlatform = normalizePlatformName(model.platform_name);
+	const platformButtonLabel = activePlatform === 'gog'
+		? 'Open In GOG'
+		: activePlatform === 'itchio'
+			? 'Open In Itch.io'
+			: 'Open In Steam';
 
 	const handleOpenExternalStore = async () => {
 		if (!appId) return;
 		try {
+			if (activePlatform === 'gog') {
+				await window.electronAPI.openGogGame(String(appId));
+				return;
+			}
+			if (activePlatform === 'itchio') {
+				await window.electronAPI.openItchGame(Number(appId));
+				return;
+			}
 			await window.electronAPI.storePageSteam(appId);
 		} catch (error) {
 			setErrorMessage(error instanceof Error ? error.message : String(error));
 		}
-	};
-
-	const handleStartDownload = () => {
-		setErrorMessage('Download flow for free store games is not wired yet.');
 	};
 
 	return (
@@ -233,14 +441,30 @@ const StoreGamePage = () => {
 									</div>
 									<button
 										type="button"
-										onClick={model.price === 0 ? handleStartDownload : handleOpenExternalStore}
+										onClick={handleOpenExternalStore}
 										disabled={!appId}
 										className="rounded-xl bg-sky-500 px-4 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-white transition-colors hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
 									>
-										{model.price === 0 ? 'Start Download' : 'Open In Steam'}
+										{platformButtonLabel}
 									</button>
 								</div>
 							</div>
+
+							<div className="rounded-2xl border border-slate-700/60 bg-slate-900/45 p-5 backdrop-blur-sm">
+								<h2 className="text-lg font-semibold text-white">Available On</h2>
+								<div className="mt-3 flex flex-col gap-2">
+									{model.sites.map((site, index) => (
+										<a key={site.id ?? `${site.label}-${index}`} href={site.href ?? '#'} target="_blank" rel="noreferrer" className="rounded-xl border border-slate-700/70 bg-slate-950/45 px-4 py-3 text-sm text-slate-200 transition-colors hover:bg-slate-800/80">{site.label ?? 'Store'}</a>
+									))}
+								</div>
+							</div>
+
+							{model.minimumRequirements ? (
+								<div className="rounded-2xl border border-slate-700/60 bg-slate-900/45 p-5 backdrop-blur-sm">
+									<h2 className="text-lg font-semibold text-white">Minimum Requirements</h2>
+									<div className="mt-3 text-sm leading-6 text-slate-300 [&_ul]:ml-5 [&_ul]:list-disc [&_strong]:text-slate-100" dangerouslySetInnerHTML={{ __html: model.minimumRequirements }} />
+								</div>
+							) : null}
 						</div>
 
 						<div className="space-y-5">
@@ -280,7 +504,7 @@ const StoreGamePage = () => {
 								) : null}
 							</div>
 
-							<div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+							<div className="grid gap-5">
 								<div className="rounded-2xl border border-slate-700/60 bg-slate-900/45 p-5 backdrop-blur-sm">
 									<h2 className="text-lg font-semibold text-white">About This Store Listing</h2>
 									<p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-300">{model.description || 'No description available.'}</p>
@@ -294,23 +518,20 @@ const StoreGamePage = () => {
 									/>
 								</div>
 
-								<div className="space-y-5">
-									<div className="rounded-2xl border border-slate-700/60 bg-slate-900/45 p-5 backdrop-blur-sm">
-										<h2 className="text-lg font-semibold text-white">Available On</h2>
-										<div className="mt-3 flex flex-col gap-2">
-											{model.sites.map((site, index) => (
-												<a key={site.id ?? `${site.label}-${index}`} href={site.href ?? '#'} target="_blank" rel="noreferrer" className="rounded-xl border border-slate-700/70 bg-slate-950/45 px-4 py-3 text-sm text-slate-200 transition-colors hover:bg-slate-800/80">{site.label ?? 'Store'}</a>
-											))}
-										</div>
-									</div>
-
-									{model.minimumRequirements ? (
-										<div className="rounded-2xl border border-slate-700/60 bg-slate-900/45 p-5 backdrop-blur-sm">
-											<h2 className="text-lg font-semibold text-white">Requirements</h2>
-											<div className="mt-3 text-sm leading-6 text-slate-300 [&_ul]:ml-5 [&_ul]:list-disc [&_strong]:text-slate-100" dangerouslySetInnerHTML={{ __html: model.minimumRequirements }} />
+									{gameDetailsRows.length > 0 ? (
+										<div className="rounded-2xl border border-slate-700/60 bg-slate-900/45 p-5 backdrop-blur-sm xl:col-span-2">
+											<h2 className="text-lg font-semibold text-white">Game Details</h2>
+											<div className="mt-3 grid gap-2 text-sm text-slate-300">
+												{gameDetailsRows.map((row) => (
+													<div key={row.label} className="rounded-lg border border-slate-700/50 bg-slate-950/35 px-3 py-2">
+														<div className="text-xs uppercase tracking-[0.14em] text-slate-400">{row.label}</div>
+														<div className="mt-1 break-words text-slate-200">{row.value}</div>
+													</div>
+												))}
+											</div>
 										</div>
 									) : null}
-								</div>
+
 							</div>
 						</div>
 					</div>
