@@ -42,31 +42,14 @@ async function fetchGamesPage(api, from) {
 	return Array.isArray(batch) ? batch : [];
 }
 
-async function fetchSpecialsMin(apiCall, minCount = CAROUSEL_INITIAL_ITEMS, batchSize = BATCH_SIZE, maxPages = 6) {
-	const all = [];
-	let from = 0;
-
-	for (let i = 0; i < maxPages; i += 1) {
-		const payload = await apiCall(from);
-		const items = pickSpecialsArray(payload);
-		if (!items.length) break;
-
-		all.push(...items);
-		if (all.length >= minCount) break;
-		if (items.length < batchSize) break;
-		from += batchSize;
-	}
-
-	return all;
-}
-
 async function fetchSpecialsChunk(apiCall, from, take = CAROUSEL_CHUNK_SIZE) {
 	const payload = await apiCall(from);
 	const items = pickSpecialsArray(payload);
+	const pageItems = items.slice(0, take);
 	return {
-		items: items.slice(0, take),
+		items: pageItems,
 		nextFrom: from + take,
-		hasMore: items.length >= take,
+		hasMore: pageItems.length >= BATCH_SIZE,
 	};
 }
 
@@ -298,12 +281,24 @@ const Shopveiw = ({ items }) => {
 		const fetchData = async () => {
 			setIsLoading(true);
 			try {
-				const [firstGamesPage, secondGamesPage, featuredResult, discountedResult, upcomingResult] = await Promise.allSettled([
+				const [
+					firstGamesPage,
+					secondGamesPage,
+					featuredPage1,
+					featuredPage2,
+					discountedPage1,
+					discountedPage2,
+					upcomingPage1,
+					upcomingPage2,
+				] = await Promise.allSettled([
 					fetchGamesPage(window.electronAPI, 0),
 					fetchGamesPage(window.electronAPI, BATCH_SIZE),
-					fetchSpecialsChunk((from) => window.electronAPI.FeaturedGames(from), 0, CAROUSEL_INITIAL_ITEMS),
-					fetchSpecialsChunk((from) => window.electronAPI.DiscountedGames(from), 0, CAROUSEL_INITIAL_ITEMS),
-					fetchSpecialsChunk((from) => window.electronAPI.ComingSoonGames(from), 0, CAROUSEL_INITIAL_ITEMS),
+					fetchSpecialsChunk((from) => window.electronAPI.FeaturedGames(from), 0, BATCH_SIZE),
+					fetchSpecialsChunk((from) => window.electronAPI.FeaturedGames(from), BATCH_SIZE, BATCH_SIZE),
+					fetchSpecialsChunk((from) => window.electronAPI.DiscountedGames(from), 0, BATCH_SIZE),
+					fetchSpecialsChunk((from) => window.electronAPI.DiscountedGames(from), BATCH_SIZE, BATCH_SIZE),
+					fetchSpecialsChunk((from) => window.electronAPI.ComingSoonGames(from), 0, BATCH_SIZE),
+					fetchSpecialsChunk((from) => window.electronAPI.ComingSoonGames(from), BATCH_SIZE, BATCH_SIZE),
 				]);
 
 				if (firstGamesPage.status !== 'fulfilled') {
@@ -314,9 +309,12 @@ const Shopveiw = ({ items }) => {
 					...(Array.isArray(firstGamesPage.value) ? firstGamesPage.value : []),
 					...(secondGamesPage.status === 'fulfilled' && Array.isArray(secondGamesPage.value) ? secondGamesPage.value : []),
 				];
-				const featuredChunk = featuredResult.status === 'fulfilled' ? featuredResult.value : { items: [], nextFrom: CAROUSEL_INITIAL_ITEMS, hasMore: false };
-				const discountedChunk = discountedResult.status === 'fulfilled' ? discountedResult.value : { items: [], nextFrom: CAROUSEL_INITIAL_ITEMS, hasMore: false };
-				const upcomingChunk = upcomingResult.status === 'fulfilled' ? upcomingResult.value : { items: [], nextFrom: CAROUSEL_INITIAL_ITEMS, hasMore: false };
+				const featuredChunk1 = featuredPage1.status === 'fulfilled' ? featuredPage1.value : { items: [], nextFrom: BATCH_SIZE, hasMore: false };
+				const featuredChunk2 = featuredPage2.status === 'fulfilled' ? featuredPage2.value : { items: [], nextFrom: CAROUSEL_INITIAL_ITEMS, hasMore: false };
+				const discountedChunk1 = discountedPage1.status === 'fulfilled' ? discountedPage1.value : { items: [], nextFrom: BATCH_SIZE, hasMore: false };
+				const discountedChunk2 = discountedPage2.status === 'fulfilled' ? discountedPage2.value : { items: [], nextFrom: CAROUSEL_INITIAL_ITEMS, hasMore: false };
+				const upcomingChunk1 = upcomingPage1.status === 'fulfilled' ? upcomingPage1.value : { items: [], nextFrom: BATCH_SIZE, hasMore: false };
+				const upcomingChunk2 = upcomingPage2.status === 'fulfilled' ? upcomingPage2.value : { items: [], nextFrom: CAROUSEL_INITIAL_ITEMS, hasMore: false };
 				const canLoadMore = secondGamesPage.status === 'fulfilled' && Array.isArray(secondGamesPage.value) && secondGamesPage.value.length === BATCH_SIZE;
 				console.log('Fetched games from database:', gamesData);
 				
@@ -326,9 +324,15 @@ const Shopveiw = ({ items }) => {
 				// window.electronAPI.getAllDetailsByID(id) to fetch full scraped data
 				const transformedGames = (gamesData || []).map((game) => mapGameCard(game));
 
-				let featuredCards = featuredChunk.items.map((game) => mapGameCard(game, 'featured')).slice(0, CAROUSEL_INITIAL_ITEMS);
-				let discountedCards = discountedChunk.items.map((game) => mapGameCard(game, 'discount')).slice(0, CAROUSEL_INITIAL_ITEMS);
-				let upcomingCards = upcomingChunk.items.map((game) => mapGameCard(game, 'upcoming')).slice(0, CAROUSEL_INITIAL_ITEMS);
+				let featuredCards = [...featuredChunk1.items, ...featuredChunk2.items]
+					.map((game) => mapGameCard(game, 'featured'))
+					.slice(0, CAROUSEL_INITIAL_ITEMS);
+				let discountedCards = [...discountedChunk1.items, ...discountedChunk2.items]
+					.map((game) => mapGameCard(game, 'discount'))
+					.slice(0, CAROUSEL_INITIAL_ITEMS);
+				let upcomingCards = [...upcomingChunk1.items, ...upcomingChunk2.items]
+					.map((game) => mapGameCard(game, 'upcoming'))
+					.slice(0, CAROUSEL_INITIAL_ITEMS);
 
 				// Put Left 4 Dead (app_id 500) first in shop lists.
 				const prioritizedGames = transformedGames.sort((a, b) => {
@@ -364,12 +368,12 @@ const Shopveiw = ({ items }) => {
 				setFeaturedGames(featuredCards);
 				setDiscountedGames(discountedCards);
 				setUpcomingGames(upcomingCards);
-				setFeaturedOffset(featuredChunk.nextFrom || CAROUSEL_INITIAL_ITEMS);
-				setDiscountedOffset(discountedChunk.nextFrom || CAROUSEL_INITIAL_ITEMS);
-				setUpcomingOffset(upcomingChunk.nextFrom || CAROUSEL_INITIAL_ITEMS);
-				setHasMoreFeatured(featuredChunk.hasMore);
-				setHasMoreDiscounted(discountedChunk.hasMore);
-				setHasMoreUpcoming(upcomingChunk.hasMore);
+				setFeaturedOffset(CAROUSEL_INITIAL_ITEMS);
+				setDiscountedOffset(CAROUSEL_INITIAL_ITEMS);
+				setUpcomingOffset(CAROUSEL_INITIAL_ITEMS);
+				setHasMoreFeatured(featuredChunk2.hasMore);
+				setHasMoreDiscounted(discountedChunk2.hasMore);
+				setHasMoreUpcoming(upcomingChunk2.hasMore);
 			} catch (error) {
 				console.error('Failed to fetch games data:', error);
 				setAllGames([]);
