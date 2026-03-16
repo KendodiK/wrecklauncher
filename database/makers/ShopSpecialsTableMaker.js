@@ -16,9 +16,9 @@ class GamesTableMaker extends DatabaseHandler {
         const query = `
             CREATE TABLE shop_specials(
                 game_id MEDIUMINT UNSIGNED NOT NULL, INDEX(game_id),
-                featured BOOLEAN,
+                featured FLOAT,
                 coming_soon BOOLEAN,
-                discounted BOOLEAN
+                discount_percent TINYINT
             );
         `;
         try {
