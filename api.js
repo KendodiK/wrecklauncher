@@ -24,9 +24,13 @@ const chatsController = require('./database/controllers/ChatsController');
 const shopSpecialsController = require('./database/controllers/ShopSpecialsController');
 const pirateSitesController = require('./database/controllers/PirateSitesController');
 const gamesPirateSitesConnectionController = require('./database/controllers/GamesPirateSitesConnectionController');
+const countriesController = require('./database/controllers/CountiesController');
+const pricesController = require('./database/controllers/PricesController');
+const NativeUsersController = require('./database/controllers/NativeUsersController');
+const CountiesController = require('./database/controllers/CountiesController');
+
 const { errorMonitor } = require('events');
 const { error } = require('console');
-const NativeUsersController = require('./database/controllers/NativeUsersController');
 
 const PORT = 3000;
 // Replace with your actual Steam API key and Steam ID
@@ -353,10 +357,72 @@ async function fetchGamesDaily() {
   }
 }
 // Run immediately
-fetchGamesDaily();
+//fetchGamesDaily();
 
 // Run every 24 hours
-setInterval(fetchGamesDaily, 24 * 60 * 60 * 1000);
+//setInterval(fetchGamesDaily, 24 * 60 * 60 * 1000);
+
+async function getCountyIdByCode(countyCode) {
+  const countyCtrl = new CountiesController();
+
+  const countyData = await countyCtrl.getByCode(countyCode);
+  if (countyData instanceof Error || !countyData?.id) {
+    const id = await createCountyByCode(countyCode);
+
+    if (!id) {
+      return new Error({ message: "Error while adding new county to DB" });
+    }
+    return id;
+  }
+
+  return countyData.id;
+}
+
+async function createCountyByCode(countyCode) {
+  try {
+    const countyCtrl = new CountiesController();
+    const resp = await fetch(`https://restcountries.com/v3.1/alpha/${countyCode.toLowerCase()}`);
+    if (!resp.ok) {
+      throw new Error(`restcountries API ${resp.status}: ${await resp.text()}`);
+    }
+    const body = await resp.json();
+    const country = Array.isArray(body) ? body[0] : body;
+    if (!country) throw new Error('No country data returned from restcountries');
+
+    const name = country?.name?.common || null;
+    let currencySymbol = null;
+    const currencies = country?.currencies;
+    if (currencies && typeof currencies === 'object') {
+      const first = Object.values(currencies)[0];
+      currencySymbol = first?.symbol ?? null;
+    }
+
+    const county = await countyCtrl.create({ name, code: countyCode, currency: currencySymbol });
+    return county?.id ?? null;
+  } catch (err) {
+    throw err;
+  }
+}
+
+async function getFormatedPrice(gameId, countyCode) {
+  try {
+    const pricesCtrl = new pricesController();
+    const prices = pricesCtrl.getByGameId(gameId);
+  
+    let result;
+    for( price in prices ){
+      if (price.countyCode == countyCode.toLowerCase()) {
+        result = price
+      }
+    }
+    if ( !result ) {
+      return new Error({ message: "No price with given countyCode" });
+    }
+    return String(parseFloat(result.price / 100)), " ", result.currency; 
+  } catch (err) {
+    throw err;
+  }
+}
 
 
 // ------------------- Middleware ------------------ //
@@ -534,7 +600,7 @@ app.get("/api/games/:id", async (req, res) => { //nem biztos hogy kell használn
   returns:
     Same shape as /api/games/:id/all.
 */
-app.get("/api/games/:appId/all", async (req, res) => {
+app.get("/api/games/platform/:appId/all", async (req, res) => {
   try {
     const { appId } = req.params;
     const appIdNum = Number(appId);
@@ -608,8 +674,9 @@ app.get("/api/games/:id/all", async (req, res) => {
 app.get("/api/games/list/:platformId/all/:from", async (req, res) => {
   try {
     const { platformId, from } = req.params;
+    const countyCode = req.body.countyCode ?? "de";
     const gameCtrl = new gamesController();
-    const games = gameCtrl.getAllGamesByPlatformFrom(platformId, from);
+    const games = gameCtrl.getAllGamesByPlatformFrom(countyCode, platformId, from);
 
     if (games instanceof Error) {
       res.status(404).json({ error: games.message });
@@ -623,8 +690,11 @@ app.get("/api/games/list/:platformId/all/:from", async (req, res) => {
 app.get("/api/games/list/:from", async (req, res) => {
   try {
     const { from } = req.params;
+    const countyCode = req.body.county_code ?? "de";
+
     const gamesCtrl = new gamesController();
-    const games = await gamesCtrl.getAllGamesFrom(from);
+    const games = await gamesCtrl.getAllGamesFrom(countyCode, from);
+
     return res.json(games);
   } catch (err) {
       return res.status(500).json({ error: err.message });
@@ -896,19 +966,38 @@ app.post("/api/games", tokenValidate(), async (req, res) => {
       banner_img: req.body.banner_img,
       description: req.body.description ?? null,
       minimum_requirements: req.body.minimum_requirements ?? null,
-      cost: req.body.cost ?? null,
     };
 
-    const genreNames = req.body.genre_names;
+    const { county_code: countyCode, genre_names: genreNames } = req.body;
 
     const gamesCtrl = new gamesController();
+    const pricesCtrl = new pricesController();
     const uploadedGame = await gamesCtrl.uploadWithAll(gameData, null, genreNames);
+
+    const countyId = getCountyIdByCode(countyCode);
+
+    const uploadPrice = await pricesCtrl.create({"gameId": uploadedGame.id, "countyId": countyId, "price": price});
     return res.status(201).json({ message: 'Game uploaded successfully', gameId: uploadedGame.id });
-  } catch (error) {
-    console.error('Error in /api/games/upload endpoint:', error);
-    return res.status(500).json({ error: error.message });
+  } catch (err) {
+    console.error('Error in /api/games/upload endpoint:', err);
+    return res.status(500).json({ error: err.message });
   }
 });
+
+app.post("/api/prices", tokenValidate(), async (req, res) => {
+  try {
+    const { price, county_code: countyCode, game_id: gameId } = req.body;
+    const pricesCtrl = new pricesController();
+  
+    const countyId = await getCountyIdByCode(countyCode);
+    const uploadPrice = await pricesCtrl.create({"gameId": gameId, "countyId": countyId, "price": price});
+
+    return res.status(201).json({ message: `Price to game (id: ${gameId}) upladed succesfully`});
+  } catch (err) {
+    console.error('Error in /api/games/upload endpoint:', err);
+    return res.status(500).json({ error: err.message });
+  }
+})
 
 /*
   route: /api/friends/
@@ -988,6 +1077,23 @@ app.post("/api/platform_users", tokenValidate(), async (req, res) => {
   }
 })
 
+app.post("/api/counties", tokenValidate(), async (req, res) => {
+  const { code } = req.body;
+  try {
+
+    const id = await createCountyByCode(code);
+    if ( id instanceof Error ) {
+      return res.status(400).json({ message: res.message });
+    }
+    return res.status(201).json({ message: "county uploaded", id: id});
+  } catch (err) {
+    console.log('Error in /api/county endpoint:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// -------------------      PUT       ------------------ //
+
 app.put("/api/pirate_sites/:gameId", async (req, res) => {
   try {
     const {gameId} = req.params;
@@ -1009,9 +1115,6 @@ app.put("/api/pirate_sites/:gameId", async (req, res) => {
     return res.status(500).json({ error: error.message });
   }
 });
-
-// -------------------      PUT       ------------------ //
-
 /*
   route: /api/login/
   params: -

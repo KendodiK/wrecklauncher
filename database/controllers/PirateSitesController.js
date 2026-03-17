@@ -21,7 +21,7 @@ class PirateSitesController extends Controller {
         await super.create();
 
         let uniqueCheck = await this.#checkUniqueConstraint(data);
-        if (uniqueCheck instanceof Error) {
+        if (uniqueCheck != null ||uniqueCheck instanceof Error) {
             throw uniqueCheck;
         }
 
@@ -62,6 +62,8 @@ class PirateSitesController extends Controller {
     }
 
     async #checkUniqueConstraint(data) {
+        await this.ready;
+
         try {
             const query = 'SELECT id FROM `pirate_sites` WHERE name = ?;';
             const values = [data.name];
@@ -69,6 +71,7 @@ class PirateSitesController extends Controller {
             if (rows.length > 0) {
                 return new Error({ message: `Element with name ${data.name} already exists in table ${this.tableName}`, id: rows[0].id });
             }
+            return null;
         } catch (err) {
             console.error(`Error while checking unique constraint for name ${data.name}: ${err}`);
             throw err;
