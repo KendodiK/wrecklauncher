@@ -10,6 +10,8 @@ const PirateSitesTableMaker = require("./makers/PirateSitesTableMaker");
 const PlatformsTableMaker = require("./makers/PlatformsTableMaker");
 const PlatformUsersTableMaker = require("./makers/PlatformUsersTableMaker");
 const ShopSpecialsTableMaker = require("./makers/ShopSpecialsTableMaker");
+const CountiesTableMaker = require("./makers/CountiesTableMaker");
+const PricesTableMaker = require("./makers/PricesTableMaker");
 
 /**
  * DBMaker
@@ -21,17 +23,19 @@ const ShopSpecialsTableMaker = require("./makers/ShopSpecialsTableMaker");
  * @param {string} tableStructureFilePath - The file path to the SQL file containing table structures.
  */
 class DBMaker extends DatabaseHandler {
-    chatsMkr = new ChatsTableMaker();
-    friendsMkr = new FriendsTableMaker();
-    gamesGenresConnectionMkr = new GamesGenresConnectionTableMaker();
-    gamesPirateSitesConnectionMkr = new GamesPirateSitesConnectionTableMaker();
-    gamesMkr = new GamesTableMaker();
-    genresMkr = new GenresTableMaker();
-    nativeUserMkr = new NativeUserTableMaker();
-    pirateSitesMkr = new PirateSitesTableMaker();
-    platformsMkr = new PlatformsTableMaker();
-    platformUsersMkr = new PlatformUsersTableMaker();
-    shopSpecialsMkr = new ShopSpecialsTableMaker();
+    chatsMkr;
+    friendsMkr;
+    gamesGenresConnectionMkr;
+    gamesPirateSitesConnectionMkr;
+    gamesMkr;
+    genresMkr;
+    nativeUserMkr;
+    pirateSitesMkr;
+    platformsMkr;
+    platformUsersMkr;
+    shopSpecialsMkr;
+    countiesMkr;
+    pricesMkr;
 
     constructor(tableStructureFilePath = null) {
         super();
@@ -59,6 +63,8 @@ class DBMaker extends DatabaseHandler {
     }
 
     async createTables() { 
+        await this.createMakerClasses();
+
         await this.chatsMkr.create();
         await this.friendsMkr.create();
         await this.gamesGenresConnectionMkr.create();
@@ -70,9 +76,13 @@ class DBMaker extends DatabaseHandler {
         await this.platformsMkr.create();
         await this.platformUsersMkr.create();
         await this.shopSpecialsMkr.create();
+        await this.countiesMkr.create();
+        await this.pricesMkr.create();
     }
 
     async deleteTables() {
+        await this.createMakerClasses();
+
         await this.chatsMkr.delete();
         await this.friendsMkr.delete();
         await this.gamesGenresConnectionMkr.delete();
@@ -84,6 +94,24 @@ class DBMaker extends DatabaseHandler {
         await this.platformsMkr.delete();
         await this.platformUsersMkr.delete();
         await this.shopSpecialsMkr.delete();
+        await this.countiesMkr.delete();
+        await this.pricesMkr.delete();
+    }
+
+    async createMakerClasses() {
+        this.chatsMkr = new ChatsTableMaker();
+        this.friendsMkr = new FriendsTableMaker();
+        this.gamesGenresConnectionMkr = new GamesGenresConnectionTableMaker();
+        this.gamesPirateSitesConnectionMkr = new GamesPirateSitesConnectionTableMaker();
+        this.gamesMkr = new GamesTableMaker();
+        this.genresMkr = new GenresTableMaker();
+        this.nativeUserMkr = new NativeUserTableMaker();
+        this.pirateSitesMkr = new PirateSitesTableMaker();
+        this.platformsMkr = new PlatformsTableMaker();
+        this.platformUsersMkr = new PlatformUsersTableMaker();
+        this.shopSpecialsMkr = new ShopSpecialsTableMaker();
+        this.countiesMkr = new CountiesTableMaker();
+        this.pricesMkr = new PricesTableMaker();
     }
 }
 
