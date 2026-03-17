@@ -56,7 +56,7 @@ app.whenReady().then(() => {
   createWindow();
 
   // Serverless controller modules (no LocalApi web server).
-  const backendUrl = process.env.WRECK_BACKEND_URL || 'http://127.0.0.1:3000';
+  const backendUrl = 'https://api.anchorlauncher.hu';
 
   
   /** @type {import('./controllers/UserController')|null} */
@@ -316,6 +316,17 @@ function getShopSpecialsCtrl() {
   handleAuthed('steam:create-user', async ({ token }, platformUsername, platformProfileLink) => {
       return await getPlatformsCtrl().createSteamPlatformUser(token, platformUsername, platformProfileLink);
     });
+
+  handleAuthed('platform:get-users', async ({ token }) => {
+    return await getPlatformsCtrl().getPlatformUserIDAll(token);
+  });
+
+  handleAuthed('platform:delete-user', async ({ token }, platformUserId) => {
+    const id = String(platformUserId || '').trim();
+    if (!id) throw new Error('platformUserId is required');
+    return await getPlatformsCtrl().deletePlatformUser(token, id);
+  });
+
   // Steam game details.
   // Supports both call styles:
   // 1) invoke('steam:get-game-details', token, appID, cc)
@@ -389,6 +400,12 @@ function getShopSpecialsCtrl() {
     return await getGamesCtrl().getAllDetailsByID(Number(id));
   });
 
+  handle('games:scrape', async (_event, gameUrl) => {
+    const url = _event?.senderFrame?.url || (typeof _event?.sender?.getURL === 'function' ? _event.sender.getURL() : '') || '(unknown sender)';
+    //implement later mert Barni lusta volt átírni az url szerkezetet
+  });
+
+
   handle('epic:get-installed-games', async () => {
     return await getEpicCtrl().getInstalledGames();
   });
@@ -459,6 +476,7 @@ function getShopSpecialsCtrl() {
     return await getPcGamesTorrentCtrl().PcGamesTorrentMagnetLink(String(gameName));
   });
 
+  
   // ── Torrent controller ────────────────────────────────────────────────────
   // progress events are pushed to the renderer via webContents.send so the
   // renderer only needs ipcRenderer.on('torrent:progress', cb).
