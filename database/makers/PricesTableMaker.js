@@ -1,6 +1,6 @@
 const DatabaseHandler = require("../DatabaseHandler");
 
-class GamesTableMaker extends DatabaseHandler {
+class PricesTableMaker extends DatabaseHandler {
     constructor() {
         super();
         this.ready = this.getReady();
@@ -14,32 +14,32 @@ class GamesTableMaker extends DatabaseHandler {
     async create() {
         await this.ready;
         const query = `
-            CREATE TABLE IF NOT EXISTS shop_specials(
+            CREATE TABLE IF NOT EXISTS prices(
+                id INT AUTO_INCREMENT PRIMARY KEY, 
                 game_id MEDIUMINT UNSIGNED NOT NULL, INDEX(game_id),
-                featured FLOAT,
-                coming_soon BOOLEAN,
-                discount_percent TINYINT,
-                UNIQUE (game_id)
+                county_id TINYINT UNSIGNED NOT NULL, INDEX(county_id),
+                price FLOAT NOT NULL,
+                UNIQUE (game_id, county_id)
             );
         `;
         try {
             await this.dbConnection.execute(query);
-            console.log("'Shop_specials' table created or already exists.");
+            console.log("'prices' table created or already exists.");
         } catch (err) {
-            console.error("Error creating shop_specials table:", err);
+            console.error("Error creating prices table:", err);
         }
     }
 
     async delete() {
         await this.ready;
-        const query = `DROP TABLE shop_specials`
+        const query = `DROP TABLE prices`
         try {
             await this.dbConnection.execute(query);
-            console.log("'shop_specials' table deleted!");
+            console.log("'prices' table deleted!");
         } catch (err) {
-            console.error("Error while deleting 'shop_specials' table:", err);
+            console.error("Error while deleting 'prices' table:", err);
         }
     }
 }
 
-module.exports = GamesTableMaker;
+module.exports = PricesTableMaker;
