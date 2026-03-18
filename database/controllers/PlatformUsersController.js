@@ -82,6 +82,33 @@ class PlatformUsersController extends Controller {
     }
 
     /**
+     * Deletes a platform user row only if it belongs to the provided native user.
+     * @param {string|number} id
+     * @param {string|number} nativeUserId
+     * @returns {{ deleted: boolean, affectedRows: number, id: number, nativeUserId: string|number }}
+     */
+    async deleteByNativeUserId(id, nativeUserId) {
+        await this.ready;
+
+        const query = 'DELETE FROM platform_users WHERE id = ? AND native_user_id = ?;';
+        const values = [id, nativeUserId];
+
+        try {
+            const [result] = await this.dbConnection.execute(query, values);
+            const affectedRows = Number(result?.affectedRows || 0);
+            return {
+                deleted: affectedRows > 0,
+                affectedRows,
+                id: Number(id),
+                nativeUserId,
+            };
+        } catch (err) {
+            console.error(`Error while deleting platform user ${id} for native user ${nativeUserId}: ${err}`);
+            throw err;
+        }
+    }
+
+    /**
      * 
      * @param {Array} data - ["native_user_id" = natrive_users.id || null, "platform_id" = platforms.id || null, "platform_name" = string || null, "platform_user_name" = string, "platform_profile_id" = string, "platform_password" = string ]
      */

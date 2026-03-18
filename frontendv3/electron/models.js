@@ -87,6 +87,87 @@
  */
 
 /**
+ * Live snapshot of a single torrent download.
+ * Sent from the Electron main process to the renderer via `torrent:progress` IPC events.
+ * All numeric byte fields are in bytes; speeds are bytes per second.
+ * @typedef {object} TorrentProgress
+ * @property {string}  infoHash       - Unique SHA-1 hash identifying the torrent.
+ * @property {string}  name           - Display name (from torrent metadata, or infoHash while pending).
+ * @property {number}  progress       - Download completion ratio from 0 (none) to 1 (complete).
+ * @property {number}  downloadSpeed  - Current download speed in bytes/s.
+ * @property {number}  uploadSpeed    - Current upload speed in bytes/s.
+ * @property {number}  downloaded     - Total bytes downloaded so far.
+ * @property {number}  uploaded       - Total bytes uploaded so far.
+ * @property {number}  length         - Total size of all files in the torrent (0 until metadata arrives).
+ * @property {number}  numPeers       - Number of currently connected peers.
+ * @property {number}  timeRemaining  - Estimated milliseconds remaining (Infinity when unknown).
+ * @property {boolean} paused         - Whether the torrent is currently paused.
+ * @property {boolean} done           - Whether the torrent has finished downloading.
+ * @property {string}  path           - Absolute path to the directory where files are saved.
+ */
+
+/**
+ * Row returned by `GET /api/games/list/:from`.
+ * Shape comes from `GamesController.getWithAllForeign()` on the backend:
+ * a JOIN of `games` and `platforms` that aliases `platform_name` as `platform`.
+ * @typedef {object} GameListItem
+ * @property {number} id            - Primary key of the game row.
+ * @property {number|string} app_id - Platform-specific application id (e.g. Steam appid).
+ * @property {string} name          - Display name of the game.
+ * @property {string} banner_img    - URL / path to the banner image.
+ * @property {string|null} description          - Long description text, or null.
+ * @property {string|null} minimum_requirements - Minimum system requirements text, or null.
+ * @property {number} cost          - Price in the store's currency unit (e.g. USD cents or full dollars depending on source).
+ * @property {number} platform_id   - Foreign key referencing `platforms.id`.
+ * @property {string|null} platform - Resolved platform name (aliased from `platforms.platform_name`).
+ */
+
+/**
+ * @typedef {object} ItchInstalledGame
+ * @property {string} gameId       - itch.io numeric game ID (as string), or folder name if receipt is missing.
+ * @property {string} title         - Game display name.
+ * @property {string|null} coverUrl  - URL to the game cover image.
+ * @property {string|null} url       - itch.io game page URL.
+ * @property {string} installLocation - Absolute path to the install directory.
+ * @property {string|null} uploadId  - itch.io upload ID (from receipt).
+ * @property {string|null} buildId   - itch.io build ID (from receipt).
+ * @property {any} raw               - Raw receipt.json content.
+ */
+
+/**
+ * @typedef {object} ItchGameDetails
+ * @property {number} gameId
+ * @property {string} title
+ * @property {string|null} coverUrl
+ * @property {string|null} shortText
+ * @property {number} minPrice       - Minimum price in USD (0 = free or pay-what-you-want).
+ * @property {string|null} url
+ * @property {any} raw
+ */
+
+/**
+ * @typedef {object} GogInstalledGame
+ * @property {string} productId      - GOG numeric product ID (as string).
+ * @property {string} gameName       - Game display name.
+ * @property {string|null} installPath - Absolute install directory.
+ * @property {string|null} launchCommand - Executable path or launch command.
+ * @property {string|null} version
+ * @property {string|null} buildId
+ * @property {any} raw               - Raw registry value map.
+ */
+
+/**
+ * @typedef {object} GogGameDetails
+ * @property {string} productId
+ * @property {string} title
+ * @property {string|null} bannerImg
+ * @property {string|null} description
+ * @property {number|null} cost      - Price in USD.
+ * @property {string[]} genreNames
+ * @property {any} raw
+ */
+
+/**
  * @typedef {object} EpicInstalledGame
  * @property {string} manifestPath
  * @property {string|null} appName

@@ -14,11 +14,12 @@ class GamesTableMaker extends DatabaseHandler {
     async create() {
         await this.ready;
         const query = `
-            CREATE TABLE shop_specials(
+            CREATE TABLE IF NOT EXISTS shop_specials(
                 game_id MEDIUMINT UNSIGNED NOT NULL, INDEX(game_id),
                 featured FLOAT,
                 coming_soon BOOLEAN,
-                discount_percent TINYINT
+                discount_percent TINYINT,
+                UNIQUE (game_id)
             );
         `;
         try {

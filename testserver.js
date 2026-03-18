@@ -28,15 +28,16 @@ app.listen(PORT, () => {
 });
 
 //generateDB();
-//tryCreatePlatformUser();
-//tryCreateNativeUser(); --- IGNORE ---
+tryCreatePlatformUser();
+//tryCreateNativeUser();
 //tryGetNativeUser();
 //tryChangeNativeUser('be70909f-fac1-11f0-a4d3-68f728710017');
 //tryUploadGame();
 //tryUploadGameWithAll();
 //tryFillShopSpecials();
 //tryChangeShopSpecials(3);
-trySearch();
+//tryGetFromShopSpecials();
+//trySearch();
 
 function generateDB() {
     let databaseHandler = new DatabaseHandler();
@@ -55,15 +56,15 @@ async function tryCreatePlatformUser () {
         }
         let nativeUsersController = new NativeUsersController();
         //await nativeUsersController.create(userData);
-        let userResult = await nativeUsersController.getUserByNameAndPassword("testUser", "testPassword");
+        let userResult = await nativeUsersController.getUserByNameAndPassword("testUser2", "testPassword");
         let userId = userResult?.id;
 
         let platformUserData = {
                     "native_user_id": userId,
-                    "platform_user_name": "testPlatformUser",
+                    "platform_user_name": "testPlatformUser2",
                     "platform_id": 1,
                     "platform_name": null,
-                    "platform_profile_id": "111111111111111",
+                    "platform_profile_id": "1111111111111112",
                     "platform_password": "testPlatformPassword"
                 }
         let platformUsersController = new PlatformUsersController();
@@ -73,6 +74,24 @@ async function tryCreatePlatformUser () {
         console.error('Error in test code:', err instanceof Error ? err.message : String(err));
     }
 };
+
+async function tryCreateNativeUser () {
+    try {
+        const userData = {
+            name: "testUser2",
+            user_password: "testPassword",
+            email: "test@example.com",
+            bio: null,
+            pfp: null
+        };
+
+        const nativeUsersController = new NativeUsersController();
+        const res = await nativeUsersController.create(userData);
+        console.log('Created native user:', res);
+    } catch (err) {
+        console.error('Error in tryCreateNativeUser:', err instanceof Error ? err.message : String(err));
+    }
+}
 
 async function tryGetNativeUser () {
     try {
@@ -143,14 +162,11 @@ async function  tryUploadGameWithAll() {
 async function tryFillShopSpecials() {
     try {
         const shopCntr = new ShopSpecialsController();
-        // there are already multiple games in the games table (ids 1..27+)
-        // create shop_specials entries for the first 27 games with varied flags
         for (let id = 1; id <= 27; id++) {
             const featured = id % 5 === 0 ? true : false;       // every 5th game
             const coming_soon = id % 7 === 0 ? true : false;    // every 7th game
             const discounted = id % 3 === 0 ? true : false;     // every 3rd game
 
-            // skip rows that would only contain the game_id (no flags set)
             if (!featured && !coming_soon && !discounted) {
                 console.log(`Skipping game_id=${id} (no flags set)`);
                 continue;
@@ -179,6 +195,19 @@ async function tryChangeShopSpecials(id) {
     } catch (err) {
         console.error('Error in tryChangeShopSpecials:', err instanceof Error ? err.message : String(err));
     } 
+}
+
+async function tryGetFromShopSpecials() {
+    const filter = "featured";
+    const from = 0;
+
+    try {
+        const shopCntr = new ShopSpecialsController();
+        const resp = await shopCntr.getFilteredGamesFrom(filter, from);
+        console.log('Successfuly got elements form shop_specials table: ', resp[0]);
+    } catch (err) {
+        console.error('Failed to get elements form shop_specials table: ', err);
+    }
 }
 
 async function trySearch() {

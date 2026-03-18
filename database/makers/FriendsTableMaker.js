@@ -17,7 +17,8 @@ class FriendsTableMaker extends DatabaseHandler {
             CREATE TABLE IF NOT EXISTS friends(
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 user1_id UUID NOT NULL, INDEX(user1_id),
-                user2_id UUID NOT NULL, INDEX(user2_id)
+                user2_id UUID NOT NULL, INDEX(user2_id),
+                UNIQUE uq_friend (user1_id, user2_id)
             );
         `;
         try {
