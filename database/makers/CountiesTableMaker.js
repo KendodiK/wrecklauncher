@@ -1,6 +1,6 @@
 const DatabaseHandler = require("../DatabaseHandler");
 
-class FriendsTableMaker extends DatabaseHandler {
+class CountiesTableMaker extends DatabaseHandler {
     constructor() {
         super();
         this.ready = this.getReady();
@@ -14,31 +14,32 @@ class FriendsTableMaker extends DatabaseHandler {
     async create() {
         await this.ready;
         const query = `
-            CREATE TABLE IF NOT EXISTS friends(
+            CREATE TABLE IF NOT EXISTS counties(
                 id INT AUTO_INCREMENT PRIMARY KEY,
-                user1_id UUID NOT NULL, INDEX(user1_id),
-                user2_id UUID NOT NULL, INDEX(user2_id),
-                UNIQUE uq_friend (user1_id, user2_id)
+                name VARCHAR(100), 
+                code VARCHAR(10) NOT NULL,
+                currency VARCHAR(10),
+                UNIQUE (code)
             );
         `;
         try {
             await this.dbConnection.execute(query);
-            console.log("'Friends' table created or already exists.");
+            console.log("'counties' table created or already exists.");
         } catch (err) {
-            console.error("Error creating friends table:", err);
+            console.error("Error creating counties table:", err);
         }
     }
 
     async delete() {
         await this.ready;
-        const query = `DROP TABLE friends`
+        const query = `DROP TABLE counties`
         try {
             await this.dbConnection.execute(query);
-            console.log("'friends' table deleted!");
+            console.log("'counties' table deleted!");
         } catch (err) {
-            console.error("Error while deleting 'friends' table:", err);
+            console.error("Error while deleting 'counties' table:", err);
         }
     }
 }
 
-module.exports = FriendsTableMaker;
+module.exports = CountiesTableMaker;

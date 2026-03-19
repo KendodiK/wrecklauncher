@@ -25,7 +25,7 @@ class ShopSpecialsController extends Controller {
 
     /**
      * 
-     * @param {Array} data - {"game_id": int, "featured": boolean, "coming_soon": boolean, "discounted": boolean}
+     * @param {Array} data - {"game_id": int, "featured": float(rank_num), "coming_soon": boolean, "discounted": int(percent)}
      * @returns {Array} message: string, id: int
      */
     async create(data) {
@@ -34,6 +34,7 @@ class ShopSpecialsController extends Controller {
         // ensure the referenced game exists
         const isThereForeignKey = await this.#checkForeignKeys(data.game_id);
         if (isThereForeignKey != true) {
+            console.error("Error while getting ")
             throw isThereForeignKey;
         }
 
@@ -64,7 +65,7 @@ class ShopSpecialsController extends Controller {
     /**
      * 
      * @param {int} game_id 
-     * @param {Array} data - {"game_id": int, "featured": boolean, "coming_soon": boolean, "discounted": boolean}
+     * @param {Array} data - {"game_id": int, "featured": float(rank_num), "coming_soon": boolean, "discounted": int(percent)}
      * @returns 
      */
     async update(game_id, data) {

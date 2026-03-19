@@ -28,16 +28,16 @@ app.listen(PORT, () => {
 });
 
 //generateDB();
-//tryCreatePlatformUser();
-//tryCreateNativeUser(); --- IGNORE ---
+tryCreatePlatformUser();
+//tryCreateNativeUser();
 //tryGetNativeUser();
 //tryChangeNativeUser('be70909f-fac1-11f0-a4d3-68f728710017');
 //tryUploadGame();
 //tryUploadGameWithAll();
 //tryFillShopSpecials();
-////tryChangeShopSpecials(3);
-tryGetFromShopSpecials();
-trySearch();
+//tryChangeShopSpecials(3);
+//tryGetFromShopSpecials();
+//trySearch();
 
 function generateDB() {
     let databaseHandler = new DatabaseHandler();
@@ -56,15 +56,15 @@ async function tryCreatePlatformUser () {
         }
         let nativeUsersController = new NativeUsersController();
         //await nativeUsersController.create(userData);
-        let userResult = await nativeUsersController.getUserByNameAndPassword("testUser", "testPassword");
+        let userResult = await nativeUsersController.getUserByNameAndPassword("testUser2", "testPassword");
         let userId = userResult?.id;
 
         let platformUserData = {
                     "native_user_id": userId,
-                    "platform_user_name": "testPlatformUser",
+                    "platform_user_name": "testPlatformUser2",
                     "platform_id": 1,
                     "platform_name": null,
-                    "platform_profile_id": "111111111111111",
+                    "platform_profile_id": "1111111111111112",
                     "platform_password": "testPlatformPassword"
                 }
         let platformUsersController = new PlatformUsersController();
@@ -74,6 +74,24 @@ async function tryCreatePlatformUser () {
         console.error('Error in test code:', err instanceof Error ? err.message : String(err));
     }
 };
+
+async function tryCreateNativeUser () {
+    try {
+        const userData = {
+            name: "testUser2",
+            user_password: "testPassword",
+            email: "test@example.com",
+            bio: null,
+            pfp: null
+        };
+
+        const nativeUsersController = new NativeUsersController();
+        const res = await nativeUsersController.create(userData);
+        console.log('Created native user:', res);
+    } catch (err) {
+        console.error('Error in tryCreateNativeUser:', err instanceof Error ? err.message : String(err));
+    }
+}
 
 async function tryGetNativeUser () {
     try {

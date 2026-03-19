@@ -3,6 +3,7 @@ const Controller = require('./Controller');
 const PlatformsController = require('./PlatformsController');
 const GenresController = require('./GenresController');
 const GamesGenresConnectionController = require('./GamesGenresConnectionController');
+const PricesController = require("./PricesController");
 
 class GamesController extends Controller {
     constructor() {
@@ -229,10 +230,11 @@ class GamesController extends Controller {
 
     /**
      * Get all games with all related data, starting from an offset.
+     * @param {stirng} countyCode - the code of the county
      * @param {int} from - offset for pagination
      * @returns {Array} - list of games with all related data
      */
-    async getAllGamesFrom(from) {
+    async getAllGamesFrom(countyCode, from) {
         await this.ready;
 
         const query = `SELECT id FROM ${this.tableName} ORDER BY id LIMIT 20 OFFSET ?;`;
@@ -252,6 +254,15 @@ class GamesController extends Controller {
         for (const game_id of game_ids) {
             const game = await this.getWithAllForeign(game_id);
             if (game) {
+                const priceCtrl = new PricesController();
+                const prices = await priceCtrl.getByGameId(game_id);
+                 let priceData;
+                for (const price of prices) {
+                    if (price.county_code == countyCode) {
+                            priceData = { ...price, formatted_price: `${(price.price / 100).toFixed(2)} ${price.currency ?? ''}` };
+                    }
+                }
+                game.priceData = priceData ?? {};
                 games.push(game);
             } else {
                 console.warn(`Game with id ${game_id} not found in table ${this.tableName}`);
@@ -283,6 +294,16 @@ class GamesController extends Controller {
         for (const game_id of game_ids) {
             const game = await this.getWithAllForeign(game_id);
             if (game) {
+                const priceCtrl = new PricesController();
+                const prices = await priceCtrl.getByGameId(game_id);
+                let priceData;
+                for (const price of prices) {
+                    if (price.county_code == countyCode) {
+                        priceData = price;
+                            priceData = { ...price, formatted_price: `${(price.price / 100).toFixed(2)} ${price.currency ?? ''}` };
+                    }
+                }
+                game.priceData = priceData ?? {};
                 games.push(game);
             } else {
                 console.warn(`Game with id ${game_id} not found in table ${this.tableName}`);

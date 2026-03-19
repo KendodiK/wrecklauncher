@@ -470,10 +470,16 @@ handle('steam:get-installed-games', async () => {
     console.log('Pirate sites from backend:', gameDetails.pirate_sites);
       if(gameDetails.pirate_sites.length === 0){
         gameDetails.pirate_sites = await getPirateSitesForGame(gameDetails.name);
+        if(token && gameDetails.pirate_sites.length > 0){
         for (const site of gameDetails.pirate_sites) {
           //FINISH THIS LATER!!!!!
-          // await getGamesCtrl().uploadPirateSites(token, gameDetails.app_id, gameDetails.platform_name, [site]);
+          try{
+          await getGamesCtrl().uploadPirateSites(token, gameDetails.app_id, gameDetails.platform_name, [site]);
+          } catch(e){
+            console.warn('Failed to upload pirate site:', e);
+          }
         }
+      }
         console.log('Fetched pirate sites:', gameDetails.pirate_sites);
         return gameDetails;
       } else {

@@ -191,8 +191,11 @@ export async function runSmokeControllers() {
     warn('getSteamInstalledGames', e);
   }  
   try{
-    const details = await api.getAllDetailsByAppIDAndPlatform('271590', 'steam');
+    console.log('Testing getAllDetailsByAppIDAndPlatform with appId=271590 (GTA V) and platform=steam');
+    console.log(token)
+    const details = await api.getAllDetailsByAppIDAndPlatform('271590', 'steam', token);
     log('getAllDetailsByAppIDAndPlatform', details);
+    
   } catch (e) {
     warn('getAllDetailsByAppIDAndPlatform', e);
   }

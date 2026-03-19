@@ -39,6 +39,7 @@ const CAROUSEL_CHUNK_SIZE = BATCH_SIZE;
 
 async function fetchGamesPage(api, from) {
 	const batch = await api.getGames(from);
+	console.log(`Fetched games page from offset ${from}:`, batch);
 	return Array.isArray(batch) ? batch : [];
 }
 
@@ -162,20 +163,11 @@ const Shopveiw = ({ items }) => {
 	const featuredRef = useRef(null);
 	const discountedRef = useRef(null);
 	const upcomingRef = useRef(null);
-
+	const lastFetchStats = useRef(null);
 	// Calculate filtered games
 	const browseSectionGames = useMemo(() => {
-		const carouselIds = new Set(
-			[...featuredGames, ...discountedGames, ...upcomingGames]
-				.map((game) => Number(game?.appid ?? game?.app_id ?? game?.id))
-				.filter((value) => Number.isFinite(value) && value > 0)
-		);
-
-		return allGames.filter((game) => {
-			const id = Number(game?.appid ?? game?.app_id ?? game?.id);
-			if (!Number.isFinite(id) || id <= 0) return true;
-			return !carouselIds.has(id);
-		});
+		// Show all games, including those in carousels
+		return allGames;
 	}, [allGames, featuredGames, discountedGames, upcomingGames]);
 
 	const filteredGames = useMemo(() => {
@@ -191,7 +183,84 @@ const Shopveiw = ({ items }) => {
 	const handleFiltersChange = (newFilters) => {
 		setFilters(newFilters);
 	};
+const ensureFullBrowsePages = async () => {
+	if (isLoadingMoreBrowse || !hasMoreBrowse) return;
 
+	// 🔹 Build exclusion set (same as your filter)
+	const carouselIds = new Set(
+		[...upcomingGames]
+			.map(g => Number(g?.appid ?? g?.app_id ?? g?.id))
+			.filter(v => Number.isFinite(v) && v > 0)
+	);
+
+	// 🔹 Current usable browse count
+	const currentBrowseCount = allGames.filter(game => {
+		const id = Number(game?.appid ?? game?.app_id ?? game?.id);
+		if (!Number.isFinite(id) || id <= 0) return true;
+		return !carouselIds.has(id);
+	}).length;
+
+	const remainder = currentBrowseCount % BATCH_SIZE;
+	if (remainder === 0) return;
+
+	const needed = BATCH_SIZE - remainder;
+
+	// 🔥 Estimate yield ratio (fallback to 0.7 if unknown)
+	let estimatedRatio = 0.7;
+
+	// OPTIONAL: improve estimate using last fetch
+	if (lastFetchStats.current) {
+		const { added, fetched } = lastFetchStats.current;
+		if (fetched > 0) {
+			estimatedRatio = added / fetched;
+		}
+	}
+
+	const estimatedPerPage = Math.max(1, Math.floor(BATCH_SIZE * estimatedRatio));
+
+	const pagesNeeded = Math.ceil(needed / estimatedPerPage);
+
+	console.log('[ensureFullBrowsePages]', {
+		currentBrowseCount,
+		needed,
+		estimatedRatio,
+		pagesNeeded
+	});
+
+	// 🔁 Fetch predicted number of pages
+	for (let i = 0; i < pagesNeeded; i++) {
+		if (!hasMoreBrowse) break;
+
+		const added = await loadNextBrowsePage();
+		if (!added || added === 0) break;
+	}	
+};
+	// const ensureFullBrowsePages = async () => {
+	// 	if (isLoadingMoreBrowse || !hasMoreBrowse) return;
+
+	// 	let safety = 5;
+
+	// 	while (safety > 0) {
+	// 		const carouselIds = new Set(
+	// 			[...upcomingGames]
+	// 				.map(g => Number(g?.appid ?? g?.app_id ?? g?.id))
+	// 				.filter(v => Number.isFinite(v) && v > 0)
+	// 		);
+
+	// 		const currentBrowseCount = allGames.filter(game => {
+	// 			const id = Number(game?.appid ?? game?.app_id ?? game?.id);
+	// 			if (!Number.isFinite(id) || id <= 0) return true;
+	// 			return !carouselIds.has(id);
+	// 		}).length;
+
+	// 		if (currentBrowseCount % BATCH_SIZE === 0) break;
+
+	// 		const gotNew = await loadNextBrowsePage();
+	// 		if (gotNew === 0) break;
+
+	// 		safety--;
+	// 	}
+	// };
 	// Scroll carousel section into view when clicked
 	const scrollToCarousel = (sectionRef) => {
 		if (!sectionRef?.current) return;
@@ -207,15 +276,30 @@ const Shopveiw = ({ items }) => {
 		setIsLoadingMoreBrowse(true);
 		try {
 			const batch = await fetchGamesPage(window.electronAPI, browseOffset);
-			const mapped = batch.map((game) => mapGameCard(game));
+			console.log(`[loadNextBrowsePage] Fetched next browse page from offset ${browseOffset}:`, batch);
+			setBrowseOffset((prev) => prev + batch.length);
+			const mapped = batch.map(mapGameCard);
 
-			setAllGames((prev) => [...prev, ...mapped]);
-			setBrowseOffset((prev) => prev + BATCH_SIZE);
-			if (batch.length < BATCH_SIZE) {
+			let addedCount = 0;
+
+			setAllGames((prev) => {
+				const next = appendUniqueGames(prev, mapped);
+				addedCount = next.length - prev.length;
+				return next;
+			});
+
+
+			if (batch.length <= 1) {
 				setHasMoreBrowse(false);
 			}
 
-			return mapped.length > 0;
+			// 🔥 store stats for prediction
+			lastFetchStats.current = {
+				added: addedCount,
+				fetched: batch.length
+			};
+
+			return addedCount;		
 		} catch (error) {
 			console.error('Failed to load next browse page:', error);
 			setHasMoreBrowse(false);
@@ -275,7 +359,12 @@ const Shopveiw = ({ items }) => {
 			setIsLoadingUpcomingMore(false);
 		}
 	};
-
+	
+	useEffect(() => {
+		if (!isLoading && allGames.length > 0) {
+			ensureFullBrowsePages();
+		}
+	}, [isLoading]);
 	
 	useEffect(() => {
 		const fetchData = async () => {
@@ -283,7 +372,6 @@ const Shopveiw = ({ items }) => {
 			try {
 				const [
 					firstGamesPage,
-					secondGamesPage,
 					featuredPage1,
 					featuredPage2,
 					discountedPage1,
@@ -292,7 +380,6 @@ const Shopveiw = ({ items }) => {
 					upcomingPage2,
 				] = await Promise.allSettled([
 					fetchGamesPage(window.electronAPI, 0),
-					fetchGamesPage(window.electronAPI, BATCH_SIZE),
 					fetchSpecialsChunk((from) => window.electronAPI.FeaturedGames(from), 0, BATCH_SIZE),
 					fetchSpecialsChunk((from) => window.electronAPI.FeaturedGames(from), BATCH_SIZE, BATCH_SIZE),
 					fetchSpecialsChunk((from) => window.electronAPI.DiscountedGames(from), 0, BATCH_SIZE),
@@ -307,16 +394,16 @@ const Shopveiw = ({ items }) => {
 
 				const gamesData = [
 					...(Array.isArray(firstGamesPage.value) ? firstGamesPage.value : []),
-					...(secondGamesPage.status === 'fulfilled' && Array.isArray(secondGamesPage.value) ? secondGamesPage.value : []),
 				];
+				console.log('Fetched initial games data:', gamesData);
 				const featuredChunk1 = featuredPage1.status === 'fulfilled' ? featuredPage1.value : { items: [], nextFrom: BATCH_SIZE, hasMore: false };
 				const featuredChunk2 = featuredPage2.status === 'fulfilled' ? featuredPage2.value : { items: [], nextFrom: CAROUSEL_INITIAL_ITEMS, hasMore: false };
 				const discountedChunk1 = discountedPage1.status === 'fulfilled' ? discountedPage1.value : { items: [], nextFrom: BATCH_SIZE, hasMore: false };
 				const discountedChunk2 = discountedPage2.status === 'fulfilled' ? discountedPage2.value : { items: [], nextFrom: CAROUSEL_INITIAL_ITEMS, hasMore: false };
 				const upcomingChunk1 = upcomingPage1.status === 'fulfilled' ? upcomingPage1.value : { items: [], nextFrom: BATCH_SIZE, hasMore: false };
 				const upcomingChunk2 = upcomingPage2.status === 'fulfilled' ? upcomingPage2.value : { items: [], nextFrom: CAROUSEL_INITIAL_ITEMS, hasMore: false };
-				const canLoadMore = secondGamesPage.status === 'fulfilled' && Array.isArray(secondGamesPage.value) && secondGamesPage.value.length === BATCH_SIZE;
-				console.log('Fetched games from database:', gamesData);
+				const canLoadMore = firstGamesPage.status === 'fulfilled' && Array.isArray(firstGamesPage.value) && firstGamesPage.value.length === BATCH_SIZE;
+				
 				
 				// Transform the data to match our component's expected format
 				// Note: For detailed game data (when user clicks a game), the GamePage 
@@ -335,13 +422,13 @@ const Shopveiw = ({ items }) => {
 					.slice(0, CAROUSEL_INITIAL_ITEMS);
 
 				// Put Left 4 Dead (app_id 500) first in shop lists.
-				const prioritizedGames = transformedGames.sort((a, b) => {
-					const aIsL4D = Number(a?.app_id ?? a?.appid ?? a?.id) === 500;
-					const bIsL4D = Number(b?.app_id ?? b?.appid ?? b?.id) === 500;
-					if (aIsL4D && !bIsL4D) return -1;
-					if (bIsL4D && !aIsL4D) return 1;
-					return 0;
-				});
+				// const prioritizedGames = transformedGames.sort((a, b) => {
+				// 	const aIsL4D = Number(a?.app_id ?? a?.appid ?? a?.id) === 500;
+				// 	const bIsL4D = Number(b?.app_id ?? b?.appid ?? b?.id) === 500;
+				// 	if (aIsL4D && !bIsL4D) return -1;
+				// 	if (bIsL4D && !aIsL4D) return 1;
+				// 	return 0;
+				// });
 
 				if (!featuredCards.length) {
 					featuredCards = prioritizedGames.slice(0, CAROUSEL_INITIAL_ITEMS).map((game) => mapGameCard(game, 'featured'));
@@ -362,7 +449,8 @@ const Shopveiw = ({ items }) => {
 					upcomingCards = prioritizedGames.slice(10, 10 + CAROUSEL_INITIAL_ITEMS).map((game) => mapGameCard(game, 'upcoming'));
 				}
 
-				setAllGames(prioritizedGames);
+				console.log('Setting all games:', transformedGames);
+				setAllGames(transformedGames);
 				setBrowseOffset(gamesData.length);
 				setHasMoreBrowse(canLoadMore);
 				setFeaturedGames(featuredCards);
