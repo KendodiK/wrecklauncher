@@ -16,6 +16,48 @@ function normalizePlatformId(value) {
 	return normalized;
 }
 
+function launcherOutlineClass(game) {
+	const launcherId = normalizePlatformId(game?.platform_name || game?.platform || game?.launcherId || 'steam') || 'steam';
+	if (launcherId === 'steam') return 'border-sky-500/70';
+	if (launcherId === 'gog') return 'border-violet-500/70';
+	if (launcherId === 'itchio') return 'border-rose-500/70';
+	if (launcherId === 'epic') return 'border-blue-500/70';
+	return 'border-slate-600/70';
+}
+
+function hasDiscountFlag(game) {
+	const discountValue = Number(
+		game?.discountPercent ??
+		game?.discount ??
+		game?.discount_percentage ??
+		game?.discount_percent ??
+		0
+	);
+	const discountTag = Array.isArray(game?.tags) && game.tags.some((tag) => {
+		const normalized = String(tag).toLowerCase();
+		return normalized.includes('discount') || normalized.includes('deal') || normalized.includes('sale');
+	});
+	return discountValue > 0 || Boolean(game?.is_discounted || game?.isDiscounted) || discountTag;
+}
+
+function hasUpcomingFlag(game) {
+	const status = String(game?.status || '').toLowerCase();
+	const upcomingTag = Array.isArray(game?.tags) && game.tags.some((tag) => {
+		const normalized = String(tag).toLowerCase();
+		return normalized.includes('upcoming') || normalized.includes('coming soon');
+	});
+	return Boolean(
+		game?.is_upcoming ||
+		game?.isUpcoming ||
+		game?.upcoming ||
+		game?.coming_soon ||
+		game?.comingSoon ||
+		status.includes('upcoming') ||
+		status.includes('coming soon') ||
+		upcomingTag
+	);
+}
+
 function pickSpecialsArray(payload) {
 	if (Array.isArray(payload)) return payload;
 	if (!payload || typeof payload !== 'object') return [];
@@ -312,6 +354,7 @@ const AllGamesPage = () => {
 						{currentGames.map((game) => {
 							const gameId = game.appid || game.app_id || game.id;
 							const isSelected = displayGame && (displayGame.appid || displayGame.app_id || displayGame.id) === gameId;
+							const stripeClass = hasDiscountFlag(game) ? 'bg-emerald-400' : (hasUpcomingFlag(game) ? 'bg-yellow-400' : '');
 							
 							return (
 								<div
@@ -324,7 +367,7 @@ const AllGamesPage = () => {
 									onClick={() => handleGameClick(game)}
 								>
 									{/* Game thumbnail */}
-									<div className="w-20 h-11 flex-shrink-0 rounded overflow-hidden bg-slate-900/50">
+									<div className={`relative w-20 h-11 flex-shrink-0 rounded overflow-hidden border ${launcherOutlineClass(game)} bg-slate-900/50`}>
 										<img
 											src={game.image || game.banner_img}
 											alt={game.title || game.name}
@@ -333,6 +376,7 @@ const AllGamesPage = () => {
 												e.target.style.display = 'none';
 											}}
 										/>
+										{stripeClass ? <div className={`absolute right-1 bottom-1 z-20 h-1.5 w-6 rounded-sm ${stripeClass}`} /> : null}
 									</div>
 
 									{/* Game info */}

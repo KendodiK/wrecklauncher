@@ -2,6 +2,56 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import GameSliderBase from '../shared/GameSliderBase.jsx';
 
+function normalizeLauncherId(card) {
+    const raw = String(card?.platform_name || card?.platform || card?.launcherId || '').trim().toLowerCase();
+    if (!raw) return 'steam';
+    if (raw === 'itch' || raw === 'itch.io' || raw === 'itchio') return 'itchio';
+    if (raw === 'epic games' || raw === 'epic_games') return 'epic';
+    return raw;
+}
+
+function launcherBorderClass(card) {
+    const launcherId = normalizeLauncherId(card);
+    if (launcherId === 'steam') return 'border-sky-500/70';
+    if (launcherId === 'gog') return 'border-violet-500/70';
+    if (launcherId === 'itchio') return 'border-rose-500/70';
+    if (launcherId === 'epic') return 'border-blue-500/70';
+    return 'border-slate-600/70';
+}
+
+function hasDiscountFlag(card) {
+    const discountValue = Number(
+        card?.discountPercent ??
+        card?.discount ??
+        card?.discount_percentage ??
+        card?.discount_percent ??
+        0
+    );
+    const discountTag = Array.isArray(card?.tags) && card.tags.some((tag) => {
+        const normalized = String(tag).toLowerCase();
+        return normalized.includes('discount') || normalized.includes('deal') || normalized.includes('sale');
+    });
+    return discountValue > 0 || Boolean(card?.is_discounted || card?.isDiscounted) || discountTag;
+}
+
+function hasUpcomingFlag(card) {
+    const status = String(card?.status || '').toLowerCase();
+    const upcomingTag = Array.isArray(card?.tags) && card.tags.some((tag) => {
+        const normalized = String(tag).toLowerCase();
+        return normalized.includes('upcoming') || normalized.includes('coming soon');
+    });
+    return Boolean(
+        card?.is_upcoming ||
+        card?.isUpcoming ||
+        card?.upcoming ||
+        card?.coming_soon ||
+        card?.comingSoon ||
+        status.includes('upcoming') ||
+        status.includes('coming soon') ||
+        upcomingTag
+    );
+}
+
 // Store slider wrapper (same pattern as GameSlider):
 // - Structure + behavior comes from GameSliderBase
 // - Design comes from existing CSS in src/index.css (.carousel/.cards/.shop-card...)
@@ -162,10 +212,14 @@ const Storeslider = ({ items, onCardClick, onNearEnd, nearEndThreshold = 5 }) =>
             renderCard={({ card, abs }) => (
                 <>
                     <img src={card.image} alt={card.title} loading={abs <= 1 ? 'eager' : 'lazy'} />
+                    <div className={`pointer-events-none absolute inset-0 rounded-[inherit] border-2 ${launcherBorderClass(card)}`} />
                     {Number(card.discountPercent) > 0 ? (
                         <div className="absolute left-3 top-3 rounded-md bg-emerald-500/95 px-2 py-1 text-xs font-bold text-white shadow-lg">
                             -{Math.round(Number(card.discountPercent))}%
                         </div>
+                    ) : null}
+                    {hasDiscountFlag(card) || hasUpcomingFlag(card) ? (
+                        <div className={`absolute right-3 bottom-3 z-20 h-2 w-10 rounded-sm ${hasDiscountFlag(card) ? 'bg-emerald-400' : 'bg-yellow-400'}`} />
                     ) : null}
                     <div className="shop-card-title">{card.title}</div>
                 </>
