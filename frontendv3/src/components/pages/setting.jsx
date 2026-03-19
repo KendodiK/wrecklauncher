@@ -17,6 +17,10 @@ const DEFAULT_SETTINGS = {
 		concurrent: 3,
 	},
 	account: {
+		profile: {
+			bio: '',
+			avatarUrl: '',
+		},
 		platforms: {
 			steam: { connected: false, username: '', profileLink: '' },
 			gog: { connected: false, username: '' },
@@ -90,6 +94,7 @@ const SettingsPage = () => {
 	const [saving, setSaving] = useState(false);
 	const [steamBusy, setSteamBusy] = useState(false);
 	const [steamForm, setSteamForm] = useState({ username: '', profileLink: '' });
+	const [profileForm, setProfileForm] = useState({ bio: '', avatarUrl: '' });
 	const [message, setMessage] = useState({ type: '', text: '' });
 
 	// Load settings on mount
@@ -107,6 +112,10 @@ const SettingsPage = () => {
 				username: normalized?.account?.platforms?.steam?.username || '',
 				profileLink: normalized?.account?.platforms?.steam?.profileLink || '',
 			});
+			setProfileForm({
+				bio: normalized?.account?.profile?.bio || '',
+				avatarUrl: normalized?.account?.profile?.avatarUrl || '',
+			});
 		} catch (error) {
 			console.error('Failed to load settings:', error);
 			const fallbackSettings = normalizeSettings(null);
@@ -114,6 +123,10 @@ const SettingsPage = () => {
 			setSteamForm({
 				username: fallbackSettings.account.platforms.steam.username,
 				profileLink: fallbackSettings.account.platforms.steam.profileLink,
+			});
+			setProfileForm({
+				bio: fallbackSettings.account.profile.bio,
+				avatarUrl: fallbackSettings.account.profile.avatarUrl,
 			});
 			setMessage({ type: 'error', text: 'Settings endpoint unavailable, using defaults' });
 		} finally {
@@ -266,6 +279,48 @@ const SettingsPage = () => {
 			});
 		} finally {
 			setSteamBusy(false);
+		}
+	};
+
+	const handleSaveProfile = async () => {
+		try {
+			setSaving(true);
+			const updated = await window.electronAPI.updateSettings({
+				account: {
+					profile: {
+						bio: profileForm.bio.trim(),
+						avatarUrl: profileForm.avatarUrl.trim(),
+					},
+				},
+			});
+			const normalized = normalizeSettings(updated);
+			setSettings(normalized);
+			setProfileForm({
+				bio: normalized?.account?.profile?.bio || '',
+				avatarUrl: normalized?.account?.profile?.avatarUrl || '',
+			});
+			setMessage({ type: 'success', text: 'Profile settings saved' });
+			setTimeout(() => setMessage({ type: '', text: '' }), 2000);
+		} catch (error) {
+			console.error('Failed to save profile settings:', error);
+			if (isMissingSettingsHandlerError(error, 'settings:update-bulk')) {
+				const localUpdated = normalizeSettings({
+					...settings,
+					account: {
+						...(settings?.account || {}),
+						profile: {
+							bio: profileForm.bio.trim(),
+							avatarUrl: profileForm.avatarUrl.trim(),
+						},
+					},
+				});
+				setSettings(localUpdated);
+				setMessage({ type: 'error', text: 'Settings backend unavailable, profile kept locally' });
+			} else {
+				setMessage({ type: 'error', text: 'Failed to save profile settings' });
+			}
+		} finally {
+			setSaving(false);
 		}
 	};
 
@@ -631,6 +686,51 @@ const SettingsPage = () => {
 								<option value="12">Every 12 hours</option>
 								<option value="24">Every 24 hours</option>
 							</select>
+						</div>
+					</div>
+				</section>
+
+				<section className="mb-8 bg-slate-800/50 rounded-lg p-6 border border-slate-700">
+					<h2 className="text-xl font-semibold mb-4 flex items-center">
+						<svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.121 17.804A13.937 13.937 0 0112 16c2.634 0 5.09.73 7.121 2.004M15 10a3 3 0 11-6 0 3 3 0 016 0z" />
+						</svg>
+						Profile
+					</h2>
+
+					<div className="space-y-4">
+						<div>
+							<label className="text-sm font-medium">Profile picture URL</label>
+							<input
+								type="url"
+								value={profileForm.avatarUrl}
+								onChange={(e) => setProfileForm((prev) => ({ ...prev, avatarUrl: e.target.value }))}
+								disabled={saving}
+								placeholder="https://example.com/avatar.png"
+								className="mt-2 w-full bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
+							/>
+						</div>
+
+						<div>
+							<label className="text-sm font-medium">Bio</label>
+							<textarea
+								rows={4}
+								value={profileForm.bio}
+								onChange={(e) => setProfileForm((prev) => ({ ...prev, bio: e.target.value }))}
+								disabled={saving}
+								placeholder="Write a short bio"
+								className="mt-2 w-full bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500 resize-none"
+							/>
+						</div>
+
+						<div className="flex justify-end">
+							<button
+								onClick={handleSaveProfile}
+								disabled={saving}
+								className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-60"
+							>
+								Save profile
+							</button>
 						</div>
 					</div>
 				</section>

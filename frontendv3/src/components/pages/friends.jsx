@@ -1,18 +1,21 @@
-import React, { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 const makeId = () => Math.random().toString(16).slice(2);
 
-const FriendsPage = () => {
+const FriendsPage = ({ user }) => {
 	const navigate = useNavigate();
+	const location = useLocation();
 
 	const friends = useMemo(
 		() => [
 			{
 				id: 'f-1',
 				name: 'Alex',
+				avatarUrl: 'https://i.pravatar.cc/160?img=12',
 				status: 'online',
 				bio: 'Likes co-op games and speedruns.',
+				friendship: 'friend',
 				messages: [
 					{ id: 'm-1', from: 'them', text: 'Yo, want to play later?', ts: 'Today' },
 					{ id: 'm-2', from: 'me', text: 'Sure. What time?', ts: 'Today' },
@@ -21,15 +24,19 @@ const FriendsPage = () => {
 			{
 				id: 'f-2',
 				name: 'Bence',
+				avatarUrl: 'https://i.pravatar.cc/160?img=22',
 				status: 'away',
 				bio: 'Mostly RPGs. Sometimes AFK.',
+				friendship: 'friend',
 				messages: [{ id: 'm-3', from: 'them', text: 'Check out the new update.', ts: 'Yesterday' }],
 			},
 			{
 				id: 'f-3',
 				name: 'Dóra',
+				avatarUrl: 'https://i.pravatar.cc/160?img=35',
 				status: 'offline',
 				bio: 'Indie enjoyer. Achievement hunter.',
+				friendship: 'friend',
 				messages: [],
 			},
 		],
@@ -44,6 +51,14 @@ const FriendsPage = () => {
 		for (const f of friends) map[f.id] = f.messages ?? [];
 		return map;
 	});
+
+	useEffect(() => {
+		const selectedFriendId = location?.state?.selectedFriendId;
+		if (!selectedFriendId) return;
+		if (friends.some((friend) => friend.id === selectedFriendId)) {
+			setActiveFriendId(selectedFriendId);
+		}
+	}, [location?.state, friends]);
 
 	const filteredFriends = useMemo(() => {
 		const q = query.trim().toLowerCase();
@@ -86,8 +101,17 @@ const FriendsPage = () => {
 		setDraft('');
 	};
 
-	const viewProfile = () => {
-		navigate('/profile');
+	const viewProfile = (friend) => {
+		if (!friend) {
+			navigate('/profile');
+			return;
+		}
+		navigate(`/profile/${friend.id}`, {
+			state: {
+				profile: friend,
+				viewerUsername: user?.username || 'Player',
+			},
+		});
 	};
 
 	const FriendRow = ({ friend, selected, showMsgButton }) => (
@@ -106,9 +130,17 @@ const FriendsPage = () => {
 			}}
 		>
 			<div className="relative">
-				<div className="h-9 w-9 rounded-full bg-slate-700/70 border border-slate-600/60 grid place-items-center text-xs font-semibold">
-					{`${friend.name ?? 'F'}`.slice(0, 2).toUpperCase()}
-				</div>
+				{friend.avatarUrl ? (
+					<img
+						src={friend.avatarUrl}
+						alt={friend.name}
+						className="h-9 w-9 rounded-full border border-slate-600/60 object-cover"
+					/>
+				) : (
+					<div className="h-9 w-9 rounded-full bg-slate-700/70 border border-slate-600/60 grid place-items-center text-xs font-semibold">
+						{`${friend.name ?? 'F'}`.slice(0, 2).toUpperCase()}
+					</div>
+				)}
 				<div className={
 					'absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border border-slate-900 ' +
 					statusDot(friend.status)
@@ -212,7 +244,7 @@ const FriendsPage = () => {
 												<button
 													type="button"
 													className="h-7 px-2 rounded border border-slate-700/60 bg-slate-900/25 hover:bg-slate-900/40 text-xs text-slate-200 whitespace-nowrap"
-													onClick={viewProfile}
+													onClick={() => viewProfile(activeFriend)}
 													title="View profile"
 												>
 													View profile
@@ -233,7 +265,7 @@ const FriendsPage = () => {
 												<button
 													type="button"
 													className="h-7 px-2 rounded border border-slate-700/60 bg-slate-900/25 hover:bg-slate-900/40 text-xs text-slate-200 whitespace-nowrap"
-													onClick={viewProfile}
+													onClick={() => viewProfile(null)}
 													title="View profile"
 												>
 													View profile
@@ -268,9 +300,17 @@ const FriendsPage = () => {
 					<div className="rounded-xl border border-slate-700/60 bg-slate-900/20 backdrop-blur p-3">
 						<div className="flex items-center gap-3">
 							<div className="relative">
-								<div className="h-14 w-14 rounded-full bg-slate-700/70 border border-slate-600/60 grid place-items-center text-sm font-semibold">
-									{`${activeFriend.name ?? 'F'}`.slice(0, 2).toUpperCase()}
-								</div>
+								{activeFriend.avatarUrl ? (
+									<img
+										src={activeFriend.avatarUrl}
+										alt={activeFriend.name}
+										className="h-14 w-14 rounded-full border border-slate-600/60 object-cover"
+									/>
+								) : (
+									<div className="h-14 w-14 rounded-full bg-slate-700/70 border border-slate-600/60 grid place-items-center text-sm font-semibold">
+										{`${activeFriend.name ?? 'F'}`.slice(0, 2).toUpperCase()}
+									</div>
+								)}
 								<div className={
 									'absolute -bottom-0.5 -right-0.5 h-4 w-4 rounded-full border border-slate-900 ' +
 									statusDot(activeFriend.status)
@@ -292,7 +332,7 @@ const FriendsPage = () => {
 						<button
 							type="button"
 							className="mt-3 w-full h-9 rounded-lg border border-slate-700/60 bg-slate-900/25 hover:bg-slate-900/40 text-sm"
-							onClick={viewProfile}
+							onClick={() => viewProfile(activeFriend)}
 						>
 							View profile
 						</button>

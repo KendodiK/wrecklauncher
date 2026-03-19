@@ -16,6 +16,10 @@ class TokenController {
   #password;
   /** @type {string} */
   #email;
+  /** @type {string} */
+  #bio;
+  /** @type {string} */
+  #avatarUrl;
 
   /** @protected */
   _serverUrl;
@@ -28,6 +32,8 @@ class TokenController {
     this.#username = '';
     this.#password = '';
     this.#email = '';
+    this.#bio = '';
+    this.#avatarUrl = '';
   }
 
   /**
@@ -81,22 +87,30 @@ class TokenController {
    * @param {string} username 
    * @param {string} password 
    * @param {string} email
+   * @param {{bio?: string, avatarUrl?: string}} [profile]
    * @returns token on success, null on failure (e.g. username taken)
     * @throws on HTTP errors or unexpected responses
    */
-  async register(username, password, email) {
+  async register(username, password, email, profile = {}) {
+    const bio = typeof profile?.bio === 'string' ? profile.bio.trim() : '';
+    const avatarUrl = typeof profile?.avatarUrl === 'string' ? profile.avatarUrl.trim() : '';
     const url = joinUrl(this._serverUrl, 'api', 'signup');
+    /** @type {{username: string, password: string, email: string, bio?: string, avatarUrl?: string}} */
+    const payload = {
+      username,
+      password,
+      email,
+    };
+    if (bio) payload.bio = bio;
+    if (avatarUrl) payload.avatarUrl = avatarUrl;
+
     const { ok, status, json, text } = await fetchJsonSafe(url, { 
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         accept: 'application/json',
       },
-      body: JSON.stringify({
-        username,
-        password,
-        email
-      })
+      body: JSON.stringify(payload)
     });
     if (!ok) throw new Error(`Registration failed: HTTP ${status}${text ? ` - ${String(text).slice(0, 200)}` : ''}`);
     if (json && typeof json === 'object') {
@@ -106,6 +120,8 @@ class TokenController {
         this.#username = username;
         this.#password = password;
         this.#email = email;
+        this.#bio = bio;
+        this.#avatarUrl = avatarUrl;
         this.#token = /** @type {AuthToken} */ (t);
         return /** @type {AuthToken} */ (t);
       }
@@ -115,6 +131,8 @@ class TokenController {
       this.#username = username;
       this.#password = password;
       this.#email = email;
+      this.#bio = bio;
+      this.#avatarUrl = avatarUrl;
       this.#token = /** @type {AuthToken} */ (t);
       return /** @type {AuthToken} */ (t);
     }
@@ -122,11 +140,15 @@ class TokenController {
       this.#username = username;
       this.#password = password;
       this.#email = email;
+      this.#bio = bio;
+      this.#avatarUrl = avatarUrl;
       const t = text.trim().replace(/^"(.*)"$/, '$1');
       if (t) {
         this.#username = username;
         this.#password = password;
         this.#email = email;
+        this.#bio = bio;
+        this.#avatarUrl = avatarUrl;
         this.#token = t;
         return /** @type {AuthToken} */ (t)};
     }

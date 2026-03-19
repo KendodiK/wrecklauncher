@@ -112,8 +112,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     if (typeof token === 'string' && token.trim()) setAuthToken(token);
     return token;
   },
-  register: async (username, password, email) => {
-    const token = await ipcRenderer.invoke('user:register', username, password, email);
+  register: async (username, password, email, profile = {}) => {
+    const token = await ipcRenderer.invoke('user:register', username, password, email, profile);
     if (typeof token === 'string' && token.trim()) setAuthToken(token);
     return token;
   },

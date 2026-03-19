@@ -281,8 +281,13 @@ function getShopSpecialsCtrl() {
     return await getUserCtrl().login(String(username), String(password));
   });
 
-  handle('user:register', async (_event, username, password, email) => {
-    return await getUserCtrl().register(String(username), String(password), String(email));
+  handle('user:register', async (_event, username, password, email, profile) => {
+    return await getUserCtrl().register(
+      String(username),
+      String(password),
+      String(email),
+      (profile && typeof profile === 'object') ? profile : {}
+    );
   });
 
   handleAuthed('user:get-platform-userid', async ({ token }, platformName, platformUsername) => {
