@@ -80,3 +80,22 @@ module.exports.shouldSkipGameBecausePriceMissing = function (gameLike, sourceLab
   }
   return false;
 }
+
+module.exports.getPlatformBannerUrl = async function ({ platformName, appId, fallbackBanner }) {
+  const normalizedPlatform = String(platformName ?? '').trim().toLowerCase();
+  if (normalizedPlatform === 'steam') {
+    return getSteamHeaderImageUrl(appId) ?? (fallbackBanner ?? '');
+  }
+
+  if (normalizedPlatform === 'itch' || normalizedPlatform === 'itchio') {
+    const itchCover = await fetchItchCoverUrl(appId);
+    return itchCover ?? (fallbackBanner ?? '');
+  }
+
+  if (normalizedPlatform === 'gog') {
+    const gogCover = await fetchGogCoverUrl(appId);
+    return gogCover ?? (fallbackBanner ?? '');
+  }
+
+  return fallbackBanner ?? '';
+}

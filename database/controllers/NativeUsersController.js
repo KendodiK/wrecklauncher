@@ -112,6 +112,19 @@ class NativeUsersController extends Controller {
         }
     }
 
+    async getuserByName(name) {
+        await this.ready;
+
+        const query = 'SELECT * FROM native_users WHERE name = ?';
+        try {
+            const [rows] = await this.dbConnection.execute(query, [name]);
+            return rows;
+        } catch (err) {
+            console.error(`Error while fetching user by name: ${err}`);
+            throw err;
+        }
+    }
+
     /**
      * generateToken
      *

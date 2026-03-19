@@ -1,5 +1,7 @@
 const apiHelpers = require('./apiHelpers.js');
+const apiDoc = require('./apiDoc.js');
 
+//#region RequireControllers
 const GamesController = require('../database/controllers/GamesController.js');
 const GamesGenresConnnectionController = require('../database/controllers/GamesGenresConnectionController.js');
 const GamesPirateSitesConnectionController = require('../database/controllers/GamesPirateSitesConnectionController.js');
@@ -10,21 +12,57 @@ const PlatformsController = require('../database/controllers/PlatformsController
 const PlatformUsersController = require('../database/controllers/PlatformUsersController.js');
 const ShopSpecialsController = require('../database/controllers/ShopSpecialsController.js');
 const PricesController = require('../database/controllers/PricesController.js');
+//#endregion
+
+// ====================== ///
+// ====================== ///
+// ======== GET ========= ///
+// ====================== ///
+// ====================== ///
 
 module.exports.GETGameById = async function (req, res) {
   try {
     const { id: gameId } = req.params;
     const gameCtrl = new GamesController();
     const game = await gameCtrl.show(gameId);
-    return res.json(game);
+    return res.status(200).json(game);
   } catch (err) {
     return res.status(500).json({ error: err?.message ?? String(err) });
   }
 };
 
+/**
+ * :id - (int) gameId
+ * @param {Array} req - body: country_code - (string) short code of the country for price
+ * @param {*} res - {
+ *                  "id": (int) id,
+ *                  "app_id": (int) local ID in platform,
+ *                  "banner_img": (string) link to banner img,
+ *                  "description": (string) short description of the game,
+ *                  "minimum_requirements": (string) list of minimum requirements,
+ *                  "platform_id": (int) ID of platform which the game is from,
+ *                  "platform": (string) name of the platform,
+ *                  "price": (int) stored price in given country,
+ *                  "currnecy": (string) currency in given country,
+ *                  "formated_price": (string) price to display,
+ *                  "genres": [
+ *                      {
+ *                      "id": (int) genre id in DB,
+ *                      "genre": (string) the accual genre,
+ *                      } ...
+ *                  ]
+ *                  "priate_sites": [
+ *                      {
+ *                       
+ *                      }
+ *                  ]
+ *                  }
+ * @returns - 200 - res || 500 - error
+ */
 module.exports.GETGamesByPlatformIdWithAllData = async function (req, res) {
     try {
         const { appId } = req.params;
+        const { country_code: countryCode } = req.body;
         const appIdNum = Number(appId);
         if (!Number.isFinite(appIdNum) || appIdNum <= 0) {
             return res.status(400).json({ error: `Invalid appId: ${String(appId)}` });
@@ -36,17 +74,19 @@ module.exports.GETGamesByPlatformIdWithAllData = async function (req, res) {
             return res.status(404).json({ error: `Game not found by appId: ${appIdNum}` });
         }
 
-        const game = await gameCtrl.getWithAllForeign(gameId);
+        const game = await gameCtrl.getWithAllForeign(gameId, countryCode);
         if (!game) {
             return res.status(404).json({ error: `Game not found: ${gameId}` });
         }
 
         const gamesGenresCtrl = new GamesGenresConnnectionController();
-        const gameGenres = await gamesGenresCtrl.getByGameId(gameId);
+        const resultGg = await gamesGenresCtrl.getByGameId(gameId)
+        const gameGenres = resultGg ?? [];
         game.genres = gameGenres;
 
         const gamesPirateSitesConnCtrl = new GamesPirateSitesConnectionController();
-        const pirateSites = await gamesPirateSitesConnCtrl.getConnectionsByGameId(gameId);
+        const resultGs = await gamesPirateSitesConnCtrl.getConnectionsByGameId(gameId); 
+        const pirateSites = resultGs ?? [];
         game.pirate_sites = pirateSites;
 
         return res.json(game);
@@ -55,13 +95,12 @@ module.exports.GETGamesByPlatformIdWithAllData = async function (req, res) {
     }
 }
 
-//--------------- tested -----------------
-
 module.exports.GETGameByIdWithAllData = async function (req, res) {
     try {
     const {id: gameId } = req.params;
+    const { country_code: countryCode } = req.body;
     const gameCtrl = new GamesController();
-    const game = await gameCtrl.getWithAllForeign(gameId);
+    const game = await gameCtrl.getWithAllForeign(gameId, countryCode);
 
     if (!game) {
       return res.status(404).json({ error: `Game not found: ${gameId}` });
@@ -80,9 +119,10 @@ module.exports.GETGameByIdWithAllData = async function (req, res) {
 module.exports.GETGamesInListByPlatformId = async function (req, res) {
     try {
         const { platformId, from } = req.params;
-        const countyCode = req.body.countyCode ?? "de";
+        const { country_code: countryCode } = req.body;
+
         const gameCtrl = new GamesController();
-        const games = gameCtrl.getAllGamesByPlatformFrom(countyCode, platformId, from);
+        const games = await gameCtrl.getAllGamesByPlatformFrom(countryCode, platformId, from);
 
         if (games instanceof Error) {
             res.status(404).json({ error: games.message });
@@ -96,10 +136,10 @@ module.exports.GETGamesInListByPlatformId = async function (req, res) {
 module.exports.GETGamesInList = async function (req, res) {
     try {
         const { from } = req.params;
-        const countyCode = req.body.county_code ?? "de";
+        const { country_code: countryCode } = req.body;
 
         const gamesCtrl = new GamesController();
-        const games = await gamesCtrl.getAllGamesFrom(countyCode, from);
+        const games = await gamesCtrl.getAllGamesFrom(countryCode, from);
 
         return res.json(games);
     } catch (err) {
@@ -125,7 +165,7 @@ module.exports.GETFriendsOfNativeUser = async function (req, res) {
     try {
         const { nativeUserId } = req.params;
         const friendsCtrl = new FriendsController();
-        const friendsRaw = await friendsCtrl.getFriendsByNativeUserId(nativeUserId);
+        const friendsRaw = await friendsCtrl.getNativeUserFriends(nativeUserId);
 
         const friends = [];
         friendsRaw.forEach(friend => {
@@ -144,10 +184,41 @@ module.exports.GETNativeUserById = async function (req, res) {
     try {
         const { userId } = req.params;
         const nativeUserCtrl = new NativeUsersController();
-        const user = await nativeUserCtrl.show(userId);
+        const result = await nativeUserCtrl.show(userId);
+        const user = {
+            "id": result.id,
+            "name": result.name,
+            "bio": result.bio,
+            "pfp": result.pfp
+        }
         return res.json(user);
     } catch (err) {
         return res.status(500).json({ error: err.message });
+    }
+}
+
+module.exports.GETNativeUserByName = async function (req, res) {
+    try {
+        const { name } = req.params;
+        const nativeUserCtrl = new NativeUsersController();
+        const results = await nativeUserCtrl.getuserByName(name);
+        if(results.length < 1) {
+            return res.status(404).json({ error: "No user with given name in DB"})
+        }
+        let users = [];
+        for (let result of results) {
+            let user = {
+                "id": result.id,
+                "name": result.name,
+                "bio": result.bio,
+                "php": result.pfp
+            };
+            users.push(user);
+        }
+        return res.json(users);
+    } catch (err) {
+        console.error('Error in /api/native-users/name/ endpoint:', error);
+        return res.status(500).json({ error: error.message });
     }
 }
 
@@ -206,25 +277,11 @@ module.exports.GETShopSpecialsFilteredInList = async function (req, res) {
     } 
 }
 
-module.exports.POSTLoginNativeUser = async function (req, res) {
-    try {
-        const nativeUserCtrl = new NativeUsersController();
-
-        const { username, password } = req.params;
-        const user = await nativeUserCtrl.getUserByNameAndPassword(username, password);
-        console.log("User found:", user);
-        if (!user) {
-            return res.status(401).json({ error: 'Invalid username or password' });
-        }
-        
-        await nativeUserCtrl.update(user.id, {token: true});
-        const updatedUser = await nativeUserCtrl.show(user.id);
-        return res.json(user.id + "." + updatedUser.token);
-    } catch (error) {
-        console.error('Error in /api/login endpoint:', error);
-        res.status(500).json({ error: error.message });
-    }
-}
+// ====================== ///
+// ====================== ///
+// ======== POST ======== ///
+// ====================== ///
+// ====================== ///
 
 module.exports.POSTNewNativeUser = async function (req, res) {
     try {
@@ -252,31 +309,30 @@ module.exports.POSTNewNativeUser = async function (req, res) {
 
 module.exports.POSTNewGame = async function (req, res) {
     try {
-        if (shouldSkipGameBecausePriceMissing(req.body, 'upload', req.body?.name)) {
+        if (apiHelpers.shouldSkipGameBecausePriceMissing(req.body, 'upload', req.body?.name)) {
         return res.status(200).json({ message: 'Skipped upload: non-free game is missing price.' });
         }
 
         const gamesCtrl = new GamesController();
-        const pricesCtrl = new PricesController();
 
         let { county_code: countyCode, genre_names: genreNames } = req.body;
         let platformName = req.body.platform_name ?? null;
         const platformId = req.body.platform_id ?? null;
         const fallbackBanner = req.body.banner_img ?? null;
-        const platformBannerImg = await getPlatformBannerUrl({
+        const platformBannerImg = await apiHelpers.getPlatformBannerUrl({
             platformName: resolvedPlatformName,
             appId: req.body.app_id,
             fallbackBanner,
         });
 
         const gameData = {
-        app_id: req.body.app_id,
-        platform_id: platformId,
-        platform_name: platformName,
-        name: req.body.name,
-        banner_img: platformBannerImg,
-        description: req.body.description ?? null,
-        minimum_requirements: req.body.minimum_requirements ?? null,
+            "app_id": req.body.app_id,
+            "platform_id": platformId,
+            "platform_name": platformName,
+            "name": req.body.name,
+            "banner_img": platformBannerImg,
+            "description": req.body.description ?? null,
+            "minimum_requirements": req.body.minimum_requirements ?? null,
         };
 
 
@@ -284,15 +340,264 @@ module.exports.POSTNewGame = async function (req, res) {
             const itchDetails = await fetchItchGameDetails(req.body.app_id, { includePageDetails: true });
             genreNames = normalizeGenreNames(itchDetails?.genres ?? []);
         }
-
-        const uploadedGame = await gamesCtrl.uploadWithAll(gameData, null, genreNames);
-
-        const countyId = getCountyIdByCode(countyCode);
-
-        const uploadPrice = await pricesCtrl.create({"gameId": uploadedGame.id, "countyId": countyId, "price": price});
+        const countyId = apiHelpers.getCountyIdByCode(countyCode);
+        
+        const uploadedGame = await gamesCtrl.uploadWithAll(gameData, null, genreNames, {"price": price, "county_id": countyId});
         return res.status(201).json({ message: 'Game uploaded successfully', gameId: uploadedGame.id });
     } catch (err) {
         console.error('Error in /api/games/upload endpoint:', err);
         return res.status(500).json({ error: err.message });
+    }
+}
+
+module.exports.POSTNewPrice = async function (req, res) {
+    try {
+        const { price, county_code: countyCode, game_id: gameId } = req.body;
+        const pricesCtrl = new PricesController();
+    
+        const countyId = await apiHelpers.getCountyIdByCode(countyCode);
+        const uploadPrice = await pricesCtrl.create({"gameId": gameId, "countyId": countyId, "price": price});
+
+        return res.status(201).json({ message: `New price added to game (${gameId}) succesfully`});
+    } catch (err) {
+        console.error('Error in /api/games/upload endpoint:', err);
+        return res.status(500).json({ error: err.message });
+    }
+}
+
+module.exports.POSTNewPirateSiteConnectionByGameId = async function (req, res) {
+    try {
+        const {gameId} = req.params;
+        const {link, siteId, siteName} = req.body;
+        const gamesPirateSitesConnCtrl = new GamesPirateSitesConnectionController();
+        const data = {
+            "game_id": gameId,
+            "pirate_site_id": siteId ?? null,
+            "site_name": siteName ?? null,
+            "link": link,
+        }
+        const result = await gamesPirateSitesConnCtrl.createWithAll(data);
+        if (result instanceof Error) {
+            return res.status(400).json({ message: result.message });
+        }
+        return res.json(result);
+    } catch (err) {
+        console.error('Error in /api/pirate_sites/:gameId/siteId endpoint:', error);
+        return res.status(500).json({ error: error.message });
+    }
+}
+
+module.exports.POSTNewFriends = async function (req, res) {
+    try {
+        const { userId } = req.auth;
+        const { friendUserId } = req.body;
+
+        const friendsCtrl = new FriendsController();
+        const result = await friendsCtrl.create({ user1_id: userId, user2_id: friendUserId });
+        if (result.message.includes('already exists') || result instanceof Error) {
+            return res.status(400).json({ message: result.message });
+        }
+        return res.status(201).json({message: "frinedship created", id: result.id});
+    } catch (error) {
+        console.error('Error in /api/friends endpoint:', error);
+        return res.status(500).json({ error: error.message }); 
+    }
+}
+
+module.exports.POSTNewPlatform = async function (req, res) {
+    try {
+        const { platformName } = req.body;
+
+        const platformCtrl = new PlatformsController();
+        const result = await platformCtrl.create({name: platformName});
+        if( result instanceof Error ) {
+            return res.status(400).json({ message: result.message });
+        }
+        return res.status(201).json({message: "platform uploaded", id: result.id})
+    } catch (err) {
+        console.log('Error in /api/platforms endpoint:', err);
+        return res.status(500).json({ error: err.message });
+    }
+}
+
+module.exports.POSTNewPlatformUser = async function (req, res) {
+    try {
+        const { userId } = req.auth;
+
+        const { platformUserName, platformId, platfProfId, platformPassword } = req.body || {};
+        const missing = [];
+        if (platformUserName == null) missing.push('platformUserName');
+        if (platformId == null) missing.push('platformId');
+        if (platfProfId == null) missing.push('platfProfId');
+        if (platformPassword == null) missing.push('platformPassword');
+        if (missing.length) {
+            return res.status(400).json({ message: 'Missing required fields', missing });
+        }
+
+        const data = {
+            "native_user_id": userId,
+            "platform_user_name": platformUserName,
+            "platform_id": platformId,
+            "platform_profile_id": platfProfId,
+            "platform_password": platformPassword,
+        }
+
+        const platformUserCtrl = new PlatformUsersController();
+        const result = await platformUserCtrl.create(data);
+        if( result instanceof Error ) {
+            return res.status(400).json({ message: result.message });
+        }
+        return res.status(201).json({ message: "platform user uploaded", id: result.id });
+    } catch (err) {
+        console.log('Error in /api/platform_users endpoint:', err);
+        return res.status(500).json({ error: err.message });
+    }
+}
+
+module.exports.POSTNewCountry = async function (req, res) {
+    try {
+        const { code } = req.body;
+        const id = await apiHelpers.createCountyByCode(code);
+
+        if ( id instanceof Error ) {
+        return res.status(400).json({ message: res.message });
+        }
+        return res.status(201).json({ message: "county uploaded", id: id});
+    } catch (err) {
+        console.log('Error in /api/county endpoint:', err);
+        return res.status(500).json({ error: err.message });
+    }
+}
+
+// ====================== ///
+// ====================== ///
+// ======== PUT ========= ///
+// ====================== ///
+// ====================== ///
+
+module.exports.PUTNativeUserLogin = async function (req, res) {
+    try {
+        const { userId } = req.auth;
+        const nativeUserCtrl = new NativeUsersController();
+        const updatedUser = await nativeUserCtrl.update(userId, req.body);
+        if (updatedUser instanceof Error) {
+            return res.status(400).json({ message: updatedUser.message });
+        }
+        return res.json(updatedUser);
+    } catch (error) {
+        console.error('Error in /api/nativeUser/:id endpoint:', error);
+        return res.status(500).json({ error: error.message });
+    }
+}
+
+module.exports.PUTGames = async function (req, res) {
+    try {
+        const { id: gameId } = req.params;
+
+        const gameData = {
+            "app_id": req.body.app_id,
+            "platform_id": platformId,
+            "name": req.body.name,
+            "banner_img": req.body.banner_img,
+            "description": req.body.description ?? null,
+            "minimum_requirements": req.body.minimum_requirements ?? null,
+        }
+
+        const gamesCtrl = new GamesController();
+        const updatedGame = gamesCtrl.update(gameId, gameData);
+        if (updatedGame instanceof Error) {
+            return res.status(400).json({ message: updatedGame.message });
+        }
+        return res.json(updatedGame);
+    } catch (err) {
+        console.error('Error in /api/games/:id endpoint:', error);
+        return res.status(500).json({ error: error.message });
+    }
+}
+
+module.exports.PUTShopSpecialsByGameId = async function (req, res) {
+    try {
+        const { gameId } = req.params;
+        const { featured, coming_soon, discounted } = req.body;
+        const shopSpecialsCtrl = new ShopSpecialsController();
+        const result = await shopSpecialsCtrl.update(gameId, { "featured": featured, "coming_soon": coming_soon, "discounted": discounted });
+        if (result instanceof Error) {
+            return res.status(400).json({ message: result.message });
+        }
+        return res.json(result);
+    } catch (err) {
+        console.error('Error in /api/shop_specials/:gameId endpoint:', error);
+        return res.status(500).json({ error: error.message });
+    }
+}
+
+module.exports.PUTPirateSitesByGameId = async function (req, res) {
+    try {
+        const {gameId} = req.params;
+        const {link, siteId} = req.body;
+        const gamesPirateSitesConnCtrl = new GamesPirateSitesConnectionController();
+        const result = await gamesPirateSitesConnCtrl.update(gameId, siteId, link);
+        if (result instanceof Error) {
+            return res.status(400).json({ message: result.message });
+        }
+        return res.json(result);
+    } catch (err) {
+        console.error('Error in /api/pirate_sites/:gameId endpoint:', error);
+        return res.status(500).json({ error: error.message });
+    }
+}
+
+// ====================== ///
+// ====================== ///
+// ======= DELETE ======= ///
+// ====================== ///
+// ====================== ///
+
+module.exports.DELETEFriends = async function (req, res) {
+    try {
+        const { friendShipId } = req.params;
+
+        const friendsCtrl = new FriendsController();
+        const result = await friendsCtrl.delete(friendShipId);
+        if (result instanceof Error) {
+            return res.status(400).json({ message: result.message });
+        }
+        return res.status(204).json({});
+    } catch (err) {
+        console.error('Error in /api/friends endpoint:', err);
+        return res.status(500).json({ error: err.message }); 
+    }
+}
+
+module.exports.DELETEPlatformUser = async function (req, res) {
+    try {
+        const { userId } = req.auth;
+        const { id } = req.params;
+
+        const platformUserCtrl = new PlatformUsersController();
+        const result = await platformUserCtrl.deleteByNativeUserId(id, userId);
+        if (result instanceof Error) {
+            return res.status(400).json({ message: result.message });
+        }
+        if (!result.deleted) {
+            return res.status(404).json({ message: 'Platform user not found for authenticated user', ...result, });
+        }
+        return res.status(200).json(result);
+    } catch (err) {
+        console.error("Error in /api/platform_user endpoint:", err);
+        return res.status(500).json({error: err.message});
+    }
+}
+
+module.exports.DELETENAtiveUser = async function (req, res) {
+    try {
+        const { userId } = req.auth;
+
+        const natvieUserCtrl = new NativeUsersController();
+        const result = await natvieUserCtrl.delete(userId);
+        return res.status(204).json({});
+    } catch (err) {
+        console.error("Error on /api/native_user endpoint:", err);
+        return res.status(500).json({error: err.message});
     }
 }

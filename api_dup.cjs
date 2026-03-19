@@ -22,15 +22,7 @@ const platformUsersController = require('./database/controllers/PlatformUsersCon
 const platformsController = require('./database/controllers/PlatformsController.js');
 const gamesGenresConnnectionController = require('./database/controllers/GamesGenresConnectionController.js');
 const gamesController = require('./database/controllers/GamesController.js');
-const friendsController = require('./database/controllers/FriendsController.js');
-const chatsController = require('./database/controllers/ChatsController.js'); 
 const shopSpecialsController = require('./database/controllers/ShopSpecialsController.js');
-const pirateSitesController = require('./database/controllers/PirateSitesController.js');
-const gamesPirateSitesConnectionController = require('./database/controllers/GamesPirateSitesConnectionController.js');
-const countriesController = require('./database/controllers/CountiesController.js');
-const pricesController = require('./database/controllers/PricesController.js');
-const NativeUsersController = require('./database/controllers/NativeUsersController.js');
-const CountiesController = require('./database/controllers/CountiesController.js');
 
 const { errorMonitor } = require('events');
 const { error } = require('console');
@@ -77,8 +69,8 @@ server.on('listening', async () => {
   }
 
   try {
-    const databaseCreator = new DBCreator();
-    await databaseCreator.createTables();
+    //const databaseCreator = new DBCreator();
+    //await databaseCreator.createTables();
   } catch (err) {
     console.error('Error creating database tables on startup:', err);
   }
@@ -1336,24 +1328,6 @@ app.get('/api/platform/user_id/:platformname/:platformUsername', tokenValidate()
     }
 });
 
-/*
-  route: /api/games/:id
-  params: games.id
-  headers: -
-  body: -
-
-  returns: 
-    {
-      games.id,
-      games.app_id,
-      games.platform_id,
-      games.name,
-      games.banner_img,
-      games.description,
-      games.minimum_requirements,
-      games.cost
-    }
-*/
 app.get("/api/games/:id", apiFunctions.GETGameById);
 /*
   route: /api/games/app/:appId/all
@@ -1364,7 +1338,7 @@ app.get("/api/games/:id", apiFunctions.GETGameById);
   returns:
     Same shape as /api/games/:id/all.
 */
-app.get("/api/games/platform/:appId/details", apiFunctions.GETGamesByPlatformIdWithAllData); //old path: /api/games/platform/:appId/all
+app.get("/api/games/app-id/:appId/details", apiFunctions.GETGamesByPlatformIdWithAllData); //old path: /api/games/platform/:appId/all
 /*
   route: /api/games/:id
   params: games.id
@@ -1391,21 +1365,6 @@ app.get("/api/games/list/:from", apiFunctions.GETGamesInList);
 
 app.get("/api/search/:needle", apiFunctions.GETSearch);
 /*
-  params: native_users.id
-  headers: -
-  body: -
-
-  returns: 
-    {
-      {friends.id, native_user.id}
-      {friends.id, native_user.id}
-      .
-      .
-      .
-    }
-*/
-app.get("/api/friends/:nativeUserId", apiFunctions.GETFriendsOfNativeUser);
-/*
   route: /api/nativeUser/
   params: -
   headers: auth token
@@ -1421,7 +1380,24 @@ app.get("/api/friends/:nativeUserId", apiFunctions.GETFriendsOfNativeUser);
       native_user.pfp
     }
 */
-app.get("/api/native-users/:id", tokenValidate(), apiFunctions.GETNativeUserById); //old path: /api/nativeUser
+app.get("/api/native-users/:userId", apiFunctions.GETNativeUserById); //old path: /api/nativeUser
+
+app.get("/api/native-users/name/:name", apiFunctions.GETNativeUserByName); //totally new path
+/*
+  params: native_users.id
+  headers: -
+  body: -
+
+  returns: 
+    {
+      {friends.id, native_user.id}
+      {friends.id, native_user.id}
+      .
+      .
+      .
+    }
+*/
+app.get("/api/friends/:nativeUserId", apiFunctions.GETFriendsOfNativeUser);
 /*
   route: /api/chat/:friendsId
   params: friends.id
@@ -1438,13 +1414,13 @@ app.get("/api/native-users/:id", tokenValidate(), apiFunctions.GETNativeUserById
       [9] {chats.id, chats.friends_id, chats.message, chats.sender_id},
     }
 */
-app.get("/api/messages/:friendsId", apiFunctions.GETChatlogByFriendId); //old path: /api/chat/:friendsId
+app.get("/api/messages/:friendsId", apiFunctions.GETChatlogByFriendId); //old path: /api/chat/:friendsId TEST NEEDED!
 
 app.get("/api/platforms/:platformName", apiFunctions.GETPlatformByPlatromName);
 
-app.get("/api/platfor-users/:nativeUserId", tokenValidate(), apiFunctions.GETPlatformUsersByNativeUserId); //old path: /api/platform_users
+app.get("/api/platform-users/:nativeUserId", tokenValidate(), apiFunctions.GETPlatformUsersByNativeUserId); //old path: /api/platform_users
 
-app.get("/api/shop_specials/:filter/list/:from", apiFunctions.GETShopSpecialsFilteredInList); //old path: /api/shop_specials/:filter/:from
+app.get("/api/shop-specials/:filter/list/:from", apiFunctions.GETShopSpecialsFilteredInList); //old path: /api/shop_specials/:filter/:from
 
 // -------------------     POST      ------------------ //
 
@@ -1459,7 +1435,7 @@ app.get("/api/shop_specials/:filter/list/:from", apiFunctions.GETShopSpecialsFil
       user auth token (user.id + user.token)
     }
 */
-app.post('/api/login/:username/:password', apiFunctions.POSTLoginNativeUser);
+app.post('/api/login/:username/:password', (req, res) => {}); //---->> PUT-ra cserélve
 /*
   route: /api/signup/
   params: -
@@ -1493,93 +1469,11 @@ app.post('/api/native-users', apiFunctions.POSTNewNativeUser); //old path: /api/
       message: 'Game uploaded successfully', gameId: uploadedGame.id
     }
 */
-app.post("/api/games", tokenValidate(), async (req, res) => {
-  try {
-    if (shouldSkipGameBecausePriceMissing(req.body, 'upload', req.body?.name)) {
-      return res.status(200).json({ message: 'Skipped upload: non-free game is missing price.' });
-    }
+app.post("/api/games", tokenValidate(), apiFunctions.POSTNewGame);
 
-    const gameCtrl = new gamesController();
-    const existingGameId = await gameCtrl.getGameIdByAppId(req.body.app_id);
-    if (existingGameId != null) {
-      return res.status(400).json({ message: 'Game with the same app_id already exists', gameId: existingGameId });
-    }
+app.post("/api/prices", tokenValidate(), apiFunctions.POSTNewPrice);
 
-    const platformName = req.body.platform_name ?? null;
-    // Backward-compatible: accept the old misspelled key too.
-    const platformId = req.body.platform_id ?? req.body.platfomr_id ?? null;
-    if (platformId == null && platformName == null) {
-      return res.status(400).json({
-        message: 'Cannot upload, no data for platform. Please give platform_name or platform_id.'
-      });
-    }
-
-    let resolvedPlatformName = platformName;
-    if (!resolvedPlatformName && platformId != null) {
-      try {
-        const platformsCtrl = new platformsController();
-        const platform = await platformsCtrl.show(platformId);
-        resolvedPlatformName = platform?.platform_name ?? null;
-      } catch (resolveErr) {
-        console.warn('Failed to resolve platform name by platform_id for banner URL:', {
-          platformId,
-          err: resolveErr?.message,
-        });
-      }
-    }
-
-    const fallbackBanner = req.body.banner_img ?? null;
-    const platformBannerImg = await getPlatformBannerUrl({
-      platformName: resolvedPlatformName,
-      appId: req.body.app_id,
-      fallbackBanner,
-    });
-
-    const gameData = {
-      app_id: req.body.app_id,
-      platform_id: platformId,
-      platform_name: platformName,
-      name: req.body.name,
-      banner_img: platformBannerImg,
-      description: req.body.description ?? null,
-      minimum_requirements: req.body.minimum_requirements ?? null,
-    };
-
-    let { county_code: countyCode, genre_names: genreNames } = req.body;
-    if ((!Array.isArray(genreNames) || genreNames.length === 0) && String(resolvedPlatformName ?? '').trim().toLowerCase() === 'itch') {
-      const itchDetails = await fetchItchGameDetails(req.body.app_id, { includePageDetails: true });
-      genreNames = normalizeGenreNames(itchDetails?.genres ?? []);
-    }
-
-    const gamesCtrl = new gamesController();
-    const pricesCtrl = new pricesController();
-    const uploadedGame = await gamesCtrl.uploadWithAll(gameData, null, genreNames);
-
-    const countyId = getCountyIdByCode(countyCode);
-
-    const uploadPrice = await pricesCtrl.create({"gameId": uploadedGame.id, "countyId": countyId, "price": price});
-    return res.status(201).json({ message: 'Game uploaded successfully', gameId: uploadedGame.id });
-  } catch (err) {
-    console.error('Error in /api/games/upload endpoint:', err);
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-app.post("/api/prices", tokenValidate(), async (req, res) => {
-  try {
-    const { price, county_code: countyCode, game_id: gameId } = req.body;
-    const pricesCtrl = new pricesController();
-  
-    const countyId = await getCountyIdByCode(countyCode);
-    const uploadPrice = await pricesCtrl.create({"gameId": gameId, "countyId": countyId, "price": price});
-
-    return res.status(201).json({ message: `Price to game (id: ${gameId}) upladed succesfully`});
-  } catch (err) {
-    console.error('Error in /api/games/upload endpoint:', err);
-    return res.status(500).json({ error: err.message });
-  }
-})
-
+app.post("/api/pirate-sites/:gameId", tokenValidate(), apiFunctions.POSTNewPirateSiteConnectionByGameId); //old path: /api/pirate_sites/:gameId - PUT! - no tokenValidate()
 /*
   route: /api/friends/
   params: -
@@ -1591,111 +1485,16 @@ app.post("/api/prices", tokenValidate(), async (req, res) => {
       message: "frinedship created", id: result.id
     }
 */
-app.post("/api/friends", tokenValidate(), async (req, res) => {
-  try {
-    const { userId } = req.auth;
-    const { friendUserId } = req.body;
+app.post("/api/friends", tokenValidate(), apiFunctions.POSTNewFriends);
 
-    const friendsCtrl = new friendsController();
-    const result = await friendsCtrl.create({ user1_id: userId, user2_id: friendUserId });
-    if (result.message.includes('already exists') || result instanceof Error) {
-      return res.status(400).json({ message: result.message });
-    }
-    return res.status(201).json({message: "frinedship created", id: result.id});
-  } catch (error) {
-    console.error('Error in /api/friends endpoint:', error);
-    return res.status(500).json({ error: error.message }); 
-  }
-});
+app.post("/api/platforms", tokenValidate(), apiFunctions.POSTNewPlatform);
 
-app.post("/api/platforms", tokenValidate(), async (req, res) => {
-  try {
-    const { platformName } = req.body;
+app.post("/api/platform-users", tokenValidate(), apiFunctions.POSTNewPlatformUser); //old path: /api/platform_users
 
-    const platformCtrl = new platformsController();
-    const result = await platformCtrl.create({name: platformName});
-    if( result instanceof Error ) {
-      return res.status(400).json({ message: result.message });
-    }
-    return res.status(201).json({message: "platform uploaded", id: result.id})
-  } catch (err) {
-    console.log('Error in /api/platforms endpoint:', err);
-    return res.status(500).json({ error: err.message });
-  }
-})
-
-app.post("/api/platform_users", tokenValidate(), async (req, res) => {
-  try {
-    const { userId } = req.auth;
-
-    const { platformUserName, platformId, platfProfId, platformPassword } = req.body || {};
-    const missing = [];
-    if (platformUserName == null) missing.push('platformUserName');
-    if (platformId == null) missing.push('platformId');
-    if (platfProfId == null) missing.push('platfProfId');
-    if (platformPassword == null) missing.push('platformPassword');
-    if (missing.length) {
-      return res.status(400).json({ message: 'Missing required fields', missing });
-    }
-
-    const data = {
-      "native_user_id": userId,
-      "platform_user_name": platformUserName,
-      "platform_id": platformId,
-      "platform_profile_id": platfProfId,
-      "platform_password": platformPassword,
-    }
-
-    const platformUserCtrl = new platformUsersController();
-    const result = await platformUserCtrl.create(data);
-    if( result instanceof Error ) {
-      return res.status(400).json({ message: result.message });
-    }
-    return res.status(201).json({ message: "platform user uploaded", id: result.id });
-  } catch (err) {
-    console.log('Error in /api/platform_users endpoint:', err);
-    return res.status(500).json({ error: err.message });
-  }
-})
-
-app.post("/api/counties", tokenValidate(), async (req, res) => {
-  const { code } = req.body;
-  try {
-
-    const id = await createCountyByCode(code);
-    if ( id instanceof Error ) {
-      return res.status(400).json({ message: res.message });
-    }
-    return res.status(201).json({ message: "county uploaded", id: id});
-  } catch (err) {
-    console.log('Error in /api/county endpoint:', err);
-    return res.status(500).json({ error: err.message });
-  }
-});
+app.post("/api/counties", tokenValidate(), apiFunctions.POSTNewCountry);
 
 // -------------------      PUT       ------------------ //
 
-app.put("/api/pirate_sites/:gameId", async (req, res) => {
-  try {
-    const {gameId} = req.params;
-    const {link, siteId, siteName} = req.body;
-    const gamesPirateSitesConnCtrl = new gamesPirateSitesConnectionController();
-    const data = {
-      "game_id": gameId,
-      "pirate_site_id": siteId ?? null,
-      "site_name": siteName ?? null,
-      "link": link,
-    }
-    const result = await gamesPirateSitesConnCtrl.createWithAll(data);
-    if (result instanceof Error) {
-      return res.status(400).json({ message: result.message });
-    }
-    return res.json(result);
-  } catch (err) {
-    console.error('Error in /api/pirate_sites/:gameId/siteId endpoint:', error);
-    return res.status(500).json({ error: error.message });
-  }
-});
 /*
   route: /api/login/
   params: -
@@ -1713,21 +1512,7 @@ app.put("/api/pirate_sites/:gameId", async (req, res) => {
       native_user.pfp
     }
 */
-app.put("/api/login", tokenValidate(), async (req, res) => {
-  try {
-    const { userId } = req.auth;
-    const nativeUserCtrl = new nativeUserController();
-    const updatedUser = await nativeUserCtrl.update(userId, req.body);
-    if (updatedUser instanceof Error) {
-      return res.status(400).json({ message: updatedUser.message });
-    }
-    return res.json(updatedUser);
-  } catch (error) {
-    console.error('Error in /api/nativeUser/:id endpoint:', error);
-    return res.status(500).json({ error: error.message });
-  }
-});
-
+app.put("/api/login", tokenValidate(), apiFunctions.PUTNativeUserLogin);
 /*
   route: /api/games/:id
   params: game id
@@ -1745,63 +1530,11 @@ app.put("/api/login", tokenValidate(), async (req, res) => {
       game.minimum_requirements
     }
 */
-app.put("/api/games/:id", async (req, res) => {
-  try {
-    const { id: gameId } = req.params;
+app.put("/api/games/:id", tokenValidate(), apiFunctions.PUTGames); //old path: no tokenValidate()
 
-    const gameData = {
-      "app_id": req.body.app_id,
-      "platform_id": platformId,
-      "name": req.body.name,
-      "banner_img": req.body.banner_img,
-      "description": req.body.description ?? null,
-      "minimum_requirements": req.body.minimum_requirements ?? null,
-      "cost": req.body.cost ?? null,
-    }
+app.put("/api/shop-specials/:gameId", tokenValidate(), apiFunctions.PUTShopSpecialsByGameId); //old path: /api/shop_specials/:gameId - no tokenValidate()
 
-    const gamesCtrl = new gamesController();
-    const updatedGame = gamesCtrl.update(gameId, gameData);
-    if (updatedGame instanceof Error) {
-      return res.status(400).json({ message: updatedGame.message });
-    }
-    return res.json(updatedGame);
-  } catch (err) {
-    console.error('Error in /api/games/:id endpoint:', error);
-    return res.status(500).json({ error: error.message });
-  }
-});
-
-app.put("/api/shop_specials/:gameId", async (req, res) => {
-  try {
-    const { gameId } = req.params;
-    const { featured, coming_soon, discounted } = req.body;
-    const shopSpecialsCtrl = new shopSpecialsController();
-    const result = await shopSpecialsCtrl.update(gameId, { "featured": featured, "coming_soon": coming_soon, "discounted": discounted });
-    if (result instanceof Error) {
-      return res.status(400).json({ message: result.message });
-    }
-    return res.json(result);
-  } catch (err) {
-    console.error('Error in /api/shop_specials/:gameId endpoint:', error);
-    return res.status(500).json({ error: error.message });
-  } 
-});
-
-app.put("/api/pirate_sites/:gameId/siteId", async (req, res) => {
-  try {
-    const {gameId, siteId} = req.params;
-    const {link} = req.body;
-    const gamesPirateSitesConnCtrl = new gamesPirateSitesConnectionController();
-    const result = await gamesPirateSitesConnCtrl.update(gameId, siteId, link);
-    if (result instanceof Error) {
-      return res.status(400).json({ message: result.message });
-    }
-    return res.json(result);
-  } catch (err) {
-    console.error('Error in /api/pirate_sites/:gameId/siteId endpoint:', error);
-    return res.status(500).json({ error: error.message });
-  }
-});
+app.put("/api/pirate-sites/:gameId", tokenValidate(), apiFunctions.PUTPirateSitesByGameId); //old path: /api/pirate_sites/:gameId/:siteId - no tokenValidate()
 
 // -------------------     DELETE     ------------------ //
 
@@ -1816,54 +1549,8 @@ app.put("/api/pirate_sites/:gameId/siteId", async (req, res) => {
       message
     }
 */
-app.delete("/api/friends/:friendShipId", tokenValidate(), async (req, res) => {
-  try {
-    const { friendShipId } = req.params;
+app.delete("/api/friends/:friendShipId", tokenValidate(), apiFunctions.DELETEFriends);
 
-    const friendsCtrl = new friendsController();
-    const result = await friendsCtrl.delete(friendShipId);
-    if (result instanceof Error) {
-      return res.status(400).json({ message: result.message });
-    }
-    return res.status(201).json({});
-  } catch (err) {
-    console.error('Error in /api/friends endpoint:', err);
-    return res.status(500).json({ error: err.message }); 
-  }
-});
+app.delete("/api/platform-user/:platfromUserId", tokenValidate(), apiFunctions.DELETEPlatformUser); //old path: /api/platform_user/:platfromUserId
 
-app.delete("/api/platform_user/:platfromUserId", tokenValidate(), async (req, res) => {
-  try {
-    const { userId } = req.auth;
-    const { id } = req.params;
-
-    const platformUserCtrl = new platformUsersController();
-    const result = await platformUserCtrl.deleteByNativeUserId(id, userId);
-    if (result instanceof Error) {
-      return res.status(400).json({ message: result.message });
-    }
-    if (!result.deleted) {
-      return res.status(404).json({
-        message: 'Platform user not found for authenticated user',
-        ...result,
-      });
-    }
-    return res.status(200).json(result);
-  } catch (err) {
-    console.error("Error in /api/platform_user endpoint:", err);
-    return res.status(500).json({error: err.message});
-  }
-});
-
-app.delete("/api/native_user", tokenValidate(), async (req, res) => {
-  try {
-    const { userId } = req.auth;
-
-    const natvieUserCtrl = new NativeUsersController();
-    const result = await natvieUserCtrl.delete(userId);
-    return res.status(201).json({});
-  } catch (err) {
-    console.error("Error on /api/native_user endpoint:", err);
-    return res.status(500).json({error: err.message});
-  }
-});
+app.delete("/api/native-user", tokenValidate(), apiFunctions.DELETENAtiveUser); // old path: /api/native_user

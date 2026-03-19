@@ -235,26 +235,40 @@ class GamesController extends Controller {
      *   platforms.platform_name
      *  ]
      */
-    async getWithAllForeign(game_id) {
+    async getWithAllForeign(gameId, countryCode = "de") {
         await this.ready;
 
-        const query = `SELECT 
-                            g.id, 
-                            g.app_id, 
-                            g.name, 
-                            g.banner_img, 
-                            g.description, 
-                            g.minimum_requirements, 
-                            g.cost, 
-                            g.platform_id,
-                            p.platform_name AS platform  
-                    FROM ${this.tableName} AS g
-                    JOIN platforms AS p ON g.platform_id = p.id
-                    WHERE g.id = ?;`;
-
         try {
-            const [rows] = await this.dbConnection.execute(query, [game_id]);
-            return rows[0] ?? null;
+            let cc = countryCode == null ? "de" : String(countryCode).toLowerCase();
+            const query =  `SELECT 
+                                g.id,
+                                g.app_id,
+                                g.name,
+                                g.banner_img,
+                                g.description,
+                                g.minimum_requirements,
+                                g.cost,
+                                g.platform_id,
+                                p.platform_name AS platform,
+                                pr.price,
+                                c.currency
+                            FROM games AS g
+                            JOIN platforms AS p ON g.platform_id = p.id
+                            LEFT JOIN prices AS pr ON pr.game_id = g.id
+                            LEFT JOIN counties AS c ON pr.county_id = c.id AND c.code = "${cc}"
+                            WHERE g.id = ${gameId};`;
+
+            const [rows] = await this.dbConnection.execute(query, [gameId]);
+            let game = rows[0];
+            if (!game) {
+                return new Error({ message: "No game in the database with given ID"})
+            }
+            let formatedPrice = null;
+            if (game.price) { 
+                formatedPrice = `${(game.price / 100).toFixed(2)} ${game.currency ?? ''}` 
+            };
+            game.formated_price = formatedPrice;
+            return game;
         } catch (err) {
             console.error(`Error while getting game by app_id from table ${this.tableName}: ${err}`);
             throw err;
@@ -263,7 +277,7 @@ class GamesController extends Controller {
 
     /**
      * Get all games with all related data, starting from an offset.
-     * @param {stirng} countyCode - the code of the county
+     * @param {stirng} countyCode - the code of the county where we want to get the price, if null its "de" (germany)
      * @param {int} from - offset for pagination
      * @returns {Array} - list of games with all related data
      */
@@ -285,17 +299,9 @@ class GamesController extends Controller {
 
         let games = [];
         for (const game_id of game_ids) {
-            const game = await this.getWithAllForeign(game_id);
+            const game = await this.getWithAllForeign(game_id, countyCode);
+            console.log(game);
             if (game) {
-                const priceCtrl = new PricesController();
-                const prices = await priceCtrl.getByGameId(game_id);
-                 let priceData;
-                for (const price of prices) {
-                    if (price.county_code == countyCode) {
-                            priceData = { ...price, formatted_price: `${(price.price / 100).toFixed(2)} ${price.currency ?? ''}` };
-                    }
-                }
-                game.priceData = priceData ?? {};
                 games.push(game);
             } else {
                 console.warn(`Game with id ${game_id} not found in table ${this.tableName}`);
@@ -327,16 +333,6 @@ class GamesController extends Controller {
         for (const game_id of game_ids) {
             const game = await this.getWithAllForeign(game_id);
             if (game) {
-                const priceCtrl = new PricesController();
-                const prices = await priceCtrl.getByGameId(game_id);
-                let priceData;
-                for (const price of prices) {
-                    if (price.county_code == countyCode) {
-                        priceData = price;
-                            priceData = { ...price, formatted_price: `${(price.price / 100).toFixed(2)} ${price.currency ?? ''}` };
-                    }
-                }
-                game.priceData = priceData ?? {};
                 games.push(game);
             } else {
                 console.warn(`Game with id ${game_id} not found in table ${this.tableName}`);
@@ -346,13 +342,13 @@ class GamesController extends Controller {
         return games;
     }
 
-    async getAllGamesByPlatformFrom(platform_id, from) {
+    async getAllGamesByPlatformFrom(countyCode, platform_id, from) {
         await this.ready;
 
-        const query = `SELECT id FROM ${this.tableName} WHERE platform_id = ? ORDER BY id LIMIT 20 OFFSET ?;`;
         let game_ids = [];
-
         try {
+            const query = 'SELECT id FROM games WHERE platform_id = ? ORDER BY id LIMIT 20 OFFSET ?;';
+
             const [rows] = await this.dbConnection.execute(query, [platform_id, from]);
             for (const row of rows) {
                 game_ids.push(row.id);
@@ -364,7 +360,7 @@ class GamesController extends Controller {
 
         let games = [];
         for (const game_id of game_ids) {
-            const game = await this.getWithAllForeign(game_id);
+            const game = await this.getWithAllForeign(game_id, countyCode);
             if (game) {
                 games.push(game);
             } else {
