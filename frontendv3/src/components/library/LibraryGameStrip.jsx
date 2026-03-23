@@ -55,7 +55,12 @@ const LibraryGameStrip = ({ games, activeGameId, onSelect, onOpenStore, onOpenGa
                 <button
                   type="button"
                   className="lib-strip-card-popover-btn"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
                   onClick={(event) => {
+                    event.preventDefault();
                     event.stopPropagation();
                     onOpenStore?.(game);
                   }}
@@ -65,7 +70,12 @@ const LibraryGameStrip = ({ games, activeGameId, onSelect, onOpenStore, onOpenGa
                 <button
                   type="button"
                   className="lib-strip-card-popover-btn"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
                   onClick={(event) => {
+                    event.preventDefault();
                     event.stopPropagation();
                     onOpenGamePage?.(game);
                   }}

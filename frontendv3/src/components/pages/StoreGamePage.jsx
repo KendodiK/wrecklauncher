@@ -49,8 +49,8 @@ function normalizeSiteLinksFromAny(value) {
 				const href = String(entry.href || entry.url || entry.link || '').trim();
 				if (!/^https?:\/\//i.test(href)) return null;
 				return {
-					id: String(entry.id || entry.label || entry.name || `site-${index}`),
-					label: String(entry.label || entry.name || entry.platform || 'Store'),
+					id: String(entry.id || entry.label || entry.site_name || entry.name || `site-${index}`),
+					label: String(entry.label || entry.site_name || entry.name || entry.platform || 'Store'),
 					href,
 				};
 			})
@@ -68,7 +68,7 @@ function normalizeSiteLinksFromAny(value) {
 				if (!/^https?:\/\//i.test(href)) return null;
 				return {
 					id: String(entry.id || key || `site-${index}`),
-					label: String(entry.label || entry.name || key || 'Store'),
+					label: String(entry.label || entry.site_name || entry.name || key || 'Store'),
 					href,
 				};
 			})
@@ -231,7 +231,12 @@ const StoreGamePage = () => {
 			let effectivePlatform = requestedPlatform;
 
 			try {
-				const dbData = await api.getAllDetailsByID(appId);
+				let dbData = null;
+				try {
+					dbData = await api.getAllDetailsByAppIDAndPlatform(effectivePlatform, appId);
+				} catch {
+					dbData = await api.getAllDetailsByID(appId);
+				}
 				if (dbData) {
 					effectivePlatform = normalizePlatformName(dbData.platform_name || effectivePlatform);
 				}
@@ -265,7 +270,14 @@ const StoreGamePage = () => {
 
 	const model = useMemo(() => {
 		const parsedPlatform = parsePlatformDetails(requestedPlatform, platformDetails, appId);
-		const dbSites = normalizeSiteLinksFromAny(dbDetails?.sites || dbDetails?.links || dbDetails?.store_links || dbDetails?.storeLinks || dbDetails?.urls);
+		const dbSites = normalizeSiteLinksFromAny(
+			dbDetails?.pirate_sites ||
+			dbDetails?.sites ||
+			dbDetails?.links ||
+			dbDetails?.store_links ||
+			dbDetails?.storeLinks ||
+			dbDetails?.urls
+		);
 		const parsedDb = dbDetails
 			? {
 				id: Number(dbDetails.app_id) || null,
@@ -307,78 +319,6 @@ const StoreGamePage = () => {
 			sites: links,
 		};
 	}, [appId, dbDetails, platformDetails, requestedPlatform, routeState]);
-
-	const gameDetailsRows = useMemo(() => {
-		const platform = normalizePlatformName(model.platform_name);
-		const rows = [];
-
-		if (platform === 'steam' && platformDetails && typeof platformDetails === 'object') {
-			const steam = platformDetails;
-			const genres = Array.isArray(steam.genres)
-				? steam.genres
-					.map((genre) => (genre && typeof genre === 'object' ? genre.description : ''))
-					.filter(Boolean)
-					.join(', ')
-				: '';
-			rows.push(
-				{ label: 'App ID', value: steam.appid != null ? String(steam.appid) : '' },
-				{ label: 'Name', value: steam.name || '' },
-				{ label: 'Country', value: steam.cc || '' },
-				{ label: 'Language', value: steam.lang || '' },
-				{ label: 'Price', value: typeof steam.price_overview === 'number' ? `$${(steam.price_overview / 100).toFixed(2)}` : '' },
-				{ label: 'Genres', value: genres },
-				{ label: 'Minimum Requirements', value: steam.minimum_requirements || '' },
-				{ label: 'Banner Image', value: steam.bannerimg || '' },
-			);
-		} else if (platform === 'gog' && platformDetails && typeof platformDetails === 'object') {
-			const gog = platformDetails;
-			rows.push(
-				{ label: 'Product ID', value: gog.productId || '' },
-				{ label: 'Title', value: gog.title || '' },
-				{ label: 'Price', value: typeof gog.cost === 'number' ? `$${Number(gog.cost).toFixed(2)}` : '' },
-				{ label: 'Genres', value: Array.isArray(gog.genreNames) ? gog.genreNames.join(', ') : '' },
-				{ label: 'Banner Image', value: gog.bannerImg || '' },
-				{ label: 'Description', value: gog.description || '' },
-			);
-		} else if (platform === 'itchio' && platformDetails && typeof platformDetails === 'object') {
-			const itch = platformDetails;
-			rows.push(
-				{ label: 'Game ID', value: itch.gameId != null ? String(itch.gameId) : '' },
-				{ label: 'Title', value: itch.title || '' },
-				{ label: 'Minimum Price', value: typeof itch.minPrice === 'number' ? `$${Number(itch.minPrice).toFixed(2)}` : '' },
-				{ label: 'Cover', value: itch.coverUrl || '' },
-				{ label: 'Description', value: itch.shortText || '' },
-				{ label: 'Store URL', value: itch.url || '' },
-			);
-		}
-
-		if (dbDetails && typeof dbDetails === 'object') {
-			const dbGenres = Array.isArray(dbDetails.genre_names) ? dbDetails.genre_names.filter(Boolean).join(', ') : '';
-			rows.push(
-				{ label: 'DB App ID', value: dbDetails.app_id != null ? String(dbDetails.app_id) : '' },
-				{ label: 'DB Platform', value: dbDetails.platform_name || '' },
-				{ label: 'DB Name', value: dbDetails.name || '' },
-				{ label: 'DB Price', value: typeof dbDetails.cost === 'number' ? `$${Number(dbDetails.cost).toFixed(2)}` : '' },
-				{ label: 'DB Banner', value: dbDetails.banner_img || '' },
-				{ label: 'DB Genres', value: dbGenres },
-				{ label: 'DB Minimum Requirements', value: dbDetails.minimum_requirements || '' },
-				{ label: 'DB Description', value: dbDetails.description || '' },
-			);
-		}
-
-		const deduped = [];
-		const seen = new Set();
-		for (const row of rows) {
-			const value = String(row.value || '').trim();
-			if (!value) continue;
-			const key = `${row.label}:${value}`;
-			if (seen.has(key)) continue;
-			seen.add(key);
-			deduped.push({ label: row.label, value });
-		}
-
-		return deduped;
-	}, [dbDetails, model.platform_name, platformDetails]);
 
 	const screenshot = model.screenshots[currentScreenshot] || model.heroImage || model.coverImage;
 	const activePlatform = normalizePlatformName(model.platform_name);
@@ -451,7 +391,7 @@ const StoreGamePage = () => {
 							</div>
 
 							<div className="rounded-2xl border border-slate-700/60 bg-slate-900/45 p-5 backdrop-blur-sm">
-								<h2 className="text-lg font-semibold text-white">Available On</h2>
+								<h2 className="text-lg font-semibold text-white">Available At</h2>
 								<div className="mt-3 flex flex-col gap-2">
 									{model.sites.map((site, index) => (
 										<a key={site.id ?? `${site.label}-${index}`} href={site.href ?? '#'} target="_blank" rel="noreferrer" className="rounded-xl border border-slate-700/70 bg-slate-950/45 px-4 py-3 text-sm text-slate-200 transition-colors hover:bg-slate-800/80">{site.label ?? 'Store'}</a>
@@ -517,20 +457,6 @@ const StoreGamePage = () => {
 										dangerouslySetInnerHTML={{ __html: model.longDescription || model.description || 'No long description available.' }}
 									/>
 								</div>
-
-									{gameDetailsRows.length > 0 ? (
-										<div className="rounded-2xl border border-slate-700/60 bg-slate-900/45 p-5 backdrop-blur-sm xl:col-span-2">
-											<h2 className="text-lg font-semibold text-white">Game Details</h2>
-											<div className="mt-3 grid gap-2 text-sm text-slate-300">
-												{gameDetailsRows.map((row) => (
-													<div key={row.label} className="rounded-lg border border-slate-700/50 bg-slate-950/35 px-3 py-2">
-														<div className="text-xs uppercase tracking-[0.14em] text-slate-400">{row.label}</div>
-														<div className="mt-1 break-words text-slate-200">{row.value}</div>
-													</div>
-												))}
-											</div>
-										</div>
-									) : null}
 
 							</div>
 						</div>

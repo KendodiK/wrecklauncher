@@ -38,6 +38,34 @@ function toSteamLibraryGame(game) {
 	};
 }
 
+function getLibraryGameKey(game) {
+	if (!game || typeof game !== 'object') return null;
+	const launcherId = String(game.launcherId || '').trim().toLowerCase();
+	const appId = Number(game.appid);
+	if (launcherId && Number.isFinite(appId) && appId > 0) {
+		return `${launcherId}:${appId}`;
+	}
+	const id = String(game.id || '').trim();
+	if (id) return `id:${id}`;
+	const title = String(game.title || '').trim().toLowerCase();
+	if (launcherId && title) return `${launcherId}:title:${title}`;
+	return null;
+}
+
+function dedupeLibraryGames(games) {
+	if (!Array.isArray(games)) return [];
+	const seen = new Set();
+	const out = [];
+	for (const game of games) {
+		if (!game) continue;
+		const key = getLibraryGameKey(game) || `fallback:${out.length}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		out.push(game);
+	}
+	return out;
+}
+
 const LibraryPage = () => {
 	const navigate = useNavigate();
 	const [libraryGames, setLibraryGames] = useState([]);
@@ -56,7 +84,7 @@ const LibraryPage = () => {
 	const [actionState, setActionState] = useState({ busyAction: '', text: '', type: '' });
 
 	const ownedGames = useMemo(() => {
-		return libraryGames.filter((g) => g.owned === true);
+		return dedupeLibraryGames(libraryGames.filter((g) => g.owned === true));
 	}, [libraryGames]);
 
 	useEffect(() => {
@@ -83,11 +111,12 @@ const LibraryPage = () => {
 				const normalizedGames = (ownedSteamGames || [])
 					.map(toSteamLibraryGame)
 					.filter(Boolean);
+				const uniqueGames = dedupeLibraryGames(normalizedGames);
 
 				if (!cancelled) {
-					setLibraryGames(normalizedGames);
+					setLibraryGames(uniqueGames);
 					setActiveLauncherId('steam');
-					setActiveGameId(normalizedGames[0]?.id ?? '');
+					setActiveGameId(uniqueGames[0]?.id ?? '');
 				}
 			} catch (error) {
 				console.error('Failed to load Steam library:', error);
@@ -138,7 +167,7 @@ const LibraryPage = () => {
 			return left.title.localeCompare(right.title);
 		});
 
-		return result;
+		return dedupeLibraryGames(result);
 	}, [deferredSearch, hideZeroPlaytime, searchPool, sortBy]);
 
 	const activeGame = useMemo(
@@ -220,7 +249,9 @@ const LibraryPage = () => {
 	const handleOpenStorePage = (game) => {
 		const appId = Number(game?.appid ?? game?.id);
 		if (!Number.isFinite(appId) || appId <= 0) return;
-		navigate(`/store/game/steam/${appId}`, {
+		const rawPlatform = String(game?.launcherId || game?.platform_name || game?.platform || 'steam').trim().toLowerCase();
+		const routePlatform = rawPlatform || 'steam';
+		navigate(`/store/game/${encodeURIComponent(routePlatform)}/${appId}`, {
 			state: {
 				game,
 			},

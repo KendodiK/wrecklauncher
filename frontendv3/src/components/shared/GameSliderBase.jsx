@@ -72,6 +72,7 @@ const GameSliderBase = ({
 	}, [baseCards.length, cloneCount]);
 
 	const [currentIndex, setCurrentIndex] = useState(initialIndex);
+	const activeCardIdRef = useRef(null);
 
 	const cards = useMemo(() => {
 		if (!baseCards.length) return [];
@@ -211,17 +212,33 @@ const GameSliderBase = ({
 		};
 	}, [cards.length, currentIndex, recenter, mode]);
 
-	// If the game list changes, jump to the new middle without animating.
+	// If the game list changes (e.g. load-more), keep the same active card when possible.
 	useEffect(() => {
 		if (!baseCards.length) return;
-		skipAnimationRef.current = true;
-		setCurrentIndex(initialIndex);
-	}, [initialIndex, baseCards.length]);
+
+		const activeId = activeCardIdRef.current;
+		if (activeId == null) {
+			skipAnimationRef.current = true;
+			setCurrentIndex(initialIndex);
+			return;
+		}
+
+		const nextBaseIndex = baseCards.findIndex((card) => String(card?.id) === String(activeId));
+		if (nextBaseIndex < 0) {
+			skipAnimationRef.current = true;
+			setCurrentIndex(initialIndex);
+			return;
+		}
+
+		const nextIndex = cloneCount + nextBaseIndex;
+		setCurrentIndex((prev) => (prev === nextIndex ? prev : nextIndex));
+	}, [baseCards, cloneCount, initialIndex]);
 
 	useEffect(() => {
 		if (typeof onCurrentCardChange !== 'function') return;
 		const card = cards[currentIndex];
 		if (!card) return;
+		activeCardIdRef.current = card.id;
 		onCurrentCardChange(card, { index: currentIndex });
 	}, [cards, currentIndex, onCurrentCardChange]);
 

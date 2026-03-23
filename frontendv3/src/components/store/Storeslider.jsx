@@ -208,7 +208,7 @@ const Storeslider = ({ items, onCardClick, onNearEnd, nearEndThreshold = 5 }) =>
                     },
                 };
             }}
-            transitionMs={300}
+            transitionMs={420}
             renderCard={({ card, abs }) => (
                 <>
                     <img src={card.image} alt={card.title} loading={abs <= 1 ? 'eager' : 'lazy'} />
