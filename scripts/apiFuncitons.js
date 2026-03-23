@@ -12,7 +12,6 @@ const PlatformsController = require('../database/controllers/PlatformsController
 const PlatformUsersController = require('../database/controllers/PlatformUsersController.js');
 const ShopSpecialsController = require('../database/controllers/ShopSpecialsController.js');
 const PricesController = require('../database/controllers/PricesController.js');
-const DatabaseHandler = require('../database/DatabaseHandler.js');
 //#endregion
 
 // ====================== ///

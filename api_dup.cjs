@@ -1425,18 +1425,6 @@ app.get("/api/shop-specials/:filter/list/:from", apiFunctions.GETShopSpecialsFil
 // -------------------     POST      ------------------ //
 
 /*
-  route: /api/login/:username/:password
-  params: -
-  headers: username, password
-  body: -
-
-  returns: 
-    {
-      user auth token (user.id + user.token)
-    }
-*/
-app.post('/api/login/:username/:password', (req, res) => {}); //---->> PUT-ra cserélve
-/*
   route: /api/signup/
   params: -
   headers: -
