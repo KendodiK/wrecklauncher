@@ -13,7 +13,7 @@ class ShopSpecialsController extends Controller {
     async show(game_id) {
         await this.ready;
 
-        const query = `SELECT * FROM ${this.tableName} WHERE game_id = ?;`;
+        const query = `SELECT * FROM shop_specials WHERE game_id = ?;`;
         try {
             const [rows] = await this.dbConnection.execute(query, [game_id]);
             return rows[0];
@@ -25,7 +25,7 @@ class ShopSpecialsController extends Controller {
 
     /**
      * 
-     * @param {Array} data - {"game_id": int, "featured": float(rank_num), "coming_soon": boolean, "discounted": int(percent)}
+     * @param {Array} data - {"game_id": int, "featured": float(rank_num), "coming_soon": boolean, "discount_percent": int(percent)}
      * @returns {Array} message: string, id: int
      */
     async create(data) {
@@ -40,18 +40,18 @@ class ShopSpecialsController extends Controller {
 
         // avoid inserting a row that already exists for this game_id
         try {
-            const [existing] = await this.dbConnection.execute('SELECT game_id FROM shop_specials WHERE game_id = ?', [data.game_id]);
-            if (existing && existing.length > 0) {
-                this.update(existing[0].id, data);
-                return { message: `shop_specials entry already exists for game_id ${data.game_id}, it is updated`, id: existing[0].id };
+            const existing = await this.show(data.game_id);
+            if (existing) {
+                this.update(data);
+                return { message: `shop_specials entry already exists for game_id ${data.game_id}, it is updated`, id: existing.id };
             }
         } catch (err) {
             console.error(`Error while checking existing shop_specials for game_id ${data.game_id}: ${err}`);
             throw err;
         }
 
-        const query = 'INSERT INTO shop_specials (game_id, featured, coming_soon, discounted) VALUES (?, ?, ?, ?);';
-        const values = [data.game_id, data.featured ?? false, data.coming_soon ?? false, data.discounted ?? false];
+        const query = 'INSERT INTO shop_specials (game_id, featured, coming_soon, discount_percent) VALUES (?, ?, ?, ?);';
+        const values = [data.game_id, data.featured ?? false, data.coming_soon ?? false, data.discount_percent ?? false];
 
         try {
             const [result] = await this.dbConnection.execute(query, values);
@@ -64,17 +64,17 @@ class ShopSpecialsController extends Controller {
 
     /**
      * 
-     * @param {int} game_id 
-     * @param {Array} data - {"game_id": int, "featured": float(rank_num), "coming_soon": boolean, "discounted": int(percent)}
+     * @param {Array} data - {"game_id": int, "featured": float(rank_num), "coming_soon": boolean, "discount_percent": int(percent)}
      * @returns 
      */
-    async update(game_id, data) {
+    async update(data) {
         await super.update(); 
     
+        const game_id = data.game_id
         let old = await this.show(game_id);
 
-        const query = 'UPDATE shop_specials SET featured = ?, coming_soon = ?, discounted = ? WHERE game_id = ?;';
-        const values = [data.featured ?? old.featured, data.coming_soon ?? old.coming_soon, data.discounted ?? old.discounted, game_id];
+        const query = 'UPDATE shop_specials SET featured = ?, coming_soon = ?, discount_percent = ? WHERE game_id = ?;';
+        const values = [data.featured ?? old.featured, data.coming_soon ?? old.coming_soon, data.discount_percent ?? old.discount_percent, game_id];
 
         if (!values[0] && !values[1] && !values[2]) {
             await this.delete(game_id);
@@ -93,6 +93,7 @@ class ShopSpecialsController extends Controller {
     async delete(game_id) {
         await this.ready;
 
+        console.log(".\n.\n.\n", game_id, "\n.\n.\n");
         const query = `DELETE FROM ${this.tableName} WHERE game_id = ?;`;
         try {
             await this.dbConnection.execute(query, [game_id]);
@@ -114,8 +115,8 @@ class ShopSpecialsController extends Controller {
             case 'coming_soon':
                 column = 'coming_soon';
                 break;
-            case 'discounted':
-                column = 'discounted';
+            case 'discount_percent':
+                column = 'discount_percent';
                 break;
             default:
                 throw new Error(`Invalid filter: ${filter}`);

@@ -12,6 +12,7 @@ const PlatformsController = require('../database/controllers/PlatformsController
 const PlatformUsersController = require('../database/controllers/PlatformUsersController.js');
 const ShopSpecialsController = require('../database/controllers/ShopSpecialsController.js');
 const PricesController = require('../database/controllers/PricesController.js');
+const DatabaseHandler = require('../database/DatabaseHandler.js');
 //#endregion
 
 // ====================== ///
@@ -20,6 +21,17 @@ const PricesController = require('../database/controllers/PricesController.js');
 // ====================== ///
 // ====================== ///
 
+/**
+ * GET /game/:id
+ * 
+ * @route GET /game/:id
+ * @param {Object} req
+ * @param {Object} req.params
+ * @param {number} req.params.id
+ * @param {Object} res
+ * 
+ * @returns {apiDoc.Game}
+ */
 module.exports.GETGameById = async function (req, res) {
   try {
     const { id: gameId } = req.params;
@@ -211,7 +223,7 @@ module.exports.GETNativeUserByName = async function (req, res) {
                 "id": result.id,
                 "name": result.name,
                 "bio": result.bio,
-                "php": result.pfp
+                "pfp": result.pfp
             };
             users.push(user);
         }
@@ -314,10 +326,20 @@ module.exports.POSTNewGame = async function (req, res) {
         }
 
         const gamesCtrl = new GamesController();
+        const platformCtrl = new PlatformsController();
 
-        let { county_code: countyCode, genre_names: genreNames } = req.body;
-        let platformName = req.body.platform_name ?? null;
+        let { county_code: countyCode, genre_names: genreNames, cost: price } = req.body;
+        const platformName = req.body.platform_name ?? null;
         const platformId = req.body.platform_id ?? null;
+        let resolvedPlatformName = platformName ?? await platformCtrl.show(platformId);
+        if(!resolvedPlatformName) {
+            return res.status(400).json({ error: 'Could not upload no platform name given or DB don`t contain platform with given platform id'})
+        }
+        let resolvedPlatformId = platformId;
+        if(!resolvedPlatformId) {
+            const platform = await platformCtrl.getByPlatformName(resolvedPlatformName);
+            resolvedPlatformId = platform.id;
+        }
         const fallbackBanner = req.body.banner_img ?? null;
         const platformBannerImg = await apiHelpers.getPlatformBannerUrl({
             platformName: resolvedPlatformName,
@@ -327,7 +349,7 @@ module.exports.POSTNewGame = async function (req, res) {
 
         const gameData = {
             "app_id": req.body.app_id,
-            "platform_id": platformId,
+            "platform_id": resolvedPlatformId,
             "platform_name": platformName,
             "name": req.body.name,
             "banner_img": platformBannerImg,
@@ -337,10 +359,10 @@ module.exports.POSTNewGame = async function (req, res) {
 
 
         if ((!Array.isArray(genreNames) || genreNames.length === 0) && String(resolvedPlatformName ?? '').trim().toLowerCase() === 'itch') {
-            const itchDetails = await fetchItchGameDetails(req.body.app_id, { includePageDetails: true });
-            genreNames = normalizeGenreNames(itchDetails?.genres ?? []);
+            const itchDetails = await apiHelpers.fetchItchGameDetails(req.body.app_id, { includePageDetails: true });
+            genreNames = apiHelpers.normalizeGenreNames(itchDetails?.genres ?? []);
         }
-        const countyId = apiHelpers.getCountyIdByCode(countyCode);
+        const countyId = await apiHelpers.getCountryIdByCode(countyCode);
         
         const uploadedGame = await gamesCtrl.uploadWithAll(gameData, null, genreNames, {"price": price, "county_id": countyId});
         return res.status(201).json({ message: 'Game uploaded successfully', gameId: uploadedGame.id });
@@ -355,8 +377,11 @@ module.exports.POSTNewPrice = async function (req, res) {
         const { price, county_code: countyCode, game_id: gameId } = req.body;
         const pricesCtrl = new PricesController();
     
-        const countyId = await apiHelpers.getCountyIdByCode(countyCode);
+        const countyId = await apiHelpers.getCountryIdByCode(countyCode);
         const uploadPrice = await pricesCtrl.create({"gameId": gameId, "countyId": countyId, "price": price});
+        if(uploadPrice instanceof Error) {
+            return res.status(400).json({ error: `Error while createing new price: ${uploadPrice}` })
+        }
 
         return res.status(201).json({ message: `New price added to game (${gameId}) succesfully`});
     } catch (err) {
@@ -368,7 +393,7 @@ module.exports.POSTNewPrice = async function (req, res) {
 module.exports.POSTNewPirateSiteConnectionByGameId = async function (req, res) {
     try {
         const {gameId} = req.params;
-        const {link, siteId, siteName} = req.body;
+        const {link, site_id: siteId, site_name: siteName} = req.body;
         const gamesPirateSitesConnCtrl = new GamesPirateSitesConnectionController();
         const data = {
             "game_id": gameId,
@@ -376,28 +401,30 @@ module.exports.POSTNewPirateSiteConnectionByGameId = async function (req, res) {
             "site_name": siteName ?? null,
             "link": link,
         }
+        console.log(".\n.\n.\n", data, "\n.\n.\n");
+
         const result = await gamesPirateSitesConnCtrl.createWithAll(data);
         if (result instanceof Error) {
             return res.status(400).json({ message: result.message });
         }
         return res.json(result);
     } catch (err) {
-        console.error('Error in /api/pirate_sites/:gameId/siteId endpoint:', error);
-        return res.status(500).json({ error: error.message });
+        console.error('Error in /api/pirate_sites/:gameId/siteId endpoint:', err);
+        return res.status(500).json({ error: err.message });
     }
 }
 
 module.exports.POSTNewFriends = async function (req, res) {
     try {
         const { userId } = req.auth;
-        const { friendUserId } = req.body;
+        const { friend_user_id: friendUserId } = req.body;
 
         const friendsCtrl = new FriendsController();
         const result = await friendsCtrl.create({ user1_id: userId, user2_id: friendUserId });
         if (result.message.includes('already exists') || result instanceof Error) {
             return res.status(400).json({ message: result.message });
         }
-        return res.status(201).json({message: "frinedship created", id: result.id});
+        return res.status(201).json({ message: "friendship created", id: result.id });
     } catch (error) {
         console.error('Error in /api/friends endpoint:', error);
         return res.status(500).json({ error: error.message }); 
@@ -406,14 +433,14 @@ module.exports.POSTNewFriends = async function (req, res) {
 
 module.exports.POSTNewPlatform = async function (req, res) {
     try {
-        const { platformName } = req.body;
+        const { platform_name: platformName } = req.body;
 
         const platformCtrl = new PlatformsController();
         const result = await platformCtrl.create({name: platformName});
         if( result instanceof Error ) {
             return res.status(400).json({ message: result.message });
         }
-        return res.status(201).json({message: "platform uploaded", id: result.id})
+        return res.status(201).json({message: "platform created", id: result.id})
     } catch (err) {
         console.log('Error in /api/platforms endpoint:', err);
         return res.status(500).json({ error: err.message });
@@ -424,12 +451,17 @@ module.exports.POSTNewPlatformUser = async function (req, res) {
     try {
         const { userId } = req.auth;
 
-        const { platformUserName, platformId, platfProfId, platformPassword } = req.body || {};
+        const { platform_user_name: platformUserName, 
+                platform_id: platformId, 
+                platform_prof_id: platfProfId, 
+                oauth_token: oauthToken 
+              } = req.body || {};
+
         const missing = [];
         if (platformUserName == null) missing.push('platformUserName');
         if (platformId == null) missing.push('platformId');
         if (platfProfId == null) missing.push('platfProfId');
-        if (platformPassword == null) missing.push('platformPassword');
+        if (oauthToken == null) missing.push('oauth_token');
         if (missing.length) {
             return res.status(400).json({ message: 'Missing required fields', missing });
         }
@@ -439,7 +471,7 @@ module.exports.POSTNewPlatformUser = async function (req, res) {
             "platform_user_name": platformUserName,
             "platform_id": platformId,
             "platform_profile_id": platfProfId,
-            "platform_password": platformPassword,
+            "oauth_token": oauthToken,
         }
 
         const platformUserCtrl = new PlatformUsersController();
@@ -457,15 +489,35 @@ module.exports.POSTNewPlatformUser = async function (req, res) {
 module.exports.POSTNewCountry = async function (req, res) {
     try {
         const { code } = req.body;
-        const id = await apiHelpers.createCountyByCode(code);
+        const id = await apiHelpers.getCountryIdByCode(code);
 
         if ( id instanceof Error ) {
         return res.status(400).json({ message: res.message });
         }
         return res.status(201).json({ message: "county uploaded", id: id});
     } catch (err) {
-        console.log('Error in /api/county endpoint:', err);
+        console.log('Error in /api/countries endpoint:', err);
         return res.status(500).json({ error: err.message });
+    }
+}
+
+module.exports.POSTNewShopSpecials = async function (req, res) {
+    try {
+        const { gameId } = req.params;
+        const { featured, coming_soon: comingSoon, discount_percent: discountPercent } = req.body;
+        const data = {
+            "game_id": gameId,
+            "featured": featured,
+            "coming_soon": comingSoon,
+            "discount_percent": discountPercent
+        }
+        
+        const shopSpecialsCtrl = new ShopSpecialsController();
+        await shopSpecialsCtrl.create(data);
+        return res.status(201).json({ message: "new shop special created succesfully", id: gameId })
+    } catch (err) {
+        console.log('Error in /api/shop-specials endpoint:', err);
+        return res.status(500).json({ error: err });
     }
 }
 
@@ -479,7 +531,10 @@ module.exports.PUTNativeUserLogin = async function (req, res) {
     try {
         const { userId } = req.auth;
         const nativeUserCtrl = new NativeUsersController();
-        const updatedUser = await nativeUserCtrl.update(userId, req.body);
+        const data = {
+            "token": "new",
+        }
+        const updatedUser = await nativeUserCtrl.update(userId, data);
         if (updatedUser instanceof Error) {
             return res.status(400).json({ message: updatedUser.message });
         }
@@ -492,13 +547,13 @@ module.exports.PUTNativeUserLogin = async function (req, res) {
 
 module.exports.PUTGames = async function (req, res) {
     try {
-        const { id: gameId } = req.params;
+        const { gameId } = req.params;
 
         const gameData = {
-            "app_id": req.body.app_id,
-            "platform_id": platformId,
-            "name": req.body.name,
-            "banner_img": req.body.banner_img,
+            "app_id": req.body.app_id ?? null,
+            "platform_id": req.body.platform_id ?? null,
+            "name": req.body.name ?? null,
+            "banner_img": req.body.banner_img ?? null,
             "description": req.body.description ?? null,
             "minimum_requirements": req.body.minimum_requirements ?? null,
         }
@@ -510,40 +565,52 @@ module.exports.PUTGames = async function (req, res) {
         }
         return res.json(updatedGame);
     } catch (err) {
-        console.error('Error in /api/games/:id endpoint:', error);
-        return res.status(500).json({ error: error.message });
+        console.error('Error in /api/games/:id endpoint:', err);
+        return res.status(500).json({ error: err.message });
     }
 }
 
 module.exports.PUTShopSpecialsByGameId = async function (req, res) {
     try {
-        const { gameId } = req.params;
-        const { featured, coming_soon, discounted } = req.body;
         const shopSpecialsCtrl = new ShopSpecialsController();
-        const result = await shopSpecialsCtrl.update(gameId, { "featured": featured, "coming_soon": coming_soon, "discounted": discounted });
+        const { gameId } = req.params;
+        const { featured, coming_soon: comingSoon, discount_percent: discountPercent } = req.body;
+        const data = {
+            "game_id": gameId,
+            "featured": featured,
+            "coming_soon": comingSoon,
+            "discount_percent": discountPercent
+        }
+
+        const result = await shopSpecialsCtrl.update(data);
         if (result instanceof Error) {
             return res.status(400).json({ message: result.message });
         }
         return res.json(result);
     } catch (err) {
-        console.error('Error in /api/shop_specials/:gameId endpoint:', error);
-        return res.status(500).json({ error: error.message });
+        console.error('Error in /api/shop_specials/:gameId endpoint:', err);
+        return res.status(500).json({ error: err.message });
     }
 }
 
 module.exports.PUTPirateSitesByGameId = async function (req, res) {
     try {
-        const {gameId} = req.params;
-        const {link, siteId} = req.body;
+        const { gameId, siteId } = req.params;
+        const { link } = req.body;
         const gamesPirateSitesConnCtrl = new GamesPirateSitesConnectionController();
-        const result = await gamesPirateSitesConnCtrl.update(gameId, siteId, link);
+        const data = {
+            "game_id": gameId,
+            "site_id": siteId,
+            "link": link
+        }
+        const result = await gamesPirateSitesConnCtrl.update(data);
         if (result instanceof Error) {
             return res.status(400).json({ message: result.message });
         }
         return res.json(result);
     } catch (err) {
-        console.error('Error in /api/pirate_sites/:gameId endpoint:', error);
-        return res.status(500).json({ error: error.message });
+        console.error('Error in /api/pirate_sites/:siteId/game/:gameId endpoint:', err);
+        return res.status(500).json({ error: err.message });
     }
 }
 
@@ -571,11 +638,10 @@ module.exports.DELETEFriends = async function (req, res) {
 
 module.exports.DELETEPlatformUser = async function (req, res) {
     try {
-        const { userId } = req.auth;
-        const { id } = req.params;
+        const { platfromUserId: id } = req.params;
 
         const platformUserCtrl = new PlatformUsersController();
-        const result = await platformUserCtrl.deleteByNativeUserId(id, userId);
+        const result = await platformUserCtrl.delete(id);
         if (result instanceof Error) {
             return res.status(400).json({ message: result.message });
         }
