@@ -20,6 +20,17 @@ const PricesController = require('../database/controllers/PricesController.js');
 // ====================== ///
 // ====================== ///
 
+/**
+ * GET /game/:id
+ * 
+ * @route GET /game/:id
+ * @param {Object} req
+ * @param {Object} req.params
+ * @param {number} req.params.id
+ * @param {Object} res
+ * 
+ * @returns {apiDoc.Game}
+ */
 module.exports.GETGameById = async function (req, res) {
   try {
     const { id: gameId } = req.params;
@@ -211,7 +222,7 @@ module.exports.GETNativeUserByName = async function (req, res) {
                 "id": result.id,
                 "name": result.name,
                 "bio": result.bio,
-                "php": result.pfp
+                "pfp": result.pfp
             };
             users.push(user);
         }
@@ -314,10 +325,20 @@ module.exports.POSTNewGame = async function (req, res) {
         }
 
         const gamesCtrl = new GamesController();
+        const platformCtrl = new PlatformsController();
 
-        let { county_code: countyCode, genre_names: genreNames } = req.body;
-        let platformName = req.body.platform_name ?? null;
+        let { county_code: countyCode, genre_names: genreNames, cost: price } = req.body;
+        const platformName = req.body.platform_name ?? null;
         const platformId = req.body.platform_id ?? null;
+        let resolvedPlatformName = platformName ?? await platformCtrl.show(platformId);
+        if(!resolvedPlatformName) {
+            return res.status(400).json({ error: 'Could not upload no platform name given or DB don`t contain platform with given platform id'})
+        }
+        let resolvedPlatformId = platformId;
+        if(!resolvedPlatformId) {
+            const platform = await platformCtrl.getByPlatformName(resolvedPlatformName);
+            resolvedPlatformId = platform.id;
+        }
         const fallbackBanner = req.body.banner_img ?? null;
         const platformBannerImg = await apiHelpers.getPlatformBannerUrl({
             platformName: resolvedPlatformName,
@@ -327,7 +348,7 @@ module.exports.POSTNewGame = async function (req, res) {
 
         const gameData = {
             "app_id": req.body.app_id,
-            "platform_id": platformId,
+            "platform_id": resolvedPlatformId,
             "platform_name": platformName,
             "name": req.body.name,
             "banner_img": platformBannerImg,
@@ -337,10 +358,10 @@ module.exports.POSTNewGame = async function (req, res) {
 
 
         if ((!Array.isArray(genreNames) || genreNames.length === 0) && String(resolvedPlatformName ?? '').trim().toLowerCase() === 'itch') {
-            const itchDetails = await fetchItchGameDetails(req.body.app_id, { includePageDetails: true });
-            genreNames = normalizeGenreNames(itchDetails?.genres ?? []);
+            const itchDetails = await apiHelpers.fetchItchGameDetails(req.body.app_id, { includePageDetails: true });
+            genreNames = apiHelpers.normalizeGenreNames(itchDetails?.genres ?? []);
         }
-        const countyId = apiHelpers.getCountyIdByCode(countyCode);
+        const countyId = await apiHelpers.getCountryIdByCode(countyCode);
         
         const uploadedGame = await gamesCtrl.uploadWithAll(gameData, null, genreNames, {"price": price, "county_id": countyId});
         return res.status(201).json({ message: 'Game uploaded successfully', gameId: uploadedGame.id });
@@ -355,8 +376,11 @@ module.exports.POSTNewPrice = async function (req, res) {
         const { price, county_code: countyCode, game_id: gameId } = req.body;
         const pricesCtrl = new PricesController();
     
-        const countyId = await apiHelpers.getCountyIdByCode(countyCode);
+        const countyId = await apiHelpers.getCountryIdByCode(countyCode);
         const uploadPrice = await pricesCtrl.create({"gameId": gameId, "countyId": countyId, "price": price});
+        if(uploadPrice instanceof Error) {
+            return res.status(400).json({ error: `Error while createing new price: ${uploadPrice}` })
+        }
 
         return res.status(201).json({ message: `New price added to game (${gameId}) succesfully`});
     } catch (err) {
@@ -368,7 +392,7 @@ module.exports.POSTNewPrice = async function (req, res) {
 module.exports.POSTNewPirateSiteConnectionByGameId = async function (req, res) {
     try {
         const {gameId} = req.params;
-        const {link, siteId, siteName} = req.body;
+        const {link, site_id: siteId, site_name: siteName} = req.body;
         const gamesPirateSitesConnCtrl = new GamesPirateSitesConnectionController();
         const data = {
             "game_id": gameId,
@@ -376,28 +400,30 @@ module.exports.POSTNewPirateSiteConnectionByGameId = async function (req, res) {
             "site_name": siteName ?? null,
             "link": link,
         }
+        console.log(".\n.\n.\n", data, "\n.\n.\n");
+
         const result = await gamesPirateSitesConnCtrl.createWithAll(data);
         if (result instanceof Error) {
             return res.status(400).json({ message: result.message });
         }
         return res.json(result);
     } catch (err) {
-        console.error('Error in /api/pirate_sites/:gameId/siteId endpoint:', error);
-        return res.status(500).json({ error: error.message });
+        console.error('Error in /api/pirate_sites/:gameId/siteId endpoint:', err);
+        return res.status(500).json({ error: err.message });
     }
 }
 
 module.exports.POSTNewFriends = async function (req, res) {
     try {
         const { userId } = req.auth;
-        const { friendUserId } = req.body;
+        const { friend_user_id: friendUserId } = req.body;
 
         const friendsCtrl = new FriendsController();
         const result = await friendsCtrl.create({ user1_id: userId, user2_id: friendUserId });
         if (result.message.includes('already exists') || result instanceof Error) {
             return res.status(400).json({ message: result.message });
         }
-        return res.status(201).json({message: "frinedship created", id: result.id});
+        return res.status(201).json({ message: "friendship created", id: result.id });
     } catch (error) {
         console.error('Error in /api/friends endpoint:', error);
         return res.status(500).json({ error: error.message }); 
@@ -406,14 +432,14 @@ module.exports.POSTNewFriends = async function (req, res) {
 
 module.exports.POSTNewPlatform = async function (req, res) {
     try {
-        const { platformName } = req.body;
+        const { platform_name: platformName } = req.body;
 
         const platformCtrl = new PlatformsController();
         const result = await platformCtrl.create({name: platformName});
         if( result instanceof Error ) {
             return res.status(400).json({ message: result.message });
         }
-        return res.status(201).json({message: "platform uploaded", id: result.id})
+        return res.status(201).json({message: "platform created", id: result.id})
     } catch (err) {
         console.log('Error in /api/platforms endpoint:', err);
         return res.status(500).json({ error: err.message });
@@ -424,12 +450,17 @@ module.exports.POSTNewPlatformUser = async function (req, res) {
     try {
         const { userId } = req.auth;
 
-        const { platformUserName, platformId, platfProfId, platformPassword } = req.body || {};
+        const { platform_user_name: platformUserName, 
+                platform_id: platformId, 
+                platform_prof_id: platfProfId, 
+                oauth_token: oauthToken 
+              } = req.body || {};
+
         const missing = [];
         if (platformUserName == null) missing.push('platformUserName');
         if (platformId == null) missing.push('platformId');
         if (platfProfId == null) missing.push('platfProfId');
-        if (platformPassword == null) missing.push('platformPassword');
+        if (oauthToken == null) missing.push('oauth_token');
         if (missing.length) {
             return res.status(400).json({ message: 'Missing required fields', missing });
         }
@@ -439,7 +470,7 @@ module.exports.POSTNewPlatformUser = async function (req, res) {
             "platform_user_name": platformUserName,
             "platform_id": platformId,
             "platform_profile_id": platfProfId,
-            "platform_password": platformPassword,
+            "oauth_token": oauthToken,
         }
 
         const platformUserCtrl = new PlatformUsersController();
@@ -457,14 +488,14 @@ module.exports.POSTNewPlatformUser = async function (req, res) {
 module.exports.POSTNewCountry = async function (req, res) {
     try {
         const { code } = req.body;
-        const id = await apiHelpers.createCountyByCode(code);
+        const id = await apiHelpers.getCountryIdByCode(code);
 
         if ( id instanceof Error ) {
         return res.status(400).json({ message: res.message });
         }
         return res.status(201).json({ message: "county uploaded", id: id});
     } catch (err) {
-        console.log('Error in /api/county endpoint:', err);
+        console.log('Error in /api/countries endpoint:', err);
         return res.status(500).json({ error: err.message });
     }
 }

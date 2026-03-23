@@ -160,11 +160,11 @@ class GamesPirateSitesConncectionController extends Controller {
             throw duplicateCheck;
         }
 
-        const query = 'INSERT INTO `game_pirates_sites_connections` (game_id, pirate_site_id, link) VALUES (?, ?, ?)';
+        const query = 'INSERT INTO `game_pirates_sites_connections` (game_id, site_id, link) VALUES (?, ?, ?)';
         const values = [data.game_id, data.pirate_site_id, data.link];
         try {
             const [result] = await this.dbConnection.execute(query, values);
-            return { message: `${result.insertId} Element created in table ${this.tableName}`, id: result.insertId, siteId: data.pirate_site_id };
+            return { message: `${result.insertId} Element created in table ${this.tableName}`, id: result.insertId };
         } catch (err) {
             console.error(`Error while adding new element to table ${this.tableName}: ${err}`);
             throw err;
@@ -201,7 +201,7 @@ class GamesPirateSitesConncectionController extends Controller {
         await this.ready;
 
         try {
-            const [existingRows] = await this.dbConnection.execute('SELECT id FROM game_pirates_sites_connections WHERE game_id = ? AND pirate_site_id = ?', [data.game_id, data.pirate_site_id]);
+            const [existingRows] = await this.dbConnection.execute('SELECT * FROM game_pirates_sites_connections WHERE game_id = ? AND site_id = ?', [data.game_id, data.pirate_site_id]);
             if (existingRows && existingRows.length > 0) {
                 return new Error("Duplicate entry for game_id and pirate_site_id");
             }

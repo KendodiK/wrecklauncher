@@ -1491,7 +1491,7 @@ app.post("/api/platforms", tokenValidate(), apiFunctions.POSTNewPlatform);
 
 app.post("/api/platform-users", tokenValidate(), apiFunctions.POSTNewPlatformUser); //old path: /api/platform_users
 
-app.post("/api/counties", tokenValidate(), apiFunctions.POSTNewCountry);
+app.post("/api/countries", tokenValidate(), apiFunctions.POSTNewCountry); //old path: /api/counties
 
 // -------------------      PUT       ------------------ //
 
