@@ -1493,6 +1493,8 @@ app.post("/api/platform-users", tokenValidate(), apiFunctions.POSTNewPlatformUse
 
 app.post("/api/countries", tokenValidate(), apiFunctions.POSTNewCountry); //old path: /api/counties
 
+app.post("/api/shop-specials/:gameId", tokenValidate(), apiFunctions.POSTNewShopSpecials); // totally new path
+
 // -------------------      PUT       ------------------ //
 
 /*
@@ -1530,11 +1532,11 @@ app.put("/api/login", tokenValidate(), apiFunctions.PUTNativeUserLogin);
       game.minimum_requirements
     }
 */
-app.put("/api/games/:id", tokenValidate(), apiFunctions.PUTGames); //old path: no tokenValidate()
+app.put("/api/games/:gameId", tokenValidate(), apiFunctions.PUTGames); //old path: /api/games/:id no tokenValidate()
 
 app.put("/api/shop-specials/:gameId", tokenValidate(), apiFunctions.PUTShopSpecialsByGameId); //old path: /api/shop_specials/:gameId - no tokenValidate()
 
-app.put("/api/pirate-sites/:gameId", tokenValidate(), apiFunctions.PUTPirateSitesByGameId); //old path: /api/pirate_sites/:gameId/:siteId - no tokenValidate()
+app.put("/api/pirate-sites/:siteId/game/:gameId", tokenValidate(), apiFunctions.PUTPirateSitesByGameId); //old path: /api/pirate_sites/:gameId/:siteId - no tokenValidate()
 
 // -------------------     DELETE     ------------------ //
 
@@ -1551,6 +1553,6 @@ app.put("/api/pirate-sites/:gameId", tokenValidate(), apiFunctions.PUTPirateSite
 */
 app.delete("/api/friends/:friendShipId", tokenValidate(), apiFunctions.DELETEFriends);
 
-app.delete("/api/platform-user/:platfromUserId", tokenValidate(), apiFunctions.DELETEPlatformUser); //old path: /api/platform_user/:platfromUserId
+app.delete("/api/platform-users/:platfromUserId", tokenValidate(), apiFunctions.DELETEPlatformUser); //old path: /api/platform_user/:platfromUserId
 
-app.delete("/api/native-user", tokenValidate(), apiFunctions.DELETENAtiveUser); // old path: /api/native_user
+app.delete("/api/native-users", tokenValidate(), apiFunctions.DELETENAtiveUser); // old path: /api/native_user

@@ -12,6 +12,7 @@ const PlatformsController = require('../database/controllers/PlatformsController
 const PlatformUsersController = require('../database/controllers/PlatformUsersController.js');
 const ShopSpecialsController = require('../database/controllers/ShopSpecialsController.js');
 const PricesController = require('../database/controllers/PricesController.js');
+const DatabaseHandler = require('../database/DatabaseHandler.js');
 //#endregion
 
 // ====================== ///
@@ -500,6 +501,26 @@ module.exports.POSTNewCountry = async function (req, res) {
     }
 }
 
+module.exports.POSTNewShopSpecials = async function (req, res) {
+    try {
+        const { gameId } = req.params;
+        const { featured, coming_soon: comingSoon, discount_percent: discountPercent } = req.body;
+        const data = {
+            "game_id": gameId,
+            "featured": featured,
+            "coming_soon": comingSoon,
+            "discount_percent": discountPercent
+        }
+        
+        const shopSpecialsCtrl = new ShopSpecialsController();
+        await shopSpecialsCtrl.create(data);
+        return res.status(201).json({ message: "new shop special created succesfully", id: gameId })
+    } catch (err) {
+        console.log('Error in /api/shop-specials endpoint:', err);
+        return res.status(500).json({ error: err });
+    }
+}
+
 // ====================== ///
 // ====================== ///
 // ======== PUT ========= ///
@@ -510,7 +531,10 @@ module.exports.PUTNativeUserLogin = async function (req, res) {
     try {
         const { userId } = req.auth;
         const nativeUserCtrl = new NativeUsersController();
-        const updatedUser = await nativeUserCtrl.update(userId, req.body);
+        const data = {
+            "token": "new",
+        }
+        const updatedUser = await nativeUserCtrl.update(userId, data);
         if (updatedUser instanceof Error) {
             return res.status(400).json({ message: updatedUser.message });
         }
@@ -523,13 +547,13 @@ module.exports.PUTNativeUserLogin = async function (req, res) {
 
 module.exports.PUTGames = async function (req, res) {
     try {
-        const { id: gameId } = req.params;
+        const { gameId } = req.params;
 
         const gameData = {
-            "app_id": req.body.app_id,
-            "platform_id": platformId,
-            "name": req.body.name,
-            "banner_img": req.body.banner_img,
+            "app_id": req.body.app_id ?? null,
+            "platform_id": req.body.platform_id ?? null,
+            "name": req.body.name ?? null,
+            "banner_img": req.body.banner_img ?? null,
             "description": req.body.description ?? null,
             "minimum_requirements": req.body.minimum_requirements ?? null,
         }
@@ -541,40 +565,52 @@ module.exports.PUTGames = async function (req, res) {
         }
         return res.json(updatedGame);
     } catch (err) {
-        console.error('Error in /api/games/:id endpoint:', error);
-        return res.status(500).json({ error: error.message });
+        console.error('Error in /api/games/:id endpoint:', err);
+        return res.status(500).json({ error: err.message });
     }
 }
 
 module.exports.PUTShopSpecialsByGameId = async function (req, res) {
     try {
-        const { gameId } = req.params;
-        const { featured, coming_soon, discounted } = req.body;
         const shopSpecialsCtrl = new ShopSpecialsController();
-        const result = await shopSpecialsCtrl.update(gameId, { "featured": featured, "coming_soon": coming_soon, "discounted": discounted });
+        const { gameId } = req.params;
+        const { featured, coming_soon: comingSoon, discount_percent: discountPercent } = req.body;
+        const data = {
+            "game_id": gameId,
+            "featured": featured,
+            "coming_soon": comingSoon,
+            "discount_percent": discountPercent
+        }
+
+        const result = await shopSpecialsCtrl.update(data);
         if (result instanceof Error) {
             return res.status(400).json({ message: result.message });
         }
         return res.json(result);
     } catch (err) {
-        console.error('Error in /api/shop_specials/:gameId endpoint:', error);
-        return res.status(500).json({ error: error.message });
+        console.error('Error in /api/shop_specials/:gameId endpoint:', err);
+        return res.status(500).json({ error: err.message });
     }
 }
 
 module.exports.PUTPirateSitesByGameId = async function (req, res) {
     try {
-        const {gameId} = req.params;
-        const {link, siteId} = req.body;
+        const { gameId, siteId } = req.params;
+        const { link } = req.body;
         const gamesPirateSitesConnCtrl = new GamesPirateSitesConnectionController();
-        const result = await gamesPirateSitesConnCtrl.update(gameId, siteId, link);
+        const data = {
+            "game_id": gameId,
+            "site_id": siteId,
+            "link": link
+        }
+        const result = await gamesPirateSitesConnCtrl.update(data);
         if (result instanceof Error) {
             return res.status(400).json({ message: result.message });
         }
         return res.json(result);
     } catch (err) {
-        console.error('Error in /api/pirate_sites/:gameId endpoint:', error);
-        return res.status(500).json({ error: error.message });
+        console.error('Error in /api/pirate_sites/:siteId/game/:gameId endpoint:', err);
+        return res.status(500).json({ error: err.message });
     }
 }
 
@@ -602,11 +638,10 @@ module.exports.DELETEFriends = async function (req, res) {
 
 module.exports.DELETEPlatformUser = async function (req, res) {
     try {
-        const { userId } = req.auth;
-        const { id } = req.params;
+        const { platfromUserId: id } = req.params;
 
         const platformUserCtrl = new PlatformUsersController();
-        const result = await platformUserCtrl.deleteByNativeUserId(id, userId);
+        const result = await platformUserCtrl.delete(id);
         if (result instanceof Error) {
             return res.status(400).json({ message: result.message });
         }

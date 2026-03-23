@@ -83,14 +83,13 @@ class PlatformUsersController extends Controller {
 
     /**
      * Deletes a platform user row only if it belongs to the provided native user.
-     * @param {string|number} id
      * @param {string|number} nativeUserId
      * @returns {{ deleted: boolean, affectedRows: number, id: number, nativeUserId: string|number }}
      */
-    async deleteByNativeUserId(id, nativeUserId) {
+    async deleteByNativeUserId(nativeUserId) {
         await this.ready;
 
-        const query = 'DELETE FROM platform_users WHERE id = ? AND native_user_id = ?;';
+        const query = 'DELETE FROM platform_users WHERE native_user_id = ?;';
         const values = [id, nativeUserId];
 
         try {

@@ -57,9 +57,11 @@ class GamesController extends Controller {
     async update(id, data) {
         await super.update();
 
-        let foreignKeyCheck = await this.#checkForeignKeys(data);
-        if (foreignKeyCheck instanceof Error) {
-            throw foreignKeyCheck;
+        if ( data.plafrom_id ) {
+            let foreignKeyCheck = await this.#checkForeignKeys(data);
+            if (foreignKeyCheck instanceof Error) {
+                throw foreignKeyCheck;
+            }
         }
 
         let old = await this.show(id);

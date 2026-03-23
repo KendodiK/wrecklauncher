@@ -43,7 +43,7 @@ class GamesPirateSitesConncectionController extends Controller {
         }
 
         const query = 'INSERT INTO `game_pirates_sites_connections` (game_id, pirate_site_id, link) VALUES (?, ?, ?)';
-        const values = [data.game_id, data.pirate_site_id, data.link];
+        const values = [data.game_id, data.site_id, data.link];
         try {
             const [result] = await this.dbConnection.execute(query, values);
             return { message: `${result.insertId} Element created in table ${this.tableName}`, id: result.insertId };
@@ -55,19 +55,13 @@ class GamesPirateSitesConncectionController extends Controller {
 
     /**
      * Update an existing connection. game_id and pirate_site_id are used to identify the connection, and cannot be updated.
-     * @param {int} id
      * @param {Array} data - ["game_id" = games.id, "pirate_site_id" = pirate_sites.id, "link" = string ]
      * @returns 
      */
     async update(data) {
         await super.update();
 
-        let foreignKeyCheck = await this.#checkForeignKeys(data);
-        if (foreignKeyCheck instanceof Error) {
-            throw foreignKeyCheck;
-        }
-
-        let old = await this.show(id);
+        let old = await this.show(data.game_id, data.site_id);
 
         if (!old) {
             throw new Error(`Element with id given data not found in table ${this.tableName}`);
@@ -77,11 +71,12 @@ class GamesPirateSitesConncectionController extends Controller {
         const values = [
             data.link ?? old.link, 
             data.game_id, 
-            data.pirate_site_id
+            data.site_id
         ];
+
         try {
             const [result] = await this.dbConnection.execute(query, values);
-            return { message: `${id} Updated successfully in table ${this.tableName}` };
+            return { message: `Updated successfully in table ${this.tableName}` };
         } catch (err) {
             console.error(`Error while updating element in table ${this.tableName}: ${err}`);
             throw err;
@@ -146,13 +141,13 @@ class GamesPirateSitesConncectionController extends Controller {
     async createWithAll(data) {
         await super.create();
 
-        if (!data.game_id || !data.pirate_site_id) {
+        if (!data.game_id || !data.site_id) {
             throw new Error("game_id and pirate_site_id are required");
         }
 
-        if (!data.pirate_site_id && data.site_name) {
+        if (!data.site_id && data.site_name) {
             const pirateSitesController = new PirateSitesController();
-            data.pirate_site_id = pirateSitesController.create({"name": data.site_name,}).id;
+            data.site_id = pirateSitesController.create({"name": data.site_name,}).id;
         }
 
         let duplicateCheck = await this.#checkUniqueConstraint(data);
@@ -161,7 +156,7 @@ class GamesPirateSitesConncectionController extends Controller {
         }
 
         const query = 'INSERT INTO `game_pirates_sites_connections` (game_id, site_id, link) VALUES (?, ?, ?)';
-        const values = [data.game_id, data.pirate_site_id, data.link];
+        const values = [data.game_id, data.site_id, data.link];
         try {
             const [result] = await this.dbConnection.execute(query, values);
             return { message: `${result.insertId} Element created in table ${this.tableName}`, id: result.insertId };
@@ -185,12 +180,12 @@ class GamesPirateSitesConncectionController extends Controller {
         }
 
         try {
-            const [siteRows] = await this.dbConnection.execute('SELECT id FROM pirate_sites WHERE id = ?', [data.pirate_site_id]);
+            const [siteRows] = await this.dbConnection.execute('SELECT id FROM pirate_sites WHERE id = ?', [data.site_id]);
             if (!siteRows || siteRows.length === 0) {
-                return new Error("Invalid pirate site id: " + data.pirate_site_id);
+                return new Error("Invalid pirate site id: " + data.site_id);
             }
         } catch (err) {
-            console.error(`Error while checking pirate_site_id ${data.pirate_site_id}: ${err}`);
+            console.error(`Error while checking pirate_site_id ${data.site_id}: ${err}`);
             throw err;
         }
 
@@ -201,12 +196,12 @@ class GamesPirateSitesConncectionController extends Controller {
         await this.ready;
 
         try {
-            const [existingRows] = await this.dbConnection.execute('SELECT * FROM game_pirates_sites_connections WHERE game_id = ? AND site_id = ?', [data.game_id, data.pirate_site_id]);
+            const [existingRows] = await this.dbConnection.execute('SELECT * FROM game_pirates_sites_connections WHERE game_id = ? AND site_id = ?', [data.game_id, data.site_id]);
             if (existingRows && existingRows.length > 0) {
                 return new Error("Duplicate entry for game_id and pirate_site_id");
             }
         } catch (err) {
-            console.error(`Error while checking unique constraint for game_id ${data.game_id} and pirate_site_id ${data.pirate_site_id}: ${err}`);
+            console.error(`Error while checking unique constraint for game_id ${data.game_id} and pirate_site_id ${data.site_id}: ${err}`);
             throw err;
         }
 
