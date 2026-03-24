@@ -1,0 +1,68 @@
+1.
+-------------------------------------------------------
+Minden { body } paraméter megadása *ulon_szavak* strukturával JSON-ben
+
+2.
+-------------------------------------------------------
+Új route-ok:
+    GET - /api/native-users/name/:name
+    POST - /api/shop-specials/:gameId -> tokenValidate() -> body : { featured, coming_soon, discount_percent }
+    POST - /api/pirate-sites/:gameId -> tokenValidate() -> body : {link, site_id, site_name}
+    PUT - /api/login -> tokenValidate()
+
+3.
+-------------------------------------------------------
+Törölt route-ok:
+    POST - /api/login
+
+4.
+-------------------------------------------------------
+Path megváltozott:
+GET |       /api/games/platform/:appId/all 
+        -> /api/games/app-id/:appId/details
+
+GET |       /api/games/:id/all
+        -> /api/games/:id/details
+
+GET |       /api/games/list/:platformId/all/:from
+        -> /api/games/platform/:platformId/list/:from/details
+
+GET |       /api/nativeUser
+        -> /api/native-users/:userId
+
+GET |       /api/chat/:friendsId
+        -> /api/messages/:friendsId
+
+GET |       /api/platform_users
+        -> /api/platform-users/:nativeUserId
+
+GET |       /api/shop_specials/:filter/:from
+        -> /api/shop-specials/:filter/list/:from
+
+POST |    ? /api/signup
+        -> /api/native-users
+
+POST |      /api/platform_users
+        -> /api/platform-users
+
+POST |      /api/counties
+        -> /api/countries
+
+PUT |      /api/games/:id
+        -> /api/games/:gameId
+
+PUT |       /api/shop_specials/:gameId 
+        -> /api/shop-specials/:gameId
+
+PUT |       /api/pirate_sites/:gameId/:siteId
+        -> /api/pirate-sites/:siteId/game/:gameId
+
+DELETE |        /api/platform_user/:platfromUserId
+            -> /api/platform-users/:platfromUserId
+
+DELETE |        /api/native_user
+            -> /api/native-users
+
+5.
+-------------------------------------------------------
+Minden POST, PUT, DELETE route-hoz kell a token!

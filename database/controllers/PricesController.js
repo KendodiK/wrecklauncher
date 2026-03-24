@@ -1,7 +1,7 @@
 const Controller = require('./Controller');
 const CountiesController = require('./CountiesController');
 
-class PirateSitesController extends Controller {
+class PricesController extends Controller {
     constructor() {
         super('prices');
     }
@@ -126,4 +126,4 @@ class PirateSitesController extends Controller {
     }
 }
 
-module.exports = PirateSitesController;
+module.exports = PricesController;

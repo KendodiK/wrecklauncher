@@ -4,6 +4,7 @@ const PlatformsController = require('./PlatformsController');
 const GenresController = require('./GenresController');
 const GamesGenresConnectionController = require('./GamesGenresConnectionController');
 const PricesController = require("./PricesController");
+const CountriesController = require("./CountiesController");
 
 class GamesController extends Controller {
     constructor() {
@@ -19,7 +20,14 @@ class GamesController extends Controller {
     }
 
     /**
-     * @param {Array} data - ["app_id" = int, "platform_id" = platforms.id, "name" = string, "banner_img" = string || null, "description" = string || null, "minimum_requirements" = string || null, "cost" = float]
+     * @param {Array} data - [
+     *  "app_id" = int, 
+     *  "platform_id" = platforms.id, 
+     *  "name" = string, 
+     *  "banner_img" = string || null, 
+     *  "description" = string || null, 
+     *  "minimum_requirements" = string || null, 
+     *  "cost" = float ]
      * @returns {Array} - ["message": string, "id": int]
      */
     async create(data) {
@@ -49,9 +57,11 @@ class GamesController extends Controller {
     async update(id, data) {
         await super.update();
 
-        let foreignKeyCheck = await this.#checkForeignKeys(data);
-        if (foreignKeyCheck instanceof Error) {
-            throw foreignKeyCheck;
+        if ( data.plafrom_id ) {
+            let foreignKeyCheck = await this.#checkForeignKeys(data);
+            if (foreignKeyCheck instanceof Error) {
+                throw foreignKeyCheck;
+            }
         }
 
         let old = await this.show(id);
@@ -89,25 +99,39 @@ class GamesController extends Controller {
      *          "name" = string, 
      *          "banner_img" = string || null, 
      *          "description" = string || null, 
-     *          "minimum_requirements" = string || null, 
-     *          "cost" = float ||null ]
+     *          "minimum_requirements" = string || null, ]
      * @param {Array} genre_ids - [ genre.id, ... ] can be null or could contain genres which already exist.
      * @param {Array} genre_names - [ genre.name, ... ] names for the genres which do not exist yet.
+     * @param {Array} price_data - ["price" = int, "country_id" = string]
      * @returns {Array} - ["message": string, "id": int]
      */
-    async uploadWithAll(data, genre_ids, genre_names) {
-        if (data.platform_id == null && data.platform_name == null) {
+    async uploadWithAll(data, genre_ids, genre_names, price_data) {
+        let platfromId = data.plafrom_id ?? null;
+        let platformName = data.platform_name ?? null;
+        const appId = data.app_id;
+
+        if ( !platfromId && !platformName ) {
             return new Error("Can't upload game, no platform id or name given");
         }
-        if (data.platform_id == null && data.platform_name != null) {
+
+        if ( !platfromId && platformName ) {
             const platformsController = new PlatformsController();
             const platform = await platformsController.create({ "name": data.platform_name });
             if(platform instanceof Error) {
                 throw platform;
             }
-            data.platform_id = platform.id;
+            platfromId = platform.id;
         }
 
+        const exists = await this.getGameIdByAppIdAndPlatform(appId, platfromId)
+        if ( exists ) {
+            return await this.index(exists)
+        }
+
+        const game = await this.create(data);
+        const gameId = game.id;
+
+        //--- adding genres ---
         let created_genre_ids = [];
         if (genre_names != null && Array.isArray(genre_names) && genre_names.length > 0) {
             const genresController = new GenresController();
@@ -120,27 +144,38 @@ class GamesController extends Controller {
             }
         }
 
-        const game = await this.create(data);
-        data.id = game.id;
-
         const all_genre_ids = Array.isArray(genre_ids) && genre_ids.length > 0 ? genre_ids : [];
         if (Array.isArray(created_genre_ids) && created_genre_ids.length > 0) {
             for (const new_id of created_genre_ids) {
-                console.log(new_id);
                 all_genre_ids.push(new_id);
             }
         }
-        console.log(all_genre_ids);
 
         if (all_genre_ids.length > 0) {
             const gamesGenresController = new GamesGenresConnectionController();
             for (const genre_id of all_genre_ids) {
-                let conn = await gamesGenresController.create({ "game_id": game.id, "genre_id": genre_id });
+                let conn = await gamesGenresController.create({ "game_id": gameId, "genre_id": genre_id });
                 if (conn instanceof Error) {
                     throw conn;
                 }
             }
         }
+
+        // --- adding price ---
+        if (Array.isArray(price_data) && price_data.length > 0) {
+            const priceCtrl = PricesController();
+            const priceData = {
+                "gameId": gameId,
+                "countyId": price_data.county_id,
+                "price": price_data.price
+            }
+            const price = priceCtrl.create(priceData);
+
+            if (price instanceof Error) {
+                    throw price;
+            }
+        }
+        
         return game;
     }
 
@@ -202,26 +237,40 @@ class GamesController extends Controller {
      *   platforms.platform_name
      *  ]
      */
-    async getWithAllForeign(game_id) {
+    async getWithAllForeign(gameId, countryCode = "de") {
         await this.ready;
 
-        const query = `SELECT 
-                            g.id, 
-                            g.app_id, 
-                            g.name, 
-                            g.banner_img, 
-                            g.description, 
-                            g.minimum_requirements, 
-                            g.cost, 
-                            g.platform_id,
-                            p.platform_name AS platform  
-                    FROM ${this.tableName} AS g
-                    JOIN platforms AS p ON g.platform_id = p.id
-                    WHERE g.id = ?;`;
-
         try {
-            const [rows] = await this.dbConnection.execute(query, [game_id]);
-            return rows[0] ?? null;
+            let cc = countryCode == null ? "de" : String(countryCode).toLowerCase();
+            const query =  `SELECT 
+                                g.id,
+                                g.app_id,
+                                g.name,
+                                g.banner_img,
+                                g.description,
+                                g.minimum_requirements,
+                                g.cost,
+                                g.platform_id,
+                                p.platform_name AS platform,
+                                pr.price,
+                                c.currency
+                            FROM games AS g
+                            JOIN platforms AS p ON g.platform_id = p.id
+                            LEFT JOIN prices AS pr ON pr.game_id = g.id
+                            LEFT JOIN counties AS c ON pr.county_id = c.id AND c.code = "${cc}"
+                            WHERE g.id = ${gameId};`;
+
+            const [rows] = await this.dbConnection.execute(query, [gameId]);
+            let game = rows[0];
+            if (!game) {
+                return new Error({ message: "No game in the database with given ID"})
+            }
+            let formatedPrice = null;
+            if (game.price) { 
+                formatedPrice = `${(game.price / 100).toFixed(2)} ${game.currency ?? ''}` 
+            };
+            game.formated_price = formatedPrice;
+            return game;
         } catch (err) {
             console.error(`Error while getting game by app_id from table ${this.tableName}: ${err}`);
             throw err;
@@ -230,7 +279,7 @@ class GamesController extends Controller {
 
     /**
      * Get all games with all related data, starting from an offset.
-     * @param {stirng} countyCode - the code of the county
+     * @param {stirng} countyCode - the code of the county where we want to get the price, if null its "de" (germany)
      * @param {int} from - offset for pagination
      * @returns {Array} - list of games with all related data
      */
@@ -252,17 +301,9 @@ class GamesController extends Controller {
 
         let games = [];
         for (const game_id of game_ids) {
-            const game = await this.getWithAllForeign(game_id);
+            const game = await this.getWithAllForeign(game_id, countyCode);
+            console.log(game);
             if (game) {
-                const priceCtrl = new PricesController();
-                const prices = await priceCtrl.getByGameId(game_id);
-                 let priceData;
-                for (const price of prices) {
-                    if (price.county_code == countyCode) {
-                            priceData = { ...price, formatted_price: `${(price.price / 100).toFixed(2)} ${price.currency ?? ''}` };
-                    }
-                }
-                game.priceData = priceData ?? {};
                 games.push(game);
             } else {
                 console.warn(`Game with id ${game_id} not found in table ${this.tableName}`);
@@ -294,16 +335,6 @@ class GamesController extends Controller {
         for (const game_id of game_ids) {
             const game = await this.getWithAllForeign(game_id);
             if (game) {
-                const priceCtrl = new PricesController();
-                const prices = await priceCtrl.getByGameId(game_id);
-                let priceData;
-                for (const price of prices) {
-                    if (price.county_code == countyCode) {
-                        priceData = price;
-                            priceData = { ...price, formatted_price: `${(price.price / 100).toFixed(2)} ${price.currency ?? ''}` };
-                    }
-                }
-                game.priceData = priceData ?? {};
                 games.push(game);
             } else {
                 console.warn(`Game with id ${game_id} not found in table ${this.tableName}`);
@@ -313,13 +344,13 @@ class GamesController extends Controller {
         return games;
     }
 
-    async getAllGamesByPlatformFrom(platform_id, from) {
+    async getAllGamesByPlatformFrom(countyCode, platform_id, from) {
         await this.ready;
 
-        const query = `SELECT id FROM ${this.tableName} WHERE platform_id = ? ORDER BY id LIMIT 20 OFFSET ?;`;
         let game_ids = [];
-
         try {
+            const query = 'SELECT id FROM games WHERE platform_id = ? ORDER BY id LIMIT 20 OFFSET ?;';
+
             const [rows] = await this.dbConnection.execute(query, [platform_id, from]);
             for (const row of rows) {
                 game_ids.push(row.id);
@@ -331,7 +362,7 @@ class GamesController extends Controller {
 
         let games = [];
         for (const game_id of game_ids) {
-            const game = await this.getWithAllForeign(game_id);
+            const game = await this.getWithAllForeign(game_id, countyCode);
             if (game) {
                 games.push(game);
             } else {

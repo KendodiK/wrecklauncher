@@ -1,4 +1,7 @@
 {
+  "source": {
+    "include": ["src", "docs"]
+  },
   "dependencies": {
     "18": "^0.0.0",
     "axios": "^1.13.2",
