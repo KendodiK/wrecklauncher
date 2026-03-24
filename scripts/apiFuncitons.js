@@ -14,11 +14,9 @@ const ShopSpecialsController = require('../database/controllers/ShopSpecialsCont
 const PricesController = require('../database/controllers/PricesController.js');
 //#endregion
 
-// ====================== ///
-// ====================== ///
-// ======== GET ========= ///
-// ====================== ///
-// ====================== ///
+// ============================================================================= ///
+// ================================== GET ===================================== ///
+// =========================================================================== ///
 
 /**
  * GET /game/:id
@@ -288,16 +286,21 @@ module.exports.GETShopSpecialsFilteredInList = async function (req, res) {
     } 
 }
 
-// ====================== ///
-// ====================== ///
-// ======== POST ======== ///
-// ====================== ///
-// ====================== ///
+// ============================================================================= ///
+// ================================= POST ===================================== ///
+// =========================================================================== ///
 
 module.exports.POSTNewNativeUser = async function (req, res) {
     try {
         const nativeUserCtrl = new NativeUsersController();
         const { username, password, email } = req.body;
+        const missing = [];
+        if (username == null) {missing.push("username")}
+        if (password == null) {missing.push("password")}
+        if (email == null) {missing.push("email")}
+        if (missing.length) {
+            return res.status(400).json({ message: 'Missing required fields', missing });
+        }
 
         const existingUser = await nativeUserCtrl.getUserByNameAndPassword(username, password);
 
@@ -327,10 +330,29 @@ module.exports.POSTNewGame = async function (req, res) {
         const gamesCtrl = new GamesController();
         const platformCtrl = new PlatformsController();
 
-        let { county_code: countyCode, genre_names: genreNames, cost: price } = req.body;
-        const platformName = req.body.platform_name ?? null;
-        const platformId = req.body.platform_id ?? null;
-        let resolvedPlatformName = platformName ?? await platformCtrl.show(platformId);
+        const {
+            app_id: appId,
+            name,
+            description,
+            banner_img: bannerImg,
+            minimum_requirements: minRequirements,
+            platform_name: platformName, 
+            plaform_id: platformId, 
+            country_code: countryCode, 
+            cost: price, 
+            genre_names: genreNames
+        } = req.body;
+
+        let missing = [];
+        if(appId == null) {missing.push("app_id")}
+        if(name == null) {missing.push("name")}
+        if(price == null) {missing.push("price")}
+        if(countryCode == null) {missing.push("country_code")}
+        if (missing.length) {
+            return res.status(400).json({ message: 'Missing required fields', missing });
+        }
+        
+        let resolvedPlatformName = platformName == null ? await platformCtrl.show(platformId) : platformName;
         if(!resolvedPlatformName) {
             return res.status(400).json({ error: 'Could not upload no platform name given or DB don`t contain platform with given platform id'})
         }
@@ -339,21 +361,15 @@ module.exports.POSTNewGame = async function (req, res) {
             const platform = await platformCtrl.getByPlatformName(resolvedPlatformName);
             resolvedPlatformId = platform.id;
         }
-        const fallbackBanner = req.body.banner_img ?? null;
-        const platformBannerImg = await apiHelpers.getPlatformBannerUrl({
-            platformName: resolvedPlatformName,
-            appId: req.body.app_id,
-            fallbackBanner,
-        });
 
         const gameData = {
-            "app_id": req.body.app_id,
+            "app_id": appId,
             "platform_id": resolvedPlatformId,
             "platform_name": platformName,
-            "name": req.body.name,
-            "banner_img": platformBannerImg,
-            "description": req.body.description ?? null,
-            "minimum_requirements": req.body.minimum_requirements ?? null,
+            "name": name,
+            "banner_img": bannerImg,
+            "description": description,
+            "minimum_requirements": minRequirements,
         };
 
 
@@ -361,7 +377,7 @@ module.exports.POSTNewGame = async function (req, res) {
             const itchDetails = await apiHelpers.fetchItchGameDetails(req.body.app_id, { includePageDetails: true });
             genreNames = apiHelpers.normalizeGenreNames(itchDetails?.genres ?? []);
         }
-        const countyId = await apiHelpers.getCountryIdByCode(countyCode);
+        const countyId = await apiHelpers.getCountryIdByCode(countryCode);
         
         const uploadedGame = await gamesCtrl.uploadWithAll(gameData, null, genreNames, {"price": price, "county_id": countyId});
         return res.status(201).json({ message: 'Game uploaded successfully', gameId: uploadedGame.id });
@@ -373,11 +389,24 @@ module.exports.POSTNewGame = async function (req, res) {
 
 module.exports.POSTNewPrice = async function (req, res) {
     try {
-        const { price, county_code: countyCode, game_id: gameId } = req.body;
         const pricesCtrl = new PricesController();
-    
-        const countyId = await apiHelpers.getCountryIdByCode(countyCode);
-        const uploadPrice = await pricesCtrl.create({"gameId": gameId, "countyId": countyId, "price": price});
+        const { price, country_code: countryCode, game_id: gameId } = req.body;
+        let missing = [];
+        if (price == null) {missing.push("price")}
+        if (countryCode == null) {missing.push("country_code")}
+        if (gameId == null) {missing.push("game_id")}
+        if (missing.length) {
+            return res.status(400).json({ message: 'Missing required fields', missing });
+        }
+
+        const countyId = await apiHelpers.getCountryIdByCode(countryCode);
+
+        const data = {
+            "gameId": gameId,
+            "countryId": countyId,
+            "price": price
+        };
+        const uploadPrice = await pricesCtrl.create(data);
         if(uploadPrice instanceof Error) {
             return res.status(400).json({ error: `Error while createing new price: ${uploadPrice}` })
         }
@@ -391,16 +420,21 @@ module.exports.POSTNewPrice = async function (req, res) {
 
 module.exports.POSTNewPirateSiteConnectionByGameId = async function (req, res) {
     try {
+        const gamesPirateSitesConnCtrl = new GamesPirateSitesConnectionController();
         const {gameId} = req.params;
         const {link, site_id: siteId, site_name: siteName} = req.body;
-        const gamesPirateSitesConnCtrl = new GamesPirateSitesConnectionController();
+        let missing = [];
+        if ( siteId == null && siteName == null ) {missing = ["site_id", "site_name"]}
+        if ( link == null ) {missing.push("link")}
+        if (missing.length) {
+            return res.status(400).json({ message: 'Missing required fields', missing });
+        }
         const data = {
             "game_id": gameId,
             "pirate_site_id": siteId ?? null,
             "site_name": siteName ?? null,
             "link": link,
         }
-        console.log(".\n.\n.\n", data, "\n.\n.\n");
 
         const result = await gamesPirateSitesConnCtrl.createWithAll(data);
         if (result instanceof Error) {
@@ -415,10 +449,13 @@ module.exports.POSTNewPirateSiteConnectionByGameId = async function (req, res) {
 
 module.exports.POSTNewFriends = async function (req, res) {
     try {
+        const friendsCtrl = new FriendsController();
         const { userId } = req.auth;
         const { friend_user_id: friendUserId } = req.body;
+        if( friendUserId == null ) {
+            return res.status(400).json({ message: 'Missing required fields', missing: ['friend_user_id'] });
+        }
 
-        const friendsCtrl = new FriendsController();
         const result = await friendsCtrl.create({ user1_id: userId, user2_id: friendUserId });
         if (result.message.includes('already exists') || result instanceof Error) {
             return res.status(400).json({ message: result.message });
@@ -432,9 +469,12 @@ module.exports.POSTNewFriends = async function (req, res) {
 
 module.exports.POSTNewPlatform = async function (req, res) {
     try {
-        const { platform_name: platformName } = req.body;
-
         const platformCtrl = new PlatformsController();
+        const { platform_name: platformName } = req.body;
+        if( platformName == null ) {
+            return res.status(400).json({ message: 'Missing required fields', missing: ['plaform_name'] });
+        }
+
         const result = await platformCtrl.create({name: platformName});
         if( result instanceof Error ) {
             return res.status(400).json({ message: result.message });
@@ -448,6 +488,7 @@ module.exports.POSTNewPlatform = async function (req, res) {
 
 module.exports.POSTNewPlatformUser = async function (req, res) {
     try {
+        const platformUserCtrl = new PlatformUsersController();
         const { userId } = req.auth;
 
         const { platform_user_name: platformUserName, 
@@ -457,10 +498,10 @@ module.exports.POSTNewPlatformUser = async function (req, res) {
               } = req.body || {};
 
         const missing = [];
+
         if (platformUserName == null) missing.push('platformUserName');
         if (platformId == null) missing.push('platformId');
         if (platfProfId == null) missing.push('platfProfId');
-        if (oauthToken == null) missing.push('oauth_token');
         if (missing.length) {
             return res.status(400).json({ message: 'Missing required fields', missing });
         }
@@ -470,10 +511,9 @@ module.exports.POSTNewPlatformUser = async function (req, res) {
             "platform_user_name": platformUserName,
             "platform_id": platformId,
             "platform_profile_id": platfProfId,
-            "oauth_token": oauthToken,
+            "oauth_token": oauthToken ?? null,
         }
 
-        const platformUserCtrl = new PlatformUsersController();
         const result = await platformUserCtrl.create(data);
         if( result instanceof Error ) {
             return res.status(400).json({ message: result.message });
@@ -488,6 +528,9 @@ module.exports.POSTNewPlatformUser = async function (req, res) {
 module.exports.POSTNewCountry = async function (req, res) {
     try {
         const { code } = req.body;
+        if( code == null ) {
+            return res.status(400).json({ message: 'Missing required fields', missing: ['code'] });
+        }
         const id = await apiHelpers.getCountryIdByCode(code);
 
         if ( id instanceof Error ) {
@@ -504,6 +547,11 @@ module.exports.POSTNewShopSpecials = async function (req, res) {
     try {
         const { gameId } = req.params;
         const { featured, coming_soon: comingSoon, discount_percent: discountPercent } = req.body;
+        let missing = [];
+        if(featured == null && comingSoon == null && discountPercent == null) { missing = ["featured", "coming_soon", "discount_percent"] }
+        if (missing.length) {
+            return res.status(400).json({ message: 'Missing required fields', missing });
+        }
         const data = {
             "game_id": gameId,
             "featured": featured,
@@ -520,11 +568,9 @@ module.exports.POSTNewShopSpecials = async function (req, res) {
     }
 }
 
-// ====================== ///
-// ====================== ///
-// ======== PUT ========= ///
-// ====================== ///
-// ====================== ///
+// ============================================================================= ///
+// ================================== PUT ===================================== ///
+// =========================================================================== ///
 
 module.exports.PUTNativeUserLogin = async function (req, res) {
     try {
@@ -546,18 +592,24 @@ module.exports.PUTNativeUserLogin = async function (req, res) {
 
 module.exports.PUTGames = async function (req, res) {
     try {
+        const gamesCtrl = new GamesController();
         const { gameId } = req.params;
-
+        const {
+            app_id: appId,
+            platform_id: platformId,
+            name,
+            banner_img: bannerImg,
+            description,
+            minimum_requirements: minimumRequirements} = req.body;
         const gameData = {
-            "app_id": req.body.app_id ?? null,
-            "platform_id": req.body.platform_id ?? null,
-            "name": req.body.name ?? null,
-            "banner_img": req.body.banner_img ?? null,
-            "description": req.body.description ?? null,
-            "minimum_requirements": req.body.minimum_requirements ?? null,
+            "app_id": appId,
+            "platform_id": platformId,
+            "name": name,
+            "banner_img": bannerImg,
+            "description": description,
+            "minimum_requirements": minimumRequirements,
         }
 
-        const gamesCtrl = new GamesController();
         const updatedGame = gamesCtrl.update(gameId, gameData);
         if (updatedGame instanceof Error) {
             return res.status(400).json({ message: updatedGame.message });
@@ -574,6 +626,7 @@ module.exports.PUTShopSpecialsByGameId = async function (req, res) {
         const shopSpecialsCtrl = new ShopSpecialsController();
         const { gameId } = req.params;
         const { featured, coming_soon: comingSoon, discount_percent: discountPercent } = req.body;
+
         const data = {
             "game_id": gameId,
             "featured": featured,
@@ -594,9 +647,15 @@ module.exports.PUTShopSpecialsByGameId = async function (req, res) {
 
 module.exports.PUTPirateSitesByGameId = async function (req, res) {
     try {
+        const gamesPirateSitesConnCtrl = new GamesPirateSitesConnectionController();
         const { gameId, siteId } = req.params;
         const { link } = req.body;
-        const gamesPirateSitesConnCtrl = new GamesPirateSitesConnectionController();
+        let missing = [];
+        if ( link == null ) missing.push("link");
+        if (missing.length) {
+            return res.status(400).json({ message: 'Missing required fields:', missing });
+        }
+
         const data = {
             "game_id": gameId,
             "site_id": siteId,
@@ -613,11 +672,9 @@ module.exports.PUTPirateSitesByGameId = async function (req, res) {
     }
 }
 
-// ====================== ///
-// ====================== ///
-// ======= DELETE ======= ///
-// ====================== ///
-// ====================== ///
+// ============================================================================= ///
+// ================================ DELETE ==================================== ///
+// =========================================================================== ///
 
 module.exports.DELETEFriends = async function (req, res) {
     try {
