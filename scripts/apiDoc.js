@@ -6,6 +6,7 @@
  * @property {string} banner_img - banner image URL
  * @property {string} description - short description
  * @property {string} minimum_requirements - minimum requirements
+ * 
  */
 
 module.exports = {};

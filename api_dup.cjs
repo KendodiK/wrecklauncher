@@ -1,5 +1,5 @@
 //#region Requires
-const apiFunctions = require('./scripts/apiFuncitons.js');
+const apiFunctions = require('./scripts/apiFunctions.js');
 
 
 const express = require('express');

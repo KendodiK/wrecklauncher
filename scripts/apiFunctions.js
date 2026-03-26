@@ -1,5 +1,7 @@
 const apiHelpers = require('./apiHelpers.js');
-const apiDoc = require('./apiDoc.js');
+/**
+ * @typedef {import('./apiDoc').Game} Game
+ */
 const { env } = require('process');
 
 const steamApiKey = process.env.STEAM_API_KEY;
@@ -132,7 +134,7 @@ module.exports.GETOwnedGamesSteam = async function (req, res) {
  * @param {number} req.params.id
  * @param {Object} res
  * 
- * @returns {apiDoc.Game}
+ * @returns {Game}
  */
 module.exports.GETGameById = async function (req, res) {
   try {
@@ -145,34 +147,6 @@ module.exports.GETGameById = async function (req, res) {
   }
 };
 
-/**
- * :id - (int) gameId
- * @param {Array} req - body: country_code - (string) short code of the country for price
- * @param {*} res - {
- *                  "id": (int) id,
- *                  "app_id": (int) local ID in platform,
- *                  "banner_img": (string) link to banner img,
- *                  "description": (string) short description of the game,
- *                  "minimum_requirements": (string) list of minimum requirements,
- *                  "platform_id": (int) ID of platform which the game is from,
- *                  "platform": (string) name of the platform,
- *                  "price": (int) stored price in given country,
- *                  "currnecy": (string) currency in given country,
- *                  "formated_price": (string) price to display,
- *                  "genres": [
- *                      {
- *                      "id": (int) genre id in DB,
- *                      "genre": (string) the accual genre,
- *                      } ...
- *                  ]
- *                  "priate_sites": [
- *                      {
- *                       
- *                      }
- *                  ]
- *                  }
- * @returns - 200 - res || 500 - error
- */
 module.exports.GETGamesByPlatformIdWithAllData = async function (req, res) {
     try {
         const { appId } = req.params;
