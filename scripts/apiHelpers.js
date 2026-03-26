@@ -55,7 +55,12 @@ module.exports.getFormatedPrice = async function (gameId, countyCode) {
   }
 };
 
-function normalizeGenreNames (genreNames) {
+/**
+ * Normalizes an array of genre names by converting them to title case, removing duplicates, and filtering out utility genres.
+ * @param {Array<string>} genreNames The array of genre names to normalize.
+ * @returns {Array<string>} The normalized array of genre names.
+ */
+module.exports.normalizeGenreNames = function (genreNames) {
   if (!Array.isArray(genreNames)) return [];
   const utilityGenreSet = new Set([
     'free',
@@ -82,7 +87,12 @@ function normalizeGenreNames (genreNames) {
   return out;
 }
 
-function toTitleCaseWords(text) {
+/**
+ * Converts a string to title case, trimming whitespace and replacing hyphens and underscores with spaces.
+ * @param {string} text Text you want to clean up from whitespaces
+ * @returns {string|null} The normalized string or null if the input is not a valid string
+ */
+module.exports.toTitleCaseWords = function (text) {
   if (typeof text !== 'string') return null;
   const normalized = collapseWhitespace(text.toLowerCase());
   if (!normalized) return null;
@@ -91,6 +101,16 @@ function toTitleCaseWords(text) {
     .map((w) => w ? (w[0].toUpperCase() + w.slice(1)) : w)
     .join(' ');
 }
+/**
+ * Collapses multiple whitespace characters into a single space and trims the string.
+ * @param {string} text The string to collapse whitespace in.
+ * @returns {string|null} The collapsed string or null if the input is not a valid string.
+ */
+function collapseWhitespace(text) {
+  if (typeof text !== 'string') return null;
+  return text.replace(/\s+/g, ' ').trim();
+}
+
 
 module.exports.shouldSkipGameBecausePriceMissing = function (gameLike, sourceLabel, gameName) {
   const missingPrice = !this.hasPriceValue(gameLike?.cost);
@@ -151,25 +171,102 @@ module.exports.isTruthyFlag = function (value) {
   return false;
 }
 
-module.exports.getPlatformBannerUrl = async function ({ platformName, appId, fallbackBanner }) {
-  const normalizedPlatform = String(platformName ?? '').trim().toLowerCase();
-  if (normalizedPlatform === 'steam') {
-    return getSteamHeaderImageUrl(appId) ?? (fallbackBanner ?? '');
+/**
+ * Fetches the URL of the header image for a Steam game. Also makes a HEAD request to check if the image exists, as not all games have header images and the API doesn't provide a direct way to check for their existence. Note that Steam's CDN may return a default placeholder image even for non-existent header images, so this function checks the response status to ensure the image actually exists.
+ * @param {string|number} appId The Steam application ID.
+ * @returns {Promise<string|null>} The URL of the header image or null if not found.
+ */
+async function getSteamHeaderImageUrl(appId) {
+    const numericAppId = Number(appId);
+  if (!Number.isFinite(numericAppId) || numericAppId <= 0) return null;
+  const url = `https://cdn.cloudflare.steamstatic.com/steam/apps/${numericAppId}/library_600x900.jpg`;
+  const response = fetch(url, { method: 'HEAD' })
+    .then(res => {
+      if (res.ok && res.status === 200) {
+        return url;
+        } else {
+            return null;
+        }
+    }).catch(() => {return null});
+    return await response || null;
+}
+/**
+ * Fetches the URL of the cover image for a GOG game.
+ * @param {string|number} appId The GOG application ID.
+ * @returns {Promise<string|null>} The URL of the cover image or null if not found.
+ */
+async function fetchGogCoverUrl(appId) {
+  const numericAppId = Number(appId);
+  if (!Number.isFinite(numericAppId) || numericAppId <= 0) return null;
+
+  const endpoints = [
+    `https://api.gog.com/products/${numericAppId}?expand=description`,
+    `https://api.gog.com/v2/games/${numericAppId}?locale=en-US`,
+  ];
+
+  for (const endpoint of endpoints) {
+    try {
+      const response = await fetch(endpoint);
+      if (!response.ok) continue;
+      const payload = await response.json();
+      const candidate = getFirstStringByPaths(payload, [
+        ['image'],
+        ['images', 'logo'],
+        ['images', 'background'],
+        ['_embedded', 'product', 'image'],
+        ['_embedded', 'product', 'images', 'logo'],
+        ['_embedded', 'product', 'images', 'background'],
+      ]);
+      if (candidate) {
+        if (candidate.startsWith('//') && candidate.endsWith('glx_vertical_cover.webp')) return `https:${candidate}`;
+        return candidate;
+      }
+    } catch (err) {
+      console.warn('Failed to fetch GOG cover URL from endpoint:', {
+        appId: numericAppId,
+        endpoint,
+        err: err?.message,
+      });
+    }
   }
 
-  if (normalizedPlatform === 'itch' || normalizedPlatform === 'itchio') {
-    const itchCover = await fetchItchCoverUrl(appId);
-    return itchCover ?? (fallbackBanner ?? '');
-  }
-
-  if (normalizedPlatform === 'gog') {
-    const gogCover = await fetchGogCoverUrl(appId);
-    return gogCover ?? (fallbackBanner ?? '');
-  }
-
-  return fallbackBanner ?? '';
+  return null;
+}
+/**
+ * Fetches the URL of the cover image for an Itch game.
+ * @param {string|number} appId The Itch application ID.
+ * @returns {Promise<string|null>} The URL of the cover image or null if not found.
+ */
+async function fetchItchCoverUrl(appId) {
+  const details = await fetchItchGameDetails(appId);
+  return details?.cover_url ?? null;
 }
 
+/**
+ * Fetches the preferred header image URL based on the platform name and application ID.
+ * @param {string} platformName The name of the platform.
+ * @param {string|number} appId The application ID.
+ * @returns {Promise<string|null>} The URL of the preferred header image or null if not found.
+ */
+module.exports.getPlatformBannerUrl = async function ( platformName, appId ) {
+    platformName = String(platformName).trim().toLowerCase();
+    if (platformName && platformName.toLowerCase().includes('itch')) {
+        const itchioUrl = await fetchItchCoverUrl(appId);
+        if (itchioUrl) return itchioUrl;
+    }
+    if (platformName && platformName.toLowerCase().includes('gog')) {
+        const gogUrl = await fetchGogCoverUrl(appId);
+        if (gogUrl) return gogUrl;
+    }
+    const steamUrl = await getSteamHeaderImageUrl(appId);
+    return steamUrl;
+}
+/**
+ * Fetches details for a game from the itch.io platform.
+ * @param {number|string} appId The name speaks for itself...
+ * @param {Array} param1 options object with the following optional boolean properties: includeRaw (if true, includes the raw API response in the returned details under the 'raw' property) and includePageDetails (if true, attempts to fetch additional details from the game's webpage, which may include a more comprehensive description and genre information). Note that fetching page details can be time-consuming and may fail if the page structure is unexpected or if there are network issues, so it's recommended to set includePageDetails to false if you want a faster response and are okay with potentially less detailed information.
+ * @returns Everything that itch.io's API returns for the game, but normalized into a consistent format with other platforms and with some additional processing to compute properties like is_free and to extract genres. If includePageDetails is true, it will also attempt to fetch and include additional details from the game's webpage, which may provide a more comprehensive description and genre information than the API alone. However, this can be time-consuming and may fail if the page structure is unexpected or if there are network issues, so use with caution.
+ */
 module.exports.fetchItchGameDetails = async function (appId, { includeRaw = false, includePageDetails = false } = {}) {
   const numericAppId = Number(appId);
   if (!Number.isFinite(numericAppId) || numericAppId <= 0) return null;
@@ -238,6 +335,8 @@ module.exports.fetchItchGameDetails = async function (appId, { includeRaw = fals
   }
 }
 
+
+
 async function fetchItchPageDetailsByUrl(gameUrl) {
   if (!gameUrl || typeof gameUrl !== 'string') return null;
 
@@ -263,7 +362,19 @@ async function fetchItchPageDetailsByUrl(gameUrl) {
   }
 }
 
-function getFirstStringByPaths(source, paths) {
+/**
+
+*Return the first non-empty string found at any of the provided nested paths inside source.
+*Each path is an array of keys (strings or numbers) describing a nested access sequence (e.g. ['images','logo']).
+*Only string values are considered valid; the found string is trimmed before being returned.
+*@param {Object|null|undefined} source - The object to search through.
+*@param {Array<Array<string|number>>} paths - Array of paths; each path is an array of keys to traverse.
+*@returns {string|null} The trimmed string found at the first matching path, or null if none found.
+*@example
+*const obj = { images: { logo: ' //example.png ' } };
+*getFirstStringByPaths(obj, [['images','logo'], ['image']]); // returns '//example.png'
+*/
+module.exports.getFirstStringByPaths = function (source, paths) {
   for (const path of paths) {
     let cursor = source;
     let validPath = true;
