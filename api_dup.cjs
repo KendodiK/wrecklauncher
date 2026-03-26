@@ -1,5 +1,5 @@
-const apiFunctions = require('./scripts/apiFuncitons.js');
-
+const apiFunctions = require('./scripts/apiFunctions.js');
+const fetchShopSpecials = require('./scripts/fetchShopSpecials.js');
 
 const express = require('express');
 const fetch = require('node-fetch'); // works with v2
@@ -48,8 +48,11 @@ process.on('unhandledRejection', (reason, p) => {
 });
 
 // Start server and attach listeners for better diagnostics
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, async () => {
   console.log(`Proxy server running at http://localhost:${PORT}`);
+  console.log('Fetching initial IGDB token...');
+  const games = await fetchShopSpecials.getShopSpecials();
+  console.log('Fetched shop specials:', games.length, 'games');
 });
 
 server.on('error', (err) => {

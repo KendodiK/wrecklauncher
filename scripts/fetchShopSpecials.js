@@ -1,10 +1,18 @@
-const apiHelpers = require('./apiHelpers.js');
-const { getPlatformBannerUrl, normalizeGenreNames} = apiHelpers;
+const { getPlatformBannerUrl, normalizeGenreNames, fetchGogGameDetails, fetchItchGameDetails, fetchSteamGameDetails } = require('./apiHelpers.js');
 
+let ITAD_API_KEY=process.env.ITAD_API_KEY || null;
+let ITAD_CLIENT_ID=process.env.ITAD_CLIENT_ID || null;
+let ITAD_CLIENT_SECRET=process.env.ITAD_CLIENT_SECRET || null;
+let IGDB_CLIENT_ID=process.env.IGDB_CLIENT_ID || null;
+let IGDB_CLIENT_SECRET=process.env.IGDB_CLIENT_SECRET || null;
 
 //------------ Utility functions ------------------//
 //not necessary to use as itad should run only daily and 1000 calls is still fine without retry, but better to be safe than sorry
 // Robust fetch helper that respects 429 Retry-After and retries transient 5xx errors.
+// Simple sleep helper used by retry/backoff logic
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, Number(ms) || 0));
+}
 async function fetchWithRateHandling(url, opts = {}, maxRetries = 6, initialBackoffMs = 2000) {
   let attempt = 0;
   let backoff = Number(initialBackoffMs) || 1000;
@@ -50,24 +58,88 @@ async function fetchWithRateHandling(url, opts = {}, maxRetries = 6, initialBack
 }
 
 //------------------- Main Shop Specials Function ------------------//
+//Check if any non itad is discounted by itadfetchgame or sth
+module.exports.getShopSpecials = async function getShopSpecials(){
+  ITAD_API_KEY=process.env.ITAD_API_KEY || null;
+ITAD_CLIENT_ID=process.env.ITAD_CLIENT_ID || null;
+ITAD_CLIENT_SECRET=process.env.ITAD_CLIENT_SECRET || null;
+IGDB_CLIENT_ID=process.env.IGDB_CLIENT_ID || null;
+IGDB_CLIENT_SECRET=process.env.IGDB_CLIENT_SECRET || null;
+  console.log(`Environment variables: IGDB_CLIENT_ID=${IGDB_CLIENT_ID ? '***' : 'missing'}, IGDB_CLIENT_SECRET=${IGDB_CLIENT_SECRET ? '***' : 'missing'}, ITAD_API_KEY=${ITAD_API_KEY ? '***' : 'missing'}, ITAD_CLIENT_ID=${ITAD_CLIENT_ID ? '***' : 'missing'}, ITAD_CLIENT_SECRET=${ITAD_CLIENT_SECRET ? '***' : 'missing'}`);
+  const token = await fetchIGDBToken();
+  const popularGames = await fetchPopularGamesFromIGDB(400, token);
+  const upcomingGames = await fetchUpcomingGamesFromIGDB(400, token);
+  const itadDeals = await fetchItadDealsBulk(500);
 
+// Merge the three lists into a single list of unique games, using appId or igdbId as the key. If a game appears in multiple lists, merge their properties and take the best values for popularityScore and discount.
+const keyFor = (item) => {
+  const shop = item.shop ? String(item.shop).toLowerCase() : 'unknown';
+
+  if (item.appId) {
+    return `app:${shop}:${item.appId}`;
+  }
+
+  if (item.igdbId) {
+    return `igdb:${item.igdbId}`;
+  }
+
+  if (item.name) {
+    return `name:${item.name.toLowerCase().trim()}`;
+  }
+
+  return null;
+};
+  const merged = new Map();
+
+  const mergeInto = item => {
+    const key = keyFor(item);
+    const prev = merged.get(key) || {};
+    merged.set(key, {
+      appId: prev.appId ?? item.appId ?? null,
+      igdbId: prev.igdbId ?? item.igdbId ?? null,
+      name: prev.name ?? item.name ?? null,
+      genres: [...new Set([...(prev.genres || []), ...(item.genres || [])])],
+      headerImageUrl: prev.headerImageUrl ?? item.headerImageUrl ?? null,
+      description: prev.description ?? item.description ?? null,
+      shop: prev.shop ?? item.shop ?? null,
+      countryCode: prev.countryCode ?? item.countryCode ?? 'DE',
+      price: Math.max(Number(prev.price ?? -1), Number(item.price ?? -1)),
+      // merge the three target fields and ensure a numeric default
+      popularityScore:  Math.max(Number(prev.popularityScore ?? 0), Number(item.popularityScore ?? 0)),
+      upcoming: (prev.upcoming ? 1 : 0) || (item.upcoming ? 1 : 0) ? 1 : 0,
+      discount: Math.max(Number(prev.discount ?? 0), Number(item.discount ?? 0))
+    });
+  };
+
+  popularGames.filter(Boolean).forEach(mergeInto);
+  upcomingGames.forEach(mergeInto);
+  itadDeals.forEach(mergeInto);
+
+  const combined = Array.from(merged.values()).map(g => ({
+    ...g,
+    popularityScore: Number(g.popularityScore ?? 0),
+    upcoming: Number(g.upcoming ?? 0),
+    discount: Number(g.discount ?? 0)
+  }));
+  const duplicates = combined.filter(g => g.name === 'Divinity: Original Sin II');
+  return combined;
+}
 
 
 
 //------------------- IGDB API ------------------//
 /**
- * A variable to hold the IGDB access token. This token is required for making authenticated requests to the IGDB API. The token ususally has a 60 day lifespan, but it's recommended to call fetchIGDBToken() and refresh this variable periodically to ensure uninterrupted access to the IGDB API.
- */
-let igdbToken = null;
-/**
  * Fetches an access token from the IGDB API.
  * @returns {Promise<string>} The token values that the api returns
  */
-module.exports.fetchIGDBToken = async function() {
+async function fetchIGDBToken() {
   try {
-    const response = await fetch(`https://id.twitch.tv/oauth2/token?client_id=${process.env.IGDB_CLIENT_ID}&client_secret=${process.env.IGDB_CLIENT_SECRET}&grant_type=client_credentials`, {
-      method: 'POST',
-    });
+    const url = `https://id.twitch.tv/oauth2/token?client_id=${IGDB_CLIENT_ID}&client_secret=${IGDB_CLIENT_SECRET}&grant_type=client_credentials`;
+    const response = await fetchWithRateHandling(url, { method: 'POST' }, 4, 2000);
+    if (!response || !response.ok) {
+      const txt = response ? await response.text().catch(()=>null) : null;
+      throw new Error(`IGDB token fetch failed HTTP ${response ? response.status : 'no-response'}: ${txt}`);
+    }
     const data = await response.json();
     return data.access_token;
   } catch (err) {
@@ -81,35 +153,34 @@ module.exports.fetchIGDBToken = async function() {
  * @param {string} query The body of the api call to IGDB, for example: `fields id,name; where id = 123;` You can find more about the query syntax in the IGDB API documentation.
  * @returns {Promise<any>} whatever the api returns
  */
-module.exports.fetchIGDB = async function (endpoint, query) {
-  if (!process.env.IGDB_CLIENT_ID) {
+async function fetchIGDB(endpoint, query, token = null) {
+  if (!IGDB_CLIENT_ID) {
     throw new Error('Missing IGDB client id (IGDB_CLIENT_ID)');
   }
-  if (!igdbToken) {
+  if (!token) {
     throw new Error('Missing IGDB token; fetchIGDBToken() must run first');
   }
-
-  const response = await fetch(`https://api.igdb.com/v4/${endpoint}`, {
+  const url = `https://api.igdb.com/v4/${endpoint}`;
+  const opts = {
     method: 'POST',
     headers: {
-      'Client-ID': process.env.IGDB_CLIENT_ID,
-      'Authorization': `Bearer ${igdbToken}`,
+      'Client-ID': IGDB_CLIENT_ID,
+      'Authorization': `Bearer ${token}`,
       'Content-Type': 'text/plain',
       'Accept': 'application/json',
     },
-    // IGDB expects the query as plain text in the request body
     body: query,
-  });
+  };
 
-  const text = await response.text();
-  if (!response.ok) {
-    throw new Error(`IGDB ${endpoint} HTTP ${response.status}: ${text}`);
+  const response = await fetchWithRateHandling(url, opts, 4, 2000);
+  const text = response ? await response.text().catch(()=>null) : null;
+  if (!response || !response.ok) {
+    throw new Error(`IGDB ${endpoint} HTTP ${response ? response.status : 'no-response'}: ${text}`);
   }
 
   try {
     return JSON.parse(text);
   } catch {
-    // If IGDB ever returns non-JSON (unexpected), surface the raw body.
     return text;
   }
 }
@@ -118,10 +189,10 @@ module.exports.fetchIGDB = async function (endpoint, query) {
  * @param {number} limit  I wouldnt give it a smaller number than 10, igdb works funnily, also can sometimes break with very big numbers
  * @returns {Promise<Array>} An array of normal game models extended with the popularity score that is calculated differently than how igdb does it as it isn't the best.
  */
-module.exports.fetchPopularGamesFromIGDB = async function (limit = 10) {    
+async function fetchPopularGamesFromIGDB(limit = 10, token = null) {    
   const body = `fields game_id,value,popularity_type; sort value desc; limit ${limit}; where popularity_type = (1,3,5,6);` ;
   try {
-    let data = await fetchIGDB("popularity_primitives", body);
+    let data = await fetchIGDB("popularity_primitives", body, token);
     const popularityWeights = {
       1:0.5,
       3:1,
@@ -147,7 +218,7 @@ module.exports.fetchPopularGamesFromIGDB = async function (limit = 10) {
       }))
       .sort((a, b) => b.weightedSum - a.weightedSum);
       const scoreLookup = new Map(ranked.map(r => [r.game_id, r.weightedSum]));
-      let games = await fetchIGDBGameDetails(ranked.map(r => r.game_id));
+      let games = await fetchIGDBGameDetails(ranked.map(r => r.game_id), token);
       for (const g of games) {
         g.popularityScore = scoreLookup.get(g.igdbId) ?? 0;
       }
@@ -162,13 +233,13 @@ module.exports.fetchPopularGamesFromIGDB = async function (limit = 10) {
  * @param {number} limit I wouldnt give it a smaller number than 10, igdb works funnily, also can sometimes break with very big numbers
  * @returns {Promise<Array>} An array of normal game models extended with the upcoming flag.
  */
-module.exports.fetchUpcomingGamesFromIGDB = async function (limit = 10) {
+async function fetchUpcomingGamesFromIGDB(limit = 10, token = null) {
   const now = Math.floor(Date.now() / 1000);
   const body = `fields date, game; sort date asc; limit ${limit}; where date > ${now};` ;
   try {
-    let data = await fetchIGDB("release_dates", body);
+    let data = await fetchIGDB("release_dates", body, token);
     const gameIds = new Set(data.map(d => d.game).filter(gid => Number.isFinite(Number(gid))));  
-    const games = await fetchIGDBGameDetails([...gameIds]);
+    const games = await fetchIGDBGameDetails([...gameIds], token);
     return games.map(g => ({...g, upcoming: 1}));
   } catch (err) {
     console.error('Error fetching upcoming games from IGDB:', err);
@@ -180,14 +251,14 @@ module.exports.fetchUpcomingGamesFromIGDB = async function (limit = 10) {
  * @param {Array<number>} gameIds An array of game IDs to fetch details for.
  * @returns {Promise<Array>} An array of game details.
  */
-module.exports.fetchIGDBGameDetails = async function (gameIds) {
+async function fetchIGDBGameDetails(gameIds, token = null) {
   if (!Array.isArray(gameIds) || gameIds.length === 0) return [];
   // build a comma-separated id list for IGDB: id = (1,2,3)
   const idsList = gameIds.map(g => Number(g)).filter(n => Number.isFinite(n)).join(',');
   const whereIds = idsList.length ? `id = (${idsList})` : '1 = 0';
   const body = `fields id,name,genres.name,cover.url,external_games.external_game_source.name, external_games.uid,summary; where ${whereIds} & (external_games.external_game_source.name = "Itchio" | external_games.external_game_source.name = "GOG" | external_games.external_game_source.name = "Steam"); limit ${gameIds.length};`;
   try {
-    const data = await fetchIGDB("games", body);
+    const data = await fetchIGDB("games", body, token);
     const gameData = data.map(async (game) => {
       const igdbId = game.id;
       const title = game.name ?? null;
@@ -195,19 +266,25 @@ module.exports.fetchIGDBGameDetails = async function (gameIds) {
 
       // prioritize external sources: Itch.io, GOG, Steam
       let preferred = null;
-      const priorities = ['Itch.io', 'GOG', 'Steam'];
+      const priorities = ['Itchio', 'GOG', 'Steam'];
       if (Array.isArray(game.external_games)) {
         for (const p of priorities) {
-          const found = game.external_games.find(eg => eg.external_game_source && String(eg.external_game_source.name).toLowerCase().includes(p.toLowerCase()));
+          const found = game.external_games.find(eg => eg.external_game_source && String(eg.external_game_source.name).trim().toLowerCase().includes(p.toLowerCase()));
           if (found) { preferred = found; break; }
         }
-        if (!preferred && game.external_games.length > 0) preferred = game.external_games[0];
+        //if (!preferred && game.external_games.length > 0) preferred = game.external_games[0];
+        if (!preferred) {
+          return null;
+        }
       }
 
-      const shopName = preferred?.external_game_source?.name || null;
+      const shopNameRaw = preferred?.external_game_source?.name || null;
+      const shopName = shopNameRaw ? String(shopNameRaw).trim().toLowerCase() : null;
       const coverFallback = game.cover && game.cover.url ? `https:${game.cover.url}` : null;
       const headerImageUrl = await getPlatformBannerUrl(shopName, preferred?.uid || null).catch(()=>null) || coverFallback;
+      //console.log('IGDB game details:', { preferred: preferred?.uid || null, title, shopName, headerImageUrl, shouldBe: await getPlatformBannerUrl(shopName, preferred?.uid || null).catch(()=>null) });
       const description = game.summary ?? null;
+      const platformDetails = shopName && preferred?.uid ? await fetchGameDetailsFromPlatform(preferred.uid, shopName).catch(() => null) : null;
 
       return {
         igdbId,
@@ -216,7 +293,9 @@ module.exports.fetchIGDBGameDetails = async function (gameIds) {
         genres: normalizeGenreNames(genres),
         headerImageUrl: headerImageUrl,
         description: String(description),
-        shop: shopName,
+        price: platformDetails?.price ?? -1,
+        discount: platformDetails?.discount ?? 0,
+        shop:  shopName ? shopName.toLowerCase() : null,
         countryCode: "DE",
       };
     });
@@ -247,6 +326,9 @@ async function fetchItadDealsBulk(count){
   );
 
   const results = await Promise.all(promises);
+  for (const r of results) {
+    // Process the batch as needed, e.g., save to database
+  }
 
   // return flattened array of all games
   return results.flatMap(r => Array.isArray(r.batch) ? r.batch : []);
@@ -261,7 +343,7 @@ async function fetchItadDealsBulk(count){
 async function fetchItadDeals(limit, offset, sleepMs = 0){
     const shops = await fetchItadShops();
     const shopIds = shops.map(s => s.id);
-    const dealsUrl = `https://api.isthereanydeal.com/deals/v2?key=${process.env.ITAD_API_KEY}&country=DE&limit=${limit}&offset=${offset}&sort=-cut&shops=${shopIds.join(',')}`;
+    const dealsUrl = `https://api.isthereanydeal.com/deals/v2?key=${ITAD_API_KEY}&country=DE&limit=${limit}&offset=${offset}&sort=-cut&shops=${shopIds.join(',')}`;
     try {
         const response = await fetchWithRateHandling(dealsUrl, {headers: { 'Content-Type': 'application/json' }, method: 'GET' }, 4, 1000);
         if (!response || !response.ok) {
@@ -285,14 +367,15 @@ async function fetchItadDeals(limit, offset, sleepMs = 0){
               catch(err){
                 platformGameDetails = null;
               }
-              if(!gameInfo.appid || !gameInfo.title) return null;
+              if(!gameInfo.appid || !gameInfo.title) return null;          
               return {
                 appId: gameInfo.appid || null,
                 name: gameInfo.title || null,
                 genres: gameInfo.tags ? normalizeGenreNames(gameInfo.tags) : [],
                 headerImageUrl: headerImageUrl || null,
-                discount: game.deal.cut || null,
-                shop: game.deal.shop.name || null,
+                discount: platformGameDetails?.discount ?? game.deal.cut ?? null,
+                shop: game.deal.shop && game.deal.shop.name ? String(game.deal.shop.name).trim().toLowerCase() : null,
+                price: platformGameDetails?.price ?? game.deal.regular.amountInt ?? -1,
                 countryCode: 'DE' || null,
                 description: platformGameDetails?.description || null
               };
@@ -315,7 +398,7 @@ async function fetchItadDeals(limit, offset, sleepMs = 0){
  * @returns itad shopids that belong to steam/itch/gog and is paired to it in the array
  */
 async function fetchItadShops(){
-    const shopsUrl = `https://api.isthereanydeal.com/service/shops/v1?key=${process.env.ITAD_API_KEY}&client_id=${process.env.ITAD_CLIENT_ID}&client_secret=${process.env.ITAD_CLIENT_SECRET}`;
+    const shopsUrl = `https://api.isthereanydeal.com/service/shops/v1?key=${ITAD_API_KEY}&client_id=${ITAD_CLIENT_ID}&client_secret=${ITAD_CLIENT_SECRET}`;
     try{
       const response = await fetchWithRateHandling(shopsUrl, {headers: { 'Content-Type': 'application/json' }, method: 'GET' }, 4, 1000);
       if (!response || !response.ok) {
@@ -331,7 +414,7 @@ async function fetchItadShops(){
         }).map(shop => ({ id: shop.id, title: shop.title }));
         return filtered;
     } catch (error) {
-        console.error(error);
+        console.log(error);
         return [];
     }
 }
@@ -341,7 +424,7 @@ async function fetchItadShops(){
  * @returns {Promise<Object|null>} everything that isthereanydeal.com's api returns to the function
  */
 async function fetchItadGameInfo(gameId){
-    const gameInfoUrl = `https://api.isthereanydeal.com/games/info/v2?key=${process.env.ITAD_API_KEY}&client_id=${process.env.ITAD_CLIENT_ID}&client_secret=${process.env.ITAD_CLIENT_SECRET}&id=${gameId}`;
+    const gameInfoUrl = `https://api.isthereanydeal.com/games/info/v2?key=${ITAD_API_KEY}&client_id=${ITAD_CLIENT_ID}&client_secret=${ITAD_CLIENT_SECRET}&id=${gameId}`;
     try {
       const response = await fetchWithRateHandling(gameInfoUrl, {headers: { 'Content-Type': 'application/json' }, method: 'GET' }, 4, 1000);
       if (!response || !response.ok) {
@@ -355,11 +438,9 @@ async function fetchItadGameInfo(gameId){
         // genreNames = normalizeGenreNames(genreNames);        
         return data;
     } catch (error) {
-        console.error(error);
+        console.log(error);
     }    
 }
-
-
 
 //------------------- Platform APIs ------------------//
 /**
@@ -373,125 +454,11 @@ async function fetchGameDetailsFromPlatform(appId, platformName) {
   if (platformName === 'itchio') {
     return await fetchItchGameDetails(appId);
   } else if (platformName === 'gog') {
-    return await fetchGogGameDetails(appId);
+    const details = await fetchGogGameDetails(appId);
+    return details;
   } else if (platformName === 'steam') {
     return await fetchSteamGameDetails(appId);
   }
   return null;
 }
-
-
-/**
- * Fetches details for a game from the GOG platform.
- * @param {number|string} appId The name speaks for itself yet again...
- * @param {Array} param1 Whether you want the raw data or not.
- * @returns Basic info about the game, almost the same as the default game return model
- */
-async function fetchGogGameDetails(appId, { includeRaw = false } = {}) {
-  const numericAppId = Number(appId);
-  if (!Number.isFinite(numericAppId) || numericAppId <= 0) return null;
-
-  const endpoint = `https://api.gog.com/products/${numericAppId}?expand=description,screenshots`;
-  try {
-    const response = await fetch(endpoint, {
-      headers: {
-        'Accept': 'application/json',
-        'User-Agent': 'WreckLauncher/1.0 (+gog scraper)',
-      },
-    });
-
-    if (!response.ok) return null;
-    const payload = await response.json();
-    if (!payload || typeof payload !== 'object') return null;
-
-    const title = typeof payload.title === 'string' ? payload.title.trim() : null;
-    const bannerCandidate = getFirstStringByPaths(payload, [
-      ['images', 'background'],
-      ['images', 'logo'],
-      ['image'],
-    ]);
-    const bannerImg = typeof bannerCandidate === 'string' && bannerCandidate.startsWith('//')
-      ? `https:${bannerCandidate}`
-      : (bannerCandidate ?? null);
-
-    const leadDesc = typeof payload?.description?.lead === 'string' ? payload.description.lead : null;
-    const fullDesc = typeof payload?.description?.full === 'string' ? payload.description.full : null;
-    const description = leadDesc || fullDesc || null;
-
-    let cost = null;
-    const finalPrice = payload?.price?.final;
-    if (finalPrice != null) {
-      const parsed = Number.parseFloat(String(finalPrice));
-      if (Number.isFinite(parsed)) cost = parsed;
-    }
-
-    const genres = normalizeGenreNames(
-      Array.isArray(payload?.genres)
-        ? payload.genres.map((g) => (typeof g === 'string' ? g : g?.name))
-        : []
-    );
-
-    const details = {
-      id: numericAppId,
-      app_id: numericAppId,
-      title,
-      cover_url: payload?._links?.image?.href,
-      banner_img: bannerImg,
-      description,
-      min_price: cost,
-      is_free: Number.isFinite(cost) ? cost <= 0 : false,
-      genres,
-      url: `https://www.gog.com/en/game/${numericAppId}`,
-    };
-
-    if (includeRaw) details.raw = payload;
-    return details;
-  } catch (err) {
-    console.warn('Failed to fetch GOG game details:', { appId: numericAppId, err: err?.message });
-    return null;
-  }
-}
-/**
- * Fetches details for a game from the Steam platform. Whatch out for the rate limits on steam api, it can be quite harsh and with long cooldowns, so avoid if possible.
- * @param {number|string} appId The name speaks for itself yet again...
- * @param {Array} param1 Whether you want the raw data or not.
- * @returns Basic info about the game, almost the same as the default game return model.
- */
-async function fetchSteamGameDetails(appId, { includeRaw = false } = {}) {
-  const numericAppId = Number(appId);
-  if (!Number.isFinite(numericAppId) || numericAppId <= 0) return null;
-
-  const endpoint = `https://store.steampowered.com/api/appdetails?appids=${numericAppId}`;
-  try {
-    const response = await fetch(endpoint);
-    if (!response.ok) return null;
-    const payload = await response.json();
-    if (!payload || typeof payload !== 'object') return null;
-
-    const gameData = payload[numericAppId].data;
-    if (!gameData || typeof gameData !== 'object') return null;
-
-    const title = typeof gameData.name === 'string' ? gameData.name.trim() : null;
-    const coverUrl = typeof gameData.header_image === 'string' ? gameData.header_image : null;
-    const description = typeof gameData.about_the_game === 'string' ? gameData.about_the_game : null;
-
-    const details = {
-      id: numericAppId,
-      app_id: numericAppId,
-      title,
-      cover_url: coverUrl,
-      genres: normalizeGenreNames(Array.isArray(gameData.genres) ? gameData.genres.map(g => g.description) : []),
-      description,
-      url: `https://store.steampowered.com/app/${numericAppId}`,
-    };
-
-    if (includeRaw) details.raw = gameData;
-    return details;
-  } catch (err) {
-    console.warn('Failed to fetch Steam game details:', { appId: numericAppId, err: err?.message });
-    return null;
-  }
-}
-
-
 
