@@ -182,14 +182,15 @@ class GamesController extends Controller {
     /**
      * Get native game id by the unique platform specific game id.
      * @param {int} app_id 
+     * @param {int} platform_id
      * @returns {int|null} - game.id or null if not found
      */
-    async getGameIdByAppId(app_id) {
+    async getGameIdByAppId(app_id, platform_id) {
         await this.ready;
         
-        const query = `SELECT id FROM ${this.tableName} WHERE app_id = ? LIMIT 1;`;
+        const query = `SELECT id FROM ${this.tableName} WHERE app_id = ? AND platform_id = ? LIMIT 1;`;
         try {
-            const [rows] = await this.dbConnection.execute(query, [app_id]);
+            const [rows] = await this.dbConnection.execute(query, [app_id, platform_id]);
             if (!rows || rows.length === 0 || rows[0]?.id == null) {
                 return null;
             }

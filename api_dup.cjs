@@ -98,7 +98,7 @@ app.get("/api/games/:id", apiFunctions.GETGameById);
   returns:
     Same shape as /api/games/:id/all.
 */
-app.get("/api/games/app-id/:appId/details", apiFunctions.GETGamesByPlatformIdWithAllData); //old path: /api/games/platform/:appId/all
+app.get("/api/games/platforms/:platformId/app-id/:appId/details", apiFunctions.GETGamesByPlatformIdWithAllData); //old path: /api/games/platform/:appId/all
 /*
   route: /api/games/:id
   params: games.id

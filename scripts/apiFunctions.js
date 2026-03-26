@@ -149,7 +149,7 @@ module.exports.GETGameById = async function (req, res) {
 
 module.exports.GETGamesByPlatformIdWithAllData = async function (req, res) {
     try {
-        const { appId } = req.params;
+        const { platformId, appId } = req.params;
         const { country_code: countryCode } = req.body;
         const appIdNum = Number(appId);
         if (!Number.isFinite(appIdNum) || appIdNum <= 0) {
@@ -157,7 +157,7 @@ module.exports.GETGamesByPlatformIdWithAllData = async function (req, res) {
         }
 
         const gameCtrl = new GamesController();
-        const gameId = await gameCtrl.getGameIdByAppId(appIdNum);
+        const gameId = await gameCtrl.getGameIdByAppId(appIdNum, platformId);
         if (!gameId) {
             return res.status(404).json({ error: `Game not found by appId: ${appIdNum}` });
         }
