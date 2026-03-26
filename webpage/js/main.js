@@ -3,7 +3,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const chainContainer = document.getElementById("chain-container");
 
     if (anchImg && chainContainer) {
-        onOpacityOne(anchImg, loadChains);
+        //onOpacityOne(anchImg, loadChains);
     }
 
     function loadChains() {
