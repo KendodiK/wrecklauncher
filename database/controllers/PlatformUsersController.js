@@ -116,6 +116,7 @@ class PlatformUsersController extends Controller {
         if (data.native_user_id == null) {
             throw new Error("cannot create user whitout native user")
         }
+
         if (data.platform_id == null && data.platform_name != null) { 
             let platformsController = new PlatformsController();
             let platformData = {

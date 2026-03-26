@@ -764,3 +764,47 @@ module.exports.getFirstStringByPaths = function (source, paths) {
   }
   return null;
 }
+
+module.exports.ensureScrapedGameUploaded = async function ({ appId, platformName, name, bannerImg, description, cost, genreNames }) {
+  const numericAppId = Number(appId);
+  if (!Number.isFinite(numericAppId) || numericAppId <= 0) {
+    return { uploaded: false, gameId: null, reason: 'invalid-app-id' };
+  }
+
+  const normalizedPlatformName = String(platformName || '').trim().toLowerCase();
+  if (!normalizedPlatformName) {
+    return { uploaded: false, gameId: null, reason: 'missing-platform' };
+  }
+
+  const gamesCtrl = new gamesController();
+  const platformsCtrl = new platformsController();
+
+  const platform = await platformsCtrl.create({ name: normalizedPlatformName });
+  const platformId = Number(platform?.id);
+  if (!Number.isFinite(platformId) || platformId <= 0) {
+    return { uploaded: false, gameId: null, reason: 'platform-resolution-failed' };
+  }
+
+  const existingId = await gamesCtrl.getGameIdByAppIdAndPlatform(numericAppId, platformId);
+  if (existingId) {
+    return { uploaded: false, gameId: existingId, reason: 'already-exists' };
+  }
+
+  const gameData = {
+    app_id: numericAppId,
+    platform_name: normalizedPlatformName,
+    name: String(name || `game:${numericAppId}`),
+    banner_img: bannerImg || '',
+    description: description || '',
+    minimum_requirements: '',
+    cost: cost ?? null,
+    is_free: Number.isFinite(Number(cost)) ? Number(cost) <= 0 : false,
+  };
+
+  if (shouldSkipGameBecausePriceMissing(gameData, `${normalizedPlatformName}-scrape`, gameData.name)) {
+    return { uploaded: false, gameId: null, reason: 'missing-price' };
+  }
+
+  const uploaded = await gamesCtrl.uploadWithAll(gameData, null, normalizeGenreNames(genreNames ?? []));
+  return { uploaded: true, gameId: uploaded?.id ?? null, reason: 'uploaded' };
+}

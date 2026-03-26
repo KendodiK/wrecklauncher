@@ -6,6 +6,7 @@ Minden { body } paraméter megadása *kulon_szavak* strukturával JSON-ben
 -------------------------------------------------------
 Új route-ok:
     GET - /api/native-users/name/:name
+    V2.2 POST - /api/native-users -> tokenValidate() -> body : { name, email, bio, pfp }
     POST - /api/shop-specials/:gameId -> tokenValidate() -> body : { featured, coming_soon, discount_percent }
     POST - /api/pirate-sites/:gameId -> tokenValidate() -> body : {link, site_id, site_name}
     PUT - /api/login -> tokenValidate()
@@ -18,8 +19,14 @@ Törölt route-ok:
 4.
 -------------------------------------------------------
 Path megváltozott:
+V2.2 GET |  /api/steam/profile_id/:vanityurl
+        ->  /api/steam/profile-id/:vanityurl
+
+V2.2 GET | /steam/api/getOwnedGames
+        -> /steam/api/get-owned-games
+        
 GET |       /api/games/platform/:appId/all 
-        -> /api/games/app-id/:appId/details
+        -> /api/games/platforms/:platformId/app-id/:appId/details
 
 GET |       /api/games/:id/all
         -> /api/games/:id/details
