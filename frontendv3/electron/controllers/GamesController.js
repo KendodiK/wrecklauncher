@@ -104,7 +104,7 @@ class GamesController {
   async getAllDetailsByAppIDAndPlatform(platform, appId){
     if (!appId || !String(appId).trim()) throw new Error('App ID is required');
     if (!platform || !String(platform).trim()) throw new Error('Platform is required');
-    const url = joinUrl(this.#serverUrl, 'api', 'games', 'platform', enc(String(appId)), 'all');
+    const url = joinUrl(this.#serverUrl, 'api', 'games', enc(String(platform)), enc(String(appId)), 'all');
     const { ok, status, json, text } = await fetchJsonSafe(url,{
       method: 'GET',
       headers: {

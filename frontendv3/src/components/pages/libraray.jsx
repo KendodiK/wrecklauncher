@@ -25,7 +25,7 @@ function toSteamLibraryGame(game) {
 		appid: appId,
 		title,
 		launcherId: 'steam',
-		coverUrl: `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/header.jpg`,
+		coverUrl: `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/library_600x900_2x.jpg`,
 		heroUrl: `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/library_hero.jpg`,
 		genres: ['Steam'],
 		tags: playtimeMinutes > 0 ? ['Owned', 'Played'] : ['Owned', 'Ready to install'],
@@ -138,9 +138,11 @@ const LibraryPage = () => {
 	}, []);
 
 	const searchPool = useMemo(() => {
+		const q = deferredSearch.trim();
+		if (!q) return ownedGames;
 		if (scope === 'all') return ownedGames;
 		return ownedGames.filter((g) => g.launcherId === activeLauncherId);
-	}, [activeLauncherId, scope, ownedGames]);
+	}, [activeLauncherId, deferredSearch, scope, ownedGames]);
 
 	const filteredGames = useMemo(() => {
 		let result = [...searchPool];
@@ -170,13 +172,16 @@ const LibraryPage = () => {
 		return dedupeLibraryGames(result);
 	}, [deferredSearch, hideZeroPlaytime, searchPool, sortBy]);
 
-	const activeGame = useMemo(
-		() => ownedGames.find((g) => g.id === activeGameId) ?? filteredGames[0] ?? null,
-		[activeGameId, filteredGames, ownedGames],
-	);
+	const activeGame = useMemo(() => {
+		if (!filteredGames.length) return null;
+		return filteredGames.find((g) => g.id === activeGameId) ?? filteredGames[0] ?? null;
+	}, [activeGameId, filteredGames]);
 
 	useEffect(() => {
-		if (!filteredGames.length) return;
+		if (!filteredGames.length) {
+			if (activeGameId !== '') setActiveGameId('');
+			return;
+		}
 		if (!filteredGames.some((g) => g.id === activeGameId)) {
 			setActiveGameId(filteredGames[0].id);
 		}
@@ -185,14 +190,6 @@ const LibraryPage = () => {
 	const progressWidth = activeGame ? `${Math.max(3, Math.min(activeGame.progress, 100))}%` : '0%';
 	const activeSteamAppId = Number(activeGame?.appid);
 	const canUseSteamActions = Number.isFinite(activeSteamAppId) && activeSteamAppId > 0 && activeGame?.launcherId === 'steam';
-
-	const resetFilters = () => {
-		setScope('launcher');
-		setSearch('');
-		setSortBy('title-asc');
-		setHideZeroPlaytime(false);
-		setShowMenu(false);
-	};
 
 	const handleSteamAction = async (action) => {
 		if (!canUseSteamActions) {
@@ -283,7 +280,7 @@ const LibraryPage = () => {
 				<h1 className="text-3xl font-bold text-white mb-1">My Library</h1>
 				<p className="text-sm text-slate-300">
 					{ownedGames.length} {ownedGames.length === 1 ? 'game' : 'games'} owned
-					{scope === 'launcher' && searchPool.length > 0 && ` • ${searchPool.length} on ${activeLauncherId}`}
+					{scope === 'launcher' && deferredSearch.trim() !== '' && searchPool.length > 0 && ` • ${searchPool.length} on ${activeLauncherId}`}
 				</p>
 			</div>
 
@@ -373,35 +370,6 @@ const LibraryPage = () => {
 								className={`library-scope-btn ${sortBy === 'playtime-desc' ? 'library-scope-btn-active' : ''}`}
 							>
 								Sort: Most Played
-							</button>
-							<button
-								type="button"
-								onClick={() => setSortBy('playtime-asc')}
-								className={`library-scope-btn ${sortBy === 'playtime-asc' ? 'library-scope-btn-active' : ''}`}
-							>
-								Sort: Least Played
-							</button>
-							<button
-								type="button"
-								onClick={() => setHideZeroPlaytime((value) => !value)}
-								className={`library-scope-btn ${hideZeroPlaytime ? 'library-scope-btn-active' : ''}`}
-							>
-								{hideZeroPlaytime ? 'Showing played titles only' : 'Show all playtime states'}
-							</button>
-							<button
-								type="button"
-								onClick={resetFilters}
-								className="library-scope-btn"
-							>
-								Reset search and filters
-							</button>
-							<div className="library-scope-divider" />
-							<button
-								type="button"
-								onClick={() => { setShowAllGames(true); setShowMenu(false); }}
-								className="library-scope-btn-open-all"
-							>
-								Open All Games
 							</button>
 						</div>
 					) : null}

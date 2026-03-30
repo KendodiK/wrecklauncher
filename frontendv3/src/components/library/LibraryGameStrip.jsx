@@ -24,6 +24,7 @@ const LibraryGameStrip = ({ games, activeGameId, onSelect, onOpenStore, onOpenGa
       classNameContainer="lib-strip-cards"
       classNameCard="lib-strip-card"
       classNameCardActive="lib-strip-card-active"
+      advanceOnActiveClick
       transitionMs={300}
       onCurrentCardChange={(card) => {
         if (typeof onSelect === 'function') {

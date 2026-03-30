@@ -1,5 +1,7 @@
+import { cwd } from 'process';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useDownloadManager } from '../../context/DownloadManagerContext.jsx';
 
 const fallback = {
 	id: null,
@@ -37,17 +39,19 @@ function normalizePlatformName(value) {
 }
 
 function normalizeSiteLinksFromAny(value) {
+	const hasSupportedProtocol = (href) => /^(https?:\/\/|magnet:\?)/i.test(String(href || '').trim());
+
 	if (!value) return [];
 	if (Array.isArray(value)) {
 		return value
 			.map((entry, index) => {
 				if (!entry) return null;
 				if (typeof entry === 'string') {
-					if (!/^https?:\/\//i.test(entry)) return null;
+					if (!hasSupportedProtocol(entry)) return null;
 					return { id: `site-${index}`, label: 'Store', href: entry };
 				}
 				const href = String(entry.href || entry.url || entry.link || '').trim();
-				if (!/^https?:\/\//i.test(href)) return null;
+				if (!hasSupportedProtocol(href)) return null;
 				return {
 					id: String(entry.id || entry.label || entry.site_name || entry.name || `site-${index}`),
 					label: String(entry.label || entry.site_name || entry.name || entry.platform || 'Store'),
@@ -60,12 +64,12 @@ function normalizeSiteLinksFromAny(value) {
 		return Object.entries(value)
 			.map(([key, entry], index) => {
 				if (typeof entry === 'string') {
-					if (!/^https?:\/\//i.test(entry)) return null;
+					if (!hasSupportedProtocol(entry)) return null;
 					return { id: key, label: key, href: entry };
 				}
 				if (!entry || typeof entry !== 'object') return null;
 				const href = String(entry.href || entry.url || entry.link || '').trim();
-				if (!/^https?:\/\//i.test(href)) return null;
+				if (!hasSupportedProtocol(href)) return null;
 				return {
 					id: String(entry.id || key || `site-${index}`),
 					label: String(entry.label || entry.site_name || entry.name || key || 'Store'),
@@ -75,6 +79,63 @@ function normalizeSiteLinksFromAny(value) {
 			.filter(Boolean);
 	}
 	return [];
+}
+
+function isMagnetUri(value) {
+	return /^magnet:\?/i.test(String(value || '').trim());
+}
+
+function isDownloadableTorrentSource(value) {
+	const href = String(value || '').trim();
+	if (!href) return false;
+	if (/^magnet:\?/i.test(href)) return true;
+	return /^https?:\/\//i.test(href) && /\.torrent(?:$|[?#])/i.test(href);
+}
+
+function extractDimensionsFromUrl(url) {
+	const match = String(url || '').match(/(\d{2,4})x(\d{2,4})/i);
+	if (!match) return null;
+	const width = Number(match[1]);
+	const height = Number(match[2]);
+	if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
+	return { width, height };
+}
+
+function pickBestThumbImage(candidates) {
+	const unique = [];
+	for (const candidate of candidates) {
+		const url = String(candidate || '').trim();
+		if (!url) continue;
+		if (!/^https?:\/\//i.test(url)) continue;
+		if (!unique.includes(url)) unique.push(url);
+	}
+	if (!unique.length) return '';
+
+	const targetSize = 160;
+	let best = unique[0];
+	let bestScore = Number.POSITIVE_INFINITY;
+
+	for (const url of unique) {
+		const dims = extractDimensionsFromUrl(url);
+		if (!dims) {
+			if (bestScore === Number.POSITIVE_INFINITY) {
+				best = url;
+			}
+			continue;
+		}
+		const ratio = dims.width / dims.height;
+		const ratioPenalty = Math.abs(ratio - 1) * 120;
+		const area = dims.width * dims.height;
+		const targetArea = targetSize * targetSize;
+		const areaPenalty = Math.abs(area - targetArea) / targetArea;
+		const score = ratioPenalty + areaPenalty;
+		if (score < bestScore) {
+			bestScore = score;
+			best = url;
+		}
+	}
+
+	return best;
 }
 
 function defaultSiteForPlatform(platform, appId) {
@@ -145,6 +206,13 @@ function parsePlatformDetails(platform, details, appId) {
 	}
 
 	if (platform === 'itchio') {
+		const tags = Array.isArray(details.tags)
+			? details.tags.filter((tag) => typeof tag === 'string' && tag.trim())
+			: Array.isArray(details.genres)
+				? details.genres.filter((tag) => typeof tag === 'string' && tag.trim())
+				: Array.isArray(details.genreNames)
+					? details.genreNames.filter((tag) => typeof tag === 'string' && tag.trim())
+					: [];
 		const siteLinks = normalizeSiteLinksFromAny(details.url || details.store_url || details.storeUrl || details.links || details.sites);
 		return {
 			id: Number(appId) || null,
@@ -152,7 +220,7 @@ function parsePlatformDetails(platform, details, appId) {
 			title: details.title || fallback.title,
 			description: details.shortText || '',
 			longDescription: details.shortText || '',
-			tags: [],
+			tags,
 			screenshots: [],
 			minimumRequirements: '',
 			price: typeof details.minPrice === 'number' ? details.minPrice : null,
@@ -187,6 +255,7 @@ const StoreGamePage = () => {
 	const { id, platform } = useParams();
 	const location = useLocation();
 	const navigate = useNavigate();
+	const { startDownload } = useDownloadManager();
 	const [platformDetails, setPlatformDetails] = useState(null);
 	const [dbDetails, setDbDetails] = useState(null);
 	const [errorMessage, setErrorMessage] = useState('');
@@ -233,15 +302,32 @@ const StoreGamePage = () => {
 			try {
 				let dbData = null;
 				try {
+					console.debug('[StoreGamePage] DB lookup by platform+appId', {
+						effectivePlatform,
+						appId,
+						hasApiMethod: typeof api.getAllDetailsByAppIDAndPlatform === 'function',
+					});
 					dbData = await api.getAllDetailsByAppIDAndPlatform(effectivePlatform, appId);
-				} catch {
+					console.log('[StoreGamePage] DB details fetched by platform+appID', dbData);
+				} catch (error) {
+					console.warn('[StoreGamePage] getAllDetailsByAppIDAndPlatform failed, falling back to getAllDetailsByID', {
+						effectivePlatform,
+						appId,
+						error,
+					});
 					dbData = await api.getAllDetailsByID(appId);
+					console.log('[StoreGamePage] DB details fetched by ID fallback', dbData);
 				}
 				if (dbData) {
 					effectivePlatform = normalizePlatformName(dbData.platform_name || effectivePlatform);
 				}
 				if (!cancelled && dbData) setDbDetails(dbData);
-			} catch {
+			} catch (error) {
+				console.warn('[StoreGamePage] DB enrichment failed', {
+					appId,
+					requestedPlatform,
+					error,
+				});
 				// optional enrichment only
 			}
 
@@ -270,6 +356,7 @@ const StoreGamePage = () => {
 
 	const model = useMemo(() => {
 		const parsedPlatform = parsePlatformDetails(requestedPlatform, platformDetails, appId);
+		const scrapedTags = Array.isArray(parsedPlatform?.tags) ? parsedPlatform.tags : [];
 		const dbSites = normalizeSiteLinksFromAny(
 			dbDetails?.pirate_sites ||
 			dbDetails?.sites ||
@@ -285,7 +372,6 @@ const StoreGamePage = () => {
 				title: dbDetails.name || routeState.title,
 				description: dbDetails.description || '',
 				longDescription: dbDetails.description || routeState.longDescription,
-				tags: Array.isArray(dbDetails.genre_names) ? dbDetails.genre_names : [],
 				minimumRequirements: dbDetails.minimum_requirements || '',
 				price: typeof dbDetails.cost === 'number' ? dbDetails.cost : routeState.price,
 				platform_name: normalizePlatformName(dbDetails.platform_name || routeState.platform_name),
@@ -313,7 +399,7 @@ const StoreGamePage = () => {
 			coverImage: merged.coverImage || merged.bannerImg || steam?.cover || steam?.capsule || fallback.coverImage,
 			heroImage: merged.heroImage || merged.bannerImg || steam?.hero || steam?.header || fallback.heroImage,
 			longDescription: merged.longDescription || merged.description || '',
-			tags: Array.isArray(merged.tags) ? merged.tags : [],
+			tags: scrapedTags,
 			screenshots: Array.isArray(merged.screenshots) ? merged.screenshots : [],
 			price: typeof merged.price === 'number' ? merged.price : null,
 			sites: links,
@@ -322,6 +408,11 @@ const StoreGamePage = () => {
 
 	const screenshot = model.screenshots[currentScreenshot] || model.heroImage || model.coverImage;
 	const activePlatform = normalizePlatformName(model.platform_name);
+	const bestThumb = useMemo(() => pickBestThumbImage([
+		model.coverImage,
+		...(Array.isArray(model.screenshots) ? model.screenshots : []),
+		model.heroImage,
+	]), [model.coverImage, model.heroImage, model.screenshots]);
 	const platformButtonLabel = activePlatform === 'gog'
 		? 'Open In GOG'
 		: activePlatform === 'itchio'
@@ -340,6 +431,24 @@ const StoreGamePage = () => {
 				return;
 			}
 			await window.electronAPI.storePageSteam(appId);
+		} catch (error) {
+			setErrorMessage(error instanceof Error ? error.message : String(error));
+		}
+	};
+
+	const handleStartSiteDownload = async (site) => {
+		const href = String(site?.href || '').trim();
+		if (!isDownloadableTorrentSource(href)) return;
+		try {
+			await startDownload({
+				magnetUri: href,
+				artwork: {
+					thumbnailUrl: bestThumb,
+					coverUrl: model.coverImage || '',
+					imageUrl: model.heroImage || '',
+				},
+			});
+			navigate('/downloads');
 		} catch (error) {
 			setErrorMessage(error instanceof Error ? error.message : String(error));
 		}
@@ -394,7 +503,22 @@ const StoreGamePage = () => {
 								<h2 className="text-lg font-semibold text-white">Available At</h2>
 								<div className="mt-3 flex flex-col gap-2">
 									{model.sites.map((site, index) => (
-										<a key={site.id ?? `${site.label}-${index}`} href={site.href ?? '#'} target="_blank" rel="noreferrer" className="rounded-xl border border-slate-700/70 bg-slate-950/45 px-4 py-3 text-sm text-slate-200 transition-colors hover:bg-slate-800/80">{site.label ?? 'Store'}</a>
+										<div key={site.id ?? `${site.label}-${index}`} className="rounded-xl border border-slate-700/70 bg-slate-950/45 px-4 py-3 text-sm text-slate-200">
+											<div className="flex flex-wrap items-center justify-between gap-2">
+												<span>{site.label ?? 'Store'}</span>
+												{isDownloadableTorrentSource(site.href) ? (
+													<button
+														type="button"
+														onClick={() => handleStartSiteDownload(site)}
+														className="rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em] text-white transition-colors hover:bg-emerald-400"
+													>
+														Start Download
+													</button>
+												) : (
+													<a href={site.href ?? '#'} target="_blank" rel="noreferrer" className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs uppercase tracking-[0.1em] text-slate-200 transition-colors hover:bg-slate-800/80">Open</a>
+												)}
+											</div>
+										</div>
 									))}
 								</div>
 							</div>

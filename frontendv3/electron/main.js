@@ -456,6 +456,27 @@ handle('steam:get-installed-games', async () => {
     return sites;
   }
 
+  function normalizePirateSites(value) {
+    if (!Array.isArray(value)) return [];
+    return value
+      .map((entry) => {
+        if (!entry) return null;
+        if (typeof entry === 'string') {
+          const url = entry.trim();
+          if (!url) return null;
+          return { name: 'Pirate Site', url };
+        }
+        if (typeof entry === 'object') {
+          const url = String(entry.url || entry.href || entry.link || '').trim();
+          if (!url) return null;
+          const name = String(entry.name || entry.label || entry.site_name || 'Pirate Site').trim() || 'Pirate Site';
+          return { name, url };
+        }
+        return null;
+      })
+      .filter(Boolean);
+  }
+
   handle('games:get-all-details-by-appid-and-platform', async (_event, { platform }, { appId }, { token }) => {
     console.log(`[IPC] games:get-all-details-by-appid-and-platform url=${_event.senderFrame.url.split('/')}`);
     //nem biztos hogy működik url-lel, check later
@@ -466,15 +487,17 @@ handle('steam:get-installed-games', async () => {
       platform = _event.senderFrame.url.split('/').slice(-2)[0];
     }
     let gameDetails = await getGamesCtrl().getAllDetailsByAppIDAndPlatform(String(platform), String(appId));
+    gameDetails.pirate_sites = normalizePirateSites(gameDetails?.pirate_sites);
     console.log('Fetched game details:', gameDetails);
     console.log('Pirate sites from backend:', gameDetails.pirate_sites);
       if(gameDetails.pirate_sites.length === 0){
         gameDetails.pirate_sites = await getPirateSitesForGame(gameDetails.name);
+        gameDetails.pirate_sites = normalizePirateSites(gameDetails.pirate_sites);
         if(token && gameDetails.pirate_sites.length > 0){
         for (const site of gameDetails.pirate_sites) {
           //FINISH THIS LATER!!!!!
           try{
-          await getGamesCtrl().uploadPirateSites(token, gameDetails.app_id, gameDetails.platform_name, [site]);
+          await getGamesCtrl().uploadPirateSites(token, gameDetails.app_id, gameDetails.platform_name, [site.url]);
           } catch(e){
             console.warn('Failed to upload pirate site:', e);
           }
@@ -610,11 +633,29 @@ handle('steam:get-installed-games', async () => {
   // progress events are pushed to the renderer via webContents.send so the
   // renderer only needs ipcRenderer.on('torrent:progress', cb).
 
+  const fallbackTrackers = [
+    'udp://tracker.opentrackr.org:1337/announce',
+    'udp://open.stealth.si:80/announce',
+    'udp://tracker.torrent.eu.org:451/announce',
+    'udp://exodus.desync.com:6969/announce',
+    'udp://tracker.openbittorrent.com:6969/announce',
+  ];
+
+  function addFallbackTrackersIfMissing(magnetUri) {
+    const raw = String(magnetUri || '').trim();
+    if (!raw.toLowerCase().startsWith('magnet:?')) return raw;
+    const hasTrackers = /(?:\?|&)tr=/i.test(raw);
+    if (hasTrackers) return raw;
+    const suffix = fallbackTrackers.map((tr) => `&tr=${encodeURIComponent(tr)}`).join('');
+    return `${raw}${suffix}`;
+  }
+
   handle('torrent:start', async (event, magnetUri, savePath) => {
     // Decode all HTML-encoded ampersands that scrapers may leave in the magnet URI.
-    const mUri  = String(magnetUri || '').trim()
+    const decodedMagnet  = String(magnetUri || '').trim()
       .replace(/&#0*38;/g, '&')
       .replace(/&amp;/gi, '&');
+    const mUri = addFallbackTrackersIfMissing(decodedMagnet);
     const sPath = String(savePath  || '').trim() || app.getPath('downloads');
     console.log('[torrent:start] mUri (full):', mUri);
     console.log('[torrent:start] sPath:', sPath);

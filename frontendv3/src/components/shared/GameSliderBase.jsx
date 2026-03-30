@@ -13,6 +13,7 @@ const GameSliderBase = ({
 	onActivateCard,
 	onCardClick,
 	onCurrentCardChange,
+	advanceOnActiveClick = false,
 	// Styling hooks (wrapper supplies CSS classnames)
 	classNameWrapper = '',
 	classNameCarousel = '',
@@ -106,6 +107,11 @@ const GameSliderBase = ({
 
 	const handleCardClick = (index) => {
 		if (isMoving) return;
+		if (advanceOnActiveClick && index === currentIndex) {
+			setIsMoving(true);
+			setCurrentIndex((prev) => prev + 1);
+			return;
+		}
 		// Call onCardClick callback if provided (e.g., for scroll-into-view)
 		if (typeof onCardClick === 'function') {
 			onCardClick(cards[index], { index });

@@ -12,6 +12,7 @@ import GamePage from "./components/pages/gamepage.jsx";
 import StoreGamePage from "./components/pages/StoreGamePage.jsx";
 import LibraryPage from "./components/pages/libraray.jsx";
 import AllGamesPage from "./components/pages/AllGamesPage.jsx";
+import { DownloadManagerProvider } from './context/DownloadManagerContext.jsx';
 
 // Listens for auth-expired events and redirects to the login page.
 function AuthExpiredGuard({ onLogout }) {
@@ -37,30 +38,32 @@ function App() {
   }, []);
 
   return (
-    <HashRouter>
-      <div className="min-h-screen flex flex-col bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-        <AuthExpiredGuard onLogout={handleLogout} />
-        <MainNavbar user={user} onLogout={handleLogout} />
-        <main className="flex-1 pt-14">
-          <Routes>
-            <Route path="/login" element={<Login onLogin={setUser} />} />
-            <Route path="/store" element={<Store />} />
-            <Route path="/store/game/:platform/:id" element={<StoreGamePage />} />
-            <Route path="/library" element={<LibraryPage />} />
-            <Route path="/all-games" element={<AllGamesPage />} />
-            <Route path="/shop/all-games" element={<AllGamesPage />} />
-            <Route path="/shop/platform/:platform" element={<AllGamesPage />} />
-            <Route path="/game" element={<GamePage />} />
-            <Route path="/game/:id" element={<GamePage />} />
-            <Route path="/downloads" element={<DownloadsPage />} />
-            <Route path="/friends" element={<FriendsPage user={user} />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/profile/:userId?" element={<ProfilePage user={user} />} />
-            <Route path="/" element={<Store />} />
-          </Routes>
-        </main>
-      </div>
-    </HashRouter>
+    <DownloadManagerProvider>
+      <HashRouter>
+        <div className="min-h-screen flex flex-col bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+          <AuthExpiredGuard onLogout={handleLogout} />
+          <MainNavbar user={user} onLogout={handleLogout} />
+          <main className="flex-1 pt-14">
+            <Routes>
+              <Route path="/login" element={<Login onLogin={setUser} />} />
+              <Route path="/store" element={<Store />} />
+              <Route path="/store/game/:platform/:id" element={<StoreGamePage />} />
+              <Route path="/library" element={<LibraryPage />} />
+              <Route path="/all-games" element={<AllGamesPage />} />
+              <Route path="/shop/all-games" element={<AllGamesPage />} />
+              <Route path="/shop/platform/:platform" element={<AllGamesPage />} />
+              <Route path="/game" element={<GamePage />} />
+              <Route path="/game/:id" element={<GamePage />} />
+              <Route path="/downloads" element={<DownloadsPage />} />
+              <Route path="/friends" element={<FriendsPage user={user} />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/profile/:userId?" element={<ProfilePage user={user} />} />
+              <Route path="/" element={<Store />} />
+            </Routes>
+          </main>
+        </div>
+      </HashRouter>
+    </DownloadManagerProvider>
   );
 }
 
