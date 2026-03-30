@@ -9,6 +9,7 @@ const app = express();
 
 const DBCreator = require('./database/DBCreator.js');
 const nativeUserController = require('./database/controllers/NativeUsersController.js');
+const { platform } = require('process');
 
 const PORT = 3000;
 app.use(cors());
@@ -18,11 +19,9 @@ app.use(express.urlencoded({ extended: true }));
 
 //#region StartServer
 const server = app.listen(PORT, async () => {
-  console.log(`Proxy server running at http://localhost:${PORT}`);
-  console.log('Fetching initial IGDB token...');
-  const games = await fetchShopSpecials.getShopSpecials();
-  console.log('Fetched shop specials:', games.length, 'games');
+  console.log(`Proxy server running at http://localhost:${PORT}`);  
 });
+
 
 server.on('error', (err) => {
   console.error('Server error:', err);
@@ -46,6 +45,8 @@ server.on('listening', async () => {
   } catch (err) {
     console.error('Error creating database tables on startup:', err);
   }
+  await apiFunctions.fetchInitialShopSpecialsData();
+  setInterval(apiFunctions.fetchInitialShopSpecialsData, 24 * 60 * 60 * 1000); // Refresh shop specials data every day
 });
 //#endregion
 

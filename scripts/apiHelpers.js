@@ -4,7 +4,74 @@ const CountriesController = require('../database/controllers/CountiesController.
 const PricesController = require('../database/controllers/PricesController.js');
 const { disconnect } = require('process');
 // Read itch API key from environment when available to avoid relying on caller files
-const itchApiKey = process.env.ITCH_API_KEY || null;
+let itchApiKey = process.env.ITCH_API_KEY || null;
+
+// Local sleep helper for retry/backoff
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, Number(ms) || 0));
+}
+
+/**
+ * Fetch helper that retries on HTTP 429 (Too Many Requests) until a non-429 response is received.
+ * Respects the `Retry-After` header when present and applies exponential backoff between attempts.
+ * WARNING: By default this will keep retrying on 429 indefinitely until a different status is returned.
+ * You can pass options.maxRetries to limit attempts.
+ */
+async function fetchWith429Retries(url, opts = {}, options = {}) {
+  const maxRetries = options.maxRetries == null ? Infinity : Number(options.maxRetries);
+  const initialBackoff = Number(options.initialBackoffMs) || 1000;
+  const maxBackoff = 60000; // 1 minute
+
+  let attempt = 0;
+  let backoff = initialBackoff;
+  console.log(`Fetching ${url} with up to ${maxRetries} retries on 429...`);
+  while (true) {
+    let res;
+    try {
+      res = await fetch(url, opts);
+    } catch (err) {
+      // network error - retry similar to 5xx transient
+      if (attempt >= maxRetries) throw err;
+      await sleep(backoff);
+      attempt++;
+      backoff = Math.min(backoff * 2, maxBackoff);
+      continue;
+    }
+
+    if (!res) {
+      if (attempt >= maxRetries) throw new Error('No response from fetch');
+      await sleep(backoff);
+      attempt++;
+      backoff = Math.min(backoff * 2, maxBackoff);
+      continue;
+    }
+
+    if (res.status === 429) {
+      // Respect Retry-After header if available
+      const ra = res.headers.get('Retry-After');
+      let waitMs = backoff;
+      if (ra) {
+        const raNum = Number(ra);
+        if (!Number.isNaN(raNum)) waitMs = raNum * 1000;
+        else {
+          const date = Date.parse(ra);
+          if (!Number.isNaN(date)) waitMs = Math.max(0, date - Date.now());
+        }
+      }
+      if (attempt >= maxRetries) return res; // give caller the 429 if we've exhausted retries
+      await sleep(waitMs);      
+      attempt++;
+      console.log(`Received 429 for ${url}. Attempt ${attempt}/${maxRetries}. Retrying in ${waitMs} ms...`);
+      backoff = Math.min(backoff * 2, maxBackoff);
+      continue; // retry on 429
+    }
+
+    // Non-429 response (success or other error) - return to caller
+    return res;
+  }
+}
+
+
 
 module.exports.getCountryIdByCode = async function (countyCode) {
   try {
@@ -114,13 +181,22 @@ function collapseWhitespace(text) {
   return text.replace(/\s+/g, ' ').trim();
 }
 
+/**
+ * Normalize platform/store names to a canonical simple form (lowercase, alphanumeric only).
+ * Examples: 'Itch.io' -> 'itchio', 'itch' -> 'itch', 'GOG.com' -> 'gog'
+ */
+module.exports.normalizePlatformName = function (name) {
+  if (name == null) return '';
+  return String(name).toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
 
 module.exports.shouldSkipGameBecausePriceMissing = function (gameLike, sourceLabel, gameName) {
   const missingPrice = !this.hasPriceValue(gameLike?.cost);
   const hasFreeSignal = gameLike?.is_free != null || gameLike?.free != null;
   const free = this.isGameFree(gameLike);
   if (missingPrice && hasFreeSignal && !free) {
-    console.log(`Skipping ${sourceLabel} game: missing price for non-free game`, {
+    console.error(`Skipping ${sourceLabel} game: missing price for non-free game`, {
       name: gameName ?? gameLike?.name ?? null,
       app_id: gameLike?.app_id ?? null,
       is_free: gameLike?.is_free ?? gameLike?.free ?? null,
@@ -182,11 +258,11 @@ module.exports.isTruthyFlag = function (value) {
 async function getSteamHeaderImageUrl(appId) {
   const url = `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/library_600x900.jpg`;
   try {
-    const res = await fetch(url, { method: 'HEAD' });
+    const res = await fetchWith429Retries(url, { method: 'HEAD' });
     const ok = !!res && res.ok && res.status === 200;
     const url2 = `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${appId}/header.jpg?`;
     try{
-      const res2 = await fetch(url2, { method: 'HEAD' });
+      const res2 = await fetchWith429Retries(url2, { method: 'HEAD' });
       const ok2 = !!res2 && res2.ok && res2.status === 200;
       return ok2 ? url2 : (ok ? url : null);
     }catch(err2){
@@ -235,7 +311,7 @@ async function fetchGogCoverUrl(appId) {
  * @returns {Promise<string|null>} The URL of the cover image or null if not found.
  */
 async function fetchItchCoverUrl(appId) {
-  const details = await module.exports.fetchItchGameDetails(appId);
+  const details = await module.exports.fetchItchGameDetails(appId, { includePageDetails: true });
   return details?.cover_url ?? null;
 }
 
@@ -246,17 +322,20 @@ async function fetchItchCoverUrl(appId) {
  * @returns {Promise<string|null>} The URL of the preferred header image or null if not found.
  */
 module.exports.getPlatformBannerUrl = async function ( platformName, appId ) {
+    // Basic guard: if no appId provided, don't attempt platform-specific fetches
+    if (appId == null || appId === '') return null;
     platformName = String(platformName).trim().toLowerCase();
-    //console.log('Fetching header image for:', { platformName, appId });    
-    if (platformName && platformName == 'itchio') {
-        const itchioUrl = await fetchItchCoverUrl(appId);
-        if (itchioUrl) return itchioUrl;
-        return null;     
+    // Normalize platform name to an alphanumeric canonical form (e.g. 'itch.io' -> 'itchio')
+    const pn = module.exports.normalizePlatformName(platformName);
+    if (pn === 'itchio' || pn === 'itch') {
+      const itchioUrl = await fetchItchCoverUrl(appId);
+      if (itchioUrl) return itchioUrl;
+      return null;
     }
-    if (platformName && platformName == 'gog') {
-        const gogUrl = await fetchGogCoverUrl(appId);
-        if (gogUrl) return gogUrl;   
-        return null;     
+    if (pn === 'gog') {
+      const gogUrl = await fetchGogCoverUrl(appId);
+      if (gogUrl) return gogUrl;
+      return null;
     }
     const steamUrl = await getSteamHeaderImageUrl(appId);
     return steamUrl;
@@ -267,15 +346,24 @@ module.exports.getPlatformBannerUrl = async function ( platformName, appId ) {
  * @param {Array} param1 options object with the following optional boolean properties: includeRaw (if true, includes the raw API response in the returned details under the 'raw' property) and includePageDetails (if true, attempts to fetch additional details from the game's webpage, which may include a more comprehensive description and genre information). Note that fetching page details can be time-consuming and may fail if the page structure is unexpected or if there are network issues, so it's recommended to set includePageDetails to false if you want a faster response and are okay with potentially less detailed information.
  * @returns Everything that itch.io's API returns for the game, but normalized into a consistent format with other platforms and with some additional processing to compute properties like is_free and to extract genres. If includePageDetails is true, it will also attempt to fetch and include additional details from the game's webpage, which may provide a more comprehensive description and genre information than the API alone. However, this can be time-consuming and may fail if the page structure is unexpected or if there are network issues, so use with caution.
  */
-module.exports.fetchItchGameDetails = async function (appId, { includeRaw = false, includePageDetails = false } = {}) {
+module.exports.fetchItchGameDetails = async function (appId, { includeRaw = false, includePageDetails = true } = {}) {
+  itchApiKey = itchApiKey || process.env.ITCH_API_KEY || null; // Re-read from environment in case it was set after module load
+  if (!itchApiKey) {
+    console.warn('Itch API key is not set. Cannot fetch itch game details.');
+    return null;
+  }
   const numericAppId = Number(appId);
-  if (!Number.isFinite(numericAppId) || numericAppId <= 0) return null;
-  if (!itchApiKey) return null;
-
+  if (!Number.isFinite(numericAppId) || numericAppId <= 0) {
+    console.warn(`Invalid Itch appId provided: ${appId}`);
+    return null;
+  }
   const endpoint = `https://itch.io/api/1/${itchApiKey}/game/${numericAppId}`;
   try {
-    const response = await fetch(endpoint);
-    if (!response.ok) return null;
+    const response = await fetchWith429Retries(endpoint, { method: 'GET' });
+    if (!response.ok) {
+      console.log(`Failed to fetch itch game details for appId ${appId}. Status: ${response.status} ${response.statusText}`);
+      return null;
+    }
     const payload = await response.json();
     const game = payload?.game ?? payload;
     if (!game || typeof game !== 'object') return null;
@@ -290,7 +378,7 @@ module.exports.fetchItchGameDetails = async function (appId, { includeRaw = fals
       title: game.title ?? null,
       short_text: game.short_text ?? null,
       url: game.url ?? null,
-      cover_url: module.exports.getFirstStringByPaths(game, [['cover_url'], ['still_cover_url'], ['thumb_url']]),
+      cover_url: pageDetails?.cover_url ?? module.exports.getFirstStringByPaths(game, [['cover_url'], ['still_cover_url'], ['thumb_url']]),
       cover_urls: {
         cover: game.cover_url ?? null,
         still_cover: game.still_cover_url ?? null,
@@ -382,30 +470,72 @@ async function fetchItchPageDetailsByUrl(gameUrl) {
   if (!gameUrl || typeof gameUrl !== 'string') return null;
 
   try {
-    const response = await fetch(gameUrl, {
+    const response = await fetchWith429Retries(gameUrl, {
+      method: 'GET',
       headers: {
         'User-Agent': 'WreckLauncher/1.0 (+itch description parser)',
         'Accept': 'text/html,application/xhtml+xml',
       },
     });
-    if (!response.ok) return null;
+    if (!response.ok) {
+      console.log(`Failed to fetch itch game details for URL ${gameUrl}. Status: ${response.status} ${response.statusText}`);
+      return null;
+    }
 
     const html = await response.text();
     const description = extractItchPageDescription(html);
     const genres = extractItchPageGenres(html);
+    const headerImage = extractItchHeaderImageUrl(html);
     return {
       description: description || null,
       genres,
+      cover_url: headerImage || null,
     };
   } catch (err) {
     console.warn('Failed to fetch itch detailed description:', { gameUrl, err: err?.message });
     return null;
   }
 }
+function extractItchHeaderImageUrl(html) {
+  if (!html || typeof html !== 'string') return null;
+  const normalizeUrl = (u) => {
+    if (!u || typeof u !== 'string') return null;
+    const t = u.trim();
+    return t.startsWith('//') ? 'https:' + t : t;
+  };
+
+  // Prefer meta tags (og:image / twitter:image)
+  let m = html.match(/<meta\s+(?:property|name)\s*=\s*["'](?:og:image|twitter:image)["'][^>]*content\s*=\s*["']([^"']+)["']/i);
+  if (m && m[1]) return normalizeUrl(m[1]);
+
+  // Look for an <img> inside the header container
+  m = html.match(/<div[^>]*id=["']header["'][^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["'][^>]*>/i);
+  if (m && m[1]) return normalizeUrl(m[1]);
+
+  // Fallback: first <img> on the page
+  m = html.match(/<img[^>]*src=["']([^"']+)["'][^>]*>/i);
+  if (m && m[1]) return normalizeUrl(m[1]);
+
+  return null;
+}
+function stripHtml(text) {
+  if (typeof text !== 'string') return null;
+  return text.replace(/<[^>]*>/g, ' ');
+}
+function decodeHtmlEntities(text) {
+  if (typeof text !== 'string') return null;
+  return text
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>');
+}
 function extractItchPageDescription(html) {
   const blockMatch = html.match(/<div[^>]*class=["'][^"']*(formatted_description|game_info_panel_widget)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i);
   const blockText = blockMatch?.[2]
-    ? module.exports.collapseWhitespace(module.exports.decodeHtmlEntities(module.exports.stripHtml(blockMatch[2])))
+    ? collapseWhitespace(decodeHtmlEntities(stripHtml(blockMatch[2])))
     : null;
   if (blockText && blockText.length > 40) return blockText;
 
@@ -428,7 +558,7 @@ function extractMetaTagContent(html, key, attrName) {
   const match = html.match(pattern);
   const value = match?.[1] ?? match?.[2] ?? null;
   if (!value) return null;
-  return module.exports.collapseWhitespace(module.exports.decodeHtmlEntities(value));
+  return collapseWhitespace(decodeHtmlEntities(value));
 }
 function extractItchPageGenres(html) {
   if (typeof html !== 'string' || !html) return [];
@@ -576,6 +706,90 @@ module.exports.fetchGogGameDetails = async function (appId, { includeRaw = false
           ? payload.genres.map((g) => (typeof g === 'string' ? g : g?.name))
           : []
       );
+      let minimumRequirements = "";
+      const minReqUrl = `https://api.gog.com/v2/games/${numericAppId}?locale=en-US`;
+      try {
+        const minReqRes = await fetch(minReqUrl, {
+          headers: {
+            'Accept': 'application/json',
+            'User-Agent': 'WreckLauncher/1.0 (+gog scraper)',
+          },
+        });
+        if (minReqRes.ok) {
+          const minReqData = await minReqRes.json();
+          if (minReqData) {
+            // Try several possible shapes where requirements may live
+            let supported = [];
+            if (Array.isArray(minReqData.supportedOperatingSystems)) supported = minReqData.supportedOperatingSystems;
+            else if (Array.isArray(minReqData.supported_operating_systems)) supported = minReqData.supported_operating_systems;
+            else if (Array.isArray(minReqData.systemRequirements)) supported = minReqData.systemRequirements;
+            else if (Array.isArray(minReqData.system_requirements)) supported = minReqData.system_requirements;
+            else if (Array.isArray(minReqData._embedded?.product?.supportedOperatingSystems)) supported = minReqData._embedded.product.supportedOperatingSystems;
+            else if (Array.isArray(minReqData._embedded?.product?.systemRequirements)) supported = minReqData._embedded.product.systemRequirements;
+            else if (Array.isArray(minReqData._embedded?.supportedOperatingSystems)) supported = minReqData._embedded.supportedOperatingSystems;
+            else if (Array.isArray(minReqData._embedded?.systemRequirements)) supported = minReqData._embedded.systemRequirements;
+            else if (Array.isArray(minReqData)) supported = minReqData;
+
+            const blocks = [];
+            for (const entry of supported) {
+              if (!entry || typeof entry !== 'object') continue;
+
+              // Case A: entry is a requirement block itself: { type: 'minimum', requirements: [...] }
+              if (typeof entry.type === 'string' && Array.isArray(entry.requirements)) {
+                blocks.push({ osName: String(entry?.operatingSystem?.name ?? '').trim(), block: entry });
+                continue;
+              }
+
+              // Case B: entry groups systemRequirements under an operatingSystem
+              const sysReqs = Array.isArray(entry.systemRequirements) ? entry.systemRequirements : (Array.isArray(entry.system_requirements) ? entry.system_requirements : null);
+              if (Array.isArray(sysReqs)) {
+                const osName = String(entry?.operatingSystem?.name ?? entry?.operatingSystem ?? entry?.name ?? '').trim();
+                for (const b of sysReqs) {
+                  if (!b || typeof b !== 'object') continue;
+                  blocks.push({ osName, block: b });
+                }
+                continue;
+              }
+
+              // Case C: fallback: entry may contain nested requirement arrays under other keys
+              if (Array.isArray(entry.requirements)) {
+                blocks.push({ osName: String(entry?.operatingSystem?.name ?? '').trim(), block: entry });
+              }
+            }
+
+            const outBlocks = [];
+            for (const item of blocks) {
+              const osName = item.osName || '';
+              const block = item.block;
+              const type = String(block?.type ?? '').toLowerCase();
+              if (!type.includes('minimum')) continue;
+
+              const lines = [];
+              if (osName) lines.push(`OS: ${osName}`);
+
+              const reqItems = Array.isArray(block.requirements) ? block.requirements : [];
+              for (const r of reqItems) {
+                if (typeof r === 'string') {
+                  const t = r.trim(); if (t) lines.push(t);
+                  continue;
+                }
+                if (!r || typeof r !== 'object') continue;
+                const name = String(r?.name ?? r?.id ?? '').trim();
+                const desc = String(r?.description ?? r?.value ?? '').trim();
+                if (name && desc) lines.push(`${name} ${desc}`);
+                else if (name) lines.push(name);
+                else if (desc) lines.push(desc);
+              }
+
+              if (lines.length > 0) outBlocks.push(lines.join('\n'));
+            }
+
+            if (outBlocks.length > 0) minimumRequirements = outBlocks.join('\n\n');
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to fetch GOG minimum requirements:', { appId: numericAppId, err: err?.message });
+      }
 
       const details = {
         id: numericAppId,
@@ -584,6 +798,7 @@ module.exports.fetchGogGameDetails = async function (appId, { includeRaw = false
         cover_url: bannerImg,
         banner_img: bannerImg,
         description,
+        minimum_requirements: minimumRequirements || "",
         min_price: cost,
         price: payload?.price?.initial ?? null,
         discount: payload?.price?.discount ?? null,
@@ -668,6 +883,80 @@ module.exports.fetchGogGameDetails = async function (appId, { includeRaw = false
 
     const cover_url = await fetchGogCoverUrl(appId);
     const bannerImg = cover_url ?? null;
+    let minimumRequirements = "";
+    try {
+      const minReqData = payload;
+      let supported = [];
+      if (Array.isArray(minReqData.supportedOperatingSystems)) supported = minReqData.supportedOperatingSystems;
+      else if (Array.isArray(minReqData.supported_operating_systems)) supported = minReqData.supported_operating_systems;
+      else if (Array.isArray(minReqData.systemRequirements)) supported = minReqData.systemRequirements;
+      else if (Array.isArray(minReqData.system_requirements)) supported = minReqData.system_requirements;
+      else if (Array.isArray(minReqData._embedded?.product?.supportedOperatingSystems)) supported = minReqData._embedded.product.supportedOperatingSystems;
+      else if (Array.isArray(minReqData._embedded?.product?.systemRequirements)) supported = minReqData._embedded.product.systemRequirements;
+      else if (Array.isArray(minReqData._embedded?.supportedOperatingSystems)) supported = minReqData._embedded.supportedOperatingSystems;
+      else if (Array.isArray(minReqData._embedded?.systemRequirements)) supported = minReqData._embedded.systemRequirements;
+      else if (Array.isArray(minReqData)) supported = minReqData;
+
+      const blocks = [];
+      for (const entry of supported) {
+        if (!entry || typeof entry !== 'object') continue;
+
+        // Case A: entry is a requirement block itself
+        if (typeof entry.type === 'string' && Array.isArray(entry.requirements)) {
+          blocks.push({ osName: String(entry?.operatingSystem?.name ?? '').trim(), block: entry });
+          continue;
+        }
+
+        // Case B: entry groups systemRequirements under an operatingSystem
+        const sysReqs = Array.isArray(entry.systemRequirements) ? entry.systemRequirements : (Array.isArray(entry.system_requirements) ? entry.system_requirements : null);
+        if (Array.isArray(sysReqs)) {
+          const osName = String(entry?.operatingSystem?.name ?? entry?.operatingSystem ?? entry?.name ?? '').trim();
+          for (const b of sysReqs) {
+            if (!b || typeof b !== 'object') continue;
+            blocks.push({ osName, block: b });
+          }
+          continue;
+        }
+
+        // Case C: fallback - entry may contain nested requirement arrays under other keys
+        if (Array.isArray(entry.requirements)) {
+          blocks.push({ osName: String(entry?.operatingSystem?.name ?? '').trim(), block: entry });
+        }
+      }
+
+      const outBlocks = [];
+      for (const item of blocks) {
+        const osName = item.osName || '';
+        const block = item.block;
+        const type = String(block?.type ?? '').toLowerCase();
+        if (!type.includes('minimum')) continue;
+
+        const lines = [];
+        if (osName) lines.push(`OS: ${osName}`);
+
+        const reqItems = Array.isArray(block.requirements) ? block.requirements : [];
+        for (const r of reqItems) {
+          if (typeof r === 'string') {
+            const t = r.trim(); if (t) lines.push(t);
+            continue;
+          }
+          if (!r || typeof r !== 'object') continue;
+          const name = String(r?.name ?? r?.id ?? '').trim();
+          const desc = String(r?.description ?? r?.value ?? '').trim();
+          if (name && desc) lines.push(`${name} ${desc}`);
+          else if (name) lines.push(name);
+          else if (desc) lines.push(desc);
+        }
+
+        if (lines.length > 0) outBlocks.push(lines.join('\n'));
+      }
+
+      if (outBlocks.length > 0) minimumRequirements = outBlocks.join('\n\n');
+
+    } catch (err) {
+      console.warn('Failed to parse GOG minimum requirements (fallback):', { appId: appId, err: err?.message });
+    }
+
     const details = {
       id: appId,
       app_id: appId,
@@ -675,6 +964,7 @@ module.exports.fetchGogGameDetails = async function (appId, { includeRaw = false
       cover_url,
       banner_img: bannerImg,
       description,
+      minimum_requirements: minimumRequirements || "",
       min_price: cost,
       price: payload?.price?.initial ?? null,
       discount: payload?.price?.discount ?? null,
@@ -703,7 +993,7 @@ module.exports.fetchSteamGameDetails = async function (appId, { includeRaw = fal
 
   const endpoint = `https://store.steampowered.com/api/appdetails?appids=${appId}`;
   try {
-    const response = await fetch(endpoint);
+    const response = await fetchWith429Retries(endpoint, { method: 'GET' });
     if (!response.ok) return null;
     const payload = await response.json();
     if (!payload || typeof payload !== 'object') return null;
@@ -722,6 +1012,7 @@ module.exports.fetchSteamGameDetails = async function (appId, { includeRaw = fal
       cover_url: coverUrl,
       genres: module.exports.normalizeGenreNames(Array.isArray(gameData.genres) ? gameData.genres.map(g => g.description) : []),
       description,
+      minimum_requirements: typeof gameData.pc_requirements?.minimum === 'string' ? gameData.pc_requirements.minimum : "",
       price: gameData.price_overview?.initial ?? gameData.is_free ? 0 : -1,
       discount: gameData.price_overview?.discount_percent ?? 0,
       url: `https://store.steampowered.com/app/${appId}`,

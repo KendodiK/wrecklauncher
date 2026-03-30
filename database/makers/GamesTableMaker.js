@@ -21,7 +21,7 @@ class GamesTableMaker extends DatabaseHandler {
                 name VARCHAR(256) NOT NULL,
                 banner_img VARCHAR(516),
                 description VARCHAR(2048),
-                minimum_requirements VARCHAR(1024),
+                minimum_requirements VARCHAR(2048),
                 UNIQUE uq_game (app_id, name)
             );
         `;

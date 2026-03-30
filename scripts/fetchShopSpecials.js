@@ -1,4 +1,4 @@
-const { getPlatformBannerUrl, normalizeGenreNames, fetchGogGameDetails, fetchItchGameDetails, fetchSteamGameDetails } = require('./apiHelpers.js');
+const { getPlatformBannerUrl, normalizeGenreNames, normalizePlatformName, fetchGogGameDetails, fetchItchGameDetails, fetchSteamGameDetails } = require('./apiHelpers.js');
 
 let ITAD_API_KEY=process.env.ITAD_API_KEY || null;
 let ITAD_CLIENT_ID=process.env.ITAD_CLIENT_ID || null;
@@ -65,11 +65,10 @@ ITAD_CLIENT_ID=process.env.ITAD_CLIENT_ID || null;
 ITAD_CLIENT_SECRET=process.env.ITAD_CLIENT_SECRET || null;
 IGDB_CLIENT_ID=process.env.IGDB_CLIENT_ID || null;
 IGDB_CLIENT_SECRET=process.env.IGDB_CLIENT_SECRET || null;
-  console.log(`Environment variables: IGDB_CLIENT_ID=${IGDB_CLIENT_ID ? '***' : 'missing'}, IGDB_CLIENT_SECRET=${IGDB_CLIENT_SECRET ? '***' : 'missing'}, ITAD_API_KEY=${ITAD_API_KEY ? '***' : 'missing'}, ITAD_CLIENT_ID=${ITAD_CLIENT_ID ? '***' : 'missing'}, ITAD_CLIENT_SECRET=${ITAD_CLIENT_SECRET ? '***' : 'missing'}`);
   const token = await fetchIGDBToken();
-  const popularGames = await fetchPopularGamesFromIGDB(400, token);
-  const upcomingGames = await fetchUpcomingGamesFromIGDB(400, token);
-  const itadDeals = await fetchItadDealsBulk(500);
+  const popularGames = await fetchPopularGamesFromIGDB(400, token);//400
+  const upcomingGames = await fetchUpcomingGamesFromIGDB(400, token);//400
+  const itadDeals = await fetchItadDealsBulk(500);//500
 
 // Merge the three lists into a single list of unique games, using appId or igdbId as the key. If a game appears in multiple lists, merge their properties and take the best values for popularityScore and discount.
 const keyFor = (item) => {
@@ -95,22 +94,22 @@ const keyFor = (item) => {
     const key = keyFor(item);
     const prev = merged.get(key) || {};
     merged.set(key, {
-      appId: prev.appId ?? item.appId ?? null,
+      app_id: prev.app_id ?? item.app_id ?? null,
       igdbId: prev.igdbId ?? item.igdbId ?? null,
       name: prev.name ?? item.name ?? null,
       genres: [...new Set([...(prev.genres || []), ...(item.genres || [])])],
       headerImageUrl: prev.headerImageUrl ?? item.headerImageUrl ?? null,
-      description: prev.description ?? item.description ?? null,
+      description: prev.description ?? item.description ?? "",
+      minimum_requirements: prev.minimum_requirements ?? item.minimum_requirements ?? null,
       shop: prev.shop ?? item.shop ?? null,
-      countryCode: prev.countryCode ?? item.countryCode ?? 'DE',
-      price: Math.max(Number(prev.price ?? -1), Number(item.price ?? -1)),
+      country_code: prev.country_code ?? item.country_code ?? 'DE',
+      cost: Math.max(Number(prev.cost ?? -1), Number(item.cost ?? -1)),
       // merge the three target fields and ensure a numeric default
       popularityScore:  Math.max(Number(prev.popularityScore ?? 0), Number(item.popularityScore ?? 0)),
       upcoming: (prev.upcoming ? 1 : 0) || (item.upcoming ? 1 : 0) ? 1 : 0,
       discount: Math.max(Number(prev.discount ?? 0), Number(item.discount ?? 0))
     });
   };
-
   popularGames.filter(Boolean).forEach(mergeInto);
   upcomingGames.forEach(mergeInto);
   itadDeals.forEach(mergeInto);
@@ -219,8 +218,14 @@ async function fetchPopularGamesFromIGDB(limit = 10, token = null) {
       .sort((a, b) => b.weightedSum - a.weightedSum);
       const scoreLookup = new Map(ranked.map(r => [r.game_id, r.weightedSum]));
       let games = await fetchIGDBGameDetails(ranked.map(r => r.game_id), token);
+      if (!Array.isArray(games)) games = [];
+      games = games.filter(Boolean);
       for (const g of games) {
-        g.popularityScore = scoreLookup.get(g.igdbId) ?? 0;
+        try {
+          g.popularityScore = scoreLookup.get(g.igdbId) ?? 0;
+        } catch (err) {
+          // defensive: skip malformed entries
+        }
       }
       return games;
   } catch (err) {
@@ -239,7 +244,9 @@ async function fetchUpcomingGamesFromIGDB(limit = 10, token = null) {
   try {
     let data = await fetchIGDB("release_dates", body, token);
     const gameIds = new Set(data.map(d => d.game).filter(gid => Number.isFinite(Number(gid))));  
-    const games = await fetchIGDBGameDetails([...gameIds], token);
+    let games = await fetchIGDBGameDetails([...gameIds], token);
+    if (!Array.isArray(games)) games = [];
+    games = games.filter(Boolean);
     return games.map(g => ({...g, upcoming: 1}));
   } catch (err) {
     console.error('Error fetching upcoming games from IGDB:', err);
@@ -264,39 +271,61 @@ async function fetchIGDBGameDetails(gameIds, token = null) {
       const title = game.name ?? null;
       const genres = Array.isArray(game.genres) ? game.genres.map(g => g.name).filter(Boolean) : [];
 
-      // prioritize external sources: Itch.io, GOG, Steam
+      // prioritize external sources: Itch.io, GOG, Steam (normalize names)
       let preferred = null;
-      const priorities = ['Itchio', 'GOG', 'Steam'];
+      const priorities = ['itchio', 'gog', 'steam'];
       if (Array.isArray(game.external_games)) {
         for (const p of priorities) {
-          const found = game.external_games.find(eg => eg.external_game_source && String(eg.external_game_source.name).trim().toLowerCase().includes(p.toLowerCase()));
+          const found = game.external_games.find(eg => {
+            const srcName = String(eg?.external_game_source?.name ?? '').toLowerCase().trim();
+            const norm = srcName.replace(/[^a-z0-9]/g, '');
+            return norm === p || norm.includes(p) || srcName.includes(p);
+          });
           if (found) { preferred = found; break; }
         }
-        //if (!preferred && game.external_games.length > 0) preferred = game.external_games[0];
         if (!preferred) {
+          // no preferred external source found; skip
           return null;
         }
       }
 
       const shopNameRaw = preferred?.external_game_source?.name || null;
-      const shopName = shopNameRaw ? String(shopNameRaw).trim().toLowerCase() : null;
+      let shopName = shopNameRaw ? normalizePlatformName(shopNameRaw) : null;
       const coverFallback = game.cover && game.cover.url ? `https:${game.cover.url}` : null;
-      const headerImageUrl = await getPlatformBannerUrl(shopName, preferred?.uid || null).catch(()=>null) || coverFallback;
-      //console.log('IGDB game details:', { preferred: preferred?.uid || null, title, shopName, headerImageUrl, shouldBe: await getPlatformBannerUrl(shopName, preferred?.uid || null).catch(()=>null) });
+      // Try initial platform fetch, then probe others if needed to correct mismatched external ids (e.g., steam id with gog mapping)
+      let platformDetails = shopName && preferred?.uid ? await fetchGameDetailsFromPlatform(preferred.uid, shopName).catch(() => null) : null;
+      if (!platformDetails && preferred?.uid) {
+        const probe = await detectPlatformForAppId(preferred.uid, [shopName, 'gog', 'steam', 'itchio'], game.name);
+        if (probe.details) {
+          platformDetails = probe.details;
+          shopName = probe.shop;
+        } else {
+          // Preserve previous behavior: if mapping indicated GOG but we couldn't fetch, skip
+          if (shopName && shopName.includes('gog')) return null;
+        }
+      }
+      const headerImageUrl = preferred?.uid
+        ? (await getPlatformBannerUrl(shopName, preferred.uid).catch(() => null) || coverFallback)
+        : coverFallback;
       const description = game.summary ?? null;
-      const platformDetails = shopName && preferred?.uid ? await fetchGameDetailsFromPlatform(preferred.uid, shopName).catch(() => null) : null;
+      // If this game maps to GOG but we couldn't fetch GOG details, skip it (consistent with ITAD flow)
+      if (shopName && shopName.includes('gog') && !platformDetails) {
+        return null;
+      }
+
 
       return {
         igdbId,
-        appId: preferred?.uid || null,
+        app_id: preferred?.uid || null,
         name: title,
         genres: normalizeGenreNames(genres),
         headerImageUrl: headerImageUrl,
         description: String(description),
-        price: platformDetails?.price ?? -1,
+        cost: platformDetails?.price ?? -1,
+        minimum_requirements: platformDetails?.minimum_requirements ?? null,
         discount: platformDetails?.discount ?? 0,
         shop:  shopName ? shopName.toLowerCase() : null,
-        countryCode: "DE",
+        country_code: "DE",
       };
     });
     return Promise.all(gameData);
@@ -360,24 +389,43 @@ async function fetchItadDeals(limit, offset, sleepMs = 0){
             try {
               const gameInfo = await fetchItadGameInfo(game.id);
               if (!gameInfo) return null;
-              const headerImageUrl = await getPlatformBannerUrl(game.deal.shop.name, gameInfo.appid).catch(() => gameInfo.assets.banner600) || gameInfo.assets.banner600;
+              let shopNameCandidate = game.deal?.shop?.name ? normalizePlatformName(game.deal.shop.name) : null;
+              let headerImageUrl = gameInfo.assets.banner600;
               let platformGameDetails = null;
-              try{
-                platformGameDetails = await fetchGameDetailsFromPlatform(gameInfo.appid, game.deal.shop.name);}
-              catch(err){
+              try {
+                platformGameDetails = await fetchGameDetailsFromPlatform(gameInfo.appid, shopNameCandidate);
+                if (!platformGameDetails) {
+                  const probe = await detectPlatformForAppId(gameInfo.appid, [shopNameCandidate, 'gog', 'steam', 'itchio'], gameInfo.title);
+                  if (probe.details) {
+                    platformGameDetails = probe.details;
+                    shopNameCandidate = probe.shop;
+                  } else {
+                    if (shopNameCandidate && shopNameCandidate.includes('gog')) {
+                      return null;
+                    }
+                  }
+                }
+              } catch (err) {
                 platformGameDetails = null;
+              }
+              headerImageUrl = gameInfo.appid
+                ? (await getPlatformBannerUrl(shopNameCandidate, gameInfo.appid).catch(() => headerImageUrl) || headerImageUrl)
+                : headerImageUrl;
+              if (game.deal?.shop?.name && shopNameCandidate !== normalizePlatformName(game.deal.shop.name)) {
+                console.warn(`Shop name mismatch for game ${gameInfo.title} (appid: ${gameInfo.appid}): ITAD shop "${game.deal.shop.name}" vs detected "${shopNameCandidate}"`);
               }
               if(!gameInfo.appid || !gameInfo.title) return null;          
               return {
-                appId: gameInfo.appid || null,
+                app_id: gameInfo.appid || null,
                 name: gameInfo.title || null,
                 genres: gameInfo.tags ? normalizeGenreNames(gameInfo.tags) : [],
                 headerImageUrl: headerImageUrl || null,
                 discount: platformGameDetails?.discount ?? game.deal.cut ?? null,
-                shop: game.deal.shop && game.deal.shop.name ? String(game.deal.shop.name).trim().toLowerCase() : null,
-                price: platformGameDetails?.price ?? game.deal.regular.amountInt ?? -1,
-                countryCode: 'DE' || null,
-                description: platformGameDetails?.description || null
+                shop: shopNameCandidate,
+                cost: platformGameDetails?.price ?? game.deal.regular.amountInt ?? -1,
+                country_code: 'DE' || null,
+                description: platformGameDetails?.description || null,
+                minimum_requirements: platformGameDetails?.minimum_requirements ?? null
               };
             } catch (err) {
               return null;
@@ -408,13 +456,13 @@ async function fetchItadShops(){
         const allShops = Array.isArray(data) ? data : (data.shops || data.list || []);
         const wantedTitles = ['itchio', 'gog', 'steam'];
         const filtered = allShops.filter(shop => {
-            if (!shop.title) return false;
-            const titleLower = shop.title.toLowerCase();
-            return wantedTitles.some(w => titleLower.includes(w));
+          if (!shop.title) return false;
+          const normalizedTitle = String(shop.title).toLowerCase().replace(/[^a-z0-9]/g, '');
+          return wantedTitles.some(w => normalizedTitle.includes(w));
         }).map(shop => ({ id: shop.id, title: shop.title }));
         return filtered;
     } catch (error) {
-        console.log(error);
+        console.error(error);
         return [];
     }
 }
@@ -433,12 +481,10 @@ async function fetchItadGameInfo(gameId){
       const data = await response.json();
         if (data.type!= "game") {
             return null;
-        }
-        // let genreNames = data.tags || [];
-        // genreNames = normalizeGenreNames(genreNames);        
+        }     
         return data;
     } catch (error) {
-        console.log(error);
+        console.error(error);
     }    
 }
 
@@ -450,15 +496,67 @@ async function fetchItadGameInfo(gameId){
  * @returns {Promise<Array | null>} The games details, return content varies from platform to platform but generally includes properties like title, description, genres, cover image URL, and other relevant information. If the platform is not recognized or if there was an error fetching the details, the function returns null.
  */
 async function fetchGameDetailsFromPlatform(appId, platformName) {
-    platformName = String(platformName).trim().toLowerCase();
-  if (platformName === 'itchio') {
+    // normalize incoming platformName (accept 'itch.io', 'itch', 'itchio', etc.)
+    platformName = String(platformName || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (platformName === 'itchio' || platformName === 'itch') {
     return await fetchItchGameDetails(appId);
   } else if (platformName === 'gog') {
-    const details = await fetchGogGameDetails(appId);
-    return details;
+    return await fetchGogGameDetails(appId);
   } else if (platformName === 'steam') {
     return await fetchSteamGameDetails(appId);
   }
   return null;
+}
+
+/**
+ * Probe multiple known platforms for a given app id and return the first platform that yields details. Needed as Twitch usually misassigns appids :/
+ * Returns { shop: <platformName|null>, details: <object|null> }
+ */
+function compareGameTitles(details, title) {
+  if (!details || !details.title || !title) return false;
+  const normalize = str => String(str).toLowerCase().replace(/[^a-z0-9]+/g, '');
+  return normalize(details.title) === normalize(title);
+}
+async function detectPlatformForAppId(appId, candidateShops = ['gog','steam','itchio'], title) {
+  // If no appId provided, nothing to probe.
+  if (appId == null || appId === '') return { shop: null, details: null };
+  const tried = new Set();
+  const order = [];
+  if (Array.isArray(candidateShops)) {
+    for (const s of candidateShops) {
+      if (!s) continue;
+      const name = normalizePlatformName(s);
+      if (!tried.has(name)) { tried.add(name); order.push(name); }
+    }
+  }
+  for (const s of ['gog','steam','itchio']) if (!tried.has(s)) order.push(s);
+
+  for (const shop of order) {
+    try {
+      let details = null;
+      if (shop === 'gog') {
+        details = await fetchGogGameDetails(appId);
+        if(!compareGameTitles(details, title)) {
+          details = null;
+        }
+      }
+      else if (shop === 'itchio' || shop === 'itch') {
+        details = await fetchItchGameDetails(appId);
+        if(!compareGameTitles(details, title)) {
+          details = null;
+        }
+      }
+      else if (shop === 'steam') {
+        details = await fetchSteamGameDetails(appId);
+        if(!compareGameTitles(details, title)) {
+          details = null;
+        }
+      }
+      if (details) return { shop, details };
+    } catch (err) {
+      // ignore and try next
+    }
+  }
+  return { shop: null, details: null };
 }
 

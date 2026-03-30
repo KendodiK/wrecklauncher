@@ -16,11 +16,13 @@ class ChatsTableMaker extends DatabaseHandler {
         const query = `
             CREATE TABLE IF NOT EXISTS chats (
                 id INT AUTO_INCREMENT PRIMARY KEY,
-                friends_id INT NOT NULL, INDEX(friends_id),
-                message VARCHAR(1000) NOT NULL, 
-                sender_id UUID NOT NULL, INDEX(sender_id),
-                FOREIGN KEY (friends_id) REFERENCES friends(friends_id),
-                FOREIGN KEY (sender_id) REFERENCES native_users(sender_id)
+                friends_id INT NOT NULL,
+                message VARCHAR(1000) NOT NULL,
+                sender_id UUID NOT NULL,
+                INDEX (friends_id),
+                INDEX (sender_id),
+                FOREIGN KEY (friends_id) REFERENCES friends(id),
+                FOREIGN KEY (sender_id) REFERENCES native_users(id)
             );
         `;
         try {

@@ -42,6 +42,10 @@ class ShopSpecialsController extends Controller {
         try {
             const existing = await this.show(data.game_id);
             if (existing) {
+                if (data.featured === 0 && data.coming_soon === 0 && data.discount_percent === 0) {
+                    await this.delete(game_id);
+                    return { message: `All flags are false, entry with game_id ${game_id} deleted from table ${this.tableName}` };
+                }
                 this.update(data);
                 return { message: `shop_specials entry already exists for game_id ${data.game_id}, it is updated`, id: existing.id };
             }
@@ -49,7 +53,9 @@ class ShopSpecialsController extends Controller {
             console.error(`Error while checking existing shop_specials for game_id ${data.game_id}: ${err}`);
             throw err;
         }
-
+        if (data.featured === 0 && data.coming_soon === 0 && data.discount_percent === 0) {
+            return { message: `All flags are false, entry with game_id ${game_id} create aborted from table ${this.tableName}` };
+        }
         const query = 'INSERT INTO shop_specials (game_id, featured, coming_soon, discount_percent) VALUES (?, ?, ?, ?);';
         const values = [data.game_id, data.featured ?? false, data.coming_soon ?? false, data.discount_percent ?? false];
 
@@ -93,7 +99,6 @@ class ShopSpecialsController extends Controller {
     async delete(game_id) {
         await this.ready;
 
-        console.log(".\n.\n.\n", game_id, "\n.\n.\n");
         const query = `DELETE FROM ${this.tableName} WHERE game_id = ?;`;
         try {
             await this.dbConnection.execute(query, [game_id]);
