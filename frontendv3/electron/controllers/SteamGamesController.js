@@ -1,16 +1,43 @@
 // @ts-check
 
+const { shell } = require('electron');
 const https = require('https');
+const { joinUrl, normalizeBaseUrl } = require('../lib/url');
+const { fetchJsonSafe } = require('../lib/http');
 const GamesController = require('./GamesController');
 
 class SteamGamesController extends GamesController {
   /**
-   * @param {{ serverUrl: string }|undefined} [cfg]
+   * @type {string} (false string, in reality its a number converted to string for query param usage, e.g. "730" for CS:GO)
+   */
+  #platformID;
+  /** @type {string} */
+  #serverUrl;
+  /**
+   * @param {{ serverUrl: string }} cfg
    */
   constructor(cfg) {
-    super({
-      serverUrl: cfg?.serverUrl || process.env.WRECK_BACKEND_URL || 'http://127.0.0.1:3000',
+    const serverUrl = cfg?.serverUrl;
+    super({ serverUrl });
+    this.#serverUrl = normalizeBaseUrl(serverUrl, { defaultProtocol: 'https:' });
+    this.#platformID = '';
+  }
+
+  /**
+   * Lazily fetches and caches the Steam platform ID from the backend.
+   * @returns {Promise<string>}
+   */
+  async #resolvePlatformID() {
+    if (this.#platformID) return this.#platformID;
+    const url = joinUrl(this.#serverUrl, 'api', 'platforms', 'steam');
+    const { ok, json } = await fetchJsonSafe(url, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
     });
+    if (ok && json && typeof json === 'object' && json.id) {
+      this.#platformID = String(json.id);
+    }
+    return this.#platformID;
   }
 
   static #agent = new https.Agent({
@@ -24,7 +51,6 @@ class SteamGamesController extends GamesController {
   static #sleep(ms) {
     return new Promise((r) => setTimeout(r, ms));
   }
-
   /**
    * @param {string} url
    * @param {{ timeoutMs: number, maxBodyBytes: number }} opts
@@ -96,6 +122,9 @@ class SteamGamesController extends GamesController {
     const appIdNum = Number(appID);
     if (!Number.isFinite(appIdNum) || appIdNum <= 0) throw new Error(`Invalid Steam AppID: ${String(appID)}`);
 
+    // Resolve platform ID once before fetching game details.
+    await this.#resolvePlatformID();
+
     const lang = 'en';
     const timeoutMs = 8000;
     const retries = 5;
@@ -149,6 +178,7 @@ class SteamGamesController extends GamesController {
       const appData = parsed?.[String(appIdNum)];
       if (!appData || !appData.success) return null;
       const data = appData.data || {};
+      const raw = data;
 
       const minimumRequirements =
         (data.pc_requirements && typeof data.pc_requirements === 'object' ? data.pc_requirements.minimum : null) ||
@@ -156,16 +186,21 @@ class SteamGamesController extends GamesController {
         (data.linux_requirements && typeof data.linux_requirements === 'object' ? data.linux_requirements.minimum : null) ||
         null;
 
+      const priceOverviewFinal =
+        typeof data?.price_overview?.final === 'number'
+          ? data.price_overview.final
+          : (data?.is_free === true ? 0 : null);
+
       let gameDetails = {
         appid: data.steam_appid ?? appIdNum,
         name: data.name ?? null,
         bannerimg: data.header_image ?? data.capsule_image ?? null,
         genres: Array.isArray(data.genres) ? data.genres : [],
-        price_overview: data.price_overview?.final ?? null,
+        price_overview: priceOverviewFinal,
         minimum_requirements: typeof minimumRequirements === 'string' && minimumRequirements.trim() ? minimumRequirements : null,
         cc: ccToUse ?? null,
         lang,
-        raw: data,
+        raw,
       };
 
       // Upload normalized game payload to backend.
@@ -176,19 +211,21 @@ class SteamGamesController extends GamesController {
             .filter((s) => typeof s === 'string' && s.trim())
         : [];
 
-      const cost = typeof data.price_overview?.final === 'number' ? data.price_overview.final / 100 : null;
-      const uploadResult = await super.uploadGame(token, {
-        app_id: String(gameDetails.appid ?? appIdNum),
-        platform_name: 'steam',
-        name: gameDetails.name || `steam:${String(gameDetails.appid ?? appIdNum)}`,
-        banner_img: gameDetails.bannerimg || '',
-        description: typeof data.short_description === 'string' && data.short_description.trim() ? data.short_description : null,
-        minimum_requirements: "teszt",
-        //minimum_requirements: gameDetails.minimum_requirements,
-        cost,
-        genre_names: genreNames,
-      });
-      console.log('uploadResult:', uploadResult);
+      const cost = typeof priceOverviewFinal === 'number' ? priceOverviewFinal / 100 : null;
+      try{
+
+        const uploadResult = await super.uploadGame(token, {
+          app_id: String(gameDetails.appid ?? appIdNum),
+          platform_name: 'steam',
+          name: gameDetails.name || `steam:${String(gameDetails.appid ?? appIdNum)}`,
+          banner_img: gameDetails.bannerimg || '',
+          description: typeof data.short_description === 'string' && data.short_description.trim() ? data.short_description : null,
+          minimum_requirements: gameDetails.minimum_requirements,
+          //minimum_requirements: gameDetails.minimum_requirements,
+          cost,
+          genre_names: genreNames,
+        });
+              console.log('uploadResult:', uploadResult);
       console.log('gameDetails sent for upload:', {
         app_id: String(gameDetails.appid ?? appIdNum),
         platform_name: 'steam',
@@ -199,11 +236,40 @@ class SteamGamesController extends GamesController {
         cost,
         genre_names: genreNames,
       });
-      if(!uploadResult.ok && uploadResult.statusCode !== 400){
-        const msg = uploadResult.rawText || uploadResult.response?.error || uploadResult.response?.message || 'Unknown error';
-        throw new Error(`Game upload failed (HTTP ${uploadResult.statusCode}): ${String(msg).slice(0, 300)}`);
-      }      
-      return gameDetails;
+      if (!uploadResult.ok) {
+        if (uploadResult.statusCode === 401) {
+          const msg =
+            uploadResult.rawText ||
+            uploadResult.response?.error ||
+            uploadResult.response?.message ||
+            'Unauthorized';
+          const e = new Error(`Unauthorized (token invalid/expired): ${String(msg).slice(0, 300)}`);
+          // @ts-ignore
+          e.code = 'WRECK_INVALID_TOKEN';
+          throw e;
+        }
+
+        // 400 is a "already exists" type case for uploads; treat it as non-fatal.
+        if (uploadResult.statusCode !== 400) {
+          const msg =
+            uploadResult.rawText ||
+            uploadResult.response?.error ||
+            uploadResult.response?.message ||
+            'Unknown error';
+          throw new Error(`Game upload failed (HTTP ${uploadResult.statusCode}): ${String(msg).slice(0, 300)}`);
+        }
+      }
+      } catch (err) {
+        // Let the IPC layer handle token rotation/refresh.
+        if (err && typeof err === 'object' && /** @type {any} */ (err).code === 'WRECK_INVALID_TOKEN') {
+          throw err;
+        }
+
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`Failed to upload game details for appID ${appIdNum}: ${msg}`);
+        return { ...gameDetails, raw };
+      }
+      return { ...gameDetails, raw };
     };
 
     let result = await attempt(requestedCc, 1);
@@ -221,6 +287,25 @@ class SteamGamesController extends GamesController {
 
     return null;
   }
-}
+  /**
+   * Runs, installs, deletes or opens the store page for a steam game via the steam:// URL scheme. Note: this requires the user to have the Steam client installed and properly registered to handle steam:// links.
+   * 
+   * @param {string} appID steamp appID (e.g. "730" for CS:GO)
+   * @param {string} action install/store/run/uninstall
+   * @returns 
+   */
+  async clientGameControllUtil(appID, action) {
+    const appIdNum = Number(appID);
+    if (!Number.isFinite(appIdNum) || appIdNum <= 0) throw new Error(`Invalid Steam AppID: ${String(appID)}`);
 
+    const url = `steam://${action}/${encodeURIComponent(String(appIdNum))}`;
+    try {
+      await shell.openExternal(url);
+      return { ok: true, url };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`Failed to open Steam client URL (${url}): ${msg}`);
+    }
+  }
+}
 module.exports = SteamGamesController;

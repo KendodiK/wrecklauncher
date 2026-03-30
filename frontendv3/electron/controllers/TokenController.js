@@ -1,9 +1,5 @@
 // @ts-check
 
-const fs = require('fs/promises');
-const path = require('path');
-const fsSync = require('fs');
-
 const { normalizeBaseUrl, enc, joinUrl } = require('../lib/url');
 const { fetchJsonSafe } = require('../lib/http');
 
@@ -15,8 +11,6 @@ class TokenController {
   /** @type {AuthToken|null} */
   #token = null;
   /** @type {string} */
-  #tokenFile;
-  /** @type {string} */
   #username;
   /** @type {string} */
   #password;
@@ -27,65 +21,57 @@ class TokenController {
   _serverUrl;
 
   /**
-   * @param {{ username: string, password: string, email: string, tokenFile: string, serverUrl: string }} cfg
+   * @param {string} serverurl
    */
-  constructor(cfg) {
-    this.#username = String(cfg.username || '');
-    this.#password = String(cfg.password || '');
-    this.#email = String(cfg.email || '');
-    this.#tokenFile = String(cfg.tokenFile || 'token.txt');
-    this._serverUrl = normalizeBaseUrl(cfg.serverUrl || '', { defaultProtocol: 'http:' });
+  constructor(serverurl) {
+    this._serverUrl = normalizeBaseUrl(serverurl || '', { defaultProtocol: 'http:' });
+    this.#username = '';
+    this.#password = '';
+    this.#email = '';
   }
 
   /**
-   * Clears any cached token and removes the persisted token file.
+   * Sets the current token (typically sourced from renderer localStorage).
+   * @param {AuthToken|null|undefined} token
+   */
+  setToken(token) {
+    const t = typeof token === 'string' ? token.trim() : '';
+    this.#token = t ? /** @type {AuthToken} */ (t) : null;
+  }
+  /**
+   * Clears any cached token.
    * Useful when the backend rotated tokens and the cached one became invalid.
    * @protected
    */
   async _invalidateToken() {
     this.#token = null;
-    try {
-      await fs.unlink(this.#tokenFile);
-    } catch {
-      // ignore
-    }
-  }
-
-  /**
-   * @param {AuthToken} token
-   */
-  async #saveToken(token) {
-    await fs.mkdir(path.dirname(this.#tokenFile), { recursive: true });
-    await fs.writeFile(this.#tokenFile, token, 'utf8');
-  }
-
-  /**
-   * @returns {Promise<AuthToken|null>}
-   */
-  async #getTokenFromFile() {
-    try {
-      if (!fsSync.existsSync(this.#tokenFile)) return null;
-      const token = String(await fs.readFile(this.#tokenFile, 'utf8') || '').trim();
-      if (!token) return null;
-      return token.replace(/^"(.*)"$/, '$1');
-    } catch {
-      return null;
-    }
   }
 
   /**
    * POST /api/login/:username/:password
    * @returns {Promise<AuthToken|null>}
    */
-  async login() {
-    const url = joinUrl(this._serverUrl, 'api', 'login', enc(this.#username), enc(this.#password));
+  async login(username = this.#username, password = this.#password) {
+    const url = joinUrl(this._serverUrl, 'api', 'login', enc(username), enc(password));
     const { ok, status, json, text } = await fetchJsonSafe(url, { method: 'POST' });
     if (!ok) throw new Error(`Login failed: HTTP ${status}${text ? ` - ${String(text).slice(0, 200)}` : ''}`);
 
-    if (typeof json === 'string' && json.trim()) return /** @type {AuthToken} */ (json.trim());
+    if (typeof json === 'string' && json.trim()) {
+      const t = json.trim();
+      this.#username = username;
+      this.#password = password;
+      this.#email = '';
+      this.#token = /** @type {AuthToken} */ (t);
+      return /** @type {AuthToken} */ (t);
+    }
     if (typeof text === 'string') {
-      const t = text.trim().replace(/^"(.*)"$/, '$1');
-      if (t) return /** @type {AuthToken} */ (t);
+      const t = text.trim().replace(/^"(.*)"$/, '$1');      
+      if (t) {
+        this.#username = username;
+        this.#password = password;
+        this.#email = '';
+        this.#token = t;
+        return /** @type {AuthToken} */ (t)};
     }
     return null;
   }
@@ -113,13 +99,36 @@ class TokenController {
       })
     });
     if (!ok) throw new Error(`Registration failed: HTTP ${status}${text ? ` - ${String(text).slice(0, 200)}` : ''}`);
-    if (typeof json === 'string' && json.trim()) return /** @type {AuthToken} */ (json.trim());
+    if (json && typeof json === 'object') {
+      const maybeToken = json.token;
+      if (typeof maybeToken === 'string' && maybeToken.trim()) {
+        const t = maybeToken.trim();
+        this.#username = username;
+        this.#password = password;
+        this.#email = email;
+        this.#token = /** @type {AuthToken} */ (t);
+        return /** @type {AuthToken} */ (t);
+      }
+    }
+    if (typeof json === 'string' && json.trim()) {
+      const t = json.trim();
+      this.#username = username;
+      this.#password = password;
+      this.#email = email;
+      this.#token = /** @type {AuthToken} */ (t);
+      return /** @type {AuthToken} */ (t);
+    }
     if (typeof text === 'string') {
       this.#username = username;
       this.#password = password;
       this.#email = email;
       const t = text.trim().replace(/^"(.*)"$/, '$1');
-      if (t) return /** @type {AuthToken} */ (t);
+      if (t) {
+        this.#username = username;
+        this.#password = password;
+        this.#email = email;
+        this.#token = t;
+        return /** @type {AuthToken} */ (t)};
     }
     return null;
   }
@@ -129,15 +138,14 @@ class TokenController {
   async getToken() {
     if (this.#token) return this.#token;
 
-    const fromFile = await this.#getTokenFromFile();
-    if (fromFile) {
-      this.#token = fromFile;
-      return fromFile;
+    // Do not attempt implicit login if credentials are unknown.
+    // This avoids hitting POST /api/login (without /:username/:password).
+    if (!String(this.#username || '').trim() || !String(this.#password || '').trim()) {
+      return null;
     }
 
     const token = await this.login();
     if (!token) return null;
-    await this.#saveToken(token);
     this.#token = token;
     return token;
   }

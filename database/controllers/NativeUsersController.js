@@ -48,7 +48,7 @@ class NativeUsersController extends Controller {
      * 
      * @param {string} id - uuid of the user
      * @param {Array} data - [
-     *          "token" = string, 
+     *          "token" = string || 'new' - if you want to generate a new token, 
      *          "name" = string, 
      *          "user_password" = string, 
      *          "email" = string, 
@@ -61,7 +61,7 @@ class NativeUsersController extends Controller {
         let old = await this.show(id); 
 
         let name = data.name ?? old.name;
-        let token = data.token ? await this.#generateToken(name) : old.token;
+        let token = data.token == "new" ? await this.#generateToken(name) : old.token;
         
         const query = 'UPDATE native_users SET token = ?, name = ?, user_password = ?, email = ?, bio = ?, pfp = ? WHERE id = ?;';
         const values = [
@@ -74,7 +74,8 @@ class NativeUsersController extends Controller {
             id];
 
         try {
-            await this.dbConnection.execute(query, values);
+            const [updated] =  await this.dbConnection.execute(query, values);
+            console.log(updated);
             return { message: `${id} Updated successfully in table ${this.tableName}` };
         } catch (err) {
             console.error(`Error while updating element in table ${this.tableName}: ${err}`);
@@ -108,6 +109,19 @@ class NativeUsersController extends Controller {
             return rows[0];
         } catch (err) {
             console.error(`Error while fetching user by name and password: ${err}`);
+            throw err;
+        }
+    }
+
+    async getuserByName(name) {
+        await this.ready;
+
+        const query = 'SELECT * FROM native_users WHERE name = ?';
+        try {
+            const [rows] = await this.dbConnection.execute(query, [name]);
+            return rows;
+        } catch (err) {
+            console.error(`Error while fetching user by name: ${err}`);
             throw err;
         }
     }

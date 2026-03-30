@@ -22,30 +22,20 @@ class FriendsController extends Controller {
     async create(data) {
         await super.create();
 
-        var foreignKeyCheck = await this.#checkForeignKeys(data);
+        const foreignKeyCheck = await this.#checkForeignKeys(data);
         if (foreignKeyCheck instanceof Error) {
             throw foreignKeyCheck;
         }
 
-        var query = 'SELECT * FROM friends WHERE user1_id = ? AND user2_id = ? OR user1_id = ? AND user2_id = ?';
-        var values = [data.user1_id, data.user2_id, data.user2_id, data.user1_id];
-        var rows = [];
-        try {
-            rows = await this.dbConnection.execute(query, values);
-        } catch (err) {
-            console.error(`Error while fetching friends for native user ${data.user1_id} from table ${this.tableName}: ${err}`);
-            throw err;
+        if(!this.#checkUniqueConsrain(data)) {
+            return new Error({ message: `friendsip already exsisting between the user ${data.user1_id} and ${data.user2_id}` })
         }
 
-        if (rows.length > 0) {
-            return { message: `Friendship already exists between user ${data.user1_id} and user ${data.user2_id}` };
-        }
-
-        query = 'INSERT INTO `friends` (user1_id, user2_id) VALUES (?,?)'
-        values = [data.user1_id, data.user2_id];
+        const query = 'INSERT INTO `friends` (user1_id, user2_id) VALUES (?,?)'
+        const values = [data.user1_id, data.user2_id];
         try {
             const [result] = await this.dbConnection.execute(query, values);
-            return { message: `${result.id} Element created in table ${this.tableName}`, id: result.id };
+            return { message: `${result.id} Element created in table ${this.tableName}`, id: result.insertId };
         }
         catch (err) {
             console.error(`Error while adding new element to table ${this.tableName}: ${err}`);
@@ -60,12 +50,12 @@ class FriendsController extends Controller {
     async update(id, data) {
         await super.update();
         
-        let foreignKeyCheck = await this.#checkForeignKeys(data);
+        const foreignKeyCheck = await this.#checkForeignKeys(data);
         if (foreignKeyCheck instanceof Error) {
             throw foreignKeyCheck;
         }
 
-        let old = await this.show(id);
+        const old = await this.show(id);
 
         const query = 'UPDATE `friends` SET user1_id = ?, user2_id = ? WHERE id = ?;'
         const values = [
@@ -128,6 +118,24 @@ class FriendsController extends Controller {
         }
 
         return true;
+    }
+
+    async #checkUniqueConsrain(data) {
+        await this.ready;
+
+        try {
+            const query = 'SELECT * FROM friends WHERE user1_id = ? AND user2_id = ? OR user1_id = ? AND user2_id = ?';
+            const values = [data.user1_id, data.user2_id, data.user2_id, data.user1_id];
+            const [rows] = await this.dbConnection.execute(query, values);
+            if (rows && rows.length > 0) {
+                return { message: `Friendship already exists between user ${data.user1_id} and user ${data.user2_id}` };
+            }
+        } catch (err) {
+            console.error(`Error while fetching friends for native user ${data.user1_id} from table ${this.tableName}: ${err}`);
+            throw err;
+        }
+
+        return true
     }
 }
 

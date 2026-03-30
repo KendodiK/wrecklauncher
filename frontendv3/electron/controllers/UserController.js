@@ -9,10 +9,10 @@ class UserController extends TokenController {
   #serverUrl;
 
   /**
-   * @param {{ username: string, password: string, email: string, tokenFile: string, serverUrl: string }} cfg
+   * @param {{ serverUrl: string }} cfg
    */
   constructor(cfg) {
-    super(cfg);
+    super(cfg.serverUrl);
     this.#serverUrl = normalizeBaseUrl(cfg.serverUrl || '', { defaultProtocol: 'http:' });
   }
 
@@ -47,7 +47,7 @@ class UserController extends TokenController {
           const hasMeaningfulJson = !!(json && typeof json === 'object' && (json.error || json.message));
 
           // Token invalid/rotated: caller will retry with a fresh login.
-          if (status === 401 && /invalid token/i.test(msg)) {
+          if (status === 401) {
             const e = new Error(msg);
             // @ts-ignore
             e.code = 'WRECK_INVALID_TOKEN';
@@ -91,7 +91,7 @@ class UserController extends TokenController {
       const { ok, status, json, text } = await fetchJsonSafe(url, { method: 'GET', headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${token}` } });
       if (!ok) {
         const msg = httpErrorMessage(status, json, text);
-        if (status === 401 && /invalid token/i.test(msg)) {
+        if (status === 401) {
           const e = new Error(msg);
           // @ts-ignore
           e.code = 'WRECK_INVALID_TOKEN';
@@ -124,9 +124,9 @@ class UserController extends TokenController {
     const steamID = await this.getPlatformUserID('steam', platformUsername);
     if (!steamID) throw new Error('Steam ID not found');
 
-    const key = await this.#getSteamApiKey();
+    const key = '434EECE4774CA9E521E678472784C794';
     console.log(`[UserController] Fetching owned games for SteamID ${steamID} with API key ${key}`);
-    const url = `https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key=${encodeURIComponent(key)}&steamid=${encodeURIComponent(String(steamID))}&format=json`;
+    const url = `https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key=${key}&steamid=${encodeURIComponent(String(steamID))}&format=json`;
     const { ok, status, json, text } = await fetchJsonSafe(url, { method: 'GET' });
     if (!ok) throw new Error(httpErrorMessage(status, json, text));
     return json?.response?.games ?? [];

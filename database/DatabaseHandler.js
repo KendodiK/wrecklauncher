@@ -84,6 +84,56 @@ class DatabaseHandler {
     }
 
     /**
+     * Return the pool (creating it if necessary).
+     */
+    async getPool() {
+        await this.waitForConnection();
+        return this.dbConnection;
+    }
+
+    /**
+     * Convenience wrapper for simple queries using the pool.
+     * Returns the result of `pool.execute(sql, params)`.
+     */
+    async query(sql, params = []) {
+        await this.waitForConnection();
+        return this.dbConnection.execute(sql, params);
+    }
+
+    /**
+     * Run a callback with a dedicated connection from the pool (auto-releases).
+     * Callback receives the connection object which supports `execute`, `beginTransaction`, etc.
+     */
+    async withConnection(fn) {
+        const pool = await this.getPool();
+        const conn = await pool.getConnection();
+        try {
+            return await fn(conn);
+        } finally {
+            try { conn.release(); } catch (_) { /* ignore */ }
+        }
+    }
+
+    /**
+     * Run a callback inside a transaction. Commits on success, rollbacks on error.
+     */
+    async withTransaction(fn) {
+        const pool = await this.getPool();
+        const conn = await pool.getConnection();
+        try {
+            await conn.beginTransaction();
+            const result = await fn(conn);
+            await conn.commit();
+            return result;
+        } catch (err) {
+            try { await conn.rollback(); } catch (_) {}
+            throw err;
+        } finally {
+            try { conn.release(); } catch (_) {}
+        }
+    }
+
+    /**
      * Wait for the database connection to be established.
      */
     async waitForConnection() {

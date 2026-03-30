@@ -16,3 +16,5 @@ certs/README.md
 /frontend/my-electron-app/node_modules
 frontendv3/src/components/pages/shopveiw.jsx
 frontendv3/src/components/pages/gamepage.jsx
+
+.env

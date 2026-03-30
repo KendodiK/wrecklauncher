@@ -15,7 +15,7 @@ class GamesGenresConnectionTableMaker extends DatabaseHandler {
         await this.ready;
         const query = `
             CREATE TABLE IF NOT EXISTS games_genres_connections (
-                game_id INT NOT NULL, INDEX(game_id),
+                game_id MEDIUMINT UNSIGNED NOT NULL, INDEX(game_id),
                 genre_id INT NOT NULL, INDEX(genre_id)
             )
         `;

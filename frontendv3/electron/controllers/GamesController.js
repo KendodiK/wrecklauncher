@@ -47,23 +47,20 @@ class GamesController {
   /**
    * Get all details of a game by ID.
    * 
-   * @param {string} token 
    * @param {number} id 
-   * @returns {Promise<import('../models').UploadGameRequest>}
+    * @returns {Promise<import('../models').GameDetails>}
    */
-  async getAllDetailsByID(token, id){
-    if (!token || !String(token).trim()) throw new Error('Token is required');
+  async getAllDetailsByID(id){
     // Note: allow numeric 0 check explicitly; reject null/undefined/NaN.
     if (id === undefined || id === null || Number.isNaN(Number(id))) throw new Error('Game ID is required');
 
-    // Backend endpoint is /api/games/:id/all (path param), not a querystring.
+    // Backend endpoint is /api/games/:appId/all where :appId is the platform-specific app id (e.g. Steam appid).
     const url = joinUrl(this.#serverUrl, 'api', 'games', enc(String(id)), 'all');
 
     const { ok, status, json, text } = await fetchJsonSafe(url,{
       method: 'GET',
       headers: {
         'Accept': 'application/json',
-        'Authorization': `Bearer ${token}`,
       },
     });
 
@@ -98,6 +95,36 @@ class GamesController {
         : (genreNamesFromBackend && genreNamesFromBackend.length ? genreNamesFromBackend : null),
     };
   }
+
+  /**
+   * GET /api/games/list/:from
+   * Returns up to 20 games starting from the given offset.
+   * Each element is a joined row of `games` + `platforms` as returned by the backend
+   * (`GamesController.getWithAllForeign`); see {@link import('../models').GameListItem}.
+   *
+   * @param {number} from  Row offset (0-based)
+   * @returns {Promise<import('../models').GameListItem[]>}  Array of up to 20 game rows
+   */
+  async getGames(from) {
+    if (from === undefined || from === null || Number.isNaN(Number(from))) throw new Error('from is required');
+
+    const url = joinUrl(this.#serverUrl, 'api', 'games', 'list', enc(String(from)));
+
+    const { ok, status, json, text } = await fetchJsonSafe(url, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+    });
+
+    if (!ok) {
+      const apiError = json && typeof json === 'object' ? (json.error || json.message) : null;
+      const snippet = String(apiError ?? text ?? 'Unknown error').replace(/\s+/g, ' ').trim().slice(0, 300);
+      throw new Error(`Failed to fetch games (HTTP ${status}): ${snippet}`);
+    }
+
+    return Array.isArray(json) ? json : (json ?? []);
+  }
+
+  
 }
 
 module.exports = GamesController;

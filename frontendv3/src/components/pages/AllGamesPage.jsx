@@ -1,0 +1,417 @@
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import CompactFiltersSidebar from '../store/CompactFiltersSidebar.jsx';
+
+function steamPoster(appid) {
+	const id = Number(appid);
+	if (!Number.isFinite(id) || id <= 0) return null;
+	return `https://cdn.cloudflare.steamstatic.com/steam/apps/${id}/library_600x900.jpg`;
+}
+
+/**
+ * Full page for browsing all games with pagination
+ */
+const AllGamesPage = () => {
+	const navigate = useNavigate();
+	const { platform } = useParams();
+	const [allGames, setAllGames] = useState([]);
+	const [isLoading, setIsLoading] = useState(true);
+	const [searchQuery, setSearchQuery] = useState('');
+	const [selectedGenres, setSelectedGenres] = useState([]);
+	const [selectedPlatforms, setSelectedPlatforms] = useState([]);
+	const [priceRange, setPriceRange] = useState({ min: 0, max: 100 });
+	const [currentPage, setCurrentPage] = useState(1);
+	const [selectedGame, setSelectedGame] = useState(null);
+	const [hoveredGame, setHoveredGame] = useState(null);
+	const hideTimeoutRef = useRef(null);
+	const gamesPerPage = 20;
+
+	const displayGame = hoveredGame || selectedGame;
+
+	// Initialize platform selection from URL parameter
+	useEffect(() => {
+		if (platform && ['steam', 'epic', 'gog'].includes(platform)) {
+			setSelectedPlatforms([platform]);
+		}
+	}, [platform]);
+
+	// Cleanup timeout on unmount
+	useEffect(() => {
+		return () => {
+			if (hideTimeoutRef.current) {
+				clearTimeout(hideTimeoutRef.current);
+			}
+		};
+	}, []);
+
+	const genres = useMemo(() => {
+		const names = new Set();
+		for (const game of allGames) {
+			for (const g of Array.isArray(game.genres) ? game.genres : []) {
+				if (typeof g === 'string' && g.trim()) names.add(g.trim());
+				if (g && typeof g === 'object') {
+					const v = g.genre || g.name || g.description;
+					if (typeof v === 'string' && v.trim()) names.add(v.trim());
+				}
+			}
+		}
+		return Array.from(names).sort((a, b) => a.localeCompare(b)).map((name, idx) => ({ id: idx + 1, name }));
+	}, [allGames]);
+
+	const platforms = useMemo(() => {
+		const names = new Set();
+		for (const game of allGames) {
+			const p = game.platform || game.platform_name;
+			if (typeof p === 'string' && p.trim()) names.add(p.trim().toLowerCase());
+		}
+		return Array.from(names).sort((a, b) => a.localeCompare(b)).map((id) => ({
+			id,
+			name: id.charAt(0).toUpperCase() + id.slice(1),
+		}));
+	}, [allGames]);
+
+	useEffect(() => {
+		let cancelled = false;
+		const fetchGames = async () => {
+			setIsLoading(true);
+			try {
+				const backendUrl = 'http://127.0.0.1:3000';
+				const response = await fetch(`${backendUrl}/api/games`);
+				if (!response.ok) throw new Error(`Failed to fetch games: ${response.statusText}`);
+				const gamesData = await response.json();
+				const normalized = (gamesData || []).map((game) => ({
+					id: game.id,
+					app_id: game.app_id,
+					appid: game.app_id,
+					title: game.name,
+					name: game.name,
+					image: game.banner_img || steamPoster(game.app_id || game.id),
+					banner_img: game.banner_img,
+					price: Number(game.cost) || 0,
+					cost: Number(game.cost) || 0,
+					description: game.description || '',
+					platform: game.platform_name || game.platform || 'steam',
+					genres: Array.isArray(game.genres) ? game.genres : [],
+					tags: Array.isArray(game.tags) ? game.tags : [],
+				}));
+				if (!cancelled) setAllGames(normalized);
+			} catch (err) {
+				console.error('Failed to load all games page data:', err);
+				if (!cancelled) setAllGames([]);
+			} finally {
+				if (!cancelled) setIsLoading(false);
+			}
+		};
+		fetchGames();
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
+	// Filter games based on current filters
+	const filteredGames = useMemo(() => {
+		return allGames.filter(game => {
+			// Search filter
+			if (searchQuery && !(game.title || game.name || '').toLowerCase().includes(searchQuery.toLowerCase())) {
+				return false;
+			}
+
+			// Genre filter
+			if (selectedGenres.length > 0) {
+				const gameGenres = Array.isArray(game.genres) ? game.genres : [];
+				const hasMatchingGenre = selectedGenres.some(genreId => 
+					gameGenres.includes(genreId) || 
+					gameGenres.some(g => typeof g === 'object' && g.id === genreId)
+				);
+				if (!hasMatchingGenre) return false;
+			}
+
+			// Platform filter
+			if (selectedPlatforms.length > 0 && !selectedPlatforms.includes(game.platform)) {
+				return false;
+			}
+
+			// Price filter
+			const price = game.price ?? 0;
+			if (price < priceRange.min || price > priceRange.max) {
+				return false;
+			}
+
+			return true;
+		});
+	}, [allGames, searchQuery, selectedGenres, selectedPlatforms, priceRange]);
+
+	// Pagination calculations
+	const totalPages = Math.ceil(filteredGames.length / gamesPerPage);
+	const startIndex = (currentPage - 1) * gamesPerPage;
+	const endIndex = startIndex + gamesPerPage;
+	const currentGames = filteredGames.slice(startIndex, endIndex);
+
+	const handleGameClick = (game) => {
+		if (game.appid || game.app_id || game.id) {
+			const gameId = game.appid || game.app_id || game.id;
+			navigate(`/game/${gameId}`);
+		}
+	};
+
+	const handleResetFilters = () => {
+		setSearchQuery('');
+		setSelectedGenres([]);
+		setSelectedPlatforms([]);
+		setPriceRange({ min: 0, max: 100 });
+		setCurrentPage(1);
+	};
+
+	const handlePageChange = (page) => {
+		setCurrentPage(page);
+		window.scrollTo({ top: 0, behavior: 'auto' });
+	};
+
+	return (
+		<div className="flex-1 px-3 py-4">
+			{/* Header */}
+			<div className="mb-6 flex items-center justify-between">
+				<div>
+					<h1 className="text-2xl font-semibold text-slate-100">All Games</h1>
+					<p className="text-sm text-slate-400 mt-1">
+						{filteredGames.length} games found
+						{totalPages > 1 && ` • Page ${currentPage} of ${totalPages}`}
+					</p>
+				</div>
+				<button
+					onClick={() => navigate(-1)}
+					className="px-4 py-2 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-700/50 rounded-lg text-slate-200 transition-all text-sm"
+				>
+					← Back
+				</button>
+			</div>
+
+			{/* Main content */}
+			<div className="flex gap-4">
+			{/* Left side - Games list */}
+			<div className={`${displayGame ? 'w-[50%]' : 'flex-1'} bg-slate-800/40 backdrop-blur-sm rounded-lg border border-slate-700/50 overflow-hidden flex flex-col transition-all duration-500 ease-in-out`}>
+				{/* Games list */}
+				{currentGames.length > 0 ? (
+					<div className="flex-1 overflow-y-auto scrollbar-thin">
+						{currentGames.map((game) => {
+							const gameId = game.appid || game.app_id || game.id;
+							const isSelected = displayGame && (displayGame.appid || displayGame.app_id || displayGame.id) === gameId;
+							
+							return (
+								<div
+									key={gameId}
+									className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-all border-b border-slate-700/30 ${
+										isSelected 
+											? 'bg-slate-700/50' 
+											: 'hover:bg-slate-700/30'
+									}`}
+									onClick={() => handleGameClick(game)}
+								onMouseEnter={() => {
+									if (hideTimeoutRef.current) {
+										clearTimeout(hideTimeoutRef.current);
+										hideTimeoutRef.current = null;
+									}
+									setHoveredGame(game);
+								}}
+								onMouseLeave={() => {
+									hideTimeoutRef.current = setTimeout(() => {
+										setHoveredGame(null);
+									}, 150);
+								}}
+								>
+									{/* Game thumbnail */}
+									<div className="w-20 h-11 flex-shrink-0 rounded overflow-hidden bg-slate-900/50">
+										<img
+											src={game.image || game.banner_img}
+											alt={game.title || game.name}
+											className="w-full h-full object-cover"
+											onError={(e) => {
+												e.target.style.display = 'none';
+											}}
+										/>
+									</div>
+
+									{/* Game info */}
+									<div className="flex-1 min-w-0">
+										<h4 className="text-sm font-medium text-slate-100 truncate mb-1">
+											{game.title || game.name}
+										</h4>
+										
+										{/* Tags/Genres */}
+										<div className="flex flex-wrap gap-1">
+											{game.tags && game.tags.slice(0, 3).map((tag, idx) => (
+												<span
+													key={idx}
+													className="text-xs px-2 py-0.5 bg-slate-900/50 text-slate-400 rounded"
+												>
+													{tag}
+												</span>
+											))}
+										</div>
+									</div>
+
+									{/* Price section */}
+									<div className="flex items-center gap-2 flex-shrink-0">
+										{game.discount && game.discount > 0 && (
+											<div className="px-2 py-1 bg-green-600 text-white text-xs font-bold rounded">
+												-{game.discount}%
+											</div>
+										)}
+										<div className="text-right">
+											{game.originalPrice && game.discount && (
+												<div className="text-xs text-slate-500 line-through">
+													{game.originalPrice}€
+												</div>
+											)}
+											<div className={`text-sm font-semibold ${
+												game.price === 0 
+													? 'text-green-400' 
+													: game.discount 
+														? 'text-green-400' 
+														: 'text-slate-100'
+											}`}>
+												{game.price === 0 ? 'Free' : `${game.price}€`}
+											</div>
+										</div>
+									</div>
+								</div>
+							);
+						})}
+					</div>
+				) : (
+					<div className="flex-1 flex items-center justify-center text-slate-500 p-4">
+						<div className="text-center">
+							<p className="text-lg text-slate-400 mb-2">No games found</p>
+							<p className="text-sm text-slate-500">Try adjusting your filters</p>
+						</div>
+					</div>
+				)}
+
+				{/* Pagination */}
+				{totalPages > 1 && (
+					<div className="flex items-center justify-center gap-2 py-4 border-t border-slate-700/50 bg-slate-800/60">
+						<button
+							onClick={() => handlePageChange(currentPage - 1)}
+							disabled={currentPage === 1}
+							className="px-4 py-2 bg-slate-800/50 border border-slate-700/50 rounded-lg text-slate-200 hover:bg-slate-700/50 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+						>
+							Previous
+						</button>
+
+						<div className="flex gap-2 max-w-[60vw] overflow-x-auto scrollbar-thin px-1">
+							{Array.from({ length: totalPages }, (_, i) => i + 1)
+								.map((page) => (
+									<button
+										key={page}
+										onClick={() => handlePageChange(page)}
+										className={`min-w-10 px-3 py-2 rounded-lg border text-sm ${
+											page === currentPage
+												? 'border-blue-500 bg-blue-600 text-white'
+												: 'border-slate-700/50 bg-slate-800/50 text-slate-200 hover:bg-slate-700/50'
+										}`}
+									>
+										{page}
+									</button>
+								))}
+						</div>
+
+						<button
+							onClick={() => handlePageChange(currentPage + 1)}
+							disabled={currentPage === totalPages}
+							className="px-4 py-2 bg-slate-800/50 border border-slate-700/50 rounded-lg text-slate-200 hover:bg-slate-700/50 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+					>
+						Next
+					</button>
+				</div>
+			)}
+		</div>
+
+			{/* Middle - Game preview (collapsible) */}
+			{displayGame && (
+			<div 
+				className="w-[30%] bg-slate-800/40 backdrop-blur-sm rounded-lg border border-slate-700/50 overflow-hidden flex flex-col transition-all duration-500 ease-in-out animate-in slide-in-from-right"
+				onMouseEnter={() => {
+					if (hideTimeoutRef.current) {
+						clearTimeout(hideTimeoutRef.current);
+						hideTimeoutRef.current = null;
+					}
+				}}
+				onMouseLeave={() => {
+					hideTimeoutRef.current = setTimeout(() => {
+						setHoveredGame(null);
+					}, 150);
+				}}
+			>
+				<>
+					{/* Header */}
+						<div className="px-3 py-2 border-b border-slate-700/50">
+							<h3 className="text-sm font-semibold text-slate-100 truncate">
+								{displayGame.title || displayGame.name}
+							</h3>
+						</div>
+
+						{/* Preview content */}
+						<div className="flex-1 overflow-y-auto p-3 scrollbar-thin">
+						{/* Game image - smaller size */}
+						<div className="w-full aspect-[16/9] rounded overflow-hidden bg-slate-900/50 mb-3">
+								<img
+									src={displayGame.image || displayGame.banner_img}
+									alt={displayGame.title || displayGame.name}
+									className="w-full h-full object-cover"
+									onError={(e) => {
+										e.target.style.display = 'none';
+									}}
+								/>
+							</div>
+
+							{/* Description */}
+							{displayGame.description && (
+								<p className="text-xs text-slate-300 leading-relaxed mb-3">
+									{displayGame.description}
+								</p>
+							)}
+
+							{/* Tags (max 5) */}
+							<div className="flex flex-wrap gap-1">
+								{displayGame.tags && displayGame.tags.slice(0, 5).map((tag, idx) => (
+									<span
+										key={idx}
+										className="text-xs px-2 py-1 bg-slate-700/50 text-slate-300 rounded"
+									>
+										{tag}
+									</span>
+								))}
+							</div>
+						</div>
+					</>
+			</div>
+			)}
+			{/* Right side - Compact filters sidebar */}
+			<CompactFiltersSidebar				searchQuery={searchQuery}
+				onSearchChange={(value) => {
+					setSearchQuery(value);
+					setCurrentPage(1);
+				}}
+				selectedGenres={selectedGenres}
+				onGenresChange={(genres) => {
+					setSelectedGenres(genres);
+					setCurrentPage(1);
+				}}
+				selectedPlatforms={selectedPlatforms}
+				onPlatformsChange={(platforms) => {
+					setSelectedPlatforms(platforms);
+					setCurrentPage(1);
+				}}
+				priceRange={priceRange}
+				onPriceChange={(range) => {
+					setPriceRange(range);
+					setCurrentPage(1);
+				}}
+				onReset={handleResetFilters}
+			/>
+		</div>
+	</div>
+	);
+};
+
+export default AllGamesPage;

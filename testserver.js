@@ -20,6 +20,7 @@ const DBMaker = require('./database/DBCreator');
 const NativeUsersController = require('./database/controllers/NativeUsersController');
 const PlatformUsersController = require('./database/controllers/PlatformUsersController');
 const GameController = require('./database/controllers/GamesController');
+const ShopSpecialsController = require('./database/controllers/ShopSpecialsController');
 
 
 app.listen(PORT, () => {
@@ -27,12 +28,16 @@ app.listen(PORT, () => {
 });
 
 //generateDB();
-//tryCreatePlatformUser();
-//tryCreateNativeUser(); --- IGNORE ---
+tryCreatePlatformUser();
+//tryCreateNativeUser();
 //tryGetNativeUser();
 //tryChangeNativeUser('be70909f-fac1-11f0-a4d3-68f728710017');
 //tryUploadGame();
-tryUploadGameWithAll();
+//tryUploadGameWithAll();
+//tryFillShopSpecials();
+//tryChangeShopSpecials(3);
+//tryGetFromShopSpecials();
+//trySearch();
 
 function generateDB() {
     let databaseHandler = new DatabaseHandler();
@@ -51,15 +56,15 @@ async function tryCreatePlatformUser () {
         }
         let nativeUsersController = new NativeUsersController();
         //await nativeUsersController.create(userData);
-        let userResult = await nativeUsersController.getUserByNameAndPassword("testUser", "testPassword");
+        let userResult = await nativeUsersController.getUserByNameAndPassword("testUser2", "testPassword");
         let userId = userResult?.id;
 
         let platformUserData = {
                     "native_user_id": userId,
-                    "platform_user_name": "testPlatformUser",
+                    "platform_user_name": "testPlatformUser2",
                     "platform_id": 1,
                     "platform_name": null,
-                    "platform_profile_id": "111111111111111",
+                    "platform_profile_id": "1111111111111112",
                     "platform_password": "testPlatformPassword"
                 }
         let platformUsersController = new PlatformUsersController();
@@ -69,6 +74,24 @@ async function tryCreatePlatformUser () {
         console.error('Error in test code:', err instanceof Error ? err.message : String(err));
     }
 };
+
+async function tryCreateNativeUser () {
+    try {
+        const userData = {
+            name: "testUser2",
+            user_password: "testPassword",
+            email: "test@example.com",
+            bio: null,
+            pfp: null
+        };
+
+        const nativeUsersController = new NativeUsersController();
+        const res = await nativeUsersController.create(userData);
+        console.log('Created native user:', res);
+    } catch (err) {
+        console.error('Error in tryCreateNativeUser:', err instanceof Error ? err.message : String(err));
+    }
+}
 
 async function tryGetNativeUser () {
     try {
@@ -133,5 +156,67 @@ async function  tryUploadGameWithAll() {
         console.log(res.message ?? "stg went wrong check db");
     } catch (err) {
         console.error('Error in creating game:', err instanceof Error ? err.message : String(err));
+    }
+}
+
+async function tryFillShopSpecials() {
+    try {
+        const shopCntr = new ShopSpecialsController();
+        for (let id = 1; id <= 27; id++) {
+            const featured = id % 5 === 0 ? true : false;       // every 5th game
+            const coming_soon = id % 7 === 0 ? true : false;    // every 7th game
+            const discounted = id % 3 === 0 ? true : false;     // every 3rd game
+
+            if (!featured && !coming_soon && !discounted) {
+                console.log(`Skipping game_id=${id} (no flags set)`);
+                continue;
+            }
+
+            const data = { "game_id": id, "featured": featured, "coming_soon": coming_soon, "discounted": discounted };
+            try {
+                const res = await shopCntr.create(data);
+                console.log(`Inserted shop_specials for game_id=${id}:`, res.message || res);
+            } catch (err) {
+                console.error(`Error inserting shop_specials for game_id=${id}:`, err instanceof Error ? err.message : String(err));
+            }
+        }
+        console.log('Finished populating shop_specials.');
+    } catch (err) {
+        console.error('Error in tryFillShopSpecials:', err instanceof Error ? err.message : String(err));
+    }
+}
+
+async function tryChangeShopSpecials(id) {
+    try {
+        const shopCntr = new ShopSpecialsController();
+        const data = { "featured": false, "coming_soon": false, "discounted": false };
+        const res = await shopCntr.update(id, data);
+        console.log(`Updated shop_specials for game_id=${id}:`, res.message || res);
+    } catch (err) {
+        console.error('Error in tryChangeShopSpecials:', err instanceof Error ? err.message : String(err));
+    } 
+}
+
+async function tryGetFromShopSpecials() {
+    const filter = "featured";
+    const from = 0;
+
+    try {
+        const shopCntr = new ShopSpecialsController();
+        const resp = await shopCntr.getFilteredGamesFrom(filter, from);
+        console.log('Successfuly got elements form shop_specials table: ', resp[0]);
+    } catch (err) {
+        console.error('Failed to get elements form shop_specials table: ', err);
+    }
+}
+
+async function trySearch() {
+    const needle = "Gam";
+    try {
+        const gameCtrl = new GameController();
+            const res = await gameCtrl.search(needle);
+            console.log('Search runned succesfully:', res[0]);
+    } catch (err) {
+        console.log('Error in search from games:', err.message);
     }
 }

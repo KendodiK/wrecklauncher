@@ -15,7 +15,7 @@ class PlatformUsersController extends Controller {
 
     /**
      * 
-     * @param {Array} data - ["native_user_id" = native_users.id, "platform_user_name" = string, "platform_id" = platforms.id, "platform_profile_id" = string, "platform_password" = string ]
+     * @param {Array} data - ["native_user_id" = native_users.id, "platform_user_name" = string, "platform_id" = platforms.id, "platform_profile_id" = string, "oauth_token" = string ]
      */
     async create(data) {
         await super.create();
@@ -28,8 +28,8 @@ class PlatformUsersController extends Controller {
                 throw isThereForeignKey;
             }       
 
-            const query = 'INSERT INTO platform_users (native_user_id, platform_user_name, platform_id, platform_profile_id, platform_password) VALUES (?, ?, ?, ?, ?);';
-            const values = [data.native_user_id, data.platform_user_name, data.platform_id, data.platform_profile_id, data.platform_password];
+            const query = 'INSERT INTO platform_users (native_user_id, platform_user_name, platform_id, platform_profile_id, oauth_token) VALUES (?, ?, ?, ?, ?);';
+            const values = [data.native_user_id, data.platform_user_name, data.platform_id, data.platform_profile_id, data.oauth_token];
 
             try {
                 const [result] = await this.dbConnection.execute(query, values);
@@ -47,7 +47,7 @@ class PlatformUsersController extends Controller {
     /**
      * 
      * @param {int} id 
-     * @param {Array} data - ["native_user_id" = native_users.id, "platform_user_name" = string, "platform_id" = platforms.id, "platform_profile_id" = string, "platform_password" = string ]
+     * @param {Array} data - ["native_user_id" = native_users.id, "platform_user_name" = string, "platform_id" = platforms.id, "platform_profile_id" = string, "oauth_token" = string ]
      */
     async update(id, data) {
         await super.update(); 
@@ -59,13 +59,13 @@ class PlatformUsersController extends Controller {
 
         let old = await this.show(id); 
 
-        const query = 'UPDATE platform_users SET native_user_id = ?, platform_user_name = ?, platform_id = ?, platform_profile_id = ?, platform_password = ? WHERE id = ?;';
+        const query = 'UPDATE platform_users SET native_user_id = ?, platform_user_name = ?, platform_id = ?, platform_profile_id = ?, oauth_token = ? WHERE id = ?;';
         const values = [
             data.native_user_id ?? old.nativeUserId, 
             data.platform_user_name ?? old.platform_user_name, 
             data.platform_id ?? old.platform_id, 
             data.platform_profile_id ?? old.platform_profile_id, 
-            data.platform_password ?? old.platform_password, 
+            data.platform_password ?? old.oauth_token, 
             id];
 
         try {
@@ -82,8 +82,34 @@ class PlatformUsersController extends Controller {
     }
 
     /**
+     * Deletes a platform user row only if it belongs to the provided native user.
+     * @param {string|number} nativeUserId
+     * @returns {{ deleted: boolean, affectedRows: number, id: number, nativeUserId: string|number }}
+     */
+    async deleteByNativeUserId(nativeUserId) {
+        await this.ready;
+
+        const query = 'DELETE FROM platform_users WHERE native_user_id = ?;';
+        const values = [id, nativeUserId];
+
+        try {
+            const [result] = await this.dbConnection.execute(query, values);
+            const affectedRows = Number(result?.affectedRows || 0);
+            return {
+                deleted: affectedRows > 0,
+                affectedRows,
+                id: Number(id),
+                nativeUserId,
+            };
+        } catch (err) {
+            console.error(`Error while deleting platform user ${id} for native user ${nativeUserId}: ${err}`);
+            throw err;
+        }
+    }
+
+    /**
      * 
-     * @param {Array} data - ["native_user_id" = natrive_users.id || null, "platform_id" = platforms.id || null, "platform_name" = string || null, "platform_user_name" = string, "platform_profile_id" = string, "platform_password" = string ]
+     * @param {Array} data - ["native_user_id" = natrive_users.id || null, "platform_id" = platforms.id || null, "platform_name" = string || null, "platform_user_name" = string, "platform_profile_id" = string, "oauth_token" = string ]
      */
     async createUserWhithAllForeginData(data) {
         let platformId = null;
@@ -107,7 +133,7 @@ class PlatformUsersController extends Controller {
             "platform_user_name": data.platform_user_name,
             "platform_id": platformId || data.platform_id,
             "platform_profile_id": data.platform_profile_id,
-            "platform_password": data.platform_password
+            "oauth_token": data.oauth_token
         }
         return await this.create(platformUserData);
     }

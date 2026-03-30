@@ -15,14 +15,14 @@ class GamesTableMaker extends DatabaseHandler {
         await this.ready;
         const query = `
             CREATE TABLE IF NOT EXISTS games (
-                id SMALLINT AUTO_INCREMENT PRIMARY KEY,
+                id MEDIUMINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
                 app_id INT UNSIGNED NOT NULL,
                 platform_id SMALLINT NOT NULL, INDEX(platform_id),
                 name VARCHAR(256) NOT NULL,
                 banner_img VARCHAR(516),
                 description VARCHAR(2048),
                 minimum_requirements VARCHAR(1024),
-                cost VARCHAR(7)
+                UNIQUE uq_game (app_id, name)
             );
         `;
         try {
