@@ -186,48 +186,48 @@ class ItchioController extends GamesController {
    * and also saves the game to the local DB — the API key never reaches this process.
    *
    * @param {string} token  Wreck auth token.
-   * @param {number|string} gameId  itch.io numeric game ID.
+   * @param {number|string} appId  itch.io numeric game ID.
    * @returns {Promise<import('../models').ItchGameDetails|null>}
    */
-  async getGameDetails(token, gameId) {
+  async getGameDetails(token, appId) {
     if (!token || !String(token).trim()) throw new Error('Auth token is required');
-    const id = Number(gameId);
-    if (!Number.isFinite(id) || id <= 0) throw new Error(`Invalid itch.io game ID: ${String(gameId)}`);
+    const id = Number(appId);
+    if (!Number.isFinite(id) || id <= 0) throw new Error(`Invalid itch.io game ID: ${String(appId)}`);
 
-    // 1) Prefer DB data first.
-    const dbUrl = joinUrl(this.#serverUrl, 'api', 'games', String(id), 'all');
-    const dbRes = await fetchJsonSafe(dbUrl, {
-      method: 'GET',
-      headers: { 'Accept': 'application/json' },
-    });
+    // // 1) Prefer DB data first.
+    // const dbUrl = joinUrl(this.#serverUrl, 'api', 'games', String(id), 'details');
+    // const dbRes = await fetchJsonSafe(dbUrl, {
+    //   method: 'GET',
+    //   headers: { 'Accept': 'application/json' },
+    // });
 
-    if (dbRes.ok && dbRes.json && typeof dbRes.json === 'object') {
-      const platformName = String(dbRes.json.platform_name ?? dbRes.json.platform ?? '').trim().toLowerCase();
-      if (platformName === 'itch' || platformName === 'itch.io') {
-        const genres = Array.isArray(dbRes.json.genres)
-          ? dbRes.json.genres
-              .map((/** @type {any} */ g) => (typeof g === 'string' ? g : g?.genre ?? g?.name))
-              .filter((/** @type {any} */ v) => typeof v === 'string' && v.trim())
-          : [];
+    // if (dbRes.ok && dbRes.json && typeof dbRes.json === 'object') {
+    //   const platformName = String(dbRes.json.platform_name ?? dbRes.json.platform ?? '').trim().toLowerCase();
+    //   if (platformName === 'itch' || platformName === 'itch.io') {
+    //     const genres = Array.isArray(dbRes.json.genres)
+    //       ? dbRes.json.genres
+    //           .map((/** @type {any} */ g) => (typeof g === 'string' ? g : g?.genre ?? g?.name))
+    //           .filter((/** @type {any} */ v) => typeof v === 'string' && v.trim())
+    //       : [];
 
-        return {
-          gameId: id,
-          title: dbRes.json.name ?? `itch:${id}`,
-          coverUrl: dbRes.json.banner_img ?? null,
-          shortText: dbRes.json.description ?? null,
-          minPrice: typeof dbRes.json.cost === 'number' ? dbRes.json.cost : 0,
-          url: null,
-          raw: {
-            ...dbRes.json,
-            genres,
-            source: 'database',
-          },
-        };
-      }
-    }
+    //     return {
+    //       gameId: id,
+    //       title: dbRes.json.name ?? `itch:${id}`,
+    //       coverUrl: dbRes.json.banner_img ?? null,
+    //       shortText: dbRes.json.description ?? null,
+    //       minPrice: typeof dbRes.json.cost === 'number' ? dbRes.json.cost : 0,
+    //       url: null,
+    //       raw: {
+    //         ...dbRes.json,
+    //         genres,
+    //         source: 'database',
+    //       },
+    //     };
+    //   }
+    // }
 
-    // 2) Fallback to scrape endpoint, which also uploads to DB when missing.
-    const url = `${joinUrl(this.#serverUrl, 'api', 'itch', 'game', String(id))}?ensureUpload=true`;
+
+    const url = `${joinUrl(this.#serverUrl, 'api', 'itch', 'game', String(id))}`;
     const { ok, status, json } = await fetchJsonSafe(url, {
       method: 'GET',
       headers: {
@@ -264,6 +264,7 @@ class ItchioController extends GamesController {
   }
 
   /**
+   * NEEDS REVISION!!!!
    * Fetch the user's itch.io library (all owned games) using their OAuth token.
    * This calls itch.io API directly with the user's personal token.
    *
@@ -338,6 +339,7 @@ class ItchioController extends GamesController {
   }
 
   /**
+   * NEEDS REVISION!!!!
    * Get the user's itch.io profile using their OAuth token.
    * @returns {Promise<{ id: number, username: string, url: string, cover_url: string|null, display_name: string|null }|null>}
    */
@@ -377,6 +379,7 @@ class ItchioController extends GamesController {
   }
 
   /**
+   * NEDDS REVISION!!!!
    * Start itch.io OAuth login flow using a BrowserWindow.
    * The user will be prompted to authorize the app.
    * 

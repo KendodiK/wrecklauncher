@@ -14,7 +14,93 @@ class GamesController {
   constructor(cfg) {
     this.#serverUrl = normalizeBaseUrl(cfg.serverUrl || '', { defaultProtocol: 'http:' });
   }
+/**
 
+*Return the first non-empty string found at any of the provided nested paths inside source.
+*Each path is an array of keys (strings or numbers) describing a nested access sequence (e.g. ['images','logo']).
+*Only string values are considered valid; the found string is trimmed before being returned.
+*@param {Object|null|undefined} source - The object to search through.
+*@param {Array<Array<string|number>>} paths - Array of paths; each path is an array of keys to traverse.
+*@returns {string|null} The trimmed string found at the first matching path, or null if none found.
+*@example
+*const obj = { images: { logo: ' //example.png ' } };
+*getFirstStringByPaths(obj, [['images','logo'], ['image']]); // returns '//example.png'
+*/
+  _getFirstStringByPaths(source, paths) {
+  for (const path of paths) {
+    let cursor = source;
+    let validPath = true;
+    for (const key of path) {
+      if (cursor == null || !(key in cursor)) {
+        validPath = false;
+        break;
+      }
+      //@ts-ignore
+      cursor = cursor[key];
+    }
+    if (validPath && typeof cursor === 'string' && cursor.trim()) {
+      return cursor.trim();
+    }
+  }
+  return null;
+}
+
+
+/**
+ * Normalizes an array of genre names by converting them to title case, removing duplicates, and filtering out utility genres.
+ * @param {Array<string>} genreNames The array of genre names to normalize.
+ * @returns {Array<string>} The normalized array of genre names.
+ */
+  _normalizeGenreNames(genreNames) {
+  if (!Array.isArray(genreNames)) return [];
+  const utilityGenreSet = new Set([
+    'free',
+    'paid',
+    'on sale',
+    'demo',
+    'released',
+    'coming soon',
+    'new & popular',
+    'top sellers',
+  ]);
+  const seen = new Set();
+  const out = [];
+  for (const raw of genreNames) {
+    if (raw == null) continue;
+    const genre = this._toTitleCaseWords(String(raw).replace(/[-_]/g, ' '));
+    if (!genre) continue;
+    const key = genre.toLowerCase();
+    if (utilityGenreSet.has(key)) continue;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(genre);
+  }
+  return out;
+}
+/**
+ * Converts a string to title case, trimming whitespace and replacing hyphens and underscores with spaces.
+ * @param {string} text Text you want to clean up from whitespaces
+ * @returns {string|null} The normalized string or null if the input is not a valid string
+ */
+  _toTitleCaseWords(text) {
+  if (typeof text !== 'string') return null;
+  const normalized = this._collapseWhitespace(text.toLowerCase());
+  if (!normalized) return null;
+  return normalized
+    .split(' ')
+    //@ts-ignore
+    .map((w) => w ? (w[0].toUpperCase() + w.slice(1)) : w)
+    .join(' ');
+}
+/**
+ * Collapses multiple whitespace characters into a single space and trims the string.
+ * @param {string} text The string to collapse whitespace in.
+ * @returns {string|null} The collapsed string or null if the input is not a valid string.
+ */
+_collapseWhitespace(text) {
+  if (typeof text !== 'string') return null;
+  return text.replace(/\s+/g, ' ').trim();
+}
   /**
    * POST /api/games/upload
    * Auth: Authorization: Bearer <token>
@@ -55,7 +141,7 @@ class GamesController {
     if (id === undefined || id === null || Number.isNaN(Number(id))) throw new Error('Game ID is required');
 
     // Backend endpoint is /api/games/:appId/all where :appId is the platform-specific app id (e.g. Steam appid).
-    const url = joinUrl(this.#serverUrl, 'api', 'games', enc(String(id)), 'all');
+    const url = joinUrl(this.#serverUrl, 'api', 'games', enc(String(id)), 'details');
 
     const { ok, status, json, text } = await fetchJsonSafe(url,{
       method: 'GET',
@@ -98,13 +184,13 @@ class GamesController {
   /**
    * 
    * @param {string} appId 
-   * @param {string} platform 
+   * @param {string} platformId 
    * @returns 
    */
-  async getAllDetailsByAppIDAndPlatform(appId, platform){
+  async getAllDetailsByAppIDAndPlatform(appId, platformId){
     if (!appId || !String(appId).trim()) throw new Error('App ID is required');
-    if (!platform || !String(platform).trim()) throw new Error('Platform is required');
-    const url = joinUrl(this.#serverUrl, 'api', 'games', enc(String(platform)), enc(String(appId)), 'all');
+    if (!platformId || !String(platformId).trim()) throw new Error('Platform ID is required');
+    const url = joinUrl(this.#serverUrl, 'api', 'games','platform', enc(String(platformId)),'app-id', enc(String(appId)), 'details');
     const { ok, status, json, text } = await fetchJsonSafe(url,{
       method: 'GET',
       headers: {
@@ -117,7 +203,6 @@ class GamesController {
       throw new Error(`Failed to fetch game details (HTTP ${status}): ${snippet}`);
     }
     const obj = json && typeof json === 'object' ? json : null;
-    console.log('getAllDetailsByAppIDAndPlatform response:', obj);
     const rawGenres = Array.isArray(obj?.genres) ? obj.genres : null;
     const genreNamesFromBackend = Array.isArray(rawGenres)
       ? rawGenres          .map((g) => (g && typeof g === 'object' ? (g.genre ?? g.name ?? g.description) : null))

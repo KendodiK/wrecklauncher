@@ -229,7 +229,14 @@ module.exports.GETOwnedGamesSteam = async function (req, res) {
         if (ownedGames.length === 0) {
           return res.status(400).json({ error: 'No owned games found for this user on Steam' });
         }
-        return res.json({ ownedGames });
+        const seen = new Set();
+        const uniqueOwnedGames = ownedGames.filter(g => {
+        const id = g.appid ?? g.app_id;
+        if (!id || seen.has(id)) return false;
+        seen.add(id);
+        return true;
+        });
+        return res.json({ ownedGames: uniqueOwnedGames });
     } catch (error) {
         console.error('Error in /steam/api/getOwnedGames endpoint:', error);
         return res.status(500).json({ error: 'Internal server error' });

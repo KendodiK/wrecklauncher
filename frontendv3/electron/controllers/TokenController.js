@@ -53,7 +53,7 @@ class TokenController {
    */
   async login(username = this.#username, password = this.#password) {
     const url = joinUrl(this._serverUrl, 'api', 'login', enc(username), enc(password));
-    const { ok, status, json, text } = await fetchJsonSafe(url, { method: 'POST' });
+    const { ok, status, json, text } = await fetchJsonSafe(url, { method: 'PUT' });
     if (!ok) throw new Error(`Login failed: HTTP ${status}${text ? ` - ${String(text).slice(0, 200)}` : ''}`);
 
     if (typeof json === 'string' && json.trim()) {
@@ -85,7 +85,7 @@ class TokenController {
     * @throws on HTTP errors or unexpected responses
    */
   async register(username, password, email) {
-    const url = joinUrl(this._serverUrl, 'api', 'signup');
+    const url = joinUrl(this._serverUrl, 'api', 'native-users');
     const { ok, status, json, text } = await fetchJsonSafe(url, { 
       method: 'POST',
       headers: {

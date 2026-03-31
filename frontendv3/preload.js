@@ -123,8 +123,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   createPlatform: (platformName) => {
     return invokeAuthed('platform:create-platform', platformName);
   },
-  createPlatformUser: (platformName, platformUsername, platformPassword, platformProfileId) => {
-    return invokeAuthed('platform:create-user', platformName, platformUsername, platformPassword, platformProfileId);
+  createPlatformUser: (platformName, platformUsername, oauthToken, platformProfileId) => {
+    return invokeAuthed('platform:create-user', platformName, platformUsername, oauthToken, platformProfileId);
   },
   createSteamPlatformUser: (platformUsername, platformProfileLink) => {
     return invokeAuthed('steam:create-user', platformUsername, platformProfileLink);
@@ -137,8 +137,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   getPlatform: (platformName) => ipcRenderer.invoke('platform:get', platformName),
   //Steam
-  getOwnedGamesFromSteam: (platformUsername) => {
-    return invokeAuthed('user:get-owned-games-from-steam', platformUsername);
+  getOwnedGamesFromSteam: () => {
+    return invokeAuthed('user:get-owned-games-from-steam' );
   },
   getSteamGameDetails: (appID, cc) => {
     return invokeAuthed('steam:get-game-details', appID, cc);

@@ -34,7 +34,7 @@ class ShopSpecialsController extends Controller {
         // ensure the referenced game exists
         const isThereForeignKey = await this.#checkForeignKeys(data.game_id);
         if (isThereForeignKey != true) {
-            console.error("Error while getting ")
+            console.error("Error while getting foreign key")
             throw isThereForeignKey;
         }
 
@@ -57,8 +57,10 @@ class ShopSpecialsController extends Controller {
             return { message: `All flags are false, entry with game_id ${game_id} create aborted from table ${this.tableName}` };
         }
         const query = 'INSERT INTO shop_specials (game_id, featured, coming_soon, discount_percent) VALUES (?, ?, ?, ?);';
-        const values = [data.game_id, data.featured ?? false, data.coming_soon ?? false, data.discount_percent ?? false];
-
+        const values = [data.game_id, data.featured ?? 0, data.coming_soon ?? false, data.discount_percent ?? 0];
+        if(!values[1] && !values[2] && !values[3] || (values[1] === 0 && (values[2] === 0 || values[2] === false) && values[3] === 0)) {
+            return { message: `All flags are false, entry with game_id ${game_id} create aborted from table ${this.tableName}` };
+        }
         try {
             const [result] = await this.dbConnection.execute(query, values);
             return { message: `Element created in table ${this.tableName}`, id: result.insertId };
@@ -82,7 +84,7 @@ class ShopSpecialsController extends Controller {
         const query = 'UPDATE shop_specials SET featured = ?, coming_soon = ?, discount_percent = ? WHERE game_id = ?;';
         const values = [data.featured ?? old.featured, data.coming_soon ?? old.coming_soon, data.discount_percent ?? old.discount_percent, game_id];
 
-        if (!values[0] && !values[1] && !values[2]) {
+        if (!values[0] && !values[1] && !values[2] || (values[0] === 0 && values[1] === 0 && values[2] === 0)) {
             await this.delete(game_id);
             return { message: `All flags are false, entry with game_id ${game_id} deleted from table ${this.tableName}` };
         }
@@ -127,7 +129,7 @@ class ShopSpecialsController extends Controller {
                 throw new Error(`Invalid filter: ${filter}`);
         }
 
-        let query = `SELECT * FROM shop_specials WHERE ${column} = true ORDER BY game_id LIMIT ?`;
+        let query = `SELECT * FROM shop_specials WHERE NOT ${column} = 0 ORDER BY game_id LIMIT ?`;
         const params = [20];
         if (from > 0) {
             query += ' OFFSET ?';

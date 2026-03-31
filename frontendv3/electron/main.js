@@ -288,12 +288,13 @@ function getShopSpecialsCtrl() {
   handleAuthed('user:get-platform-userid', async ({ token }, platformName, platformUsername) => {
     // Ensure the controller uses the token from renderer.
     getUserCtrl().setToken(token);
-    return await getUserCtrl().getPlatformUserID(String(platformName), String(platformUsername));
+    const platformId = await getPlatformsCtrl().getPlatform(String(platformName));
+    return await getUserCtrl().getPlatformUserID(String(platformId), String(platformUsername));
   });
 
-  handleAuthed('user:get-owned-games-from-steam', async ({ token }, platformUsername) => {
+  handleAuthed('user:get-owned-games-from-steam', async ({ token }) => {
     getUserCtrl().setToken(token);
-    return await getUserCtrl().getOwnedGamesFromSteam(String(platformUsername));
+    return await getUserCtrl().getOwnedGamesFromSteam();
   });
 
   // Settings (global app settings)
@@ -335,16 +336,16 @@ function getShopSpecialsCtrl() {
     return await getPlatformsCtrl().getPlatform(name);
   });
 
-    handleAuthed('platform:create-user', async ({ token },  platformName, platformUsername, platformPassword, platformProfileId) => {
+    handleAuthed('platform:create-user', async ({ token },  platformName, platformUsername, oauthToken, platformProfileId) => {
       const pName = String(platformName || '').trim();
       const pUsername = String(platformUsername || '').trim();
-      const pPassword = String(platformPassword || '').trim();
+      oauthToken = String(oauthToken || '').trim();
       const pProfileId = String(platformProfileId || '').trim();
       if (!pName) throw new Error('platformName is required');
       if (!pUsername) throw new Error('platformUsername is required');
-      if (!pPassword) throw new Error('platformPassword is required');
+      if (!oauthToken) throw new Error('oauthToken is required');
       if (!pProfileId) throw new Error('platformProfileId is required');
-      return await getPlatformsCtrl().createPlatformUser(token, pName, pUsername, pPassword, pProfileId);
+      return await getPlatformsCtrl().createPlatformUser(token, pName, pUsername, oauthToken, pProfileId);
     });
 
   handleAuthed('steam:create-user', async ({ token }, platformUsername, platformProfileLink) => {
@@ -460,6 +461,9 @@ handle('steam:get-installed-games', async () => {
     if(!platform){
       platform = _event.senderFrame.url.split('/').slice(-2)[0];
     }
+    if(typeof platform !== 'number'){
+      platform = await getPlatformsCtrl().getPlatform(String(platform));
+    }
     let gameDetails = await getGamesCtrl().getAllDetailsByAppIDAndPlatform(String(platform), String(appId));
     console.log('Fetched game details:', gameDetails);
     console.log('Pirate sites from backend:', gameDetails.pirate_sites);
@@ -562,10 +566,9 @@ handle('steam:get-installed-games', async () => {
   });
 
   // Token-first style: (token, productId)
-  handle('gog:get-game-details', async (_event, token, productId) => {
-    const t = typeof token === 'string' ? token.trim() : '';
-    if (!t) throw new Error('Missing auth token');
-    return await getGogCtrl().getGameDetails(t, String(productId));
+  handle('gog:get-game-details', async (_event, {token}, productId) => {
+    //handle upload later, for now just fetch details without token-bound side effects
+    return await getGogCtrl().getGameDetails(String(productId));
   });
 
   handle('gog:open-game', async (_event, productId) => {

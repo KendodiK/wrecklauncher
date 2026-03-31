@@ -25,31 +25,12 @@ class SteamGamesController extends GamesController {
     this.#serverUrl = normalizeBaseUrl(serverUrl, { defaultProtocol: 'https:' });
     this.#platformID = '';
   }
-
-  /**
-   * Lazily fetches and caches the Steam platform ID from the backend.
-   * @returns {Promise<string>}
-   */
-  async #resolvePlatformID() {
-    if (this.#platformID) return this.#platformID;
-    const url = joinUrl(this.#serverUrl, 'api', 'platforms', 'steam');
-    const { ok, json } = await fetchJsonSafe(url, {
-      method: 'GET',
-      headers: { 'Accept': 'application/json' },
-    });
-    if (ok && json && typeof json === 'object' && json.id) {
-      this.#platformID = String(json.id);
-    }
-    return this.#platformID;
-  }
-
   static #agent = new https.Agent({
     keepAlive: true,
     maxSockets: 2,
     maxFreeSockets: 2,
     timeout: 30_000,
   });
-
   /** @param {number} ms */
   static #sleep(ms) {
     return new Promise((r) => setTimeout(r, ms));
@@ -124,10 +105,6 @@ class SteamGamesController extends GamesController {
   async getGamesDetails(token, appID, cc = 'de') {
     const appIdNum = Number(appID);
     if (!Number.isFinite(appIdNum) || appIdNum <= 0) throw new Error(`Invalid Steam AppID: ${String(appID)}`);
-
-    // Resolve platform ID once before fetching game details.
-    await this.#resolvePlatformID();
-
     const lang = 'en';
     const timeoutMs = 8000;
     const retries = 5;

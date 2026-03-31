@@ -21,26 +21,31 @@ class UserController extends TokenController {
    * - api.js: GET /api/platform/user_id/:platform/:username (Bearer token)
    * - server.js: GET /api/platform/UserID/:platform/:username/:token
    *
-   * @param {string} platformName
+   * @param {string} platformId
    * @param {string} platformUsername
    * @returns {Promise<string|number|null>}
    */
-  async getPlatformUserID(platformName, platformUsername) {
+  async getPlatformUserID(platformId, platformUsername) {
     const attemptOnce = async () => {
       const token = await this.getToken();
       if (!token) throw new Error('Missing auth token');
 
       /** @type {Error|null} */
-      let apiVariantError = null;
-
-      // Variant A (api.js)
-      {
-        const url = joinUrl(this.#serverUrl, 'api', 'platform', 'user_id', enc(platformName), enc(platformUsername));
+      let apiVariantError = null;      
+        //platform-users
+        const url = joinUrl(this.#serverUrl, 'api', 'platform-users', enc(String(token).split('.')[0]));
         const { ok, status, json, text } = await fetchJsonSafe(url, {
           method: 'GET',
           headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' },
         });
-        if (ok && json && typeof json === 'object' && 'platformUserID' in json) return json.platformUserID;
+        if (ok && json && typeof json === 'object' && 'platformUserID' in json) {
+          for (const row of json){
+            if(row.platform_id === platformId && row.platform_user_name === platformUsername){
+              return row.platformUserID;
+            }
+          }
+          return null;
+        }
 
         if (!ok) {
           const msg = httpErrorMessage(status, json, text);
@@ -64,7 +69,7 @@ class UserController extends TokenController {
 
           apiVariantError = new Error(msg);
         }
-      }
+      
     };
 
     try {
@@ -78,58 +83,18 @@ class UserController extends TokenController {
       throw err;
     }
   }
-
-  /**
-   * server.js: GET /api/steam/key/:token
-   * @returns {Promise<string>}
-   */
-  async #getSteamApiKey() {
-    const attemptOnce = async () => {
-      const token = await this.getToken();
-      if (!token) throw new Error('Missing auth token');
-      const url = joinUrl(this.#serverUrl, 'api', 'steam', 'key');
-      const { ok, status, json, text } = await fetchJsonSafe(url, { method: 'GET', headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${token}` } });
-      if (!ok) {
-        const msg = httpErrorMessage(status, json, text);
-        if (status === 401) {
-          const e = new Error(msg);
-          // @ts-ignore
-          e.code = 'WRECK_INVALID_TOKEN';
-          throw e;
-        }
-        throw new Error(msg);
-      }
-      const key = json?.steamApiKey;
-      if (typeof key === 'string' && key.trim()) return key;
-      throw new Error('steamApiKey missing in response');
-    };
-
-    try {
-      return await attemptOnce();
-    } catch (err) {
-      if (err && typeof err === 'object' && /** @type {any} */ (err).code === 'WRECK_INVALID_TOKEN') {
-        await this._invalidateToken();
-        return await attemptOnce();
-      }
-      throw err;
-    }
-  }
-
   /**
    * Fetch owned games via Steam Web API using backend-provided key.
-   * @param {string} platformUsername
    * @returns {Promise<any[]>}
    */
-  async getOwnedGamesFromSteam(platformUsername) {
-    const steamID = await this.getPlatformUserID('steam', platformUsername);
-    if (!steamID) throw new Error('Steam ID not found');
-
-    const key = '434EECE4774CA9E521E678472784C794';
-    console.log(`[UserController] Fetching owned games for SteamID ${steamID} with API key ${key}`);
-    const url = `https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key=${key}&steamid=${encodeURIComponent(String(steamID))}&include_appinfo=1&include_played_free_games=1&format=json`;
-    const { ok, status, json, text } = await fetchJsonSafe(url, { method: 'GET' });
-    if (!ok) throw new Error(httpErrorMessage(status, json, text));
-    return json?.response?.games ?? [];
+  async getOwnedGamesFromSteam() {
+    const url = joinUrl(this.#serverUrl, 'api', 'steam', 'owned-games');
+    const { ok, status, json, text } = await fetchJsonSafe(url, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${await this.getToken()}`, 'Accept': 'application/json' },
+    });
+    if (!ok) throw new Error(httpErrorMessage(status, json, text));    
+    return Array.isArray(json) ? json : [];
   }
 }
 
