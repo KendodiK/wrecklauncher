@@ -253,8 +253,8 @@ app.put("/api/native-users", tokenValidate(), apiFunctions.PUTNativeUserProfileI
 /*
   route: /api/login/
   params: -
-  headers: auth token
-  body: token, name, user_password, email
+  headers: optional auth token
+  body: either {username,password} or token-based refresh
 
   returns: 
     {
@@ -267,7 +267,7 @@ app.put("/api/native-users", tokenValidate(), apiFunctions.PUTNativeUserProfileI
       native_user.pfp
     }
 */
-app.put("/api/login", tokenValidate(), apiFunctions.PUTNativeUserLogin);
+app.put("/api/login", apiFunctions.PUTNativeUserLogin);
 /*
   route: /api/games/:id
   params: game id

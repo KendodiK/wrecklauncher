@@ -75,10 +75,15 @@ async function fetchWith429Retries(url, opts = {}, options = {}) {
 
 module.exports.getCountryIdByCode = async function (countyCode) {
   try {
+    const normalizedCode = String(countyCode || '').trim().toUpperCase();
+    if (!/^[A-Z]{2}$/.test(normalizedCode)) {
+      throw new Error(`Invalid country code: ${String(countyCode)}`);
+    }
+
     const countryCtrl = new CountriesController();
-    let country = await countryCtrl.getByCode(countyCode);
+    let country = await countryCtrl.getByCode(normalizedCode);
     if(country instanceof Error || !country) {
-      const resp = await fetch(`https://restcountries.com/v3.1/alpha/${countyCode.toLowerCase()}`);
+      const resp = await fetch(`https://restcountries.com/v3.1/alpha/${normalizedCode.toLowerCase()}`);
       if (!resp.ok) {
         throw new Error(`restcountries API ${resp.status}: ${await resp.text()}`);
       }
@@ -94,7 +99,7 @@ module.exports.getCountryIdByCode = async function (countyCode) {
         currencySymbol = first?.symbol ?? null;
       }
 
-      country = await countryCtrl.create({ name, code: countyCode, currency: currencySymbol });
+      country = await countryCtrl.create({ name, code: normalizedCode, currency: currencySymbol });
     }
     return country?.id ?? null;
   } catch (err) {

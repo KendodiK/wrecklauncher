@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import GameSlider from './GameSlider.jsx';
 import GameListPopup from './GameListPopup.jsx';
 
-// Stacked sliders by source (Steam/Epic/etc)
+// Stacked sliders by source (Steam/GOG/Itch/etc)
 // sources: [{ id, label, games: [{id,image,title}] }]
 const GameSliderStack = ({ sources, topVh = 0 }) => {
 	const normalizedSources = useMemo(() => {

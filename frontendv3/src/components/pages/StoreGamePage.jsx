@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { getStorePlatformLabel, normalizeStorePlatform } from '../../utils/storeRouting.js';
 
 const fallback = {
 	id: null,
@@ -14,8 +15,54 @@ const fallback = {
 	screenshots: [],
 	minimumRequirements: '',
 	price: null,
+	priceLabel: null,
 	platform_name: 'steam',
 };
+
+function normalizeCountryCode(value) {
+	const raw = String(value || '').trim().toUpperCase();
+	return /^[A-Z]{2}$/.test(raw) ? raw : null;
+}
+
+function inferCountryCodeFromLocale() {
+	const localeCandidates = [];
+	try {
+		const resolved = Intl?.DateTimeFormat?.().resolvedOptions?.().locale;
+		if (resolved) localeCandidates.push(resolved);
+	} catch {
+		// ignore
+	}
+	if (typeof navigator !== 'undefined' && navigator?.language) {
+		localeCandidates.push(navigator.language);
+	}
+
+	for (const locale of localeCandidates) {
+		const match = String(locale).match(/[-_](?<cc>[A-Za-z]{2})\b/);
+		const code = normalizeCountryCode(match?.groups?.cc || match?.[1]);
+		if (code) return code;
+	}
+
+	return 'US';
+}
+
+async function resolvePreferredCountryCode(api) {
+	try {
+		const settings = await api?.getSettings?.();
+		const candidates = [
+			settings?.display?.countryCode,
+			settings?.store?.countryCode,
+			settings?.account?.countryCode,
+		];
+		for (const candidate of candidates) {
+			const normalized = normalizeCountryCode(candidate);
+			if (normalized) return normalized;
+		}
+	} catch {
+		// ignore and use locale fallback
+	}
+
+	return inferCountryCodeFromLocale();
+}
 
 function steamImages(appid) {
 	const id = Number(appid);
@@ -29,11 +76,295 @@ function steamImages(appid) {
 }
 
 function normalizePlatformName(value) {
-	const normalized = String(value || '').trim().toLowerCase();
-	if (!normalized) return 'steam';
-	if (normalized === 'itch' || normalized === 'itchio' || normalized === 'itch.io') return 'itchio';
-	if (normalized === 'epic games' || normalized === 'epic_games') return 'steam';
-	return normalized;
+	return normalizeStorePlatform(value, 'steam');
+}
+
+function hasFilledText(value) {
+	return typeof value === 'string' && value.trim().length > 0;
+}
+
+function pickFirstFilledText(...values) {
+	for (const value of values) {
+		if (hasFilledText(value)) return String(value).trim();
+	}
+	return '';
+}
+
+function pickFirstFiniteNumber(...values) {
+	for (const value of values) {
+		const numeric = Number(value);
+		if (Number.isFinite(numeric)) return numeric;
+	}
+	return null;
+}
+
+function pickFirstNonEmptyArray(...values) {
+	for (const value of values) {
+		if (!Array.isArray(value)) continue;
+		if (value.length < 1) continue;
+		return value;
+	}
+	return [];
+}
+
+function pickFirstPositiveNumber(...values) {
+	for (const value of values) {
+		const numeric = Number(value);
+		if (Number.isFinite(numeric) && numeric > 0) return numeric;
+	}
+	return null;
+}
+
+function normalizeTrimmedTitle(value) {
+	return String(value || '')
+		.trim()
+		.replace(/\s+/g, ' ')
+		.toLowerCase();
+}
+
+function titlesMatchWhenTrimmed(left, right) {
+	const leftNormalized = normalizeTrimmedTitle(left);
+	const rightNormalized = normalizeTrimmedTitle(right);
+	if (!leftNormalized || !rightNormalized) return false;
+	return leftNormalized === rightNormalized;
+}
+
+function normalizeTitleForCompare(value) {
+	return String(value || '')
+		.toLowerCase()
+		.replace(/[\u00a9\u00ae\u2122]/g, '')
+		.replace(/[^a-z0-9]+/g, ' ')
+		.replace(/\s+/g, ' ')
+		.trim();
+}
+
+function isPlaceholderTitle(value) {
+	const normalized = normalizeTitleForCompare(value);
+	if (!normalized) return true;
+	if (normalized === normalizeTitleForCompare(fallback.title)) return true;
+	if (/^game \d+$/.test(normalized)) return true;
+	if (/^steam app \d+$/.test(normalized)) return true;
+	if (normalized === 'unknown' || normalized === 'unknown steam title') return true;
+	return false;
+}
+
+function collectExpectedTitles(routeState, dbData) {
+	const candidates = [
+		dbData?.name,
+		routeState?.title,
+		routeState?.name,
+	];
+
+	const expected = [];
+	const seen = new Set();
+
+	for (const candidate of candidates) {
+		if (!hasFilledText(candidate) || isPlaceholderTitle(candidate)) continue;
+		const comparable = normalizeTitleForCompare(candidate);
+		if (!comparable || seen.has(comparable)) continue;
+		seen.add(comparable);
+		expected.push(String(candidate).trim());
+	}
+
+	return expected;
+}
+
+function getBestTitleMatchScore(title, expectedTitles) {
+	if (!Array.isArray(expectedTitles) || expectedTitles.length < 1) return 1;
+	let best = 0;
+	for (const expectedTitle of expectedTitles) {
+		const score = titlesMatchWhenTrimmed(title, expectedTitle) ? 1 : 0;
+		if (score > best) best = score;
+	}
+	return best;
+}
+
+function evaluateParsedCompleteness(parsed) {
+	const data = parsed && typeof parsed === 'object' ? parsed : {};
+	const numericId = Number(data.appid ?? data.id);
+
+	const missingRequired = [
+		!hasFilledText(data.title),
+		!hasFilledText(data.description) && !hasFilledText(data.longDescription),
+		!hasFilledText(data.coverImage) && !hasFilledText(data.heroImage),
+		!(Number.isFinite(numericId) && numericId > 0),
+		!Array.isArray(data.sites) || data.sites.length < 1,
+	].filter(Boolean).length;
+
+	const missingOptional = [
+		!Array.isArray(data.tags) || data.tags.length < 1,
+		!Array.isArray(data.screenshots) || data.screenshots.length < 1,
+		!hasFilledText(data.minimumRequirements),
+		data.price == null || !Number.isFinite(Number(data.price)),
+	].filter(Boolean).length;
+
+	const filledScore = (5 - missingRequired) * 10 + (4 - missingOptional);
+	return {
+		missingRequired,
+		missingOptional,
+		filledScore,
+	};
+}
+
+function selectBestScrapeCandidate(candidates, expectedTitles) {
+	const list = Array.isArray(candidates) ? candidates : [];
+	if (list.length < 1) {
+		return { best: null, accepted: [], hasTitleMatch: false };
+	}
+
+	const titleHints = Array.isArray(expectedTitles) ? expectedTitles : [];
+	const requireTitleMatch = titleHints.length > 0;
+
+	const evaluated = list.map((candidate) => {
+		const parsed = candidate?.parsed && typeof candidate.parsed === 'object' ? candidate.parsed : null;
+		const title = parsed?.title || candidate?.details?.title || candidate?.details?.name || '';
+		const titleScore = getBestTitleMatchScore(title, titleHints);
+		const titleMatched = requireTitleMatch ? titleScore >= 0.52 : true;
+		const completeness = evaluateParsedCompleteness(parsed);
+
+		return {
+			...candidate,
+			titleScore,
+			titleMatched,
+			...completeness,
+		};
+	});
+
+	const matched = evaluated.filter((candidate) => candidate.titleMatched);
+	if (requireTitleMatch && matched.length < 1) {
+		return { best: null, accepted: [], hasTitleMatch: false };
+	}
+
+	const accepted = matched.length > 0 ? matched : evaluated;
+	accepted.sort((left, right) => {
+		if (left.missingRequired !== right.missingRequired) {
+			return left.missingRequired - right.missingRequired;
+		}
+		if (left.missingOptional !== right.missingOptional) {
+			return left.missingOptional - right.missingOptional;
+		}
+		if (Math.abs(right.titleScore - left.titleScore) > 0.0001) {
+			return right.titleScore - left.titleScore;
+		}
+		if (right.filledScore !== left.filledScore) {
+			return right.filledScore - left.filledScore;
+		}
+		return 0;
+	});
+
+	return {
+		best: accepted[0] || null,
+		accepted,
+		hasTitleMatch: matched.length > 0 || !requireTitleMatch,
+	};
+}
+
+function buildLookupTitleCandidates(expectedTitles, routeState) {
+	const raw = [
+		...(Array.isArray(expectedTitles) ? expectedTitles : []),
+		routeState?.title,
+		routeState?.name,
+	];
+
+	const unique = [];
+	const seen = new Set();
+	for (const candidate of raw) {
+		if (!hasFilledText(candidate) || isPlaceholderTitle(candidate)) continue;
+		const normalized = normalizeTrimmedTitle(candidate);
+		if (!normalized || seen.has(normalized)) continue;
+		seen.add(normalized);
+		unique.push(String(candidate).trim());
+	}
+
+	return unique;
+}
+
+function slugFromTitle(title, separator = '_') {
+	return normalizeTitleForCompare(title).split(' ').filter(Boolean).join(separator);
+}
+
+function buildGogTitleSlugs(title) {
+	const normalized = normalizeTitleForCompare(title);
+	if (!normalized) return [];
+
+	const words = normalized.split(' ').filter(Boolean);
+	if (words.length < 1) return [];
+
+	const dropTail = new Set(['edition', 'ultimate', 'complete', 'game', 'year', 'deluxe']);
+	const trimmedWords = [...words];
+	while (trimmedWords.length > 2 && dropTail.has(trimmedWords[trimmedWords.length - 1])) {
+		trimmedWords.pop();
+	}
+
+	const noLeadingThe = words[0] === 'the' && words.length > 1 ? words.slice(1) : words;
+	const variants = new Set([
+		slugFromTitle(words.join(' '), '_'),
+		slugFromTitle(words.join(' '), '-'),
+		slugFromTitle(trimmedWords.join(' '), '_'),
+		slugFromTitle(trimmedWords.join(' '), '-'),
+		slugFromTitle(noLeadingThe.join(' '), '_'),
+		slugFromTitle(noLeadingThe.join(' '), '-'),
+	]);
+
+	return Array.from(variants).filter(Boolean).slice(0, 8);
+}
+
+async function fetchDetailsByTitleHints(api, platform, titleHints, countryCode) {
+	if (!api || !Array.isArray(titleHints) || titleHints.length < 1) return null;
+	const cc = String(countryCode || 'US').trim().toLowerCase() || 'us';
+	const matchesTitleHints = (candidateTitle) =>
+		titleHints.some((hint) => titlesMatchWhenTrimmed(candidateTitle, hint));
+
+	if (platform === 'steam') {
+		for (const title of titleHints) {
+			if (!hasFilledText(title)) continue;
+			if (typeof api.getSteamGameDetailsByTitle !== 'function') continue;
+			const details = await api.getSteamGameDetailsByTitle(title, cc);
+			if (!details || typeof details !== 'object') continue;
+			const candidateTitle = details?.name || details?.title || details?.raw?.name || '';
+			if (matchesTitleHints(candidateTitle)) return details;
+		}
+		return null;
+	}
+
+	if (platform === 'gog') {
+		for (const title of titleHints) {
+			if (!hasFilledText(title)) continue;
+			if (typeof api.getGogGameDetailsByTitle === 'function') {
+				const details = await api.getGogGameDetailsByTitle(title);
+				if (details && typeof details === 'object' && matchesTitleHints(details?.title || details?.name || '')) {
+					return details;
+				}
+			}
+
+			const slugCandidates = buildGogTitleSlugs(title);
+			for (const slug of slugCandidates) {
+				const details = await api.getGogGameDetails(slug);
+				if (details && typeof details === 'object' && matchesTitleHints(details?.title || details?.name || '')) {
+					return details;
+				}
+			}
+		}
+		return null;
+	}
+
+	if (platform === 'itchio') {
+		for (const title of titleHints) {
+			if (!hasFilledText(title)) continue;
+			if (typeof api.getItchGameDetailsByTitle !== 'function') continue;
+			const details = await api.getItchGameDetailsByTitle(title);
+			if (!details || typeof details !== 'object') continue;
+			if (matchesTitleHints(details?.title || details?.name || '')) return details;
+		}
+		return null;
+	}
+
+	return null;
+}
+
+function toPositiveNumber(value) {
+	const numeric = Number(value);
+	return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
 }
 
 function normalizeSiteLinksFromAny(value) {
@@ -80,12 +411,67 @@ function normalizeSiteLinksFromAny(value) {
 function defaultSiteForPlatform(platform, appId) {
 	if (!appId) return [];
 	if (platform === 'gog') {
-		return [{ id: 'gog', label: 'GOG Store', href: `https://www.gog.com/game/${appId}` }];
+		return [{ id: 'gog', label: 'GOG Store', href: `https://www.gog.com/en/game/${appId}` }];
 	}
 	if (platform === 'itchio') {
 		return [{ id: 'itchio', label: 'Itch.io', href: 'https://itch.io/' }];
 	}
 	return [{ id: 'steam', label: 'Steam Store', href: `https://store.steampowered.com/app/${appId}` }];
+}
+
+function inferPlatformFromSite(site) {
+	const label = String(site?.label || '').toLowerCase();
+	const href = String(site?.href || '').toLowerCase();
+	const text = `${label} ${href}`;
+	if (text.includes('steampowered.com') || /\bsteam\b/.test(text)) return 'steam';
+	if (text.includes('gog.com') || /\bgog\b/.test(text)) return 'gog';
+	if (text.includes('itch.io') || text.includes('itchio') || /\bitch\b/.test(text)) return 'itchio';
+	return null;
+}
+
+function inferPlatformAppId(platform, href) {
+	if (!href || typeof href !== 'string') return null;
+	if (platform === 'steam') {
+		const match = href.match(/store\.steampowered\.com\/app\/(\d+)/i);
+		const value = Number(match?.[1]);
+		return Number.isFinite(value) && value > 0 ? value : null;
+	}
+	if (platform === 'gog') {
+		const match = href.match(/gog\.com\/(?:[a-z]{2}\/)?game\/(\d+)/i);
+		const value = Number(match?.[1]);
+		return Number.isFinite(value) && value > 0 ? value : null;
+	}
+	return null;
+}
+
+function extractScrapedAppId(platform, details, fallbackAppId) {
+	const candidates = platform === 'steam'
+		? [details?.appid, details?.app_id, details?.id, fallbackAppId]
+		: platform === 'gog'
+			? [details?.productId, details?.app_id, details?.id, fallbackAppId]
+			: [details?.gameId, details?.app_id, details?.id, fallbackAppId];
+
+	for (const candidate of candidates) {
+		const numeric = toPositiveNumber(candidate);
+		if (numeric) return numeric;
+	}
+
+	return toPositiveNumber(fallbackAppId);
+}
+
+function extractScrapedStoreHref(platform, details, appId) {
+	const siteLinks = normalizeSiteLinksFromAny(
+		details?.url || details?.store_url || details?.storeUrl || details?.links || details?.sites
+	);
+	const preferred = siteLinks.find((site) => {
+		const inferred = inferPlatformFromSite(site);
+		const normalizedInferred = normalizePlatformName(inferred || platform);
+		return normalizedInferred === platform;
+	});
+
+	if (preferred?.href) return preferred.href;
+	if (siteLinks[0]?.href) return siteLinks[0].href;
+	return defaultSiteForPlatform(platform, appId)?.[0]?.href || null;
 }
 
 function parseSteamDetails(details) {
@@ -122,42 +508,66 @@ function parsePlatformDetails(platform, details, appId) {
 	if (!details || typeof details !== 'object') return null;
 
 	if (platform === 'steam') {
-		return parseSteamDetails(details);
+		const parsedSteam = parseSteamDetails(details);
+		if (!parsedSteam) return null;
+		return {
+			...parsedSteam,
+			platform_name: 'steam',
+		};
 	}
 
 	if (platform === 'gog') {
-		const genres = Array.isArray(details.genreNames) ? details.genreNames : [];
+		const genres = Array.isArray(details.genreNames)
+			? details.genreNames
+			: (Array.isArray(details.genres)
+				? details.genres.map((entry) => (typeof entry === 'string' ? entry : entry?.name || entry?.genre || entry?.description)).filter(Boolean)
+				: []);
+		const minimumRequirements = details.minimum_requirements || details.minimumRequirements || '';
+		const parsedAppId = toPositiveNumber(details.productId ?? details.app_id ?? details.id ?? appId);
+		const price = [details.cost, details.min_price, details.minPrice, details.price]
+			.map((value) => Number(value))
+			.find((value) => Number.isFinite(value));
+		const banner = details.bannerImg || details.banner_img || details.coverUrl || details.cover_url || '';
 		const siteLinks = normalizeSiteLinksFromAny(details.url || details.store_url || details.storeUrl || details.links || details.sites);
 		return {
-			id: Number(appId) || null,
-			appid: Number(appId) || null,
+			id: parsedAppId,
+			appid: parsedAppId,
 			title: details.title || fallback.title,
-			description: details.description || '',
-			longDescription: details.description || '',
+			description: details.description || details.shortText || details.short_text || '',
+			longDescription: details.description || details.shortText || details.short_text || '',
 			tags: genres,
 			screenshots: [],
-			minimumRequirements: '',
-			price: typeof details.cost === 'number' ? details.cost : null,
-			coverImage: details.bannerImg || '',
-			heroImage: details.bannerImg || '',
+			minimumRequirements,
+			price: Number.isFinite(price) ? price : null,
+			coverImage: banner,
+			heroImage: banner,
+			platform_name: 'gog',
 			sites: siteLinks,
 		};
 	}
 
 	if (platform === 'itchio') {
+		const parsedAppId = toPositiveNumber(details.gameId ?? details.app_id ?? details.id ?? appId);
+		const price = [details.minPrice, details.min_price, details.cost, details.price]
+			.map((value) => Number(value))
+			.find((value) => Number.isFinite(value));
+		const banner = details.coverUrl || details.cover_url || details.banner_img || '';
 		const siteLinks = normalizeSiteLinksFromAny(details.url || details.store_url || details.storeUrl || details.links || details.sites);
 		return {
-			id: Number(appId) || null,
-			appid: Number(appId) || null,
+			id: parsedAppId,
+			appid: parsedAppId,
 			title: details.title || fallback.title,
-			description: details.shortText || '',
-			longDescription: details.shortText || '',
-			tags: [],
+			description: details.shortText || details.short_text || details.description || '',
+			longDescription: details.description || details.shortText || details.short_text || '',
+			tags: Array.isArray(details.genres)
+				? details.genres.map((entry) => (typeof entry === 'string' ? entry : entry?.name || entry?.genre || entry?.description)).filter(Boolean)
+				: [],
 			screenshots: [],
-			minimumRequirements: '',
-			price: typeof details.minPrice === 'number' ? details.minPrice : null,
-			coverImage: details.coverUrl || '',
-			heroImage: details.coverUrl || '',
+			minimumRequirements: details.minimum_requirements || details.minimumRequirements || '',
+			price: Number.isFinite(price) ? price : null,
+			coverImage: banner,
+			heroImage: banner,
+			platform_name: 'itchio',
 			sites: siteLinks,
 		};
 	}
@@ -189,6 +599,7 @@ const StoreGamePage = () => {
 	const navigate = useNavigate();
 	const [platformDetails, setPlatformDetails] = useState(null);
 	const [dbDetails, setDbDetails] = useState(null);
+	const [scrapedTargets, setScrapedTargets] = useState([]);
 	const [errorMessage, setErrorMessage] = useState('');
 	const [currentScreenshot, setCurrentScreenshot] = useState(0);
 	const [loading, setLoading] = useState(true);
@@ -211,6 +622,7 @@ const StoreGamePage = () => {
 		let cancelled = false;
 		setPlatformDetails(null);
 		setDbDetails(null);
+		setScrapedTargets([]);
 		setErrorMessage('');
 		setLoading(true);
 
@@ -228,12 +640,17 @@ const StoreGamePage = () => {
 				return;
 			}
 
+			const countryCode = await resolvePreferredCountryCode(api);
+
 			let effectivePlatform = requestedPlatform;
+			let hasDbData = false;
+			let expectedTitles = collectExpectedTitles(routeState, null);
 
 			try {
-				const dbData = await api.getAllDetailsByID(appId);
+				const dbData = await api.getAllDetailsByAppIDAndPlatform(appId, requestedPlatform, countryCode);
 				if (dbData) {
-					effectivePlatform = normalizePlatformName(dbData.platform_name || effectivePlatform);
+					hasDbData = true;
+					expectedTitles = collectExpectedTitles(routeState, dbData);
 				}
 				if (!cancelled && dbData) setDbDetails(dbData);
 			} catch {
@@ -241,15 +658,84 @@ const StoreGamePage = () => {
 			}
 
 			try {
-				if (effectivePlatform === 'gog') {
-					const details = await api.getGogGameDetails(String(appId));
-					if (!cancelled) setPlatformDetails(details);
-				} else if (effectivePlatform === 'itchio') {
-					const details = await api.getItchGameDetails(Number(appId));
-					if (!cancelled) setPlatformDetails(details);
-				} else {
-					const details = await api.getSteamGameDetails(appId, 'us');
-					if (!cancelled) setPlatformDetails(details);
+				const probeOrder = [effectivePlatform, 'steam', 'gog', 'itchio']
+					.map((entry) => normalizePlatformName(entry))
+					.filter((entry, index, arr) => entry && arr.indexOf(entry) === index);
+				const titleHints = buildLookupTitleCandidates(expectedTitles, routeState);
+
+				const scrapedCandidates = [];
+				let lastError = null;
+
+				for (const probePlatform of probeOrder) {
+					try {
+						let details = null;
+						const shouldUsePlatformAppId = probePlatform === effectivePlatform;
+
+						if (shouldUsePlatformAppId) {
+							if (probePlatform === 'gog') {
+								details = await api.getGogGameDetails(String(appId));
+							} else if (probePlatform === 'itchio') {
+								details = await api.getItchGameDetails(Number(appId));
+							} else {
+								details = await api.getSteamGameDetails(appId, countryCode.toLowerCase());
+							}
+						}
+
+						if (!details) {
+							details = await fetchDetailsByTitleHints(api, probePlatform, titleHints, countryCode);
+						}
+
+						if (details && typeof details === 'object') {
+							const parsed = parsePlatformDetails(probePlatform, details, appId);
+							const scrapedAppId = extractScrapedAppId(probePlatform, details, appId);
+							const scrapedHref = extractScrapedStoreHref(probePlatform, details, scrapedAppId || appId);
+							scrapedCandidates.push({
+								platform: probePlatform,
+								details,
+								parsed,
+								appId: scrapedAppId,
+								href: scrapedHref,
+							});
+						}
+					} catch (err) {
+						lastError = err;
+					}
+				}
+
+				const selection = selectBestScrapeCandidate(scrapedCandidates, expectedTitles);
+				const preferredCandidate = selection.accepted.find(
+					(candidate) => normalizePlatformName(candidate.platform) === effectivePlatform
+				) || null;
+				const chosenCandidate = preferredCandidate || selection.best;
+
+				if (!cancelled) {
+					setScrapedTargets(
+						selection.accepted.map((candidate) => ({
+							platform: candidate.platform,
+							appId: candidate.appId,
+							href: candidate.href,
+						}))
+					);
+				}
+
+				if (!cancelled && chosenCandidate) {
+					setPlatformDetails({
+						...chosenCandidate.details,
+						__resolved_platform: chosenCandidate.platform,
+					});
+				} else if (!cancelled && expectedTitles.length > 0 && scrapedCandidates.length > 0 && !selection.hasTitleMatch) {
+					if (!hasDbData) {
+						setErrorMessage('No scraped store result matched the expected game title.');
+					}
+				} else if (!cancelled && !hasDbData && lastError) {
+					setErrorMessage(lastError instanceof Error ? lastError.message : String(lastError));
+				}
+
+				try {
+					const refreshedDbData = await api.getAllDetailsByAppIDAndPlatform(appId, effectivePlatform, countryCode);
+					if (!cancelled && refreshedDbData) setDbDetails(refreshedDbData);
+				} catch {
+					// optional enrichment only
 				}
 			} catch (error) {
 				if (!cancelled) setErrorMessage(error instanceof Error ? error.message : String(error));
@@ -264,7 +750,9 @@ const StoreGamePage = () => {
 	}, [appId, requestedPlatform]);
 
 	const model = useMemo(() => {
-		const parsedPlatform = parsePlatformDetails(requestedPlatform, platformDetails, appId);
+		const routePlatform = normalizePlatformName(requestedPlatform || routeState.platform_name);
+		const scrapedPlatform = normalizePlatformName(platformDetails?.__resolved_platform || routePlatform);
+		const parsedPlatform = parsePlatformDetails(scrapedPlatform, platformDetails, appId);
 		const dbSites = normalizeSiteLinksFromAny(dbDetails?.sites || dbDetails?.links || dbDetails?.store_links || dbDetails?.storeLinks || dbDetails?.urls);
 		const parsedDb = dbDetails
 			? {
@@ -276,34 +764,109 @@ const StoreGamePage = () => {
 				tags: Array.isArray(dbDetails.genre_names) ? dbDetails.genre_names : [],
 				minimumRequirements: dbDetails.minimum_requirements || '',
 				price: typeof dbDetails.cost === 'number' ? dbDetails.cost : routeState.price,
-				platform_name: normalizePlatformName(dbDetails.platform_name || routeState.platform_name),
+				priceLabel:
+					typeof dbDetails.formated_price === 'string' && dbDetails.formated_price.trim()
+						? dbDetails.formated_price.trim()
+						: null,
+				platform_name: normalizePlatformName(dbDetails.platform_name || routePlatform),
 				sites: dbSites,
 			}
 			: null;
 
-		const steam = appId ? steamImages(appId) : null;
-		const merged = {
-			...routeState,
-			...(parsedDb || {}),
-			...(parsedPlatform || {}),
-		};
-		const resolvedPlatform = normalizePlatformName(merged.platform_name || requestedPlatform);
-		const links = Array.isArray(merged.sites) && merged.sites.length
-			? normalizeSiteLinksFromAny(merged.sites)
-			: defaultSiteForPlatform(resolvedPlatform, appId);
+		const resolvedAppId = pickFirstPositiveNumber(
+			parsedPlatform?.appid,
+			parsedPlatform?.id,
+			parsedDb?.appid,
+			parsedDb?.id,
+			routeState?.appid,
+			routeState?.id,
+			appId
+		);
+		const steam = steamImages(resolvedAppId || appId);
+		const description = pickFirstFilledText(
+			parsedPlatform?.description,
+			parsedDb?.description,
+			routeState?.description
+		);
+		const longDescription = pickFirstFilledText(
+			parsedPlatform?.longDescription,
+			parsedDb?.longDescription,
+			routeState?.longDescription,
+			description
+		);
+		const tags = pickFirstNonEmptyArray(
+			parsedPlatform?.tags,
+			parsedDb?.tags,
+			routeState?.tags
+		);
+		const screenshots = pickFirstNonEmptyArray(
+			parsedPlatform?.screenshots,
+			routeState?.screenshots
+		);
+		const siteCandidates = pickFirstNonEmptyArray(
+			parsedPlatform?.sites,
+			parsedDb?.sites,
+			routeState?.sites
+		);
+		const links = siteCandidates.length > 0
+			? normalizeSiteLinksFromAny(siteCandidates)
+			: defaultSiteForPlatform(routePlatform, resolvedAppId || appId);
+		const coverImage = pickFirstFilledText(
+			parsedPlatform?.coverImage,
+			parsedPlatform?.bannerImg,
+			parsedDb?.coverImage,
+			parsedDb?.bannerImg,
+			routeState?.coverImage,
+			routeState?.coverUrl,
+			routeState?.image,
+			steam?.cover,
+			steam?.capsule,
+			fallback.coverImage
+		);
+		const heroImage = pickFirstFilledText(
+			parsedPlatform?.heroImage,
+			parsedPlatform?.bannerImg,
+			parsedDb?.heroImage,
+			parsedDb?.bannerImg,
+			routeState?.heroImage,
+			routeState?.heroUrl,
+			routeState?.image,
+			steam?.hero,
+			steam?.header,
+			coverImage,
+			fallback.heroImage
+		);
+		const price = pickFirstFiniteNumber(
+			parsedPlatform?.price,
+			parsedDb?.price,
+			routeState?.price
+		);
+		const priceLabel = pickFirstFilledText(
+			parsedPlatform?.priceLabel,
+			parsedDb?.priceLabel,
+			routeState?.priceLabel
+		);
+		const minimumRequirements = pickFirstFilledText(
+			parsedPlatform?.minimumRequirements,
+			parsedDb?.minimumRequirements,
+			routeState?.minimumRequirements
+		);
 
 		return {
 			...fallback,
-			...merged,
-			platform_name: resolvedPlatform,
-			id: merged.id ?? appId ?? null,
-			appid: merged.appid ?? appId ?? null,
-			coverImage: merged.coverImage || merged.bannerImg || steam?.cover || steam?.capsule || fallback.coverImage,
-			heroImage: merged.heroImage || merged.bannerImg || steam?.hero || steam?.header || fallback.heroImage,
-			longDescription: merged.longDescription || merged.description || '',
-			tags: Array.isArray(merged.tags) ? merged.tags : [],
-			screenshots: Array.isArray(merged.screenshots) ? merged.screenshots : [],
-			price: typeof merged.price === 'number' ? merged.price : null,
+			id: pickFirstPositiveNumber(parsedDb?.id, routeState?.id, resolvedAppId, appId),
+			appid: resolvedAppId,
+			title: pickFirstFilledText(parsedPlatform?.title, parsedDb?.title, routeState?.title, routeState?.name, fallback.title),
+			description,
+			longDescription,
+			minimumRequirements,
+			platform_name: routePlatform,
+			coverImage,
+			heroImage,
+			tags,
+			screenshots,
+			price,
+			priceLabel: priceLabel || null,
 			sites: links,
 		};
 	}, [appId, dbDetails, platformDetails, requestedPlatform, routeState]);
@@ -332,33 +895,50 @@ const StoreGamePage = () => {
 			);
 		} else if (platform === 'gog' && platformDetails && typeof platformDetails === 'object') {
 			const gog = platformDetails;
+			const gogPrice = [gog.cost, gog.min_price, gog.minPrice, gog.price]
+				.map((value) => Number(value))
+				.find((value) => Number.isFinite(value));
+			const gogGenres = Array.isArray(gog.genreNames)
+				? gog.genreNames
+				: (Array.isArray(gog.genres)
+					? gog.genres.map((entry) => (typeof entry === 'string' ? entry : entry?.name || entry?.genre || entry?.description)).filter(Boolean)
+					: []);
 			rows.push(
-				{ label: 'Product ID', value: gog.productId || '' },
+				{ label: 'Product ID', value: gog.productId || gog.app_id || gog.id || '' },
 				{ label: 'Title', value: gog.title || '' },
-				{ label: 'Price', value: typeof gog.cost === 'number' ? `$${Number(gog.cost).toFixed(2)}` : '' },
-				{ label: 'Genres', value: Array.isArray(gog.genreNames) ? gog.genreNames.join(', ') : '' },
-				{ label: 'Banner Image', value: gog.bannerImg || '' },
+				{ label: 'Price', value: Number.isFinite(gogPrice) ? `$${Number(gogPrice).toFixed(2)}` : '' },
+				{ label: 'Genres', value: gogGenres.join(', ') },
+				{ label: 'Banner Image', value: gog.bannerImg || gog.banner_img || gog.coverUrl || gog.cover_url || '' },
+				{ label: 'Minimum Requirements', value: gog.minimum_requirements || gog.minimumRequirements || '' },
 				{ label: 'Description', value: gog.description || '' },
 			);
 		} else if (platform === 'itchio' && platformDetails && typeof platformDetails === 'object') {
 			const itch = platformDetails;
+			const itchPrice = [itch.minPrice, itch.min_price, itch.cost, itch.price]
+				.map((value) => Number(value))
+				.find((value) => Number.isFinite(value));
 			rows.push(
-				{ label: 'Game ID', value: itch.gameId != null ? String(itch.gameId) : '' },
+				{ label: 'Game ID', value: itch.gameId != null ? String(itch.gameId) : (itch.app_id != null ? String(itch.app_id) : '') },
 				{ label: 'Title', value: itch.title || '' },
-				{ label: 'Minimum Price', value: typeof itch.minPrice === 'number' ? `$${Number(itch.minPrice).toFixed(2)}` : '' },
-				{ label: 'Cover', value: itch.coverUrl || '' },
-				{ label: 'Description', value: itch.shortText || '' },
-				{ label: 'Store URL', value: itch.url || '' },
+				{ label: 'Minimum Price', value: Number.isFinite(itchPrice) ? `$${Number(itchPrice).toFixed(2)}` : '' },
+				{ label: 'Cover', value: itch.coverUrl || itch.cover_url || itch.banner_img || '' },
+				{ label: 'Description', value: itch.shortText || itch.short_text || itch.description || '' },
+				{ label: 'Store URL', value: itch.url || itch.store_url || itch.storeUrl || '' },
 			);
 		}
 
 		if (dbDetails && typeof dbDetails === 'object') {
 			const dbGenres = Array.isArray(dbDetails.genre_names) ? dbDetails.genre_names.filter(Boolean).join(', ') : '';
+			const dbPriceText =
+				typeof dbDetails.formated_price === 'string' && dbDetails.formated_price.trim()
+					? dbDetails.formated_price.trim()
+					: (typeof dbDetails.cost === 'number' ? `$${Number(dbDetails.cost).toFixed(2)}` : '');
 			rows.push(
 				{ label: 'DB App ID', value: dbDetails.app_id != null ? String(dbDetails.app_id) : '' },
 				{ label: 'DB Platform', value: dbDetails.platform_name || '' },
 				{ label: 'DB Name', value: dbDetails.name || '' },
-				{ label: 'DB Price', value: typeof dbDetails.cost === 'number' ? `$${Number(dbDetails.cost).toFixed(2)}` : '' },
+				{ label: 'DB Country', value: dbDetails.country_code || '' },
+				{ label: 'DB Price', value: dbPriceText },
 				{ label: 'DB Banner', value: dbDetails.banner_img || '' },
 				{ label: 'DB Genres', value: dbGenres },
 				{ label: 'DB Minimum Requirements', value: dbDetails.minimum_requirements || '' },
@@ -382,27 +962,89 @@ const StoreGamePage = () => {
 
 	const screenshot = model.screenshots[currentScreenshot] || model.heroImage || model.coverImage;
 	const activePlatform = normalizePlatformName(model.platform_name);
-	const platformButtonLabel = activePlatform === 'gog'
-		? 'Open In GOG'
-		: activePlatform === 'itchio'
-			? 'Open In Itch.io'
-			: 'Open In Steam';
 
-	const handleOpenExternalStore = async () => {
-		if (!appId) return;
+	const platformActionTargets = useMemo(() => {
+		const byPlatform = new Map();
+
+		const addTarget = (platform, href, appIdHint) => {
+			const normalizedPlatform = normalizePlatformName(platform);
+			if (!['steam', 'gog', 'itchio'].includes(normalizedPlatform)) return;
+
+			const appIdFromHref = inferPlatformAppId(normalizedPlatform, href);
+			const numericHint = Number(appIdHint);
+			const resolvedAppId = Number.isFinite(appIdFromHref) && appIdFromHref > 0
+				? appIdFromHref
+				: (Number.isFinite(numericHint) && numericHint > 0 ? numericHint : null);
+
+			const current = byPlatform.get(normalizedPlatform);
+			if (!current) {
+				byPlatform.set(normalizedPlatform, {
+					platform: normalizedPlatform,
+					label: getStorePlatformLabel(normalizedPlatform),
+					href: href || null,
+					appId: resolvedAppId,
+				});
+				return;
+			}
+
+			if (!current.href && href) current.href = href;
+			if ((!current.appId || current.appId <= 0) && resolvedAppId) current.appId = resolvedAppId;
+		};
+
+		for (const target of scrapedTargets || []) {
+			addTarget(target?.platform, target?.href || null, target?.appId);
+		}
+
+		const primaryHref = defaultSiteForPlatform(activePlatform, appId)?.[0]?.href || null;
+		addTarget(activePlatform, primaryHref, appId);
+
+		for (const site of model.sites || []) {
+			const inferredPlatform = inferPlatformFromSite(site) || activePlatform;
+			addTarget(inferredPlatform, site?.href || null, appId);
+		}
+
+		return Array.from(byPlatform.values());
+	}, [activePlatform, appId, model.sites, scrapedTargets]);
+
+	const openExternalUrl = (href) => {
+		if (!href || typeof href !== 'string') return false;
 		try {
-			if (activePlatform === 'gog') {
-				await window.electronAPI.openGogGame(String(appId));
+			window.open(href, '_blank', 'noopener,noreferrer');
+			return true;
+		} catch {
+			return false;
+		}
+	};
+
+	const handleOpenPlatform = async (target) => {
+		if (!target) return;
+		const targetAppId = Number(target.appId ?? appId);
+		try {
+			if (target.platform === 'gog' && Number.isFinite(targetAppId) && targetAppId > 0) {
+				await window.electronAPI.openGogGame(String(targetAppId));
 				return;
 			}
-			if (activePlatform === 'itchio') {
-				await window.electronAPI.openItchGame(Number(appId));
+			if (target.platform === 'itchio' && Number.isFinite(targetAppId) && targetAppId > 0) {
+				await window.electronAPI.openItchGame(Number(targetAppId));
 				return;
 			}
-			await window.electronAPI.storePageSteam(appId);
+			if (target.platform === 'steam' && Number.isFinite(targetAppId) && targetAppId > 0) {
+				await window.electronAPI.storePageSteam(targetAppId);
+				return;
+			}
+
+			if (openExternalUrl(target.href)) return;
+			throw new Error(`No launcher action is available for ${target.label}.`);
 		} catch (error) {
+			if (openExternalUrl(target.href)) return;
 			setErrorMessage(error instanceof Error ? error.message : String(error));
 		}
+	};
+
+	const handlePurchasePlatform = async (target) => {
+		if (!target) return;
+		if (openExternalUrl(target.href)) return;
+		await handleOpenPlatform(target);
 	};
 
 	return (
@@ -436,17 +1078,38 @@ const StoreGamePage = () => {
 									<div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3">
 										<p className="text-xs uppercase tracking-[0.18em] text-emerald-300">Price</p>
 										<p className="mt-2 text-3xl font-semibold text-white">
-											{model.price === 0 ? 'Free' : typeof model.price === 'number' ? `$${model.price.toFixed(2)}` : 'Check Store'}
+											{model.price === 0
+												? 'Free'
+												: (model.priceLabel || (typeof model.price === 'number' ? `$${model.price.toFixed(2)}` : 'Check Store'))}
 										</p>
 									</div>
-									<button
-										type="button"
-										onClick={handleOpenExternalStore}
-										disabled={!appId}
-										className="rounded-xl bg-sky-500 px-4 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-white transition-colors hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
-									>
-										{platformButtonLabel}
-									</button>
+									{platformActionTargets.map((target) => {
+										const openDisabled = !target?.href && !(Number.isFinite(Number(target?.appId)) && Number(target?.appId) > 0);
+										const purchaseDisabled = !target?.href && openDisabled;
+										return (
+											<div key={target.platform} className="rounded-xl border border-slate-700/70 bg-slate-950/40 p-3">
+												<p className="text-[11px] uppercase tracking-[0.18em] text-slate-300">{target.label}</p>
+												<div className="mt-2 grid grid-cols-2 gap-2">
+													<button
+														type="button"
+														onClick={() => handleOpenPlatform(target)}
+														disabled={openDisabled}
+														className="rounded-lg bg-sky-500 px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-white transition-colors hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
+													>
+														Open
+													</button>
+													<button
+														type="button"
+														onClick={() => handlePurchasePlatform(target)}
+														disabled={purchaseDisabled}
+														className="rounded-lg bg-emerald-500 px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-white transition-colors hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+													>
+														Purchase
+													</button>
+												</div>
+											</div>
+										);
+									})}
 								</div>
 							</div>
 

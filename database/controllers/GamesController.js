@@ -26,8 +26,7 @@ class GamesController extends Controller {
      *  "name" = string, 
      *  "banner_img" = string || null, 
      *  "description" = string || null, 
-     *  "minimum_requirements" = string || null, 
-     *  "cost" = float ]
+    *  "minimum_requirements" = string || null ]
      * @returns {Array} - ["message": string, "id": int]
      */
     async create(data) {
@@ -39,7 +38,14 @@ class GamesController extends Controller {
         }
 
         const query = 'INSERT INTO `games` (app_id, platform_id, name, banner_img, description, minimum_requirements) VALUES (?, ?, ?, ?, ?, ?);';
-        const values = [data.app_id, data.platform_id, data.name, data.banner_img ?? "", String(data.description).slice(0, 1000) ?? "", data.minimum_requirements ?? ""];
+        const values = [
+            data.app_id,
+            data.platform_id,
+            data.name,
+            data.banner_img ?? "",
+            String(data.description).slice(0, 1000) ?? "",
+            data.minimum_requirements ?? "",
+        ];
         try {
             const [result] = await this.dbConnection.execute(query, values);
             return { message: `${result.insertId} Element created in table ${this.tableName}`, id: result.insertId };
@@ -51,14 +57,15 @@ class GamesController extends Controller {
 
     /**
      * @param {int} id
-     * @param {Array} data - ["app_id" = int, "platform_id" = platforms.id, "name" = string, "banner_img" = string || null, "description" = string || null, "minimum_requirements" = string || null, "cost" = float]
+    * @param {Array} data - ["app_id" = int, "platform_id" = platforms.id, "name" = string, "banner_img" = string || null, "description" = string || null, "minimum_requirements" = string || null]
      * @returns {Array} - ["message": string]
      */
     async update(id, data) {
         await super.update();
 
-        if ( data.plafrom_id ) {
-            let foreignKeyCheck = await this.#checkForeignKeys(data);
+        const incomingPlatformId = data.platform_id ?? data.plafrom_id ?? null;
+        if (incomingPlatformId != null) {
+            let foreignKeyCheck = await this.#checkForeignKeys({ platform_id: incomingPlatformId });
             if (foreignKeyCheck instanceof Error) {
                 throw foreignKeyCheck;
             }
@@ -66,15 +73,14 @@ class GamesController extends Controller {
 
         let old = await this.show(id);
 
-        const query = 'UPDATE `games` SET app_id = ?, platform_id = ?, name = ?, banner_img = ?, description = ?, minimum_requirements = ?, cost = ? WHERE id = ?;';
+        const query = 'UPDATE `games` SET app_id = ?, platform_id = ?, name = ?, banner_img = ?, description = ?, minimum_requirements = ? WHERE id = ?;';
         const values = [
             data.app_id ?? old.app_id, 
-            data.platform_id ?? old.platform_id, 
+            incomingPlatformId ?? old.platform_id,
             data.name ?? old.name, 
             data.banner_img ?? old.banner_img,
             data.description ?? old.description, 
             data.minimum_requirements ?? old.minimum_requirements, 
-            data.cost ?? old.cost, 
             id ];
         try {
             const [result] = await this.dbConnection.execute(query, values);
@@ -106,7 +112,7 @@ class GamesController extends Controller {
      * @returns {Array} - ["message": string, "id": int]
      */
     async uploadWithAll(data, genre_ids, genre_names, price_data) {
-        let platfromId = data.plafrom_id ?? null;
+        let platfromId = data.platform_id ?? data.plafrom_id ?? null;
         let platformName = data.platform_name ?? null;
         const appId = data.app_id;
 
@@ -123,8 +129,12 @@ class GamesController extends Controller {
             platfromId = platform.id;
         }
 
+        data.platform_id = platfromId;
+        data.plafrom_id = platfromId;
+
         const exists = await this.getGameIdByAppIdAndPlatform(appId, platfromId)
         if ( exists ) {
+            await this.#upsertPricesForGame(exists, price_data);
             // return the existing game row (so callers can access `.id`)
             return await this.show(exists);
         }
@@ -162,30 +172,78 @@ class GamesController extends Controller {
             }
         }
 
-        // --- adding price ---
-        if (price_data != null) {
-            const pricesCtrl = new PricesController();
-            const entries = Array.isArray(price_data) ? price_data : [price_data];
-            for (const entry of entries) {
-                const countyId = entry.countyId ?? entry.county_id ?? entry.country_id ?? entry.countryId ?? null;
-                const priceVal = entry.price ?? entry.cost ?? null;
-                if (countyId == null || priceVal == null) {
-                    continue;
-                }
-                const priceInt = Number(priceVal);
-                if (!Number.isFinite(priceInt)) {
-                    throw new Error(`Invalid price value: ${priceVal}`);
-                }
-
-                const pricePayload = { gameId, countyId, price: priceInt };
-                const createdPrice = await pricesCtrl.create(pricePayload);
-                if (createdPrice instanceof Error) {
-                    throw createdPrice;
-                }
-            }
-        }
+        await this.#upsertPricesForGame(gameId, price_data);
         
         return game;
+    }
+
+    /**
+     * Normalize incoming prices to integer cents.
+     * Accepts either major currency unit numbers (12.34) or already-cents values (1234).
+     * @param {unknown} value
+     * @returns {number|null}
+     */
+    #toPriceCents(value) {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric)) {
+            return null;
+        }
+
+        // If callers already provide integer cents, keep as-is.
+        if (Number.isInteger(numeric) && Math.abs(numeric) >= 1000) {
+            return Math.trunc(numeric);
+        }
+
+        return Math.round(numeric * 100);
+    }
+
+    /**
+     * Upsert one or more country-scoped price rows for a game.
+     * @param {number} gameId
+     * @param {Array|Object|null|undefined} price_data
+     * @returns {Promise<void>}
+     */
+    async #upsertPricesForGame(gameId, price_data) {
+        if (price_data == null) {
+            return;
+        }
+
+        const pricesCtrl = new PricesController();
+        const entries = Array.isArray(price_data) ? price_data : [price_data];
+        for (const entry of entries) {
+            if (!entry || typeof entry !== 'object') {
+                continue;
+            }
+
+            const countyId = entry.countyId ?? entry.county_id ?? entry.country_id ?? entry.countryId ?? null;
+            const priceVal = entry.price ?? entry.cost ?? null;
+            if (countyId == null || priceVal == null) {
+                continue;
+            }
+
+            const priceCents = this.#toPriceCents(priceVal);
+            if (!Number.isFinite(priceCents)) {
+                throw new Error(`Invalid price value: ${priceVal}`);
+            }
+
+            const lookupQuery = 'SELECT id FROM prices WHERE game_id = ? AND county_id = ? LIMIT 1;';
+            const [rows] = await this.dbConnection.execute(lookupQuery, [gameId, countyId]);
+            const existingPriceId = Array.isArray(rows) && rows[0] ? rows[0].id : null;
+
+            if (existingPriceId != null) {
+                await pricesCtrl.update(existingPriceId, {
+                    gameId,
+                    countyId,
+                    price: priceCents,
+                });
+            } else {
+                await pricesCtrl.create({
+                    gameId,
+                    countyId,
+                    price: priceCents,
+                });
+            }
+        }
     }
 
     /**
@@ -251,7 +309,7 @@ class GamesController extends Controller {
         await this.ready;
 
         try {
-            let cc = countryCode == null ? "de" : String(countryCode).toLowerCase();
+            let cc = countryCode == null ? "DE" : String(countryCode).trim().toUpperCase();
             const query =  `SELECT 
                                 g.id,
                                 g.app_id,
@@ -259,24 +317,26 @@ class GamesController extends Controller {
                                 g.banner_img,
                                 g.description,
                                 g.minimum_requirements,
-                                g.cost,
+                                ROUND(pr.price / 100, 2) AS cost,
                                 g.platform_id,
                                 p.platform_name AS platform,
                                 pr.price,
-                                c.currency
+                                c.currency,
+                                c.code AS country_code
                             FROM games AS g
                             JOIN platforms AS p ON g.platform_id = p.id
-                            LEFT JOIN prices AS pr ON pr.game_id = g.id
-                            LEFT JOIN counties AS c ON pr.county_id = c.id AND c.code = "${cc}"
-                            WHERE g.id = ${gameId};`;
+                            LEFT JOIN counties AS c ON UPPER(c.code) = ?
+                            LEFT JOIN prices AS pr ON pr.game_id = g.id AND pr.county_id = c.id
+                            WHERE g.id = ?
+                            LIMIT 1;`;
 
-            const [rows] = await this.dbConnection.execute(query, [gameId]);
+            const [rows] = await this.dbConnection.execute(query, [cc, gameId]);
             let game = rows[0];
             if (!game) {
-                return new Error({ message: "No game in the database with given ID"})
+                return null;
             }
             let formatedPrice = null;
-            if (game.price) { 
+            if (game.price != null) {
                 formatedPrice = `${(game.price / 100).toFixed(2)} ${game.currency ?? ''}` 
             };
             game.formated_price = formatedPrice;
@@ -312,7 +372,7 @@ class GamesController extends Controller {
         let games = [];
         for (const game_id of game_ids) {
             const game = await this.getWithAllForeign(game_id, countyCode);
-            if (game) {
+            if (game && !(game instanceof Error)) {
                 games.push(game);
             } else {
                 console.warn(`Game with id ${game_id} not found in table ${this.tableName}`);
@@ -343,7 +403,7 @@ class GamesController extends Controller {
         let games = [];
         for (const game_id of game_ids) {
             const game = await this.getWithAllForeign(game_id);
-            if (game) {
+            if (game && !(game instanceof Error)) {
                 games.push(game);
             } else {
                 console.warn(`Game with id ${game_id} not found in table ${this.tableName}`);
@@ -372,7 +432,7 @@ class GamesController extends Controller {
         let games = [];
         for (const game_id of game_ids) {
             const game = await this.getWithAllForeign(game_id, countyCode);
-            if (game) {
+            if (game && !(game instanceof Error)) {
                 games.push(game);
             } else {
                 console.warn(`Game with id ${game_id} not found in table ${this.tableName}`);

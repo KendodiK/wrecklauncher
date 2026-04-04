@@ -26,6 +26,50 @@ class GogController extends GamesController {
     timeout: 20_000,
   });
 
+  /**
+   * @param {string} token
+   * @param {any} details
+   * @param {string|number} appIdHint
+   * @returns {Promise<void>}
+   */
+  async #syncGogDetailsToServer(token, details, appIdHint) {
+    const tokenStr = typeof token === 'string' ? token.trim() : '';
+    if (!tokenStr || !details || typeof details !== 'object') return;
+
+    const numericAppId = Number(details.app_id ?? details.id ?? appIdHint);
+    if (!Number.isFinite(numericAppId) || numericAppId <= 0) return;
+
+    const genreNames = Array.isArray(details.genres)
+      ? details.genres
+          .map((entry) => {
+            if (typeof entry === 'string') return entry;
+            if (entry && typeof entry === 'object') return entry.name ?? entry.genre ?? entry.description ?? null;
+            return null;
+          })
+          .filter((value) => typeof value === 'string' && value.trim())
+      : [];
+
+    try {
+      await super.syncScrapedGameWithServer(tokenStr, {
+        app_id: String(numericAppId),
+        platform_name: 'gog',
+        name: details.title ?? `gog:${numericAppId}`,
+        banner_img: details.banner_img ?? details.cover_url ?? '',
+        description: details.description ?? '',
+        minimum_requirements: details.minimum_requirements ?? '',
+        cost: typeof details.min_price === 'number' ? details.min_price : null,
+        genre_names: genreNames,
+        country_code: 'DE',
+      });
+    } catch (err) {
+      if (err && typeof err === 'object' && /** @type {any} */ (err).code === 'WRECK_INVALID_TOKEN') {
+        throw err;
+      }
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`Failed to sync GOG game details for appID ${numericAppId}: ${msg}`);
+    }
+  }
+
 
   /**
    * Run a Windows REG QUERY and return stdout as a string.
@@ -238,13 +282,165 @@ async #fetchGogCoverUrl(appId) {
 }
 
   /**
+   * @param {unknown} value
+   * @returns {string}
+   */
+  #normalizeTitleForCompare(value) {
+    return String(value || '')
+      .toLowerCase()
+      .replace(/[\u00a9\u00ae\u2122]/g, '')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  /**
+   * @param {unknown} query
+   * @param {unknown} candidate
+   * @returns {number}
+   */
+  #titleMatchScore(query, candidate) {
+    const q = this.#normalizeTitleForCompare(query);
+    const c = this.#normalizeTitleForCompare(candidate);
+    if (!q || !c) return 0;
+    if (q === c) return 1;
+    if (q.includes(c) || c.includes(q)) return 0.9;
+
+    const qTokens = new Set(q.split(' ').filter((t) => t.length > 1));
+    const cTokens = new Set(c.split(' ').filter((t) => t.length > 1));
+    if (qTokens.size < 1 || cTokens.size < 1) return 0;
+
+    let overlap = 0;
+    for (const token of qTokens) {
+      if (cTokens.has(token)) overlap += 1;
+    }
+    if (overlap < 1) return 0;
+
+    const union = qTokens.size + cTokens.size - overlap;
+    const jaccard = union > 0 ? overlap / union : 0;
+    const coverage = overlap / Math.min(qTokens.size, cTokens.size);
+    return Math.max(jaccard, coverage * 0.9);
+  }
+
+  /**
+   * @param {string} title
+   * @returns {string[]}
+   */
+  #buildSlugCandidatesFromTitle(title) {
+    const normalized = this.#normalizeTitleForCompare(title);
+    if (!normalized) return [];
+
+    const words = normalized.split(' ').filter(Boolean);
+    if (words.length < 1) return [];
+
+    const dropTail = new Set(['edition', 'ultimate', 'complete', 'game', 'year', 'deluxe']);
+    const trimmedWords = [...words];
+    while (trimmedWords.length > 2 && dropTail.has(trimmedWords[trimmedWords.length - 1])) {
+      trimmedWords.pop();
+    }
+
+    const noLeadingThe = words[0] === 'the' && words.length > 1 ? words.slice(1) : words;
+
+    const variants = new Set([
+      words.join('_'),
+      words.join('-'),
+      trimmedWords.join('_'),
+      trimmedWords.join('-'),
+      noLeadingThe.join('_'),
+      noLeadingThe.join('-'),
+    ]);
+
+    return Array.from(variants).filter((slug) => typeof slug === 'string' && slug.trim()).slice(0, 8);
+  }
+
+  /**
+   * Search GOG game candidates by title (slug probing).
+   *
+   * @param {string} title
+   * @returns {Promise<Array<{ slug: string, appId: string|number|null, title: string, score: number, url: string|null }>>}
+   */
+  async searchGameByTitle(title) {
+    const needle = String(title || '').trim();
+    if (!needle) return [];
+
+    const slugs = this.#buildSlugCandidatesFromTitle(needle);
+    const matches = [];
+    const seen = new Set();
+
+    for (const slug of slugs) {
+      if (!slug || seen.has(slug)) continue;
+      seen.add(slug);
+
+      const details = await this.getGameDetails(slug, { includeRaw: false });
+      if (!details || typeof details !== 'object') continue;
+
+      const matchedTitle = String(details.title || '').trim();
+      const score = this.#titleMatchScore(needle, matchedTitle);
+
+      matches.push({
+        slug,
+        appId: details.app_id ?? details.id ?? null,
+        title: matchedTitle || slug,
+        score,
+        url: typeof details.url === 'string' ? details.url : null,
+      });
+    }
+
+    matches.sort((a, b) => b.score - a.score);
+    return matches;
+  }
+
+  /**
+   * Resolve GOG details by game title instead of cross-platform appid.
+   *
+   * @param {string} title
+   * @param {string} [token]
+   * @returns {Promise<import('../models').GogGameDetails|null>}
+   */
+  async getGameDetailsByTitle(title, token = '') {
+    const matches = await this.searchGameByTitle(title);
+    if (matches.length < 1) return null;
+
+    for (const match of matches.slice(0, 4)) {
+      const details = token
+        ? await this.getGameDetails(match.slug, token, { includeRaw: true })
+        : await this.getGameDetails(match.slug, { includeRaw: true });
+      if (!details || typeof details !== 'object') continue;
+
+      return {
+        ...details,
+        raw: {
+          ...(details.raw || {}),
+          search_match: match,
+        },
+      };
+    }
+
+    return null;
+  }
+
+  /**
    * Fetch game details from the GOG public API (no auth required).
    * Endpoint: https://api.gog.com/products/{productId}?expand=description,screenshots,videos,related_products,changelog
    *
    * @param {string|number} appId  GOG product ID.
+   * @param {string|{includeRaw?: boolean}} [tokenOrOptions]
+   * @param {{includeRaw?: boolean}} [maybeOptions]
    * @returns {Promise<import('../models').GogGameDetails|null>}
    */
-  async getGameDetails(appId, { includeRaw = true } = {}) {
+  async getGameDetails(appId, tokenOrOptions = '', maybeOptions = {}) {
+    let token = '';
+    /** @type {{ includeRaw?: boolean }} */
+    let options = {};
+
+    if (tokenOrOptions && typeof tokenOrOptions === 'object' && !Array.isArray(tokenOrOptions)) {
+      options = tokenOrOptions;
+    } else {
+      token = typeof tokenOrOptions === 'string' ? tokenOrOptions.trim() : '';
+      options = maybeOptions && typeof maybeOptions === 'object' ? maybeOptions : {};
+    }
+
+    const includeRaw = options.includeRaw !== false;
     const numericAppId = Number(appId);
     // If caller passed a numeric GOG product id, prefer the products endpoint which
     // returns richer data for numeric ids. Otherwise fall back to slug-based v2/games.
@@ -427,6 +623,7 @@ async #fetchGogCoverUrl(appId) {
         };
         //@ts-ignore
         if (includeRaw) details.raw = payload;
+        await this.#syncGogDetailsToServer(token, details, numericAppId);
         //@ts-ignore
         return details;
       } catch (err) {
@@ -600,6 +797,7 @@ async #fetchGogCoverUrl(appId) {
       };
       //@ts-ignore
       if (includeRaw) details.raw = payload;
+      await this.#syncGogDetailsToServer(token, details, appId);
       //@ts-ignore
       return details;
     } catch (err) {

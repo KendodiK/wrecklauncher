@@ -57,7 +57,7 @@ Integrate the library2.0 advanced library UI into frontendv3 while preserving fr
    - Progress bar: emerald-400 fill with shine animation
 
 9. **Wire up game data and state management** (*depends on 2, 3, 6, 8*)
-   - Create mock data similar to library2.0's mockLibraryData but adapted for frontendv3 sources (Steam, Epic, FitGirl, PcGamesTorrent, etc.)
+   - Create mock data similar to library2.0's mockLibraryData but adapted for frontendv3 sources (Steam, GOG, Itch, FitGirl, PcGamesTorrent, etc.)
    - Connect to existing backend controllers (GamesController, PlatformsController, UserController)
    - State: activeLauncherId, activeGameId, searchScope, searchQuery, showAllGames
    - Game selection flows through LibraryGameStrip → updates activeGameId → updates status bar display
@@ -106,7 +106,7 @@ Integrate the library2.0 advanced library UI into frontendv3 while preserving fr
 ## Further Considerations
 
 ### 1. Mock Data vs Real Backend Integration
-Start with mock data structure matching LibraryGame interface for initial implementation, then connect to existing backend (GamesController, SteamGamesController, EpicGamesController, etc.). Need to map backend game schema to LibraryGame schema.
+Start with mock data structure matching LibraryGame interface for initial implementation, then connect to existing backend (GamesController, SteamGamesController, GogController, ItchioController, etc.). Need to map backend game schema to LibraryGame schema.
 
 **Recommended**: Create data adapter/mapper function.
 
@@ -129,7 +129,7 @@ Innovative features to enhance the library experience beyond the base integratio
 ### High Priority (Leverage Existing Architecture)
 
 #### 1. Multi-Platform Game Comparison
-- Show same game across different launchers (Steam version vs Epic vs Cracked)
+- Show same game across different launchers (Steam version vs GOG/Itch vs Cracked)
 - Compare install sizes, prices, DLC availability
 - Quick-switch between versions with visual indicator
 - *Uses*: existing PlatformsController, GamesController

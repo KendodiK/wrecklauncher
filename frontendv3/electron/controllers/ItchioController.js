@@ -181,18 +181,178 @@ class ItchioController extends GamesController {
   }
 
   /**
+   * @param {string} text
+   * @returns {string}
+   */
+  #decodeHtmlEntities(text) {
+    return String(text || '')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;|&apos;/gi, "'")
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>');
+  }
+
+  /**
+   * @param {unknown} value
+   * @returns {string}
+   */
+  #normalizeTitleForCompare(value) {
+    return String(value || '')
+      .toLowerCase()
+      .replace(/[\u00a9\u00ae\u2122]/g, '')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  /**
+   * @param {unknown} query
+   * @param {unknown} candidate
+   * @returns {number}
+   */
+  #titleMatchScore(query, candidate) {
+    const q = this.#normalizeTitleForCompare(query);
+    const c = this.#normalizeTitleForCompare(candidate);
+    if (!q || !c) return 0;
+    if (q === c) return 1;
+    if (q.includes(c) || c.includes(q)) return 0.9;
+
+    const qTokens = new Set(q.split(' ').filter((t) => t.length > 1));
+    const cTokens = new Set(c.split(' ').filter((t) => t.length > 1));
+    if (qTokens.size < 1 || cTokens.size < 1) return 0;
+
+    let overlap = 0;
+    for (const token of qTokens) {
+      if (cTokens.has(token)) overlap += 1;
+    }
+    if (overlap < 1) return 0;
+
+    const union = qTokens.size + cTokens.size - overlap;
+    const jaccard = union > 0 ? overlap / union : 0;
+    const coverage = overlap / Math.min(qTokens.size, cTokens.size);
+    return Math.max(jaccard, coverage * 0.9);
+  }
+
+  /**
+   * Search itch.io games by title and return ranked candidates.
+   *
+   * @param {string} title
+   * @param {number} [limit]
+   * @returns {Promise<Array<{ gameId: number, title: string, url: string, score: number }>>}
+   */
+  async searchGameByTitle(title, limit = 12) {
+    const needle = String(title || '').trim();
+    if (!needle) return [];
+
+    const searchUrl = `https://itch.io/search?q=${encodeURIComponent(needle)}&classification=game`;
+    const response = await fetch(searchUrl, {
+      method: 'GET',
+      headers: {
+        'Accept': 'text/html,application/xhtml+xml',
+        'User-Agent': 'WreckLauncher/1.0 (+itch title lookup)',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`itch.io title search failed (HTTP ${response.status})`);
+    }
+
+    const html = await response.text();
+    /** @type {Array<{ gameId: number, title: string, url: string, score: number }>} */
+    const candidates = [];
+    const seen = new Set();
+
+    const cardPattern = /<div[^>]*data-game_id="(?<id>\d+)"[\s\S]{0,2400}?<a[^>]*class="[^"]*title\s+game_link[^"]*"[^>]*href="(?<href>[^"]+)"[^>]*>(?<title>[^<]+)<\/a>/gi;
+    let match;
+    while ((match = cardPattern.exec(html)) !== null) {
+      const gameId = Number(match.groups?.id);
+      const href = String(match.groups?.href || '').trim();
+      const resultTitle = this.#decodeHtmlEntities(String(match.groups?.title || '').trim());
+
+      if (!Number.isFinite(gameId) || gameId <= 0) continue;
+      if (!href) continue;
+      if (!resultTitle) continue;
+      if (seen.has(gameId)) continue;
+      seen.add(gameId);
+
+      candidates.push({
+        gameId,
+        title: resultTitle,
+        url: href,
+        score: this.#titleMatchScore(needle, resultTitle),
+      });
+    }
+
+    candidates.sort((a, b) => b.score - a.score);
+    return candidates.slice(0, Math.max(1, Number(limit) || 12));
+  }
+
+  /**
+   * Resolve itch details by title by searching first, then scraping details from best candidate ids.
+   * Supports both signatures:
+   * 1) getGameDetailsByTitle(token, title)
+   * 2) getGameDetailsByTitle(title)
+   *
+   * @param {string} tokenOrTitle
+   * @param {string} [maybeTitle]
+   * @returns {Promise<import('../models').ItchGameDetails|null>}
+   */
+  async getGameDetailsByTitle(tokenOrTitle, maybeTitle) {
+    const hasExplicitToken = maybeTitle !== undefined;
+    const token = hasExplicitToken ? String(tokenOrTitle || '').trim() : '';
+    const title = hasExplicitToken ? String(maybeTitle || '').trim() : String(tokenOrTitle || '').trim();
+    if (!title) return null;
+
+    const matches = await this.searchGameByTitle(title, 12);
+    if (matches.length < 1) return null;
+
+    for (const match of matches.slice(0, 5)) {
+      try {
+        const details = hasExplicitToken
+          ? await this.getGameDetails(token, match.gameId)
+          : await this.getGameDetails(match.gameId);
+
+        if (!details || typeof details !== 'object') continue;
+
+        return {
+          ...details,
+          url: details.url || match.url,
+          raw: {
+            ...(details.raw || {}),
+            search_match: match,
+          },
+        };
+      } catch (err) {
+        if (err && typeof err === 'object' && /** @type {any} */ (err).code === 'WRECK_INVALID_TOKEN') {
+          throw err;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * Fetch itch.io game details via the wreck backend.
    * The backend proxies the request to itch.io using its ITCH_API_KEY env var
    * and also saves the game to the local DB — the API key never reaches this process.
    *
-   * @param {string} token  Wreck auth token.
-   * @param {number|string} appId  itch.io numeric game ID.
+   * Supports both signatures:
+   * 1) getGameDetails(token, appId)
+   * 2) getGameDetails(appId)
+   *
+   * @param {string|number} tokenOrAppId  Wreck auth token or itch.io app id.
+   * @param {number|string} [maybeAppId]  itch.io numeric game ID when token is provided.
    * @returns {Promise<import('../models').ItchGameDetails|null>}
    */
-  async getGameDetails(token, appId) {
-    if (!token || !String(token).trim()) throw new Error('Auth token is required');
-    const id = Number(appId);
-    if (!Number.isFinite(id) || id <= 0) throw new Error(`Invalid itch.io game ID: ${String(appId)}`);
+  async getGameDetails(tokenOrAppId, maybeAppId) {
+    const hasExplicitToken = maybeAppId !== undefined;
+    const token = hasExplicitToken && typeof tokenOrAppId === 'string' ? tokenOrAppId.trim() : '';
+    const rawAppId = hasExplicitToken ? maybeAppId : tokenOrAppId;
+    const id = Number(rawAppId);
+    if (!Number.isFinite(id) || id <= 0) throw new Error(`Invalid itch.io game ID: ${String(rawAppId)}`);
 
     // // 1) Prefer DB data first.
     // const dbUrl = joinUrl(this.#serverUrl, 'api', 'games', String(id), 'details');
@@ -249,7 +409,7 @@ class ItchioController extends GamesController {
 
     if (!json || typeof json !== 'object') return null;
 
-    return {
+    const normalizedDetails = {
       gameId: typeof json.gameId === 'number' ? json.gameId : (typeof json.app_id === 'number' ? json.app_id : id),
       title: typeof json.title === 'string' ? json.title : `itch:${id}`,
       coverUrl: json.coverUrl ?? json.cover_url ?? json.banner_img ?? null,
@@ -261,6 +421,40 @@ class ItchioController extends GamesController {
         source: 'scrape-endpoint',
       },
     };
+
+    const scrapedGenres = Array.isArray(json.genres)
+      ? json.genres
+          .map((entry) => {
+            if (typeof entry === 'string') return entry;
+            if (entry && typeof entry === 'object') return entry.name ?? entry.genre ?? entry.description ?? null;
+            return null;
+          })
+          .filter((value) => typeof value === 'string' && value.trim())
+      : [];
+
+    if (token) {
+      try {
+        await super.syncScrapedGameWithServer(token, {
+          app_id: String(normalizedDetails.gameId ?? id),
+          platform_name: 'itch',
+          name: normalizedDetails.title,
+          banner_img: normalizedDetails.coverUrl,
+          description: normalizedDetails.shortText,
+          minimum_requirements: '',
+          cost: normalizedDetails.minPrice,
+          genre_names: scrapedGenres,
+          country_code: 'DE',
+        });
+      } catch (err) {
+        if (err && typeof err === 'object' && /** @type {any} */ (err).code === 'WRECK_INVALID_TOKEN') {
+          throw err;
+        }
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`Failed to sync itch game details for appID ${id}: ${msg}`);
+      }
+    }
+
+    return normalizedDetails;
   }
 
   /**

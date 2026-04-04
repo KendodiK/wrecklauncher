@@ -9,6 +9,7 @@ const steamApiKey = process.env.STEAM_API_KEY;
 //#region RequireControllers
 const GamesController = require('../database/controllers/GamesController.js');
 const GamesGenresConnnectionController = require('../database/controllers/GamesGenresConnectionController.js');
+const GenresController = require('../database/controllers/GenresController.js');
 const GamesPirateSitesConnectionController = require('../database/controllers/GamesPirateSitesConnectionController.js');
 const FriendsController = require('../database/controllers/FriendsController.js');
 const NativeUsersController = require('../database/controllers/NativeUsersController.js');
@@ -21,6 +22,78 @@ const ShopSpecialsMaker = require('../database/makers/ShopSpecialsTableMaker.js'
 const { error } = require('console');
 const shopSpecials = require('./fetchShopSpecials.js');
 //#endregion
+
+function normalizeCountryCodeInput(value, fallback = 'DE') {
+    const normalized = String(value || fallback).trim().toUpperCase();
+    return /^[A-Z]{2}$/.test(normalized) ? normalized : fallback;
+}
+
+function normalizeOffsetParam(fromRaw) {
+    const offset = Number(fromRaw);
+    if (!Number.isFinite(offset) || offset < 0 || !Number.isInteger(offset)) {
+        return null;
+    }
+    return offset;
+}
+
+async function resolvePlatformIdFromParam(platformRef) {
+    const raw = String(platformRef ?? '').trim();
+    if (!raw) return null;
+
+    if (/^\d+$/.test(raw)) {
+        const numericId = Number(raw);
+        if (!Number.isFinite(numericId) || numericId <= 0) return null;
+        return numericId;
+    }
+
+    const normalized = apiHelpers.normalizePlatformName(raw);
+    const candidates = new Set([
+        raw.toLowerCase(),
+        normalized,
+    ]);
+
+    if (normalized === 'itch') candidates.add('itchio');
+    if (normalized === 'itchio') candidates.add('itch');
+    if (normalized === 'gogcom') candidates.add('gog');
+
+    const platformsCtrl = new PlatformsController();
+    for (const candidate of candidates) {
+        if (!candidate) continue;
+        const row = await platformsCtrl.getByPlatformName(candidate).catch(() => null);
+        const id = Number(row?.id);
+        if (Number.isFinite(id) && id > 0) {
+            return id;
+        }
+    }
+
+    return null;
+}
+
+function parseIncomingCost(body) {
+    if (!body || typeof body !== 'object') return null;
+
+    const hasCost = body.cost !== undefined && body.cost !== null && String(body.cost).trim() !== '';
+    if (hasCost) return body.cost;
+
+    const hasPrice = body.price !== undefined && body.price !== null && String(body.price).trim() !== '';
+    if (hasPrice) return body.price;
+
+    return null;
+}
+
+function normalizeCostToCents(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+        return null;
+    }
+
+    // Preserve already-cents integers, otherwise convert major units to cents.
+    if (Number.isInteger(numeric) && Math.abs(numeric) >= 1000) {
+        return Math.trunc(numeric);
+    }
+
+    return Math.round(numeric * 100);
+}
 
 module.exports.fetchInitialShopSpecialsData = async function() {
   try {    
@@ -216,14 +289,16 @@ module.exports.GETOwnedGamesSteam = async function (req, res) {
         let ownedGames = [];
         for (const platformUser of platformUsers) {
           if (Number(platformUser.platform_id) === Number(steamPlatform.id)) {
-            const steamApiUrl = `https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key=${steamApiKey}&steamid=${platformUser.platform_profile_id}&format=json`;
+                        // include_appinfo=true is required so each owned game contains a human-readable name.
+                        const steamApiUrl = `https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key=${steamApiKey}&steamid=${platformUser.platform_profile_id}&include_appinfo=true&format=json`;
             const response = await fetch(steamApiUrl);
             if (!response.ok) {
               console.error('Error fetching Steam API:', response.statusText);
               return res.status(500).json({ error: 'Failed to fetch data from Steam API' });
             }
             const data = await response.json();
-            ownedGames.push(...data.response.games);
+                        const games = Array.isArray(data?.response?.games) ? data.response.games : [];
+                        ownedGames.push(...games);
           }
         }
         if (ownedGames.length === 0) {
@@ -268,14 +343,19 @@ module.exports.GETGameById = async function (req, res) {
 module.exports.GETGamesByPlatformIdWithAllData = async function (req, res) {
     try {
         const { platformId, appId } = req.params;
-        const { country_code: countryCode } = req.body;
+        const countryCode = normalizeCountryCodeInput(req.query?.country_code ?? req.body?.country_code, 'DE');
         const appIdNum = Number(appId);
         if (!Number.isFinite(appIdNum) || appIdNum <= 0) {
             return res.status(400).json({ error: `Invalid appId: ${String(appId)}` });
         }
 
+        const resolvedPlatformId = await resolvePlatformIdFromParam(platformId);
+        if (!resolvedPlatformId) {
+            return res.status(400).json({ error: `Invalid platformId: ${String(platformId)}` });
+        }
+
         const gameCtrl = new GamesController();
-        const gameId = await gameCtrl.getGameIdByAppId(appIdNum, platformId);
+        const gameId = await gameCtrl.getGameIdByAppId(appIdNum, resolvedPlatformId);
         if (!gameId) {
             return res.status(404).json({ error: `Game not found by appId: ${appIdNum}` });
         }
@@ -304,7 +384,7 @@ module.exports.GETGamesByPlatformIdWithAllData = async function (req, res) {
 module.exports.GETGameByIdWithAllData = async function (req, res) {
     try {
     const {id: gameId } = req.params;
-    const { country_code: countryCode } = req.body;
+    const countryCode = req.query?.country_code ?? req.body?.country_code;
     const gameCtrl = new GamesController();
     const game = await gameCtrl.getWithAllForeign(gameId, countryCode);
 
@@ -325,13 +405,23 @@ module.exports.GETGameByIdWithAllData = async function (req, res) {
 module.exports.GETGamesInListByPlatformId = async function (req, res) {
     try {
         const { platformId, from } = req.params;
-        const { country_code: countryCode } = req.body;
+        const normalizedFrom = normalizeOffsetParam(from);
+        if (normalizedFrom == null) {
+            return res.status(400).json({ error: `Invalid from offset: ${String(from)}` });
+        }
+
+        const resolvedPlatformId = await resolvePlatformIdFromParam(platformId);
+        if (!resolvedPlatformId) {
+            return res.status(400).json({ error: `Invalid platformId: ${String(platformId)}` });
+        }
+
+        const countryCode = normalizeCountryCodeInput(req.query?.country_code ?? req.body?.country_code, 'DE');
 
         const gameCtrl = new GamesController();
-        const games = await gameCtrl.getAllGamesByPlatformFrom(countryCode, platformId, from);
+        const games = await gameCtrl.getAllGamesByPlatformFrom(countryCode, resolvedPlatformId, normalizedFrom);
 
         if (games instanceof Error) {
-            res.status(404).json({ error: games.message });
+            return res.status(404).json({ error: games.message });
         }
         return res.json(games);
     } catch (err) {
@@ -342,7 +432,7 @@ module.exports.GETGamesInListByPlatformId = async function (req, res) {
 module.exports.GETGamesInList = async function (req, res) {
     try {
         const { from } = req.params;
-        const { country_code: countryCode } = req.body;
+        const countryCode = req.query?.country_code ?? req.body?.country_code;
 
         const gamesCtrl = new GamesController();
         const games = await gamesCtrl.getAllGamesFrom(countryCode, from);
@@ -530,20 +620,28 @@ module.exports.POSTNewGame = async function (req, res) {
             description,
             banner_img: bannerImg,
             minimum_requirements: minRequirements,
-            platform_name: platformName,
+            platform_name: platformNameRaw,
             platform_id: platformId,
-            country_code: countryCode,
-            cost: price,
-            genre_names: genreNames
+            country_code: countryCodeRaw,
+            genre_names: incomingGenreNames,
         } = req.body;
+
+        const inputPrice = parseIncomingCost(req.body);
+        const countryCode = normalizeCountryCodeInput(countryCodeRaw, 'DE');
+        let genreNames = Array.isArray(incomingGenreNames) ? incomingGenreNames : [];
+
         let missing = [];
         if(appId == null) {missing.push("app_id")}
         if(name == null) {missing.push("name")}
-        if(price == null) {missing.push("price")}
-        if(countryCode == null) {missing.push("country_code")}
+        if(inputPrice == null) {missing.push("price")}
         if (missing.length) {
             return res.status(400).json({ message: 'Missing required fields', missing });
         }
+
+        let platformName = apiHelpers.normalizePlatformName(platformNameRaw);
+        if (platformName === 'itch') platformName = 'itchio';
+        if (platformName === 'gogcom') platformName = 'gog';
+
         // Resolve platform name: prefer provided platform_name, otherwise try to look up by platform_id
         let resolvedPlatformName = platformName ?? null;
         if (!resolvedPlatformName && platformId != null) {
@@ -583,13 +681,14 @@ module.exports.POSTNewGame = async function (req, res) {
         };
 
 
-        if ((!Array.isArray(genreNames) || genreNames.length === 0) && String(resolvedPlatformName ?? '').trim().toLowerCase() === 'itch') {
+        const normalizedPlatform = apiHelpers.normalizePlatformName(resolvedPlatformName);
+        if ((!Array.isArray(genreNames) || genreNames.length === 0) && (normalizedPlatform === 'itch' || normalizedPlatform === 'itchio')) {
             const itchDetails = await apiHelpers.fetchItchGameDetails(req.body.app_id, { includePageDetails: true });
             genreNames = apiHelpers.normalizeGenreNames(itchDetails?.genres ?? []);
         }
         const countyId = await apiHelpers.getCountryIdByCode(countryCode);
         
-        const uploadedGame = await gamesCtrl.uploadWithAll(gameData, null, genreNames, {"price": price, "country_id": countyId});
+        const uploadedGame = await gamesCtrl.uploadWithAll(gameData, null, genreNames, {"price": inputPrice, "country_id": countyId});
         return res.status(201).json({ message: 'Game uploaded successfully', gameId: uploadedGame.id });
     } catch (err) {
         console.error('Error in /api/games/upload endpoint:', err);
@@ -811,15 +910,47 @@ module.exports.PUTNativeUserProfileInfo = async function (req, res) {
 module.exports.PUTNativeUserLogin = async function (req, res) {
     try {
         const nativeUserCtrl = new NativeUsersController();
-        const { userId } = req.auth;
-        const data = {
-            "token": "new",
+        let userId = null;
+
+        // Flow 1: Bearer token is provided -> rotate token for that authenticated user.
+        const authHeader = req.headers?.authorization;
+        if (typeof authHeader === 'string' && authHeader.toLowerCase().startsWith('bearer ')) {
+            const token = authHeader.slice('bearer '.length).trim();
+            const parts = token.split('.');
+            if (parts.length !== 2 || !parts[0] || !parts[1]) {
+                return res.status(401).json({ error: 'Invalid token format' });
+            }
+
+            const [candidateUserId, candidateToken] = parts;
+            const candidateUser = await nativeUserCtrl.show(candidateUserId);
+            if (!candidateUser || candidateUser.token !== candidateToken) {
+                return res.status(401).json({ error: 'Invalid token' });
+            }
+            userId = candidateUserId;
         }
-        const updatedUser = await nativeUserCtrl.update(userId, data);
-        if (updatedUser instanceof Error) {
-            return res.status(400).json({ error: updatedUser.message });
+
+        // Flow 2: No bearer token -> authenticate with username/password in request body.
+        if (!userId) {
+            const username = String(req.body?.username ?? '').trim();
+            const password = String(req.body?.password ?? '').trim();
+            if (!username || !password) {
+                return res.status(400).json({ message: 'Missing required fields', missing: ['username', 'password'] });
+            }
+
+            const user = await nativeUserCtrl.getUserByNameAndPassword(username, password);
+            if (!user || !user.id) {
+                return res.status(401).json({ error: 'Invalid username or password' });
+            }
+            userId = user.id;
         }
-        return res.json(updatedUser);
+
+        await nativeUserCtrl.update(userId, { token: 'new' });
+        const updatedUser = await nativeUserCtrl.show(userId);
+        if (!updatedUser || !updatedUser.token) {
+            return res.status(500).json({ error: 'Failed to generate token' });
+        }
+
+        return res.json(`${userId}.${updatedUser.token}`);
     } catch (err) {
         console.error('Error in /api/nativeUser/:id endpoint:', err);
         return res.status(500).json({ error: err.message });
@@ -829,15 +960,37 @@ module.exports.PUTNativeUserLogin = async function (req, res) {
 module.exports.PUTGames = async function (req, res) {
     try {
         const gamesCtrl = new GamesController();
+        const pricesCtrl = new PricesController();
+        const gamesGenresCtrl = new GamesGenresConnnectionController();
+        const genresCtrl = new GenresController();
         const { gameId } = req.params;
+        const numericGameId = Number(gameId);
+        if (!Number.isFinite(numericGameId) || numericGameId <= 0) {
+            return res.status(400).json({ error: 'Invalid gameId' });
+        }
+
         const {
             app_id: appId,
             platform_id: platformId,
             name,
             banner_img: bannerImg,
             description,
-            minimum_requirements: minimumRequirements
+            minimum_requirements: minimumRequirements,
+            genre_names: genreNames,
+            country_code: countryCodeRaw,
         } = req.body;
+
+        const incomingCost = parseIncomingCost(req.body);
+        const normalizedCountryCode = normalizeCountryCodeInput(countryCodeRaw, 'DE');
+        const hasGameFieldUpdate = [
+            appId,
+            platformId,
+            name,
+            bannerImg,
+            description,
+            minimumRequirements,
+        ].some((value) => value !== undefined);
+
         const gameData = {
             "app_id": appId,
             "platform_id": platformId,
@@ -847,10 +1000,77 @@ module.exports.PUTGames = async function (req, res) {
             "minimum_requirements": minimumRequirements,
         }
 
-        const updatedGame = gamesCtrl.update(gameId, gameData);
-        if (updatedGame instanceof Error) {
-            return res.status(400).json({ message: updatedGame.message });
+        let updatedGame = null;
+        if (hasGameFieldUpdate) {
+            updatedGame = await gamesCtrl.update(numericGameId, gameData);
+            if (updatedGame instanceof Error) {
+                return res.status(400).json({ message: updatedGame.message });
+            }
+        } else {
+            const existing = await gamesCtrl.show(numericGameId);
+            if (!existing) {
+                return res.status(404).json({ error: `Game not found: ${numericGameId}` });
+            }
         }
+
+        if (incomingCost != null) {
+            const priceInCents = normalizeCostToCents(incomingCost);
+            if (!Number.isFinite(priceInCents)) {
+                return res.status(400).json({ error: 'Invalid cost/price value' });
+            }
+
+            const countyId = await apiHelpers.getCountryIdByCode(normalizedCountryCode);
+            const existingPrices = await pricesCtrl.getByGameId(numericGameId);
+            const existingPriceForCountry = Array.isArray(existingPrices)
+                ? existingPrices.find((priceRow) =>
+                    String(priceRow?.county_code || '').trim().toLowerCase() === normalizedCountryCode.toLowerCase()
+                )
+                : null;
+
+            if (existingPriceForCountry && existingPriceForCountry.id != null) {
+                const existingPriceCents = Number(existingPriceForCountry.price);
+                if (!Number.isFinite(existingPriceCents) || existingPriceCents !== priceInCents) {
+                    await pricesCtrl.update(existingPriceForCountry.id, {
+                        gameId: numericGameId,
+                        countyId,
+                        price: priceInCents,
+                    });
+                }
+            } else {
+                await pricesCtrl.create({
+                    gameId: numericGameId,
+                    countyId,
+                    price: priceInCents,
+                });
+            }
+        }
+
+        if (Array.isArray(genreNames) && genreNames.length > 0) {
+            const normalizedGenreNames = apiHelpers.normalizeGenreNames(genreNames);
+            const existingGenreRows = await gamesGenresCtrl.getByGameId(numericGameId);
+            const existingGenres = new Set(
+                (Array.isArray(existingGenreRows) ? existingGenreRows : [])
+                    .map((row) => String(row?.genre || '').trim().toLowerCase())
+                    .filter(Boolean)
+            );
+
+            for (const genreName of normalizedGenreNames) {
+                const key = String(genreName || '').trim().toLowerCase();
+                if (!key || existingGenres.has(key)) continue;
+
+                const genreRow = await genresCtrl.create({ genre: genreName });
+                const genreId = Number(genreRow?.id);
+                if (!Number.isFinite(genreId) || genreId <= 0) continue;
+
+                await gamesGenresCtrl.create({ game_id: numericGameId, genre_id: genreId });
+                existingGenres.add(key);
+            }
+        }
+
+        if (!updatedGame) {
+            updatedGame = await gamesCtrl.show(numericGameId);
+        }
+
         return res.json(updatedGame);
     } catch (err) {
         console.error('Error in /api/games/:id endpoint:', err);

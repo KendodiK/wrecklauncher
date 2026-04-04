@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { buildStoreGameRoute } from '../../utils/storeRouting.js';
 
 /**
  * Steam-style game list with preview panel
@@ -12,20 +13,10 @@ const GameListWithPreview = ({ games = [], title = "Top Sellers" }) => {
 
 	const displayGame = hoveredGame || selectedGame;
 
-	const normalizePlatform = (value) => {
-		const normalized = String(value || '').trim().toLowerCase();
-		if (!normalized) return 'steam';
-		if (normalized === 'itch' || normalized === 'itch.io' || normalized === 'itchio') return 'itchio';
-		if (normalized === 'epic games' || normalized === 'epic_games') return 'steam';
-		return normalized;
-	};
-
 	const handleGameClick = (game) => {
-		if (game.appid || game.app_id || game.id) {
-			const gameId = game.appid || game.app_id || game.id;
-			const platform = normalizePlatform(game.platform_name || game.platform);
-			navigate(`/store/game/${encodeURIComponent(platform)}/${encodeURIComponent(gameId)}`, { state: { game } });
-		}
+		const target = buildStoreGameRoute(game, 'steam');
+		if (!target) return;
+		navigate(target, { state: { game } });
 	};
 
 	return (

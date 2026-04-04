@@ -79,6 +79,8 @@ class PlatformsController {
           body: JSON.stringify({
             platform_user_name: platformUsername,
             platform_id: platformId,
+            // Support both backend field variants: legacy `platform_prof_id` and corrected `platform_profile_id`.
+            platform_prof_id: platformProfileId,
             platform_profile_id: platformProfileId,
             oauth_token: oauthToken,
           }),

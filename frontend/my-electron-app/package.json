@@ -9,9 +9,8 @@
   "scripts": {
     "start": "electron .",
     "build:localapi": "dotnet publish .\\csharp\\LocalApi\\WreckLauncher.LocalApi.csproj -c Release -r win-x64 /p:PublishSingleFile=true /p:SelfContained=true /p:IncludeNativeLibrariesForSelfExtract=true -o localapi-bin",
-    "build:tools": "dotnet publish .\\csharp\\Tools\\EpicInstalledScanner\\WreckLauncher.EpicInstalledScanner.csproj -c Release -r win-x64 /p:PublishSingleFile=true /p:SelfContained=true /p:IncludeNativeLibrariesForSelfExtract=true -o tools-bin",
-    "dist": "npm run build:localapi && npm run build:tools && electron-builder",
-    "pack": "npm run build:localapi && npm run build:tools && electron-builder --dir",
+    "dist": "npm run build:localapi && electron-builder",
+    "pack": "npm run build:localapi && electron-builder --dir",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "devDependencies": {
@@ -35,10 +34,6 @@
       {
         "from": "localapi-bin/WreckLauncher.LocalApi.exe",
         "to": "localapi/WreckLauncher.LocalApi.exe"
-      },
-      {
-        "from": "tools-bin/epic-installed-scan.exe",
-        "to": "tools/epic-installed-scan.exe"
       }
     ],
     "win": {

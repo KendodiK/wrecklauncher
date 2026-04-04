@@ -17,6 +17,7 @@
  * @property {string[]} tags
  * @property {boolean} cracked
  * @property {string} installedSize
+ * @property {boolean} installed
  * @property {string} playtime
  * @property {number} progress
  * @property {boolean} owned

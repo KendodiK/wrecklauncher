@@ -20,7 +20,6 @@ const DEFAULT_SETTINGS = {
 		platforms: {
 			steam: { connected: false, username: '', profileLink: '' },
 			gog: { connected: false, username: '' },
-			epic: { connected: false, username: '' },
 			itch: { connected: false, username: '' },
 		},
 		syncFrequencyHours: 6,
@@ -40,12 +39,6 @@ function mergeWithDefaults(defaults, incoming) {
 
 	for (const key of Object.keys(defaults)) {
 		merged[key] = mergeWithDefaults(defaults[key], source[key]);
-	}
-
-	for (const key of Object.keys(source)) {
-		if (!(key in merged)) {
-			merged[key] = source[key];
-		}
 	}
 
 	return merged;

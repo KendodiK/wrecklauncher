@@ -31,8 +31,65 @@ function App() {
   // user: bejelentkezett felhasználó adatai (vagy null, ha nincs bejelentkezve)
   const [user, setUser] = useState(null);
 
+  // Startup auth bootstrap: if a token is saved, hydrate user info so UI is logged-in immediately.
+  useEffect(() => {
+    let cancelled = false;
+
+    const bootstrapUserFromToken = async () => {
+      try {
+        const api = window?.electronAPI;
+        if (!api || typeof api.getToken !== 'function') return;
+
+        const token = await api.getToken();
+        if (typeof token !== 'string' || !token.trim()) {
+          if (!cancelled) setUser(null);
+          return;
+        }
+
+        let profile = null;
+        if (typeof api.getCurrentUser === 'function') {
+          try {
+            profile = await api.getCurrentUser();
+          } catch (err) {
+            profile = null;
+          }
+        }
+
+        const userId = String(token).split('.')[0] || null;
+        const username =
+          typeof profile?.username === 'string' && profile.username.trim()
+            ? profile.username.trim()
+            : (userId ? `User ${userId}` : 'Player');
+
+        if (!cancelled) {
+          setUser({
+            id: profile?.id ?? userId,
+            username,
+            bio: profile?.bio ?? null,
+            avatarUrl: profile?.avatarUrl ?? null,
+            token: token.trim(),
+          });
+        }
+      } catch (err) {
+        if (!cancelled) setUser(null);
+      }
+    };
+
+    bootstrapUserFromToken();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Kijelentkezés: egyszerűen null-ra állítjuk a user állapotot
   const handleLogout = useCallback(() => {
+    try {
+      if (window?.electronAPI && typeof window.electronAPI.clearToken === 'function') {
+        void window.electronAPI.clearToken();
+      }
+    } catch {
+      // ignore
+    }
     setUser(null);
   }, []);
 

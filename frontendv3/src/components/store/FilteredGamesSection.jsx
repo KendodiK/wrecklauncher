@@ -1,14 +1,10 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import CompactFiltersSidebar from './CompactFiltersSidebar.jsx';
-
-function normalizePlatformId(value) {
-	const normalized = String(value || '').trim().toLowerCase();
-	if (!normalized) return '';
-	if (['itch', 'itchio', 'itch.io'].includes(normalized)) return 'itchio';
-	if (['epic games', 'epic_games'].includes(normalized)) return '';
-	return normalized;
-}
+import {
+	buildStoreGameRoute,
+	resolveStorePlatformFromGameStrict,
+} from '../../utils/storeRouting.js';
 
 const FilteredGamesSection = ({
 	games = [],
@@ -41,10 +37,11 @@ const FilteredGamesSection = ({
 				if (!hasMatch) return false;
 			}
 
-			const gamePlatform = normalizePlatformId(game.platform || game.platform_name);
+			const gamePlatform = resolveStorePlatformFromGameStrict(game);
 			if (selectedPlatforms.length > 0 && !selectedPlatforms.includes(gamePlatform)) return false;
 
-			const price = game.price ?? 0;
+			const rawPrice = Number(game.price ?? game.cost ?? 0);
+			const price = Number.isFinite(rawPrice) && rawPrice > 0 ? rawPrice : 0;
 			if (price < priceRange.min || price > priceRange.max) return false;
 
 			return true;
@@ -119,10 +116,7 @@ useEffect(() => {
 	};
 
 	const toStoreGameUrl = (game) => {
-		const gameId = game?.appid || game?.app_id || game?.id;
-		if (!gameId) return '';
-		const platform = normalizePlatformId(game?.platform_name || game?.platform) || 'steam';
-		return `/store/game/${encodeURIComponent(platform)}/${encodeURIComponent(gameId)}`;
+		return buildStoreGameRoute(game, 'steam');
 	};
 
 	return (
@@ -252,7 +246,6 @@ export default FilteredGamesSection;
 // 	const normalized = String(value || '').trim().toLowerCase();
 // 	if (!normalized) return '';
 // 	if (normalized === 'itch' || normalized === 'itchio' || normalized === 'itch.io') return 'itchio';
-// 	if (normalized === 'epic games' || normalized === 'epic_games') return '';
 // 	return normalized;
 // }
 

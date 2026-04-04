@@ -47,7 +47,7 @@ TÁBLA chats:
 	-sender (uuid)
 
 platfoms:
-	*steam, *epic, *gog, *itchdotio, *riot?, ubisoft
+	*steam, *gog, *itchdotio, *riot?, ubisoft
 
 helyileg tároljuk:
 	saját játékokat (frissül új játékok letöltésekor/naponta)

@@ -107,6 +107,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     if (local) return local;
     return await invokeWithTokenSync('user:get-token');
   },
+  getCurrentUser: () => {
+    return invokeAuthed('user:get-current-user');
+  },
+  clearToken: async () => {
+    setAuthToken(null);
+    try {
+      await ipcRenderer.invoke('user:clear-token');
+    } catch {
+      // ignore
+    }
+    return true;
+  },
   login: async (username, password) => {
     const token = await ipcRenderer.invoke('user:login', username, password);
     if (typeof token === 'string' && token.trim()) setAuthToken(token);
@@ -140,19 +152,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getOwnedGamesFromSteam: () => {
     return invokeAuthed('user:get-owned-games-from-steam' );
   },
+  getSteamInstalledGames: () => ipcRenderer.invoke('steam:get-installed-games'),
   getSteamGameDetails: (appID, cc) => {
     return invokeAuthed('steam:get-game-details', appID, cc);
+  },
+  getSteamGameDetailsByTitle: (title, cc) => {
+    return invokeAuthed('steam:get-game-details-by-title', title, cc);
   },
   getSteamGameDetailsAndUpload: (appID, cc) => ipcRenderer.invoke('steam:get-game-details-and-upload', appID, cc),
   installSteamGame: (appID) => ipcRenderer.invoke('steam:install-game', appID),
   deleteSteamGame: (appID) => ipcRenderer.invoke('steam:delete-game', appID),
   storePageSteam: (appID) => ipcRenderer.invoke('steam:store-page', appID),
   runSteamGame: (appID) => ipcRenderer.invoke('steam:run-game', appID),
-  getEpicInstalledGames: () => ipcRenderer.invoke('epic:get-installed-games'),
   // itch.io
   getItchInstalledGames: () => ipcRenderer.invoke('itch:get-installed-games'),
   getItchGameDetails: (gameId) => {
     return invokeAuthed('itch:get-game-details', gameId);
+  },
+  getItchGameDetailsByTitle: (title) => {
+    return invokeAuthed('itch:get-game-details-by-title', title);
   },
   openItchGame: (gameId) => ipcRenderer.invoke('itch:open-game', gameId),
   installItchGame: (gameId) => ipcRenderer.invoke('itch:install-game', gameId),
@@ -160,6 +178,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getGogInstalledGames: () => ipcRenderer.invoke('gog:get-installed-games'),
   getGogGameDetails: (productId) => {
     return invokeAuthed('gog:get-game-details', productId);
+  },
+  getGogGameDetailsByTitle: (title) => {
+    return invokeAuthed('gog:get-game-details-by-title', title);
   },
   openGogGame: (productId) => ipcRenderer.invoke('gog:open-game', productId),
   runGogGame: (productId) => ipcRenderer.invoke('gog:run-game', productId),
@@ -205,9 +226,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('torrent:progress', listener);
   },
   // GamesController
-  getGames: (from) => ipcRenderer.invoke('games:get-games', from),
-  getAllDetailsByID: (id) => ipcRenderer.invoke('games:get-all-details-by-id', id),
-  getAllDetailsByAppIDAndPlatform: (platform, appId, token) => ipcRenderer.invoke('games:get-all-details-by-appid-and-platform', {platform}, {appId}, {token}),
+  getGames: (from, countryCode = 'DE') => ipcRenderer.invoke('games:get-games', from, { countryCode }),
+  getAllDetailsByID: (id, countryCode = 'DE') => ipcRenderer.invoke('games:get-all-details-by-id', id, { countryCode }),
+  getAllDetailsByAppIDAndPlatform: (appId, platform, countryCode = 'DE') =>
+    ipcRenderer.invoke('games:get-all-details-by-appid-and-platform', { appId, platform, countryCode }),
   // SettingsController
   getSettings: () => ipcRenderer.invoke('settings:get'),
   updateSetting: (category, key, value) => ipcRenderer.invoke('settings:update', category, key, value),

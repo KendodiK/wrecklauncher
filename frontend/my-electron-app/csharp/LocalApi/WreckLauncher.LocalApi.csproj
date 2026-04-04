@@ -9,9 +9,5 @@
   <ItemGroup>
     <Compile Include="..\Controllers\**\*.cs" />
     <Compile Include="..\Models\**\*.cs" />
-
-    <!-- No-token Epic approach: exclude OAuth scaffolding from build -->
-    <Compile Remove="..\Controllers\EpicOAuthController.cs" />
-    <Compile Remove="..\Models\EpicOAuthModels.cs" />
   </ItemGroup>
 </Project>

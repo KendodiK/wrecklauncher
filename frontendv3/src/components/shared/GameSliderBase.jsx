@@ -9,6 +9,7 @@ const GameSliderBase = ({
 	topVh = 0,
 	activeOffsetPx = 200,
 	cloneCount: cloneCountProp = 5,
+	loop = true,
 	ariaLabel,
 	onActivateCard,
 	onCardClick,
@@ -52,19 +53,27 @@ const GameSliderBase = ({
 				image: `https://via.placeholder.com/300x420?text=${n}`,
 				title: `Game ${n}`,
 			})))
-			.map((g, index) => ({
-				id: g.id ?? index,
-				image: g.image,
-				title: g.title ?? `Game ${index + 1}`,
-			}));
+			.map((g, index) => {
+				const card = g && typeof g === 'object' ? g : { id: g };
+				return {
+					...card,
+					id: card.id ?? card.appid ?? card.app_id ?? card.game_id ?? index,
+					image:
+						card.image ??
+						card.banner_img ??
+						`https://via.placeholder.com/300x420?text=${index + 1}`,
+					title: card.title ?? card.name ?? `Game ${index + 1}`,
+				};
+			});
 
 		return source;
 	}, [games]);
 
 	const cloneCount = useMemo(() => {
+		if (!loop) return 0;
 		if (!baseCards.length) return 0;
 		return Math.max(0, Math.min(cloneCountProp, baseCards.length));
-	}, [baseCards.length, cloneCountProp]);
+	}, [baseCards.length, cloneCountProp, loop]);
 
 	const initialIndex = useMemo(() => {
 		if (!baseCards.length) return 0;
@@ -99,12 +108,20 @@ const GameSliderBase = ({
 
 	const move = (dir) => {
 		if (isMoving) return;
+		if (!loop) {
+			const next = Math.max(0, Math.min(cards.length - 1, currentIndex + dir));
+			if (next === currentIndex) return;
+			setIsMoving(true);
+			setCurrentIndex(next);
+			return;
+		}
 		setIsMoving(true);
 		setCurrentIndex((prev) => prev + dir);
 	};
 
 	const handleCardClick = (index) => {
 		if (isMoving) return;
+		if (index === currentIndex) return;
 		// Call onCardClick callback if provided (e.g., for scroll-into-view)
 		if (typeof onCardClick === 'function') {
 			onCardClick(cards[index], { index });
@@ -172,6 +189,7 @@ const GameSliderBase = ({
 
 		const timer = setTimeout(() => {
 			setIsMoving(false);
+			if (!loop) return;
 
 			let next = currentIndex;
 			const start = cloneCount;
@@ -186,7 +204,7 @@ const GameSliderBase = ({
 		}, Math.max(0, transitionMs + 10));
 
 		return () => clearTimeout(timer);
-	}, [isMoving, currentIndex, cloneCount, baseCards.length, transitionMs]);
+	}, [isMoving, currentIndex, cloneCount, baseCards.length, transitionMs, loop]);
 
 	// Recenter when the carousel area changes size (e.g., dropdown opens, window resizes).
 	useEffect(() => {
@@ -211,12 +229,22 @@ const GameSliderBase = ({
 		};
 	}, [cards.length, currentIndex, recenter, mode]);
 
-	// If the game list changes, jump to the new middle without animating.
+	// Keep the current selection stable as cards are appended; only clamp if out of bounds.
 	useEffect(() => {
-		if (!baseCards.length) return;
-		skipAnimationRef.current = true;
-		setCurrentIndex(initialIndex);
-	}, [initialIndex, baseCards.length]);
+		if (!cards.length) return;
+		setCurrentIndex((prev) => {
+			if (prev < 0) {
+				skipAnimationRef.current = true;
+				return 0;
+			}
+			const maxIndex = cards.length - 1;
+			if (prev > maxIndex) {
+				skipAnimationRef.current = true;
+				return maxIndex;
+			}
+			return prev;
+		});
+	}, [cards.length]);
 
 	useEffect(() => {
 		if (typeof onCurrentCardChange !== 'function') return;
