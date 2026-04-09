@@ -103,7 +103,63 @@ function parseDiscountPercent(game) {
 	return 0;
 }
 
+function extractPlatformIdFromGame(game) {
+	const candidates = [
+		game?.platform_id,
+		game?.platformId,
+		game?.platformID,
+		game?.platform?.id,
+		game?.platform?.platform_id,
+	];
+	for (const candidate of candidates) {
+		const parsed = Number(candidate);
+		if (Number.isFinite(parsed)) return parsed;
+	}
+	return null;
+}
+
+function extractPlatformNameFromGame(game) {
+	const candidates = [
+		game?.platform_name,
+		game?.platform,
+		game?.launcherId,
+		game?.platform?.platform_name,
+		game?.platform?.name,
+		game?.store,
+		game?.store_name,
+	];
+	for (const candidate of candidates) {
+		if (typeof candidate === 'string' && candidate.trim()) return candidate;
+	}
+	return '';
+}
+
+function normalizePlatformForStoreCard(platformValue, platformId) {
+	const numericPlatformId = Number(platformId ?? platformValue);
+	if (Number.isFinite(numericPlatformId)) {
+		if (numericPlatformId === 1) return 'steam';
+		if (numericPlatformId === 2) return 'gog';
+		if (numericPlatformId === 3) return 'itchio';
+		if (numericPlatformId === 4) return 'epic';
+	}
+
+	const normalized = String(platformValue || '').trim().toLowerCase();
+	if (normalized === '1') return 'steam';
+	if (normalized === '2') return 'gog';
+	if (normalized === '3') return 'itchio';
+	if (normalized === '4') return 'epic';
+	if (!normalized) return '';
+	if (normalized === 'itch' || normalized === 'itch.io' || normalized === 'itchio') return 'itchio';
+	if (normalized === 'gog.com' || normalized === 'gog galaxy' || normalized === 'gog_galaxy') return 'gog';
+	if (normalized === 'epic games' || normalized === 'epic_games') return 'epic';
+	return normalized;
+}
+
 function mapGameCard(game, fallbackTag = '') {
+	const rawPlatformId = extractPlatformIdFromGame(game);
+	const rawPlatformName = extractPlatformNameFromGame(game);
+	const resolvedPlatformName = normalizePlatformForStoreCard(rawPlatformName, rawPlatformId) || 'steam';
+
 	return {
 		id: game.app_id || game.appid || game.id,
 		app_id: game.app_id || game.appid || game.id,
@@ -116,7 +172,8 @@ function mapGameCard(game, fallbackTag = '') {
 		price: game.cost || game.price || 0,
 		discountPercent: parseDiscountPercent(game),
 		description: game.description || '',
-		platform_name: game.platform_name || game.platform || 'steam',
+		platform_name: resolvedPlatformName,
+		platform_id: Number.isFinite(rawPlatformId) ? rawPlatformId : null,
 		minimum_requirements: game.minimum_requirements || '',
 		genres: Array.isArray(game.genres) ? game.genres : [],
 		tags: [
@@ -124,6 +181,109 @@ function mapGameCard(game, fallbackTag = '') {
 			...(fallbackTag ? [fallbackTag] : []),
 		],
 	};
+}
+
+function buildPlatformLookup(games) {
+	const lookup = new Map();
+	const titleLookup = new Map();
+	const normalizeTitle = (value) => String(value || '').trim().toLowerCase();
+	for (const game of games || []) {
+		const key = getGameIdentity(game);
+		const normalizedTitle = normalizeTitle(game?.title || game?.name);
+		const entry = {
+			appid: game?.appid ?? game?.app_id ?? null,
+			app_id: game?.app_id ?? game?.appid ?? null,
+			platform_name: game?.platform_name || game?.platform || 'steam',
+			platform_id: extractPlatformIdFromGame(game),
+		};
+		if (key) lookup.set(key, entry);
+		if (normalizedTitle && !titleLookup.has(normalizedTitle)) {
+			titleLookup.set(normalizedTitle, entry);
+		}
+	}
+	return { lookup, titleLookup };
+}
+
+function enrichCardsWithKnownPlatforms(cards, knownGames) {
+	const { lookup, titleLookup } = buildPlatformLookup(knownGames);
+	const normalizeTitle = (value) => String(value || '').trim().toLowerCase();
+	return (cards || []).map((card) => {
+		const key = getGameIdentity(card);
+		const byKey = key ? lookup.get(key) : null;
+		const byTitle = titleLookup.get(normalizeTitle(card?.title || card?.name));
+		const known = byKey || byTitle;
+		if (!known) return card;
+
+		const cardPlatformName = normalizePlatformForStoreCard(card?.platform_name || card?.platform, card?.platform_id);
+		const knownPlatformName = normalizePlatformForStoreCard(known.platform_name, known.platform_id);
+		if (cardPlatformName && cardPlatformName !== 'steam') return card;
+		if (!knownPlatformName) return card;
+
+		return {
+			...card,
+			appid: known.appid ?? card?.appid ?? card?.app_id ?? null,
+			app_id: known.app_id ?? card?.app_id ?? card?.appid ?? null,
+			platform_name: knownPlatformName,
+			platform_id: Number.isFinite(Number(known.platform_id)) ? Number(known.platform_id) : card?.platform_id ?? null,
+		};
+	});
+}
+
+function buildFeaturedDiversityPool(games) {
+	const buckets = {
+		gog: [],
+		itchio: [],
+		epic: [],
+		steam: [],
+		other: [],
+	};
+
+	for (const game of games || []) {
+		const card = mapGameCard(game, 'featured');
+		const platform = normalizePlatformForStoreCard(card?.platform_name, card?.platform_id);
+		if (platform === 'gog') buckets.gog.push(card);
+		else if (platform === 'itchio') buckets.itchio.push(card);
+		else if (platform === 'epic') buckets.epic.push(card);
+		else if (platform === 'steam') buckets.steam.push(card);
+		else buckets.other.push(card);
+	}
+
+	const ordered = [];
+	const order = ['gog', 'itchio', 'epic', 'steam', 'other'];
+	let added = true;
+	while (added) {
+		added = false;
+		for (const key of order) {
+			if (!buckets[key].length) continue;
+			ordered.push(buckets[key].shift());
+			added = true;
+		}
+	}
+
+	return ordered;
+}
+
+function blendFeaturedCards(primaryCards, diversityCards, limit) {
+	if (!Number.isFinite(limit) || limit <= 0) return [];
+	const result = [];
+	const seen = new Set();
+
+	const addCard = (card) => {
+		if (!card || result.length >= limit) return;
+		const key = getGameIdentity(card);
+		if (!key || seen.has(key)) return;
+		seen.add(key);
+		result.push(card);
+	};
+
+	let i = 0;
+	let j = 0;
+	while (result.length < limit && (j < diversityCards.length || i < primaryCards.length)) {
+		if (j < diversityCards.length) addCard(diversityCards[j++]);
+		if (i < primaryCards.length) addCard(primaryCards[i++]);
+	}
+
+	return result;
 }
 
 const Shopveiw = ({ items }) => {
@@ -155,9 +315,11 @@ const Shopveiw = ({ items }) => {
 	const [isLoadingFeaturedMore, setIsLoadingFeaturedMore] = useState(false);
 	const [isLoadingDiscountedMore, setIsLoadingDiscountedMore] = useState(false);
 	const [isLoadingUpcomingMore, setIsLoadingUpcomingMore] = useState(false);
+	const [featuredDiversityOffset, setFeaturedDiversityOffset] = useState(0);
 	const [browseOffset, setBrowseOffset] = useState(0);
 	const [hasMoreBrowse, setHasMoreBrowse] = useState(true);
 	const [isLoadingMoreBrowse, setIsLoadingMoreBrowse] = useState(false);
+	const featuredDiversityPool = useMemo(() => buildFeaturedDiversityPool(allGames), [allGames]);
 
 	// Refs for carousel sections for scroll-into-view behavior
 	const featuredRef = useRef(null);
@@ -314,8 +476,14 @@ const ensureFullBrowsePages = async () => {
 		setIsLoadingFeaturedMore(true);
 		try {
 			const chunk = await fetchSpecialsChunk((from) => window.electronAPI.FeaturedGames(from), featuredOffset, CAROUSEL_CHUNK_SIZE);
-			const mapped = chunk.items.map((game) => mapGameCard(game, 'featured'));
-			setFeaturedGames((prev) => appendUniqueGames(prev, mapped));
+			const mappedSpecials = enrichCardsWithKnownPlatforms(
+				chunk.items.map((game) => mapGameCard(game, 'featured')),
+				allGames
+			);
+			const diversitySlice = featuredDiversityPool.slice(featuredDiversityOffset, featuredDiversityOffset + CAROUSEL_CHUNK_SIZE);
+			const incoming = blendFeaturedCards(mappedSpecials, diversitySlice, CAROUSEL_CHUNK_SIZE);
+			setFeaturedGames((prev) => appendUniqueGames(prev, incoming));
+			setFeaturedDiversityOffset((prev) => prev + diversitySlice.length);
 			setFeaturedOffset(chunk.nextFrom);
 			setHasMoreFeatured(chunk.hasMore);
 		} catch (error) {
@@ -331,7 +499,10 @@ const ensureFullBrowsePages = async () => {
 		setIsLoadingDiscountedMore(true);
 		try {
 			const chunk = await fetchSpecialsChunk((from) => window.electronAPI.DiscountedGames(from), discountedOffset, CAROUSEL_CHUNK_SIZE);
-			const mapped = chunk.items.map((game) => mapGameCard(game, 'discount'));
+			const mapped = enrichCardsWithKnownPlatforms(
+				chunk.items.map((game) => mapGameCard(game, 'discount')),
+				allGames
+			);
 			setDiscountedGames((prev) => appendUniqueGames(prev, mapped));
 			setDiscountedOffset(chunk.nextFrom);
 			setHasMoreDiscounted(chunk.hasMore);
@@ -348,7 +519,10 @@ const ensureFullBrowsePages = async () => {
 		setIsLoadingUpcomingMore(true);
 		try {
 			const chunk = await fetchSpecialsChunk((from) => window.electronAPI.ComingSoonGames(from), upcomingOffset, CAROUSEL_CHUNK_SIZE);
-			const mapped = chunk.items.map((game) => mapGameCard(game, 'upcoming'));
+			const mapped = enrichCardsWithKnownPlatforms(
+				chunk.items.map((game) => mapGameCard(game, 'upcoming')),
+				allGames
+			);
 			setUpcomingGames((prev) => appendUniqueGames(prev, mapped));
 			setUpcomingOffset(chunk.nextFrom);
 			setHasMoreUpcoming(chunk.hasMore);
@@ -410,6 +584,7 @@ const ensureFullBrowsePages = async () => {
 				// component will use window.electronAPI.getSteamGameDetails(appID) or 
 				// window.electronAPI.getAllDetailsByID(id) to fetch full scraped data
 				const transformedGames = (gamesData || []).map((game) => mapGameCard(game));
+				const prioritizedGames = transformedGames;
 
 				let featuredCards = [...featuredChunk1.items, ...featuredChunk2.items]
 					.map((game) => mapGameCard(game, 'featured'))
@@ -420,6 +595,12 @@ const ensureFullBrowsePages = async () => {
 				let upcomingCards = [...upcomingChunk1.items, ...upcomingChunk2.items]
 					.map((game) => mapGameCard(game, 'upcoming'))
 					.slice(0, CAROUSEL_INITIAL_ITEMS);
+
+				featuredCards = enrichCardsWithKnownPlatforms(featuredCards, transformedGames);
+				const featuredDiversity = buildFeaturedDiversityPool(transformedGames).slice(0, CAROUSEL_INITIAL_ITEMS);
+				featuredCards = blendFeaturedCards(featuredCards, featuredDiversity, CAROUSEL_INITIAL_ITEMS);
+				discountedCards = enrichCardsWithKnownPlatforms(discountedCards, transformedGames);
+				upcomingCards = enrichCardsWithKnownPlatforms(upcomingCards, transformedGames);
 
 				// Put Left 4 Dead (app_id 500) first in shop lists.
 				// const prioritizedGames = transformedGames.sort((a, b) => {
@@ -459,6 +640,7 @@ const ensureFullBrowsePages = async () => {
 				setFeaturedOffset(CAROUSEL_INITIAL_ITEMS);
 				setDiscountedOffset(CAROUSEL_INITIAL_ITEMS);
 				setUpcomingOffset(CAROUSEL_INITIAL_ITEMS);
+				setFeaturedDiversityOffset(Math.min(CAROUSEL_INITIAL_ITEMS, featuredDiversity.length));
 				setHasMoreFeatured(featuredChunk2.hasMore);
 				setHasMoreDiscounted(discountedChunk2.hasMore);
 				setHasMoreUpcoming(upcomingChunk2.hasMore);
@@ -473,6 +655,7 @@ const ensureFullBrowsePages = async () => {
 				setFeaturedOffset(CAROUSEL_INITIAL_ITEMS);
 				setDiscountedOffset(CAROUSEL_INITIAL_ITEMS);
 				setUpcomingOffset(CAROUSEL_INITIAL_ITEMS);
+				setFeaturedDiversityOffset(0);
 				setHasMoreFeatured(false);
 				setHasMoreDiscounted(false);
 				setHasMoreUpcoming(false);

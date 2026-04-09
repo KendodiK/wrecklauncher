@@ -3,15 +3,23 @@ import { useNavigate } from 'react-router-dom';
 import CompactFiltersSidebar from './CompactFiltersSidebar.jsx';
 
 function normalizePlatformId(value) {
+	const numericValue = Number(value);
+	if (Number.isFinite(numericValue)) {
+		if (numericValue === 1) return 'steam';
+		if (numericValue === 2) return 'gog';
+		if (numericValue === 3) return 'itchio';
+		if (numericValue === 4) return 'epic';
+	}
+
 	const normalized = String(value || '').trim().toLowerCase();
 	if (!normalized) return '';
 	if (['itch', 'itchio', 'itch.io'].includes(normalized)) return 'itchio';
-	if (['epic games', 'epic_games'].includes(normalized)) return '';
+	if (['epic games', 'epic_games'].includes(normalized)) return 'epic';
 	return normalized;
 }
 
 function launcherOutlineClass(game) {
-	const launcherId = normalizePlatformId(game?.platform_name || game?.platform || game?.launcherId || 'steam') || 'steam';
+	const launcherId = normalizePlatformId(game?.platform_name || game?.platform || game?.platform_id || game?.platformId || game?.launcherId || 'steam') || 'steam';
 	if (launcherId === 'steam') return 'border-sky-500/70';
 	if (launcherId === 'gog') return 'border-violet-500/70';
 	if (launcherId === 'itchio') return 'border-rose-500/70';
@@ -83,7 +91,7 @@ const FilteredGamesSection = ({
 				if (!hasMatch) return false;
 			}
 
-			const gamePlatform = normalizePlatformId(game.platform || game.platform_name);
+			const gamePlatform = normalizePlatformId(game.platform || game.platform_name || game.platform_id || game.platformId);
 			if (selectedPlatforms.length > 0 && !selectedPlatforms.includes(gamePlatform)) return false;
 
 			const price = game.price ?? 0;
@@ -163,7 +171,7 @@ useEffect(() => {
 	const toStoreGameUrl = (game) => {
 		const gameId = game?.appid || game?.app_id || game?.id;
 		if (!gameId) return '';
-		const platform = normalizePlatformId(game?.platform_name || game?.platform) || 'steam';
+		const platform = normalizePlatformId(game?.platform_name || game?.platform || game?.platform_id || game?.platformId) || 'steam';
 		return `/store/game/${encodeURIComponent(platform)}/${encodeURIComponent(gameId)}`;
 	};
 

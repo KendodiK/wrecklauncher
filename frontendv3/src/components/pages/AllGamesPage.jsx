@@ -9,15 +9,23 @@ function steamPoster(appid) {
 }
 
 function normalizePlatformId(value) {
+	const numeric = Number(value);
+	if (Number.isFinite(numeric)) {
+		if (numeric === 1) return 'steam';
+		if (numeric === 2) return 'gog';
+		if (numeric === 3) return 'itchio';
+		if (numeric === 4) return 'epic';
+	}
+
 	const normalized = String(value || '').trim().toLowerCase();
 	if (!normalized) return '';
 	if (normalized === 'itch' || normalized === 'itch.io' || normalized === 'itchio') return 'itchio';
-	if (normalized === 'epic games' || normalized === 'epic_games') return '';
+	if (normalized === 'epic games' || normalized === 'epic_games') return 'epic';
 	return normalized;
 }
 
 function launcherOutlineClass(game) {
-	const launcherId = normalizePlatformId(game?.platform_name || game?.platform || game?.launcherId || 'steam') || 'steam';
+	const launcherId = normalizePlatformId(game?.platform_name || game?.platform || game?.platform_id || game?.platformId || game?.launcherId || 'steam') || 'steam';
 	if (launcherId === 'steam') return 'border-sky-500/70';
 	if (launcherId === 'gog') return 'border-violet-500/70';
 	if (launcherId === 'itchio') return 'border-rose-500/70';
@@ -152,7 +160,7 @@ const AllGamesPage = () => {
 	const platforms = useMemo(() => {
 		const names = new Set();
 		for (const game of allGames) {
-			const p = normalizePlatformId(game.platform || game.platform_name);
+			const p = normalizePlatformId(game.platform || game.platform_name || game.platform_id || game.platformId);
 			if (p) names.add(p);
 		}
 		return Array.from(names).sort((a, b) => a.localeCompare(b)).map((id) => ({
@@ -186,6 +194,7 @@ const AllGamesPage = () => {
 					id: game.id,
 					app_id: game.app_id,
 					appid: game.app_id,
+					platform_id: Number(game.platform_id ?? game.platformId) || null,
 					title: game.name,
 					name: game.name,
 					image: game.banner_img || steamPoster(game.app_id || game.id),
@@ -193,7 +202,7 @@ const AllGamesPage = () => {
 					price: Number(game.cost) || 0,
 					cost: Number(game.cost) || 0,
 					description: game.description || '',
-					platform: normalizePlatformId(game.platform_name || game.platform || 'steam') || 'steam',
+					platform: normalizePlatformId(game.platform_name || game.platform || game.platform_id || game.platformId || 'steam') || 'steam',
 					genres: Array.isArray(game.genres) ? game.genres : [],
 					tags: Array.isArray(game.tags) ? game.tags : [],
 					discountPercent: parseDiscountPercent(game),
@@ -268,7 +277,7 @@ const AllGamesPage = () => {
 			}
 
 			// Platform filter
-			if (selectedPlatforms.length > 0 && !selectedPlatforms.includes(normalizePlatformId(game.platform))) {
+			if (selectedPlatforms.length > 0 && !selectedPlatforms.includes(normalizePlatformId(game.platform || game.platform_id || game.platformId))) {
 				return false;
 			}
 
@@ -295,7 +304,7 @@ const AllGamesPage = () => {
 	const toStoreGameUrl = (game) => {
 		const gameId = game?.appid || game?.app_id || game?.id;
 		if (!gameId) return '';
-		const platformId = normalizePlatformId(game?.platform_name || game?.platform) || 'steam';
+		const platformId = normalizePlatformId(game?.platform_name || game?.platform || game?.platform_id || game?.platformId) || 'steam';
 		return `/store/game/${encodeURIComponent(platformId)}/${encodeURIComponent(gameId)}`;
 	};
 

@@ -85,6 +85,7 @@ class GamesController {
       name: obj?.name ?? null,
       // Backend currently returns `platform` (see SQL alias); keep `platform_name` for renderer compatibility.
       platform_name: obj?.platform_name ?? obj?.platform ?? null,
+      platform_id: obj?.platform_id ?? null,
       banner_img: obj?.banner_img ?? null,
       description: obj?.description ?? null,
       minimum_requirements: obj?.minimum_requirements ?? null,
@@ -128,6 +129,7 @@ class GamesController {
       app_id: obj?.app_id ?? null,
       name: obj?.name ?? null,
       platform_name: obj?.platform_name ?? obj?.platform ?? null,
+      platform_id: obj?.platform_id ?? null,
       banner_img: obj?.banner_img ?? null,
       description: obj?.description ?? null,
       minimum_requirements: obj?.minimum_requirements ?? null,

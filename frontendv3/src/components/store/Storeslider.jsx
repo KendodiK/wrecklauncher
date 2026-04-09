@@ -3,11 +3,64 @@ import { useNavigate } from 'react-router-dom';
 import GameSliderBase from '../shared/GameSliderBase.jsx';
 
 function normalizeLauncherId(card) {
+    const platformId = Number(card?.platform_id ?? card?.platformId);
+    if (Number.isFinite(platformId)) {
+        if (platformId === 1) return 'steam';
+        if (platformId === 2) return 'gog';
+        if (platformId === 3) return 'itchio';
+        if (platformId === 4) return 'epic';
+    }
+
     const raw = String(card?.platform_name || card?.platform || card?.launcherId || '').trim().toLowerCase();
+    if (raw === '1') return 'steam';
+    if (raw === '2') return 'gog';
+    if (raw === '3') return 'itchio';
+    if (raw === '4') return 'epic';
     if (!raw) return 'steam';
     if (raw === 'itch' || raw === 'itch.io' || raw === 'itchio') return 'itchio';
     if (raw === 'epic games' || raw === 'epic_games') return 'epic';
     return raw;
+}
+
+function launcherFromPlatformId(platformId) {
+    const normalized = Number(platformId);
+    if (!Number.isFinite(normalized)) return '';
+    if (normalized === 1) return 'steam';
+    if (normalized === 2) return 'gog';
+    if (normalized === 3) return 'itchio';
+    if (normalized === 4) return 'epic';
+    return '';
+}
+
+async function scrapeDetailsByPlatform(card) {
+    const api = typeof window !== 'undefined' ? window.electronAPI : null;
+    if (!api) return { scraperPlatform: null, details: null };
+
+    const appid = Number(card?.appid ?? card?.app_id ?? card?.id);
+    if (!Number.isFinite(appid) || appid <= 0) return { scraperPlatform: null, details: null };
+
+    const platformId = Number(card?.platform_id ?? card?.platformId);
+    const platformById = launcherFromPlatformId(platformId);
+    const platform = platformById || normalizeLauncherId(card) || 'steam';
+
+    try {
+        if (platform === 'gog' && typeof api.getGogGameDetails === 'function') {
+            const details = await api.getGogGameDetails(String(appid));
+            return { scraperPlatform: 'gog', details };
+        }
+        if (platform === 'itchio' && typeof api.getItchGameDetails === 'function') {
+            const details = await api.getItchGameDetails(appid);
+            return { scraperPlatform: 'itchio', details };
+        }
+        if (platform === 'steam' && typeof api.getSteamGameDetails === 'function') {
+            const details = await api.getSteamGameDetails(appid, 'us');
+            return { scraperPlatform: 'steam', details };
+        }
+    } catch (error) {
+        console.warn('[Storeslider] scraper call failed', { appid, platform, error });
+    }
+
+    return { scraperPlatform: platform || null, details: null };
 }
 
 function launcherBorderClass(card) {
@@ -18,7 +71,6 @@ function launcherBorderClass(card) {
     if (launcherId === 'epic') return 'border-blue-500/70';
     return 'border-slate-600/70';
 }
-
 function hasDiscountFlag(card) {
     const discountValue = Number(
         card?.discountPercent ??
@@ -75,20 +127,32 @@ const Storeslider = ({ items, onCardClick, onNearEnd, nearEndThreshold = 5 }) =>
         return 1.0;
     }, [viewportW]);
 
-    const openGame = (card) => {
+    const openGame = async (card) => {
         if (!card) return;
-        const appid = Number(card.appid);
+        const appid = Number(card?.appid ?? card?.app_id);
         const routeId = Number.isFinite(appid) && appid > 0 ? String(appid) : (card.id != null ? String(card.id) : 'unknown');
-        const normalizedPlatform = String(card.platform_name || card.platform || 'steam').trim().toLowerCase();
-        const platform = normalizedPlatform === 'itch' || normalizedPlatform === 'itch.io' || normalizedPlatform === 'itchio'
-            ? 'itchio'
-            : (normalizedPlatform === 'epic games' || normalizedPlatform === 'epic_games' ? 'steam' : (normalizedPlatform || 'steam'));
+        const platformId = Number(card?.platform_id ?? card?.platformId);
+        const platformFromId = launcherFromPlatformId(platformId);
+        const platform = platformFromId || normalizeLauncherId(card) || 'steam';
+
+        const { scraperPlatform, details } = await scrapeDetailsByPlatform(card);
+        console.log('[Storeslider] Open game with platform-aware scraper', {
+            routeId,
+            platformId,
+            routePlatform: platform,
+            scraperPlatform,
+            hasDetails: Boolean(details),
+        });
 
         navigate(`/store/game/${encodeURIComponent(platform)}/${encodeURIComponent(routeId)}`, {
             state: {
                 game: {
                     id: routeId,
                     appid: Number.isFinite(appid) && appid > 0 ? appid : undefined,
+                    app_id: Number.isFinite(appid) && appid > 0 ? appid : undefined,
+                    platform_id: Number.isFinite(platformId) ? platformId : undefined,
+                    platform_name: platform,
+                    platform: platform,
                     title: card.title ?? 'Game Title',
                     heroImage: card.heroImage ?? card.image,
                     coverImage: card.coverImage ?? card.image,
@@ -97,6 +161,8 @@ const Storeslider = ({ items, onCardClick, onNearEnd, nearEndThreshold = 5 }) =>
                         'Short description goes here. Replace this with real store data when available.',
                     sites: card.sites,
                     tags: card.tags,
+                    prefetchedDetails: details,
+                    prefetchedDetailsPlatform: scraperPlatform,
                 },
             },
         });

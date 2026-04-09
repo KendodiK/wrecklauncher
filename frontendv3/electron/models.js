@@ -64,6 +64,7 @@
  * @property {string|null} description
  * @property {string|null} minimum_requirements
  * @property {number|null} cost
+ * @property {number|null} [platform_id]
  * @property {string[]|null} genre_names
  */
 

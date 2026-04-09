@@ -237,17 +237,22 @@ const LibraryPage = () => {
 		}
 	};
 
-	const handleOpenGamePage = (game) => {
-		const appId = Number(game?.appid ?? game?.id);
-		if (!Number.isFinite(appId) || appId <= 0) return;
-		navigate(`/game/${appId}`, { state: { game } });
-	};
-
 	const handleOpenStorePage = (game) => {
 		const appId = Number(game?.appid ?? game?.id);
 		if (!Number.isFinite(appId) || appId <= 0) return;
-		const rawPlatform = String(game?.launcherId || game?.platform_name || game?.platform || 'steam').trim().toLowerCase();
-		const routePlatform = rawPlatform || 'steam';
+		const numericPlatformId = Number(game?.platform_id ?? game?.platformId);
+		let routePlatform = 'steam';
+		if (Number.isFinite(numericPlatformId)) {
+			if (numericPlatformId === 2) routePlatform = 'gog';
+			else if (numericPlatformId === 3) routePlatform = 'itchio';
+			else if (numericPlatformId === 4) routePlatform = 'epic';
+		} else {
+			const rawPlatform = String(game?.launcherId || game?.platform_name || game?.platform || 'steam').trim().toLowerCase();
+			if (rawPlatform === 'itch' || rawPlatform === 'itch.io' || rawPlatform === 'itchio') routePlatform = 'itchio';
+			else if (rawPlatform === 'gog') routePlatform = 'gog';
+			else if (rawPlatform === 'epic games' || rawPlatform === 'epic_games' || rawPlatform === 'epic') routePlatform = 'epic';
+			else routePlatform = rawPlatform || 'steam';
+		}
 		navigate(`/store/game/${encodeURIComponent(routePlatform)}/${appId}`, {
 			state: {
 				game,
@@ -277,7 +282,7 @@ const LibraryPage = () => {
 
 			{/* Library header with owned games count */}
 			<div className="absolute top-4 left-6 z-10">
-				<h1 className="text-3xl font-bold text-white mb-1">My Library</h1>
+				
 				<p className="text-sm text-slate-300">
 					{ownedGames.length} {ownedGames.length === 1 ? 'game' : 'games'} owned
 					{scope === 'launcher' && deferredSearch.trim() !== '' && searchPool.length > 0 && ` • ${searchPool.length} on ${activeLauncherId}`}
@@ -396,7 +401,6 @@ const LibraryPage = () => {
 							activeGameId={activeGame?.id ?? ''}
 							onSelect={(id) => setActiveGameId(id)}
 							onOpenStore={handleOpenStorePage}
-							onOpenGamePage={handleOpenGamePage}
 						/>
 					</div>
 

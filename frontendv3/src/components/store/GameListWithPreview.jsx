@@ -13,6 +13,14 @@ const GameListWithPreview = ({ games = [], title = "Top Sellers" }) => {
 	const displayGame = hoveredGame || selectedGame;
 
 	const normalizePlatform = (value) => {
+		const numericValue = Number(value);
+		if (Number.isFinite(numericValue)) {
+			if (numericValue === 1) return 'steam';
+			if (numericValue === 2) return 'gog';
+			if (numericValue === 3) return 'itchio';
+			if (numericValue === 4) return 'epic';
+		}
+
 		const normalized = String(value || '').trim().toLowerCase();
 		if (!normalized) return 'steam';
 		if (normalized === 'itch' || normalized === 'itch.io' || normalized === 'itchio') return 'itchio';
@@ -21,7 +29,7 @@ const GameListWithPreview = ({ games = [], title = "Top Sellers" }) => {
 	};
 
 	const launcherOutlineClass = (game) => {
-		const launcherId = normalizePlatform(game?.platform_name || game?.platform || game?.launcherId || 'steam') || 'steam';
+		const launcherId = normalizePlatform(game?.platform_name || game?.platform || game?.platform_id || game?.platformId || game?.launcherId || 'steam') || 'steam';
 		if (launcherId === 'steam') return 'border-sky-500/70';
 		if (launcherId === 'gog') return 'border-violet-500/70';
 		if (launcherId === 'itchio') return 'border-rose-500/70';
@@ -35,7 +43,7 @@ const GameListWithPreview = ({ games = [], title = "Top Sellers" }) => {
 	const handleGameClick = (game) => {
 		if (game.appid || game.app_id || game.id) {
 			const gameId = game.appid || game.app_id || game.id;
-			const platform = normalizePlatform(game.platform_name || game.platform);
+			const platform = normalizePlatform(game.platform_name || game.platform || game.platform_id || game.platformId);
 			navigate(`/store/game/${encodeURIComponent(platform)}/${encodeURIComponent(gameId)}`, { state: { game } });
 		}
 	};

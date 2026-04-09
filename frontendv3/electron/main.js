@@ -274,6 +274,12 @@ function getShopSpecialsCtrl() {
     });
   }
 
+  handle('debug:log', async (_event, scope, payload) => {
+    const normalizedScope = String(scope || 'renderer').trim() || 'renderer';
+    console.log(`[debug:${normalizedScope}]`, payload);
+    return { ok: true };
+  });
+
   // Compatibility: still expose token fetch endpoint for legacy client-side flows.
   handle('user:get-token', async () => await getUserCtrl().getToken());
 
@@ -477,7 +483,10 @@ handle('steam:get-installed-games', async () => {
       .filter(Boolean);
   }
 
-  handle('games:get-all-details-by-appid-and-platform', async (_event, { platform }, { appId }, { token }) => {
+  handle('games:get-all-details-by-appid-and-platform', async (_event, platformArg, appIdArg, tokenArg) => {
+    let platform = typeof platformArg === 'object' && platformArg !== null ? platformArg.platform : platformArg;
+    let appId = typeof appIdArg === 'object' && appIdArg !== null ? appIdArg.appId : appIdArg;
+    let token = typeof tokenArg === 'object' && tokenArg !== null ? tokenArg.token : tokenArg;
     console.log(`[IPC] games:get-all-details-by-appid-and-platform url=${_event.senderFrame.url.split('/')}`);
     //nem biztos hogy működik url-lel, check later
     if(!appId){

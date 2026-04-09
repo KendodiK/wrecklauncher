@@ -1,7 +1,53 @@
-import { cwd } from 'process';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useDownloadManager } from '../../context/DownloadManagerContext.jsx';
+
+const STORE_GAME_DEBUG_STORAGE_KEY = 'wl:store-game-page-debug';
+
+function parseDebugBool(value) {
+	const normalized = String(value || '').trim().toLowerCase();
+	if (!normalized) return null;
+	if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+	if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+	return null;
+}
+
+function readStoreGameDebugOptions(search) {
+	const defaults = { enabled: false, verbose: false, panel: false };
+	const merged = { ...defaults };
+
+	if (typeof window !== 'undefined') {
+		try {
+			const raw = window.localStorage.getItem(STORE_GAME_DEBUG_STORAGE_KEY);
+			if (raw) {
+				const parsed = JSON.parse(raw);
+				if (parsed && typeof parsed === 'object') {
+					merged.enabled = Boolean(parsed.enabled);
+					merged.verbose = Boolean(parsed.verbose);
+					merged.panel = Boolean(parsed.panel);
+				}
+			}
+		} catch {
+			// ignore malformed localStorage payloads
+		}
+	}
+
+	const params = new URLSearchParams(String(search || ''));
+	const enabledParam = parseDebugBool(params.get('storeDebug'));
+	const verboseParam = parseDebugBool(params.get('storeDebugVerbose'));
+	const panelParam = parseDebugBool(params.get('storeDebugPanel'));
+
+	if (enabledParam !== null) merged.enabled = enabledParam;
+	if (verboseParam !== null) merged.verbose = verboseParam;
+	if (panelParam !== null) merged.panel = panelParam;
+
+	if (!merged.enabled) {
+		merged.verbose = false;
+		merged.panel = false;
+	}
+
+	return merged;
+}
 
 const fallback = {
 	id: null,
@@ -30,12 +76,52 @@ function steamImages(appid) {
 	};
 }
 
-function normalizePlatformName(value) {
+function normalizePlatformName(value, platformId) {
+	const numericPlatformId = Number(platformId ?? value);
+	if (Number.isFinite(numericPlatformId)) {
+		if (numericPlatformId === 1) return 'steam';
+		if (numericPlatformId === 2) return 'gog';
+		if (numericPlatformId === 3) return 'itchio';
+		if (numericPlatformId === 4) return 'epic';
+	}
+
 	const normalized = String(value || '').trim().toLowerCase();
 	if (!normalized) return 'steam';
 	if (normalized === 'itch' || normalized === 'itchio' || normalized === 'itch.io') return 'itchio';
-	if (normalized === 'epic games' || normalized === 'epic_games') return 'steam';
+	if (normalized === 'epic games' || normalized === 'epic_games') return 'epic';
 	return normalized;
+}
+
+function normalizeScraperPlatform(value, platformId) {
+	const normalized = normalizePlatformName(value, platformId);
+	if (normalized === 'gog') return 'gog';
+	if (normalized === 'itchio') return 'itchio';
+	if (normalized === 'steam') return 'steam';
+	if (normalized === 'epic') return 'steam';
+	return 'steam';
+}
+
+function buildScraperPlatformPriority({
+	prefetchedPlatform,
+	requestedPlatform,
+	routeStatePlatform,
+	dbPlatform,
+}) {
+	const ordered = [
+		prefetchedPlatform,
+		requestedPlatform,
+		routeStatePlatform,
+		dbPlatform,
+		'gog',
+		'itchio',
+		'steam',
+	];
+	const unique = [];
+	for (const item of ordered) {
+		const normalized = normalizeScraperPlatform(item);
+		if (!unique.includes(normalized)) unique.push(normalized);
+	}
+	return unique;
 }
 
 function normalizeSiteLinksFromAny(value) {
@@ -169,6 +255,8 @@ function parseSteamDetails(details) {
 	return {
 		id: appid,
 		appid,
+		platform_name: 'steam',
+		platform_id: 1,
 		title: details.name || fallback.title,
 		description: raw.short_description || '',
 		longDescription: raw.detailed_description || raw.about_the_game || raw.short_description || '',
@@ -192,6 +280,8 @@ function parsePlatformDetails(platform, details, appId) {
 		return {
 			id: Number(appId) || null,
 			appid: Number(appId) || null,
+			platform_name: 'gog',
+			platform_id: 2,
 			title: details.title || fallback.title,
 			description: details.description || '',
 			longDescription: details.description || '',
@@ -217,6 +307,8 @@ function parsePlatformDetails(platform, details, appId) {
 		return {
 			id: Number(appId) || null,
 			appid: Number(appId) || null,
+			platform_name: 'itchio',
+			platform_id: 3,
 			title: details.title || fallback.title,
 			description: details.shortText || '',
 			longDescription: details.shortText || '',
@@ -247,7 +339,8 @@ function normalizeLocationState(locationState) {
 		sites: normalizeSiteLinksFromAny(game?.sites),
 		screenshots: Array.isArray(game?.screenshots) ? game.screenshots : fallback.screenshots,
 		price: typeof game?.price === 'number' ? game.price : fallback.price,
-		platform_name: normalizePlatformName(game?.platform_name || game?.platform || fallback.platform_name),
+		platform_name: normalizePlatformName(game?.platform_name || game?.platform || fallback.platform_name, game?.platform_id || game?.platformId),
+		platform_id: Number(game?.platform_id ?? game?.platformId) || null,
 	};
 }
 
@@ -257,13 +350,35 @@ const StoreGamePage = () => {
 	const navigate = useNavigate();
 	const { startDownload } = useDownloadManager();
 	const [platformDetails, setPlatformDetails] = useState(null);
+	const [detailsPlatform, setDetailsPlatform] = useState(null);
 	const [dbDetails, setDbDetails] = useState(null);
 	const [errorMessage, setErrorMessage] = useState('');
 	const [currentScreenshot, setCurrentScreenshot] = useState(0);
 	const [loading, setLoading] = useState(true);
+	const [debugOptions, setDebugOptions] = useState(() => readStoreGameDebugOptions(''));
 
 	const routeState = useMemo(() => normalizeLocationState(location?.state), [location?.state]);
-	const requestedPlatform = useMemo(() => normalizePlatformName(platform || routeState.platform_name), [platform, routeState.platform_name]);
+	const requestedPlatform = useMemo(() => normalizePlatformName(platform || routeState.platform_name, routeState.platform_id), [platform, routeState.platform_id, routeState.platform_name]);
+
+	const debugLog = (...args) => {
+		if (!debugOptions.enabled) return;
+		console.log('[StoreGamePage:debug]', ...args);
+	};
+
+	const debugVerboseLog = (...args) => {
+		if (!debugOptions.enabled || !debugOptions.verbose) return;
+		console.log('[StoreGamePage:verbose]', ...args);
+	};
+
+	const sendTerminalDebug = async (scope, payload) => {
+		const api = typeof window !== 'undefined' ? window.electronAPI : null;
+		if (!api || typeof api.debugLog !== 'function') return;
+		try {
+			await api.debugLog(scope, payload);
+		} catch {
+			// avoid blocking page flow if debug bridge is unavailable
+		}
+	};
 
 	const appId = useMemo(() => {
 		const routeId = Number(id);
@@ -273,12 +388,116 @@ const StoreGamePage = () => {
 	}, [id, routeState]);
 
 	useEffect(() => {
+		setDebugOptions(readStoreGameDebugOptions(location?.search || ''));
+	}, [location?.search]);
+
+	useEffect(() => {
+		if (typeof window === 'undefined') return;
+		window.localStorage.setItem(STORE_GAME_DEBUG_STORAGE_KEY, JSON.stringify(debugOptions));
+	}, [debugOptions]);
+
+	useEffect(() => {
+		if (typeof window === 'undefined') return;
+
+		window.WLStoreGameDebug = {
+			enable() {
+				setDebugOptions((prev) => ({ ...prev, enabled: true }));
+			},
+			disable() {
+				setDebugOptions({ enabled: false, verbose: false, panel: false });
+			},
+			verboseOn() {
+				setDebugOptions((prev) => ({ ...prev, enabled: true, verbose: true }));
+			},
+			verboseOff() {
+				setDebugOptions((prev) => ({ ...prev, verbose: false }));
+			},
+			panelOn() {
+				setDebugOptions((prev) => ({ ...prev, enabled: true, panel: true }));
+			},
+			panelOff() {
+				setDebugOptions((prev) => ({ ...prev, panel: false }));
+			},
+			set(next) {
+				setDebugOptions((prev) => {
+					const enabled = typeof next?.enabled === 'boolean' ? next.enabled : prev.enabled;
+					const verbose = enabled && typeof next?.verbose === 'boolean' ? next.verbose : enabled ? prev.verbose : false;
+					const panel = enabled && typeof next?.panel === 'boolean' ? next.panel : enabled ? prev.panel : false;
+					return { enabled, verbose, panel };
+				});
+			},
+			get() {
+				return { ...debugOptions };
+			},
+			help() {
+				console.info('WLStoreGameDebug.enable()');
+				console.info('WLStoreGameDebug.disable()');
+				console.info('WLStoreGameDebug.verboseOn() / verboseOff()');
+				console.info('WLStoreGameDebug.panelOn() / panelOff()');
+				console.info('WLStoreGameDebug.set({ enabled: true, verbose: true, panel: true })');
+				console.info('URL params: ?storeDebug=1&storeDebugVerbose=1&storeDebugPanel=1');
+			},
+		};
+
+		return () => {
+			if (window.WLStoreGameDebug) {
+				delete window.WLStoreGameDebug;
+			}
+		};
+	}, [debugOptions]);
+
+	useEffect(() => {
 		setCurrentScreenshot(0);
 	}, [appId]);
 
 	useEffect(() => {
+		const routePlatformParam = normalizePlatformName(platform || '', undefined);
+		const routeStatePlatform = normalizePlatformName(routeState?.platform_name || routeState?.platform || '', routeState?.platform_id);
+		const requested = normalizePlatformName(requestedPlatform || '', undefined);
+		const mismatchRouteParamVsState = Boolean(platform) && routePlatformParam !== routeStatePlatform;
+		const mismatchRequestedVsState = requested !== routeStatePlatform;
+
+		const openPayload = {
+			type: 'store-game-open',
+			timestamp: new Date().toISOString(),
+			route: {
+				platformParam: platform || null,
+				platformParamNormalized: routePlatformParam,
+				idParam: id || null,
+			},
+			receivedStateRaw: location?.state ?? null,
+			receivedState: {
+				id: routeState?.id ?? null,
+				appid: routeState?.appid ?? null,
+				title: routeState?.title ?? null,
+				platform_name: routeState?.platform_name ?? null,
+				platform_id: routeState?.platform_id ?? null,
+				sitesCount: Array.isArray(routeState?.sites) ? routeState.sites.length : 0,
+			},
+			resolved: {
+				appId,
+				routeStatePlatform,
+				requestedPlatform: requested,
+			},
+			flags: {
+				mismatchRouteParamVsState,
+				mismatchRequestedVsState,
+			},
+		};
+
+		console.log('[StoreGamePage] Open payload', openPayload);
+		sendTerminalDebug('store-game-open', openPayload);
+	}, [appId, id, location?.state, platform, requestedPlatform, routeState]);
+
+	useEffect(() => {
 		let cancelled = false;
+		debugVerboseLog('Loading store game details', {
+			requestedPlatform,
+			appId,
+			routeState,
+		});
 		setPlatformDetails(null);
+		setDetailsPlatform(null);
 		setDbDetails(null);
 		setErrorMessage('');
 		setLoading(true);
@@ -298,32 +517,93 @@ const StoreGamePage = () => {
 			}
 
 			let effectivePlatform = requestedPlatform;
+			let dbResolvedPlatform = null;
+			const prefetchedDetails = routeState?.prefetchedDetails && typeof routeState.prefetchedDetails === 'object'
+				? routeState.prefetchedDetails
+				: null;
+			const prefetchedPlatform = normalizeScraperPlatform(
+				routeState?.prefetchedDetailsPlatform || routeState?.platform_name,
+				routeState?.platform_id
+			);
+			const routeStatePlatform = normalizeScraperPlatform(routeState?.platform_name || routeState?.platform, routeState?.platform_id);
+			console.log('[StoreGamePage] Start load', {
+				appId,
+				requestedPlatform,
+				prefetchedPlatform,
+				routePlatform: platform,
+				routeStatePlatform: routeState?.platform_name,
+				routeStatePlatformId: routeState?.platform_id,
+			});
 
 			try {
 				let dbData = null;
 				try {
-					console.debug('[StoreGamePage] DB lookup by platform+appId', {
-						effectivePlatform,
-						appId,
-						hasApiMethod: typeof api.getAllDetailsByAppIDAndPlatform === 'function',
-					});
-					dbData = await api.getAllDetailsByAppIDAndPlatform(effectivePlatform, appId);
-					console.log('[StoreGamePage] DB details fetched by platform+appID', dbData);
+					const shouldTryPlatformLookup = Boolean(
+						effectivePlatform &&
+						effectivePlatform !== 'steam' &&
+						typeof api.getAllDetailsByAppIDAndPlatform === 'function'
+					);
+
+					if (shouldTryPlatformLookup) {
+						debugLog('DB lookup by platform+appId', {
+							effectivePlatform,
+							appId,
+							hasApiMethod: true,
+						});
+						dbData = await api.getAllDetailsByAppIDAndPlatform(effectivePlatform, appId);
+						debugVerboseLog('DB details fetched by platform+appID', dbData);
+					} else {
+						dbData = await api.getAllDetailsByID(appId);
+						debugVerboseLog('DB details fetched by ID (primary lookup)', dbData);
+					}
 				} catch (error) {
-					console.warn('[StoreGamePage] getAllDetailsByAppIDAndPlatform failed, falling back to getAllDetailsByID', {
+					debugLog('platform+appId lookup failed, falling back to getAllDetailsByID', {
 						effectivePlatform,
 						appId,
 						error,
 					});
 					dbData = await api.getAllDetailsByID(appId);
-					console.log('[StoreGamePage] DB details fetched by ID fallback', dbData);
+					debugVerboseLog('DB details fetched by ID fallback', dbData);
+				}
+
+				if (!dbData && appId && typeof api.getAllDetailsByAppIDAndPlatform === 'function') {
+					const probePlatforms = ['gog', 'itchio', 'epic', 'steam'];
+					for (const candidate of probePlatforms) {
+						try {
+							const candidateData = await api.getAllDetailsByAppIDAndPlatform(candidate, appId);
+							if (candidateData && (candidateData.app_id || candidateData.name)) {
+								dbData = candidateData;
+								effectivePlatform = normalizePlatformName(candidateData.platform_name || candidate, candidateData.platform_id);
+								console.log('[StoreGamePage] Platform probe matched DB game', {
+									appId,
+									candidate,
+									matchedPlatform: effectivePlatform,
+									dbPlatform: candidateData.platform_name,
+									dbPlatformId: candidateData.platform_id,
+								});
+								break;
+							}
+						} catch {
+							// try next platform candidate
+						}
+					}
 				}
 				if (dbData) {
-					effectivePlatform = normalizePlatformName(dbData.platform_name || effectivePlatform);
+					effectivePlatform = normalizeScraperPlatform(dbData.platform_name || effectivePlatform, dbData.platform_id);
+					dbResolvedPlatform = effectivePlatform;
+					console.log('[StoreGamePage] DB resolved platform', {
+						appId,
+						dbPlatform: dbData.platform_name,
+						dbPlatformId: dbData.platform_id,
+						effectivePlatform,
+					});
 				}
 				if (!cancelled && dbData) setDbDetails(dbData);
 			} catch (error) {
-				console.warn('[StoreGamePage] DB enrichment failed', {
+				const enrichmentMessage = error instanceof Error ? error.message : String(error);
+				const isNotFound = /\b404\b|not\s+found/i.test(enrichmentMessage);
+				const logFn = isNotFound ? console.debug : console.warn;
+				logFn('[StoreGamePage] DB enrichment failed', {
 					appId,
 					requestedPlatform,
 					error,
@@ -332,15 +612,75 @@ const StoreGamePage = () => {
 			}
 
 			try {
-				if (effectivePlatform === 'gog') {
-					const details = await api.getGogGameDetails(String(appId));
-					if (!cancelled) setPlatformDetails(details);
-				} else if (effectivePlatform === 'itchio') {
-					const details = await api.getItchGameDetails(Number(appId));
-					if (!cancelled) setPlatformDetails(details);
-				} else {
-					const details = await api.getSteamGameDetails(appId, 'us');
-					if (!cancelled) setPlatformDetails(details);
+				const fetchDetailsForPlatform = async (targetPlatform) => {
+					const scraperPlatform = normalizeScraperPlatform(targetPlatform);
+					console.log('[StoreGamePage] Fetching platform details', { appId, targetPlatform: scraperPlatform });
+					if (scraperPlatform === 'gog') {
+						return api.getGogGameDetails(String(appId));
+					}
+					if (scraperPlatform === 'itchio') {
+						return api.getItchGameDetails(Number(appId));
+					}
+					return api.getSteamGameDetails(appId, 'us');
+				};
+
+				let details = null;
+				let resolvedDetailsPlatform = null;
+
+				if (prefetchedDetails) {
+					const parsedPrefetched = parsePlatformDetails(prefetchedPlatform, prefetchedDetails, appId);
+					if (parsedPrefetched) {
+						details = prefetchedDetails;
+						resolvedDetailsPlatform = prefetchedPlatform;
+						console.log('[StoreGamePage] Using prefetched scraper details', {
+							appId,
+							resolvedDetailsPlatform,
+						});
+					}
+				}
+
+				if (!details) {
+					const priority = buildScraperPlatformPriority({
+						prefetchedPlatform,
+						requestedPlatform: effectivePlatform || requestedPlatform,
+						routeStatePlatform,
+						dbPlatform: dbResolvedPlatform,
+					});
+
+					let lastError = null;
+					for (const candidate of priority) {
+						try {
+							details = await fetchDetailsForPlatform(candidate);
+							resolvedDetailsPlatform = candidate;
+							console.log('[StoreGamePage] Scraper resolved details', {
+								appId,
+								candidate,
+								priority,
+							});
+							break;
+						} catch (error) {
+							lastError = error;
+						}
+					}
+
+					if (!details && lastError) throw lastError;
+				}
+
+				if (!cancelled) {
+					debugLog('Resolved details platform', {
+						requestedPlatform,
+						effectivePlatform,
+						resolvedDetailsPlatform,
+						appId,
+					});
+					console.log('[StoreGamePage] Final resolved details platform', {
+						appId,
+						requestedPlatform,
+						effectivePlatform,
+						resolvedDetailsPlatform,
+					});
+					setPlatformDetails(details);
+					setDetailsPlatform(resolvedDetailsPlatform);
 				}
 			} catch (error) {
 				if (!cancelled) setErrorMessage(error instanceof Error ? error.message : String(error));
@@ -352,10 +692,11 @@ const StoreGamePage = () => {
 		return () => {
 			cancelled = true;
 		};
-	}, [appId, requestedPlatform]);
+	}, [appId, debugOptions.enabled, debugOptions.verbose, requestedPlatform, routeState]);
 
 	const model = useMemo(() => {
-		const parsedPlatform = parsePlatformDetails(requestedPlatform, platformDetails, appId);
+		const parsedPlatformKey = detailsPlatform || requestedPlatform;
+		const parsedPlatform = parsePlatformDetails(parsedPlatformKey, platformDetails, appId);
 		const scrapedTags = Array.isArray(parsedPlatform?.tags) ? parsedPlatform.tags : [];
 		const dbSites = normalizeSiteLinksFromAny(
 			dbDetails?.pirate_sites ||
@@ -374,7 +715,8 @@ const StoreGamePage = () => {
 				longDescription: dbDetails.description || routeState.longDescription,
 				minimumRequirements: dbDetails.minimum_requirements || '',
 				price: typeof dbDetails.cost === 'number' ? dbDetails.cost : routeState.price,
-				platform_name: normalizePlatformName(dbDetails.platform_name || routeState.platform_name),
+				platform_name: normalizePlatformName(dbDetails.platform_name || routeState.platform_name, dbDetails.platform_id || routeState.platform_id),
+				platform_id: Number(dbDetails.platform_id ?? routeState.platform_id) || null,
 				sites: dbSites,
 			}
 			: null;
@@ -385,7 +727,7 @@ const StoreGamePage = () => {
 			...(parsedDb || {}),
 			...(parsedPlatform || {}),
 		};
-		const resolvedPlatform = normalizePlatformName(merged.platform_name || requestedPlatform);
+		const resolvedPlatform = normalizePlatformName(detailsPlatform || merged.platform_name || parsedPlatformKey, merged.platform_id || routeState.platform_id);
 		const links = Array.isArray(merged.sites) && merged.sites.length
 			? normalizeSiteLinksFromAny(merged.sites)
 			: defaultSiteForPlatform(resolvedPlatform, appId);
@@ -404,10 +746,23 @@ const StoreGamePage = () => {
 			price: typeof merged.price === 'number' ? merged.price : null,
 			sites: links,
 		};
-	}, [appId, dbDetails, platformDetails, requestedPlatform, routeState]);
+	}, [appId, dbDetails, detailsPlatform, platformDetails, requestedPlatform, routeState]);
 
 	const screenshot = model.screenshots[currentScreenshot] || model.heroImage || model.coverImage;
 	const activePlatform = normalizePlatformName(model.platform_name);
+	const debugSnapshot = useMemo(() => ({
+		appId,
+		routePlatformParam: platform,
+		requestedPlatform,
+		detailsPlatform,
+		activePlatform,
+		modelPlatform: model.platform_name,
+		modelPlatformId: model.platform_id,
+		dbPlatform: dbDetails?.platform_name || null,
+		dbPlatformId: dbDetails?.platform_id || null,
+		errorMessage,
+		loading,
+	}), [activePlatform, appId, dbDetails?.platform_id, dbDetails?.platform_name, detailsPlatform, errorMessage, loading, model.platform_id, model.platform_name, platform, requestedPlatform]);
 	const bestThumb = useMemo(() => pickBestThumbImage([
 		model.coverImage,
 		...(Array.isArray(model.screenshots) ? model.screenshots : []),
@@ -422,6 +777,11 @@ const StoreGamePage = () => {
 	const handleOpenExternalStore = async () => {
 		if (!appId) return;
 		try {
+			console.log('[StoreGamePage] Open external store action', {
+				appId,
+				activePlatform,
+				buttonLabel: platformButtonLabel,
+			});
 			if (activePlatform === 'gog') {
 				await window.electronAPI.openGogGame(String(appId));
 				return;
@@ -456,6 +816,25 @@ const StoreGamePage = () => {
 
 	return (
 		<div className="flex-1 overflow-y-auto text-slate-100">
+			{debugOptions.enabled && debugOptions.panel ? (
+				<div className="fixed bottom-3 right-3 z-[70] w-[360px] max-w-[92vw] rounded-xl border border-amber-500/60 bg-slate-950/95 p-3 text-[11px] text-amber-100 shadow-2xl shadow-black/50 backdrop-blur-sm">
+					<div className="mb-2 flex items-center justify-between">
+						<p className="font-semibold uppercase tracking-[0.12em] text-amber-300">Store Debug</p>
+						<div className="flex items-center gap-2">
+							<button type="button" onClick={() => setDebugOptions((prev) => ({ ...prev, verbose: !prev.verbose }))} className="rounded border border-amber-500/50 px-2 py-1 text-[10px] uppercase tracking-[0.1em] text-amber-200 hover:bg-amber-500/20">
+								{debugOptions.verbose ? 'Verbose On' : 'Verbose Off'}
+							</button>
+							<button type="button" onClick={() => setDebugOptions((prev) => ({ ...prev, panel: false }))} className="rounded border border-amber-500/50 px-2 py-1 text-[10px] uppercase tracking-[0.1em] text-amber-200 hover:bg-amber-500/20">
+								Hide
+							</button>
+						</div>
+					</div>
+					<pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded-md border border-amber-500/20 bg-black/35 p-2 leading-5 text-amber-100">
+						{JSON.stringify(debugSnapshot, null, 2)}
+					</pre>
+					<p className="mt-2 text-[10px] text-amber-300/90">Console: window.WLStoreGameDebug.help()</p>
+				</div>
+			) : null}
 			<div className="relative min-h-full">
 				<div className="absolute inset-x-0 top-0 h-[340px] bg-cover bg-center opacity-30" style={{ backgroundImage: screenshot ? `url(${screenshot})` : undefined }} />
 				<div className="absolute inset-x-0 top-0 h-[340px] bg-gradient-to-b from-slate-950/10 via-slate-950/75 to-slate-950" />

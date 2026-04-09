@@ -9,6 +9,14 @@ const GameGrid = ({ games = [], isLoading = false, emptyMessage = 'No games foun
 	const navigate = useNavigate();
 
 	const normalizeLauncherId = (game) => {
+		const platformId = Number(game?.platform_id ?? game?.platformId);
+		if (Number.isFinite(platformId)) {
+			if (platformId === 1) return 'steam';
+			if (platformId === 2) return 'gog';
+			if (platformId === 3) return 'itchio';
+			if (platformId === 4) return 'epic';
+		}
+
 		const raw = String(game?.platform_name || game?.platform || game?.launcherId || '').trim().toLowerCase();
 		if (!raw) return 'steam';
 		if (raw === 'itch' || raw === 'itch.io' || raw === 'itchio') return 'itchio';
@@ -59,6 +67,14 @@ const GameGrid = ({ games = [], isLoading = false, emptyMessage = 'No games foun
 	};
 
 	const normalizePlatform = (value) => {
+		const normalizedId = Number(value);
+		if (Number.isFinite(normalizedId)) {
+			if (normalizedId === 1) return 'steam';
+			if (normalizedId === 2) return 'gog';
+			if (normalizedId === 3) return 'itchio';
+			if (normalizedId === 4) return 'epic';
+		}
+
 		const normalized = String(value || '').trim().toLowerCase();
 		if (!normalized) return 'steam';
 		if (normalized === 'itch' || normalized === 'itch.io' || normalized === 'itchio') return 'itchio';
@@ -69,7 +85,7 @@ const GameGrid = ({ games = [], isLoading = false, emptyMessage = 'No games foun
 	const handleCardClick = (game) => {
 		if (game.id || game.appid) {
 			const gameId = game.id || game.appid;
-			const platform = normalizePlatform(game.platform_name || game.platform);
+			const platform = normalizePlatform(game.platform_name || game.platform || game.platform_id || game.platformId);
 			navigate(`/store/game/${encodeURIComponent(platform)}/${encodeURIComponent(gameId)}`, { state: { game } });
 		}
 	};

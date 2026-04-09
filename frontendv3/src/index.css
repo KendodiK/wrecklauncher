@@ -314,8 +314,9 @@ body {
   pointer-events: none;
   position: absolute;
   inset: 0;
-  background-size: cover;
-  background-position: center;
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center 25%;
   opacity: 0.55;
   filter: blur(3px);
 }
