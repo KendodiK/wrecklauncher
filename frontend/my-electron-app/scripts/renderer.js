@@ -50,9 +50,6 @@
         const platformUsername = 'freshargetinaccount69912';
         //const platformUsername = 'Szbarni06';
 
-        const epicInstalled = await window.electronAPI.getEpicInstalledGames();
-        console.log('Epic installed games:', epicInstalled);
-
         // These backend calls may be temporarily broken; don't block app startup on them.
         let platformUserID = null;
         try {

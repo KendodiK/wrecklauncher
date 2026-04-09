@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { buildStoreGameRoute } from '../../utils/storeRouting.js';
 
 /**
  * Steam-style game list with preview panel
@@ -12,40 +13,10 @@ const GameListWithPreview = ({ games = [], title = "Top Sellers" }) => {
 
 	const displayGame = hoveredGame || selectedGame;
 
-	const normalizePlatform = (value) => {
-		const numericValue = Number(value);
-		if (Number.isFinite(numericValue)) {
-			if (numericValue === 1) return 'steam';
-			if (numericValue === 2) return 'gog';
-			if (numericValue === 3) return 'itchio';
-			if (numericValue === 4) return 'epic';
-		}
-
-		const normalized = String(value || '').trim().toLowerCase();
-		if (!normalized) return 'steam';
-		if (normalized === 'itch' || normalized === 'itch.io' || normalized === 'itchio') return 'itchio';
-		if (normalized === 'epic games' || normalized === 'epic_games') return 'steam';
-		return normalized;
-	};
-
-	const launcherOutlineClass = (game) => {
-		const launcherId = normalizePlatform(game?.platform_name || game?.platform || game?.platform_id || game?.platformId || game?.launcherId || 'steam') || 'steam';
-		if (launcherId === 'steam') return 'border-sky-500/70';
-		if (launcherId === 'gog') return 'border-violet-500/70';
-		if (launcherId === 'itchio') return 'border-rose-500/70';
-		if (launcherId === 'epic') return 'border-blue-500/70';
-		return 'border-slate-600/70';
-	};
-
-	const hasDiscountFlag = (game) => Number(game?.discountPercent ?? game?.discount ?? 0) > 0 || (Array.isArray(game?.tags) && game.tags.some((tag) => String(tag).toLowerCase() === 'discount'));
-	const hasUpcomingFlag = (game) => Array.isArray(game?.tags) && game.tags.some((tag) => String(tag).toLowerCase() === 'upcoming');
-
 	const handleGameClick = (game) => {
-		if (game.appid || game.app_id || game.id) {
-			const gameId = game.appid || game.app_id || game.id;
-			const platform = normalizePlatform(game.platform_name || game.platform || game.platform_id || game.platformId);
-			navigate(`/store/game/${encodeURIComponent(platform)}/${encodeURIComponent(gameId)}`, { state: { game } });
-		}
+		const target = buildStoreGameRoute(game, 'steam');
+		if (!target) return;
+		navigate(target, { state: { game } });
 	};
 
 	return (
@@ -63,7 +34,6 @@ const GameListWithPreview = ({ games = [], title = "Top Sellers" }) => {
 						{games.slice(0, 15).map((game) => {
 							const gameId = game.appid || game.app_id || game.id;
 							const isSelected = displayGame && (displayGame.appid || displayGame.app_id || displayGame.id) === gameId;
-							const stripeClass = hasDiscountFlag(game) ? 'bg-emerald-400' : (hasUpcomingFlag(game) ? 'bg-yellow-400' : '');
 							
 							return (
 								<div
@@ -78,7 +48,7 @@ const GameListWithPreview = ({ games = [], title = "Top Sellers" }) => {
 										onMouseLeave={() => setHoveredGame(null)}
 									>
 										{/* Game thumbnail */}
-								<div className={`relative w-20 h-11 flex-shrink-0 rounded overflow-hidden border ${launcherOutlineClass(game)} bg-slate-900/50`}>
+								<div className="w-20 h-11 flex-shrink-0 rounded overflow-hidden bg-slate-900/50">
 										<img
 											src={game.image || game.banner_img}
 											alt={game.title || game.name}
@@ -87,7 +57,6 @@ const GameListWithPreview = ({ games = [], title = "Top Sellers" }) => {
 												e.target.style.display = 'none';
 											}}
 										/>
-										{stripeClass ? <div className={`absolute right-1 bottom-1 h-1 w-5 rounded-sm ${stripeClass}`} /> : null}
 									</div>
 
 									{/* Game info */}

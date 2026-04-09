@@ -1,64 +1,10 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import CompactFiltersSidebar from './CompactFiltersSidebar.jsx';
-
-function normalizePlatformId(value) {
-	const numericValue = Number(value);
-	if (Number.isFinite(numericValue)) {
-		if (numericValue === 1) return 'steam';
-		if (numericValue === 2) return 'gog';
-		if (numericValue === 3) return 'itchio';
-		if (numericValue === 4) return 'epic';
-	}
-
-	const normalized = String(value || '').trim().toLowerCase();
-	if (!normalized) return '';
-	if (['itch', 'itchio', 'itch.io'].includes(normalized)) return 'itchio';
-	if (['epic games', 'epic_games'].includes(normalized)) return 'epic';
-	return normalized;
-}
-
-function launcherOutlineClass(game) {
-	const launcherId = normalizePlatformId(game?.platform_name || game?.platform || game?.platform_id || game?.platformId || game?.launcherId || 'steam') || 'steam';
-	if (launcherId === 'steam') return 'border-sky-500/70';
-	if (launcherId === 'gog') return 'border-violet-500/70';
-	if (launcherId === 'itchio') return 'border-rose-500/70';
-	if (launcherId === 'epic') return 'border-blue-500/70';
-	return 'border-slate-600/70';
-}
-
-function hasDiscountFlag(game) {
-	const discountValue = Number(
-		game?.discountPercent ??
-		game?.discount ??
-		game?.discount_percentage ??
-		game?.discount_percent ??
-		0
-	);
-	const discountTag = Array.isArray(game?.tags) && game.tags.some((tag) => {
-		const normalized = String(tag).toLowerCase();
-		return normalized.includes('discount') || normalized.includes('deal') || normalized.includes('sale');
-	});
-	return discountValue > 0 || Boolean(game?.is_discounted || game?.isDiscounted) || discountTag;
-}
-
-function hasUpcomingFlag(game) {
-	const status = String(game?.status || '').toLowerCase();
-	const upcomingTag = Array.isArray(game?.tags) && game.tags.some((tag) => {
-		const normalized = String(tag).toLowerCase();
-		return normalized.includes('upcoming') || normalized.includes('coming soon');
-	});
-	return Boolean(
-		game?.is_upcoming ||
-		game?.isUpcoming ||
-		game?.upcoming ||
-		game?.coming_soon ||
-		game?.comingSoon ||
-		status.includes('upcoming') ||
-		status.includes('coming soon') ||
-		upcomingTag
-	);
-}
+import {
+	buildStoreGameRoute,
+	resolveStorePlatformFromGameStrict,
+} from '../../utils/storeRouting.js';
 
 const FilteredGamesSection = ({
 	games = [],
@@ -91,10 +37,11 @@ const FilteredGamesSection = ({
 				if (!hasMatch) return false;
 			}
 
-			const gamePlatform = normalizePlatformId(game.platform || game.platform_name || game.platform_id || game.platformId);
+			const gamePlatform = resolveStorePlatformFromGameStrict(game);
 			if (selectedPlatforms.length > 0 && !selectedPlatforms.includes(gamePlatform)) return false;
 
-			const price = game.price ?? 0;
+			const rawPrice = Number(game.price ?? game.cost ?? 0);
+			const price = Number.isFinite(rawPrice) && rawPrice > 0 ? rawPrice : 0;
 			if (price < priceRange.min || price > priceRange.max) return false;
 
 			return true;
@@ -169,10 +116,7 @@ useEffect(() => {
 	};
 
 	const toStoreGameUrl = (game) => {
-		const gameId = game?.appid || game?.app_id || game?.id;
-		if (!gameId) return '';
-		const platform = normalizePlatformId(game?.platform_name || game?.platform || game?.platform_id || game?.platformId) || 'steam';
-		return `/store/game/${encodeURIComponent(platform)}/${encodeURIComponent(gameId)}`;
+		return buildStoreGameRoute(game, 'steam');
 	};
 
 	return (
@@ -196,7 +140,6 @@ useEffect(() => {
 					{pagedGames.length > 0 ? pagedGames.map(game => {
 						const gameId = game.appid || game.app_id || game.id;
 						const isSelected = displayGame && (displayGame.appid || displayGame.app_id || displayGame.id) === gameId;
-						const stripeClass = hasDiscountFlag(game) ? 'bg-emerald-400' : (hasUpcomingFlag(game) ? 'bg-yellow-400' : '');
 
 						return (
 							<div
@@ -206,14 +149,13 @@ useEffect(() => {
 								}`}
 								onClick={() => setSelectedGame(game)}
 							>
-								<div className={`relative w-20 h-11 flex-shrink-0 rounded overflow-hidden border ${launcherOutlineClass(game)} bg-slate-900/50`}>
+								<div className="w-20 h-11 flex-shrink-0 rounded overflow-hidden bg-slate-900/50">
 									<img
 										src={game.image || game.banner_img}
 										alt={game.title || game.name}
 										className="w-full h-full object-cover"
 										onError={e => e.target.style.display = 'none'}
 									/>
-									{stripeClass ? <div className={`absolute right-1 bottom-1 z-20 h-1.5 w-6 rounded-sm ${stripeClass}`} /> : null}
 								</div>
 								<div className="flex-1 min-w-0">
 									<h4 className="text-sm font-medium text-slate-100 truncate mb-1">{game.title || game.name}</h4>
@@ -304,7 +246,6 @@ export default FilteredGamesSection;
 // 	const normalized = String(value || '').trim().toLowerCase();
 // 	if (!normalized) return '';
 // 	if (normalized === 'itch' || normalized === 'itchio' || normalized === 'itch.io') return 'itchio';
-// 	if (normalized === 'epic games' || normalized === 'epic_games') return '';
 // 	return normalized;
 // }
 

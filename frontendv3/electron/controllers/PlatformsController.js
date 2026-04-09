@@ -60,7 +60,7 @@ class PlatformsController {
       }
       return json;
     }
-    async createPlatformUser(token, platformName, platformUsername, platformPassword, platformProfileId) {
+    async createPlatformUser(token, platformName, platformUsername, oauthToken, platformProfileId) {
         const platform = await this.getPlatform(platformName);
         const platformId = platform?.id;
         console.log('createPlatformUser - fetched platform:', { platform, platformId });
@@ -68,7 +68,7 @@ class PlatformsController {
           throw new Error(`Platform not found or missing id for: ${String(platformName)}`);
         }
 
-        const url = joinUrl(this.#serverUrl, 'api', 'platform_users');
+        const url = joinUrl(this.#serverUrl, 'api', 'platform-users');
         const { ok, status, json, text } = await fetchJsonSafe(url, {
           method: 'POST',
           headers: {
@@ -77,10 +77,12 @@ class PlatformsController {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            platformUserName: platformUsername,
-            platformId: platformId,
-            platfProfId: platformProfileId,
-            platformPassword: platformPassword,
+            platform_user_name: platformUsername,
+            platform_id: platformId,
+            // Support both backend field variants: legacy `platform_prof_id` and corrected `platform_profile_id`.
+            platform_prof_id: platformProfileId,
+            platform_profile_id: platformProfileId,
+            oauth_token: oauthToken,
           }),
         });
         if (!ok) {
@@ -108,7 +110,7 @@ async createSteamPlatformUser(token, platformUsername, platformProfileLink) {
     const vanityName = vanityMatch ? vanityMatch[1] : (s.includes('/') ? null : s.trim());
     if (vanityName) {
       const { ok, status, json, text } = await fetchJsonSafe(
-        joinUrl(this.#serverUrl, 'api', 'steam', 'profile_id', enc(vanityName)),
+        joinUrl(this.#serverUrl, 'api', 'steam', 'profile-id', enc(vanityName)),
         { method: 'GET' }
       );
       if (!ok) throw new Error(`Failed to resolve Steam vanity URL: ${httpErrorMessage(status, json, text)}`);
@@ -126,7 +128,7 @@ async createSteamPlatformUser(token, platformUsername, platformProfileLink) {
   return this.createPlatformUser(token, 'steam', platformUsername, '', platformProfileId);
 }
 async deletePlatformUser(token, platformUserId) {
-  const url = joinUrl(this.#serverUrl, 'api', 'platform_user', enc(platformUserId));
+  const url = joinUrl(this.#serverUrl, 'api', 'platform-user', enc(platformUserId));
   const { ok, status, json, text } = await fetchJsonSafe(url, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
   if (!ok) {
     const msg = httpErrorMessage(status, json, text);
@@ -141,7 +143,7 @@ async deletePlatformUser(token, platformUserId) {
   return json;
 }
 async getPlatformUserIDAll(token) {
-  const url = joinUrl(this.#serverUrl, 'api', 'platform_users');
+  const url = joinUrl(this.#serverUrl, 'api', 'platform-users');
   const { ok, status, json, text } = await fetchJsonSafe(url, {
     method: 'GET',
     headers: {

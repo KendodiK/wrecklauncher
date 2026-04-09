@@ -65,13 +65,16 @@ class DBMaker extends DatabaseHandler {
     async createTables() { 
         await this.createMakerClasses();
 
-        await this.chatsMkr.create();
+        // Create tables that are referenced by others first
         await this.friendsMkr.create();
+        await this.nativeUserMkr.create();
+        // Now create tables that depend on them
+        await this.chatsMkr.create();
         await this.gamesGenresConnectionMkr.create();
         await this.gamesPirateSitesConnectionMkr.create();
         await this.gamesMkr.create();
         await this.genresMkr.create();
-        await this.nativeUserMkr.create();
+        
         await this.pirateSitesMkr.create();
         await this.platformsMkr.create();
         await this.platformUsersMkr.create();

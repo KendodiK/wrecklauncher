@@ -1,108 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import GameSliderBase from '../shared/GameSliderBase.jsx';
-
-function normalizeLauncherId(card) {
-    const platformId = Number(card?.platform_id ?? card?.platformId);
-    if (Number.isFinite(platformId)) {
-        if (platformId === 1) return 'steam';
-        if (platformId === 2) return 'gog';
-        if (platformId === 3) return 'itchio';
-        if (platformId === 4) return 'epic';
-    }
-
-    const raw = String(card?.platform_name || card?.platform || card?.launcherId || '').trim().toLowerCase();
-    if (raw === '1') return 'steam';
-    if (raw === '2') return 'gog';
-    if (raw === '3') return 'itchio';
-    if (raw === '4') return 'epic';
-    if (!raw) return 'steam';
-    if (raw === 'itch' || raw === 'itch.io' || raw === 'itchio') return 'itchio';
-    if (raw === 'epic games' || raw === 'epic_games') return 'epic';
-    return raw;
-}
-
-function launcherFromPlatformId(platformId) {
-    const normalized = Number(platformId);
-    if (!Number.isFinite(normalized)) return '';
-    if (normalized === 1) return 'steam';
-    if (normalized === 2) return 'gog';
-    if (normalized === 3) return 'itchio';
-    if (normalized === 4) return 'epic';
-    return '';
-}
-
-async function scrapeDetailsByPlatform(card) {
-    const api = typeof window !== 'undefined' ? window.electronAPI : null;
-    if (!api) return { scraperPlatform: null, details: null };
-
-    const appid = Number(card?.appid ?? card?.app_id ?? card?.id);
-    if (!Number.isFinite(appid) || appid <= 0) return { scraperPlatform: null, details: null };
-
-    const platformId = Number(card?.platform_id ?? card?.platformId);
-    const platformById = launcherFromPlatformId(platformId);
-    const platform = platformById || normalizeLauncherId(card) || 'steam';
-
-    try {
-        if (platform === 'gog' && typeof api.getGogGameDetails === 'function') {
-            const details = await api.getGogGameDetails(String(appid));
-            return { scraperPlatform: 'gog', details };
-        }
-        if (platform === 'itchio' && typeof api.getItchGameDetails === 'function') {
-            const details = await api.getItchGameDetails(appid);
-            return { scraperPlatform: 'itchio', details };
-        }
-        if (platform === 'steam' && typeof api.getSteamGameDetails === 'function') {
-            const details = await api.getSteamGameDetails(appid, 'us');
-            return { scraperPlatform: 'steam', details };
-        }
-    } catch (error) {
-        console.warn('[Storeslider] scraper call failed', { appid, platform, error });
-    }
-
-    return { scraperPlatform: platform || null, details: null };
-}
-
-function launcherBorderClass(card) {
-    const launcherId = normalizeLauncherId(card);
-    if (launcherId === 'steam') return 'border-sky-500/70';
-    if (launcherId === 'gog') return 'border-violet-500/70';
-    if (launcherId === 'itchio') return 'border-rose-500/70';
-    if (launcherId === 'epic') return 'border-blue-500/70';
-    return 'border-slate-600/70';
-}
-function hasDiscountFlag(card) {
-    const discountValue = Number(
-        card?.discountPercent ??
-        card?.discount ??
-        card?.discount_percentage ??
-        card?.discount_percent ??
-        0
-    );
-    const discountTag = Array.isArray(card?.tags) && card.tags.some((tag) => {
-        const normalized = String(tag).toLowerCase();
-        return normalized.includes('discount') || normalized.includes('deal') || normalized.includes('sale');
-    });
-    return discountValue > 0 || Boolean(card?.is_discounted || card?.isDiscounted) || discountTag;
-}
-
-function hasUpcomingFlag(card) {
-    const status = String(card?.status || '').toLowerCase();
-    const upcomingTag = Array.isArray(card?.tags) && card.tags.some((tag) => {
-        const normalized = String(tag).toLowerCase();
-        return normalized.includes('upcoming') || normalized.includes('coming soon');
-    });
-    return Boolean(
-        card?.is_upcoming ||
-        card?.isUpcoming ||
-        card?.upcoming ||
-        card?.coming_soon ||
-        card?.comingSoon ||
-        status.includes('upcoming') ||
-        status.includes('coming soon') ||
-        upcomingTag
-    );
-}
+import { buildStoreGameRoute, resolveStoreGameRouteId, resolveStorePlatformFromGame } from '../../utils/storeRouting.js';
 
 // Store slider wrapper (same pattern as GameSlider):
 // - Structure + behavior comes from GameSliderBase
@@ -112,12 +11,17 @@ const Storeslider = ({ items, onCardClick, onNearEnd, nearEndThreshold = 5 }) =>
     const cards = useMemo(() => (Array.isArray(items) ? items : []), [items]);
     const navigate = useNavigate();
     const [viewportW, setViewportW] = useState(() => (typeof window !== 'undefined' ? window.innerWidth : 1200));
+    const previousRemainingRef = useRef(null);
 
     useEffect(() => {
         const onResize = () => setViewportW(window.innerWidth);
         window.addEventListener('resize', onResize);
         return () => window.removeEventListener('resize', onResize);
     }, []);
+
+    useEffect(() => {
+        previousRemainingRef.current = null;
+    }, [cards.length]);
 
     const spread = useMemo(() => {
         // Fixed spacing values for consistent animations
@@ -127,42 +31,28 @@ const Storeslider = ({ items, onCardClick, onNearEnd, nearEndThreshold = 5 }) =>
         return 1.0;
     }, [viewportW]);
 
-    const openGame = async (card) => {
+    const openGame = (card) => {
         if (!card) return;
-        const appid = Number(card?.appid ?? card?.app_id);
-        const routeId = Number.isFinite(appid) && appid > 0 ? String(appid) : (card.id != null ? String(card.id) : 'unknown');
-        const platformId = Number(card?.platform_id ?? card?.platformId);
-        const platformFromId = launcherFromPlatformId(platformId);
-        const platform = platformFromId || normalizeLauncherId(card) || 'steam';
+        const target = buildStoreGameRoute(card, 'steam');
+        const routeId = resolveStoreGameRouteId(card);
+        if (!target || !routeId) return;
+        const normalizedPlatform = resolveStorePlatformFromGame(card, 'steam');
 
-        const { scraperPlatform, details } = await scrapeDetailsByPlatform(card);
-        console.log('[Storeslider] Open game with platform-aware scraper', {
-            routeId,
-            platformId,
-            routePlatform: platform,
-            scraperPlatform,
-            hasDetails: Boolean(details),
-        });
-
-        navigate(`/store/game/${encodeURIComponent(platform)}/${encodeURIComponent(routeId)}`, {
+        const appid = Number(card.appid ?? card.app_id ?? card.id);
+        navigate(target, {
             state: {
                 game: {
                     id: routeId,
                     appid: Number.isFinite(appid) && appid > 0 ? appid : undefined,
-                    app_id: Number.isFinite(appid) && appid > 0 ? appid : undefined,
-                    platform_id: Number.isFinite(platformId) ? platformId : undefined,
-                    platform_name: platform,
-                    platform: platform,
                     title: card.title ?? 'Game Title',
                     heroImage: card.heroImage ?? card.image,
                     coverImage: card.coverImage ?? card.image,
+                    platform_name: normalizedPlatform,
                     description:
                         card.description ??
                         'Short description goes here. Replace this with real store data when available.',
                     sites: card.sites,
                     tags: card.tags,
-                    prefetchedDetails: details,
-                    prefetchedDetailsPlatform: scraperPlatform,
                 },
             },
         });
@@ -182,7 +72,14 @@ const Storeslider = ({ items, onCardClick, onNearEnd, nearEndThreshold = 5 }) =>
 
         if (currentPos < 0) return;
         const remaining = cards.length - 1 - currentPos;
-        if (remaining <= nearEndThreshold) {
+        const previousRemaining = previousRemainingRef.current;
+        previousRemainingRef.current = remaining;
+
+        const crossedIntoNearEnd = previousRemaining == null
+            ? remaining <= nearEndThreshold
+            : (previousRemaining > nearEndThreshold && remaining <= nearEndThreshold);
+
+        if (crossedIntoNearEnd) {
             onNearEnd();
         }
     };
@@ -190,6 +87,7 @@ const Storeslider = ({ items, onCardClick, onNearEnd, nearEndThreshold = 5 }) =>
     return (
         <GameSliderBase
             mode="stack"
+            loop={false}
             games={cards}
             onActivateCard={(card) => openGame(card)}
             onCardClick={onCardClick}
@@ -274,18 +172,14 @@ const Storeslider = ({ items, onCardClick, onNearEnd, nearEndThreshold = 5 }) =>
                     },
                 };
             }}
-            transitionMs={420}
+            transitionMs={300}
             renderCard={({ card, abs }) => (
                 <>
                     <img src={card.image} alt={card.title} loading={abs <= 1 ? 'eager' : 'lazy'} />
-                    <div className={`pointer-events-none absolute inset-0 rounded-[inherit] border-2 ${launcherBorderClass(card)}`} />
                     {Number(card.discountPercent) > 0 ? (
                         <div className="absolute left-3 top-3 rounded-md bg-emerald-500/95 px-2 py-1 text-xs font-bold text-white shadow-lg">
                             -{Math.round(Number(card.discountPercent))}%
                         </div>
-                    ) : null}
-                    {hasDiscountFlag(card) || hasUpcomingFlag(card) ? (
-                        <div className={`absolute right-3 bottom-3 z-20 h-2 w-10 rounded-sm ${hasDiscountFlag(card) ? 'bg-emerald-400' : 'bg-yellow-400'}`} />
                     ) : null}
                     <div className="shop-card-title">{card.title}</div>
                 </>

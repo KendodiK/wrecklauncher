@@ -110,61 +110,6 @@ function httpRequestJson(url, method, body) {
   });
 }
 
-function runToolJson(command, args, options) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { ...options, stdio: ['ignore', 'pipe', 'pipe'] });
-    let stdout = '';
-    let stderr = '';
-
-    child.stdout.setEncoding('utf8');
-    child.stderr.setEncoding('utf8');
-    child.stdout.on('data', (d) => (stdout += d));
-    child.stderr.on('data', (d) => (stderr += d));
-
-    child.on('error', (err) => {
-      reject(err);
-    });
-
-    child.on('close', (code) => {
-      if (code !== 0) {
-        const stderrSnippet = String(stderr || '').trim().slice(0, 2000);
-        const err = new Error(
-          `Tool failed (exit ${code}): ${command}${stderrSnippet ? `\n\n${stderrSnippet}` : ''}`
-        );
-        err.code = code;
-        err.stderr = stderr;
-        err.stdout = stdout;
-        reject(err);
-        return;
-      }
-      try {
-        resolve(stdout ? JSON.parse(stdout) : null);
-      } catch (e) {
-        const err = new Error(`Tool returned invalid JSON: ${command}`);
-        err.cause = e;
-        err.stderr = stderr;
-        err.stdout = stdout;
-        reject(err);
-      }
-    });
-  });
-}
-
-async function getEpicInstalledGamesNoToken() {
-  // Prefer the shipped EXE (Option A). Fall back to the dev JS tool if the EXE isn't present.
-  const packagedExePath = path.join(process.resourcesPath, 'tools', 'epic-installed-scan.exe');
-  const devExePath = path.join(__dirname, 'tools-bin', 'epic-installed-scan.exe');
-  const exePath = app.isPackaged ? packagedExePath : devExePath;
-
-  if (fs.existsSync(exePath)) {
-    // In packaged builds, __dirname is inside app.asar, which is not a valid process cwd.
-    return await runToolJson(exePath, [], { cwd: path.dirname(exePath), windowsHide: true });
-  }
-
-  const scriptPath = path.join(__dirname, 'tools', 'epic-installed-scan.js');
-  return await runToolJson('node', [scriptPath], { cwd: __dirname, windowsHide: true });
-}
-
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -385,8 +330,3 @@ ipcMain.handle('steam:get-game-details-and-upload', async (event, appID, cc) => 
   }
 });
 
-ipcMain.handle('epic:get-installed-games', async () => {
-  // No-token method: scan local Epic Launcher manifests using our tool.
-  // Note: this returns *installed* games, not the full owned library.
-  return await getEpicInstalledGamesNoToken();
-});

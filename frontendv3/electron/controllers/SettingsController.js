@@ -70,7 +70,6 @@ class SettingsController {
         platforms: {
           steam: { connected: false, username: '', profileLink: '' },
           gog: { connected: false, username: '' },
-          epic: { connected: false, username: '' },
           itch: { connected: false, username: '' },
         },
         syncFrequencyHours: 6,
@@ -121,12 +120,20 @@ class SettingsController {
     if (typeof loaded !== 'object' || loaded === null) return defaults;
 
     const result = { ...defaults };
-    
-    for (const key in loaded) {
-      if (typeof defaults[key] === 'object' && defaults[key] !== null && !Array.isArray(defaults[key])) {
-        result[key] = this.#mergeSettings(defaults[key], loaded[key]);
+
+    for (const key of Object.keys(defaults)) {
+      const defaultValue = defaults[key];
+      const incomingValue = loaded[key];
+
+      if (incomingValue === undefined) {
+        result[key] = defaultValue;
+        continue;
+      }
+
+      if (typeof defaultValue === 'object' && defaultValue !== null && !Array.isArray(defaultValue)) {
+        result[key] = this.#mergeSettings(defaultValue, incomingValue);
       } else {
-        result[key] = loaded[key];
+        result[key] = incomingValue;
       }
     }
 
@@ -203,8 +210,8 @@ class SettingsController {
   }
 
   /**
-   * Update platform connection status
-   * @param {string} platform - 'steam', 'gog', 'epic', 'itch'
+    * Update platform connection status
+    * @param {string} platform - 'steam', 'gog', 'itch'
    * @param {boolean} connected
    * @param {string} username
    * @returns {Promise<any>}

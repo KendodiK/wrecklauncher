@@ -14,12 +14,36 @@ function formatPlaytime(minutes) {
 	return `${hours}h ${remainingMinutes}m`;
 }
 
-function toSteamLibraryGame(game) {
-	const appId = Number(game?.appid);
+function extractSteamAppId(game) {
+	const appId = Number(game?.appid ?? game?.app_id ?? game?.appId ?? game?.id);
 	if (!Number.isFinite(appId) || appId <= 0) return null;
+	return appId;
+}
+
+function toSteamLibraryGame(game, installedAppIds) {
+	const appId = extractSteamAppId(game);
+	if (appId == null) return null;
 
 	const playtimeMinutes = Number(game?.playtime_forever) || 0;
-	const title = typeof game?.name === 'string' && game.name.trim() ? game.name.trim() : `Steam App ${appId}`;
+	const isInstalled = installedAppIds instanceof Set ? installedAppIds.has(appId) : false;
+	const tags = ['Owned'];
+	if (isInstalled) {
+		tags.push('Installed');
+	} else {
+		tags.push('Ready to install');
+	}
+	if (playtimeMinutes > 0) {
+		tags.push('Played');
+	}
+	const rawTitle =
+		typeof game?.name === 'string' && game.name.trim()
+			? game.name.trim()
+			: typeof game?.title === 'string' && game.title.trim()
+				? game.title.trim()
+				: typeof game?.game_name === 'string' && game.game_name.trim()
+					? game.game_name.trim()
+					: '';
+	const title = rawTitle || 'Unknown Steam title';
 	return {
 		id: String(appId),
 		appid: appId,
@@ -28,12 +52,13 @@ function toSteamLibraryGame(game) {
 		coverUrl: `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/library_600x900_2x.jpg`,
 		heroUrl: `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/library_hero.jpg`,
 		genres: ['Steam'],
-		tags: playtimeMinutes > 0 ? ['Owned', 'Played'] : ['Owned', 'Ready to install'],
+		tags,
 		cracked: false,
-		installedSize: `App ID ${appId}`,
+		installedSize: isInstalled ? 'Installed on this PC' : `App ID ${appId}`,
 		playtime: formatPlaytime(playtimeMinutes),
 		playtimeMinutes,
 		progress: Math.max(0, Math.min(Math.round(playtimeMinutes / 120), 100)),
+		installed: isInstalled,
 		owned: true,
 	};
 }
@@ -107,9 +132,27 @@ const LibraryPage = () => {
 					return;
 				}
 
-				const ownedSteamGames = await window.electronAPI.getOwnedGamesFromSteam(username);
+				const installedSteamGamesPromise =
+					typeof window.electronAPI.getSteamInstalledGames === 'function'
+						? window.electronAPI.getSteamInstalledGames()
+						: window.electronAPI.invoke('steam:get-installed-games');
+
+				const [ownedSteamGames, installedSteamGames] = await Promise.all([
+					window.electronAPI.getOwnedGamesFromSteam(username),
+					installedSteamGamesPromise.catch((error) => {
+						console.warn('Failed to load installed Steam games:', error);
+						return [];
+					}),
+				]);
+
+				const installedAppIds = new Set(
+					(Array.isArray(installedSteamGames) ? installedSteamGames : [])
+						.map((game) => extractSteamAppId(game))
+						.filter((appId) => appId != null),
+				);
+
 				const normalizedGames = (ownedSteamGames || [])
-					.map(toSteamLibraryGame)
+					.map((game) => toSteamLibraryGame(game, installedAppIds))
 					.filter(Boolean);
 				const uniqueGames = dedupeLibraryGames(normalizedGames);
 
@@ -190,6 +233,8 @@ const LibraryPage = () => {
 	const progressWidth = activeGame ? `${Math.max(3, Math.min(activeGame.progress, 100))}%` : '0%';
 	const activeSteamAppId = Number(activeGame?.appid);
 	const canUseSteamActions = Number.isFinite(activeSteamAppId) && activeSteamAppId > 0 && activeGame?.launcherId === 'steam';
+	const isActiveGameInstalled = activeGame?.installed === true;
+	const primarySteamAction = isActiveGameInstalled ? 'run' : 'install';
 
 	const handleSteamAction = async (action) => {
 		if (!canUseSteamActions) {
@@ -420,14 +465,26 @@ const LibraryPage = () => {
 							<p className="library-status-size">{activeGame?.installedSize ?? '0 MB'}</p>
 							<button
 								type="button"
-								className="library-play-btn"
-								onClick={() => handleSteamAction('run')}
+								className={`library-play-btn ${isActiveGameInstalled ? '' : 'library-play-btn-download'}`}
+								onClick={() => handleSteamAction(primarySteamAction)}
 								disabled={!canUseSteamActions || actionState.busyAction !== ''}
 							>
-								{actionState.busyAction === 'run' ? 'OPENING' : 'PLAY'}
-								<svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-									<path d="m8 5 11 7-11 7V5z" />
-								</svg>
+								{actionState.busyAction === primarySteamAction
+									? isActiveGameInstalled
+										? 'OPENING'
+										: 'DOWNLOADING'
+									: isActiveGameInstalled
+										? 'PLAY'
+										: 'DOWNLOAD'}
+								{isActiveGameInstalled ? (
+									<svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+										<path d="m8 5 11 7-11 7V5z" />
+									</svg>
+								) : (
+									<svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+										<path d="M12 4v10m0 0 4-4m-4 4-4-4M4 19h16" />
+									</svg>
+								)}
 							</button>
 						</div>
 

@@ -63,8 +63,6 @@ app.whenReady().then(() => {
   let steamCtrl = null;
   /** @type {import('./controllers/GamesController')|null} */
   let gamesCtrl = null;
-  /** @type {import('./controllers/EpicGamesController')|null} */
-  let epicCtrl = null;
   /** @type {import('./controllers/PlatformsController')|null} */
   let platformsCtrl = null;
   /** @type {import('./controllers/CloudscraperController')|null} */
@@ -106,14 +104,6 @@ app.whenReady().then(() => {
       gamesCtrl = new GamesController({ serverUrl: backendUrl });
     }
     return gamesCtrl;
-  }
-
-  function getEpicCtrl() {
-    if (!epicCtrl) {
-      const EpicGamesController = require('./controllers/EpicGamesController');
-      epicCtrl = new EpicGamesController({ serverUrl: backendUrl });
-    }
-    return epicCtrl;
   }
 
   function getPlatformsCtrl() {
@@ -274,37 +264,37 @@ function getShopSpecialsCtrl() {
     });
   }
 
-  handle('debug:log', async (_event, scope, payload) => {
-    const normalizedScope = String(scope || 'renderer').trim() || 'renderer';
-    console.log(`[debug:${normalizedScope}]`, payload);
-    return { ok: true };
-  });
-
   // Compatibility: still expose token fetch endpoint for legacy client-side flows.
   handle('user:get-token', async () => await getUserCtrl().getToken());
+
+  handle('user:clear-token', async () => {
+    await getUserCtrl()._invalidateToken();
+    return true;
+  });
 
   handle('user:login', async (_event, username, password) => {
     return await getUserCtrl().login(String(username), String(password));
   });
 
-  handle('user:register', async (_event, username, password, email, profile) => {
-    return await getUserCtrl().register(
-      String(username),
-      String(password),
-      String(email),
-      (profile && typeof profile === 'object') ? profile : {}
-    );
+  handle('user:register', async (_event, username, password, email) => {
+    return await getUserCtrl().register(String(username), String(password), String(email));
   });
 
   handleAuthed('user:get-platform-userid', async ({ token }, platformName, platformUsername) => {
     // Ensure the controller uses the token from renderer.
     getUserCtrl().setToken(token);
-    return await getUserCtrl().getPlatformUserID(String(platformName), String(platformUsername));
+    const platformId = await getPlatformsCtrl().getPlatform(String(platformName));
+    return await getUserCtrl().getPlatformUserID(String(platformId), String(platformUsername));
   });
 
-  handleAuthed('user:get-owned-games-from-steam', async ({ token }, platformUsername) => {
+  handleAuthed('user:get-owned-games-from-steam', async ({ token }) => {
     getUserCtrl().setToken(token);
-    return await getUserCtrl().getOwnedGamesFromSteam(String(platformUsername));
+    return await getUserCtrl().getOwnedGamesFromSteam();
+  });
+
+  handleAuthed('user:get-current-user', async ({ token }) => {
+    getUserCtrl().setToken(token);
+    return await getUserCtrl().getCurrentUserInfo(token);
   });
 
   // Settings (global app settings)
@@ -346,16 +336,16 @@ function getShopSpecialsCtrl() {
     return await getPlatformsCtrl().getPlatform(name);
   });
 
-    handleAuthed('platform:create-user', async ({ token },  platformName, platformUsername, platformPassword, platformProfileId) => {
+    handleAuthed('platform:create-user', async ({ token },  platformName, platformUsername, oauthToken, platformProfileId) => {
       const pName = String(platformName || '').trim();
       const pUsername = String(platformUsername || '').trim();
-      const pPassword = String(platformPassword || '').trim();
+      oauthToken = String(oauthToken || '').trim();
       const pProfileId = String(platformProfileId || '').trim();
       if (!pName) throw new Error('platformName is required');
       if (!pUsername) throw new Error('platformUsername is required');
-      if (!pPassword) throw new Error('platformPassword is required');
+      if (!oauthToken) throw new Error('oauthToken is required');
       if (!pProfileId) throw new Error('platformProfileId is required');
-      return await getPlatformsCtrl().createPlatformUser(token, pName, pUsername, pPassword, pProfileId);
+      return await getPlatformsCtrl().createPlatformUser(token, pName, pUsername, oauthToken, pProfileId);
     });
 
   handleAuthed('steam:create-user', async ({ token }, platformUsername, platformProfileLink) => {
@@ -413,6 +403,47 @@ handle('steam:get-installed-games', async () => {
     return await getSteamCtrl().getGamesDetails(token || '', Number(appID), cc ? String(cc) : undefined);
   });
 
+  // Steam title-based details.
+  // Supports both call styles:
+  // 1) invoke('steam:get-game-details-by-title', token, title, cc)
+  // 2) invoke('steam:get-game-details-by-title', title, cc)
+  handle('steam:get-game-details-by-title', async (_event, arg1, arg2, arg3) => {
+    /** @type {string|null} */
+    let token = null;
+    /** @type {any} */
+    let title;
+    /** @type {any} */
+    let cc;
+
+    const looksLikeToken =
+      typeof arg1 === 'string' &&
+      arg1.includes('.') &&
+      typeof arg2 === 'string' &&
+      (arg3 !== undefined || /^[a-z]{2}$/i.test(String(arg2 || '').trim()) === false);
+
+    if (looksLikeToken) {
+      token = String(arg1).trim();
+      title = arg2;
+      cc = arg3;
+    } else {
+      title = arg1;
+      cc = arg2;
+    }
+
+    const titleText = String(title || '').trim();
+    if (!titleText) throw new Error('title is required');
+
+    if (token) {
+      try {
+        getUserCtrl().setToken(token);
+      } catch {
+        // ignore
+      }
+    }
+
+    return await getSteamCtrl().getGameDetailsByTitle(token || '', titleText, cc ? String(cc) : undefined);
+  });
+
   // Open Steam client install prompt for a Steam AppID.
   handle('steam:install-game', async (_event, appID) => {
     return await getSteamCtrl().clientGameControllUtil(appID, 'install');
@@ -434,9 +465,13 @@ handle('steam:get-installed-games', async () => {
   });
 
   // Game DB details (requires backend support)
-  handle('games:get-games', async (_event, from) => {
-    return await getGamesCtrl().getGames(Number(from));
-  });  
+  handle('games:get-games', async (_event, from, opts) => {
+    const countryCode =
+      opts && typeof opts === 'object' && typeof opts.countryCode === 'string'
+        ? opts.countryCode
+        : 'DE';
+    return await getGamesCtrl().getGames(Number(from), countryCode || 'DE');
+  });
   async function makeNameSlug(name) {
     return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
   }
@@ -462,51 +497,103 @@ handle('steam:get-installed-games', async () => {
     return sites;
   }
 
-  function normalizePirateSites(value) {
-    if (!Array.isArray(value)) return [];
-    return value
-      .map((entry) => {
-        if (!entry) return null;
-        if (typeof entry === 'string') {
-          const url = entry.trim();
-          if (!url) return null;
-          return { name: 'Pirate Site', url };
-        }
-        if (typeof entry === 'object') {
-          const url = String(entry.url || entry.href || entry.link || '').trim();
-          if (!url) return null;
-          const name = String(entry.name || entry.label || entry.site_name || 'Pirate Site').trim() || 'Pirate Site';
-          return { name, url };
-        }
-        return null;
-      })
-      .filter(Boolean);
+  function getSenderUrl(event) {
+    return (
+      event?.senderFrame?.url ||
+      (typeof event?.sender?.getURL === 'function' ? event.sender.getURL() : '') ||
+      '(unknown sender)'
+    );
   }
 
-  handle('games:get-all-details-by-appid-and-platform', async (_event, platformArg, appIdArg, tokenArg) => {
-    let platform = typeof platformArg === 'object' && platformArg !== null ? platformArg.platform : platformArg;
-    let appId = typeof appIdArg === 'object' && appIdArg !== null ? appIdArg.appId : appIdArg;
-    let token = typeof tokenArg === 'object' && tokenArg !== null ? tokenArg.token : tokenArg;
-    console.log(`[IPC] games:get-all-details-by-appid-and-platform url=${_event.senderFrame.url.split('/')}`);
-    //nem biztos hogy működik url-lel, check later
-    if(!appId){
-      appId = _event.senderFrame.url.split('/').slice(-1)[0];
+  function parseStoreRouteContext(senderUrl) {
+    try {
+      const parsed = new URL(senderUrl);
+      let routePath = parsed.pathname || '';
+      if ((!routePath || routePath === '/') && parsed.hash && parsed.hash.startsWith('#/')) {
+        routePath = parsed.hash.slice(1);
+      }
+      const match = routePath.match(/^\/store\/game\/([^/]+)\/([^/?#]+)/i);
+      if (!match) return null;
+
+      const platform = decodeURIComponent(match[1] || '').trim();
+      const appId = Number(decodeURIComponent(match[2] || ''));
+      if (!platform || !Number.isFinite(appId) || appId <= 0) return null;
+      return { platform, appId };
+    } catch {
+      return null;
     }
-    if(!platform){
-      platform = _event.senderFrame.url.split('/').slice(-2)[0];
+  }
+
+  function isNotFoundLikeError(err) {
+    const message = String(err instanceof Error ? err.message : err || '').toLowerCase();
+    return message.includes('http 404') || message.includes('not found');
+  }
+
+  async function getDetailsByAppIdWithPlatformFallback(appId, preferredPlatform, countryCode) {
+    const preferred = String(preferredPlatform || '').trim();
+    const probeOrder = [preferred, 'gog', 'steam', 'itchio']
+      .map((entry) => String(entry || '').trim())
+      .filter((entry, index, arr) => entry && arr.indexOf(entry) === index);
+
+    let sawNotFound = false;
+    for (const platformName of probeOrder) {
+      try {
+        return await getGamesCtrl().getAllDetailsByAppIDAndPlatform(appId, platformName, countryCode);
+      } catch (err) {
+        if (!isNotFoundLikeError(err)) throw err;
+        sawNotFound = true;
+      }
     }
-    let gameDetails = await getGamesCtrl().getAllDetailsByAppIDAndPlatform(String(platform), String(appId));
-    gameDetails.pirate_sites = normalizePirateSites(gameDetails?.pirate_sites);
+
+    if (sawNotFound) return null;
+    return null;
+  }
+
+  handle('games:get-all-details-by-appid-and-platform', async (event, payload) => {
+    const senderUrl = getSenderUrl(event);
+    const incoming = payload && typeof payload === 'object' ? payload : {};
+    const routeCtx = parseStoreRouteContext(senderUrl);
+
+    const appId = Number(incoming.appId ?? routeCtx?.appId);
+    const platform = String(incoming.platform ?? routeCtx?.platform ?? '').trim();
+    const countryCode =
+      typeof incoming.countryCode === 'string' && incoming.countryCode.trim()
+        ? incoming.countryCode.trim()
+        : 'DE';
+    const token = typeof incoming.token === 'string' ? incoming.token.trim() : '';
+    const allowPlatformFallback = incoming.allowPlatformFallback === true;
+
+    if (!Number.isFinite(appId) || appId <= 0) throw new Error('App ID is required');
+    if (!platform) throw new Error('Platform is required');
+
+    console.log(
+      `[IPC] games:get-all-details-by-appid-and-platform appId=${appId} platform=${platform} fallback=${allowPlatformFallback ? 'on' : 'off'} from=${senderUrl}`
+    );
+
+    let gameDetails = null;
+    if (allowPlatformFallback) {
+      gameDetails = await getDetailsByAppIdWithPlatformFallback(appId, platform, countryCode);
+    } else {
+      try {
+        gameDetails = await getGamesCtrl().getAllDetailsByAppIDAndPlatform(appId, platform, countryCode);
+      } catch (err) {
+        if (!isNotFoundLikeError(err)) throw err;
+      }
+    }
+
+    if (!gameDetails) return null;
     console.log('Fetched game details:', gameDetails);
     console.log('Pirate sites from backend:', gameDetails.pirate_sites);
-      if(gameDetails.pirate_sites.length === 0){
-        gameDetails.pirate_sites = await getPirateSitesForGame(gameDetails.name);
-        gameDetails.pirate_sites = normalizePirateSites(gameDetails.pirate_sites);
+      if(!Array.isArray(gameDetails.pirate_sites) || gameDetails.pirate_sites.length === 0){
+        gameDetails.pirate_sites = await getPirateSitesForGame(gameDetails.name || '');
         if(token && gameDetails.pirate_sites.length > 0){
         for (const site of gameDetails.pirate_sites) {
           //FINISH THIS LATER!!!!!
           try{
-          await getGamesCtrl().uploadPirateSites(token, gameDetails.app_id, gameDetails.platform_name, [site.url]);
+          const siteUrl = site && typeof site === 'object' ? site.url : site;
+          if (siteUrl) {
+            await getGamesCtrl().uploadPirateSites(token, gameDetails.app_id, gameDetails.platform_name, [String(siteUrl)]);
+          }
           } catch(e){
             console.warn('Failed to upload pirate site:', e);
           }
@@ -518,23 +605,37 @@ handle('steam:get-installed-games', async () => {
         return gameDetails;
       }
   });
-  handle('games:get-all-details-by-id', async (event, id) => {
-    const senderUrl =
-      event?.senderFrame?.url ||
-      (typeof event?.sender?.getURL === 'function' ? event.sender.getURL() : '') ||
-      '(unknown sender)';
+  handle('games:get-all-details-by-id', async (event, id, opts) => {
+    const senderUrl = getSenderUrl(event);
+    const routeCtx = parseStoreRouteContext(senderUrl);
+    const countryCode =
+      opts && typeof opts === 'object' && typeof opts.countryCode === 'string' && opts.countryCode.trim()
+        ? opts.countryCode.trim()
+        : 'DE';
+    const numericId = Number(id);
+
     console.log(`[IPC] games:get-all-details-by-id id=${String(id)} from=${senderUrl}`);
-    return await getGamesCtrl().getAllDetailsByID(Number(id));
+
+    if (routeCtx) {
+      const appId = Number.isFinite(numericId) && numericId > 0 ? numericId : routeCtx.appId;
+      return await getDetailsByAppIdWithPlatformFallback(appId, routeCtx.platform, countryCode);
+    }
+
+    if (!Number.isFinite(numericId) || numericId <= 0) {
+      throw new Error('Game ID is required');
+    }
+
+    try {
+      return await getGamesCtrl().getAllDetailsByID(numericId, countryCode);
+    } catch (err) {
+      if (isNotFoundLikeError(err)) return null;
+      throw err;
+    }
   });
 
   handle('games:scrape', async (_event, gameUrl) => {
     const url = _event?.senderFrame?.url || (typeof _event?.sender?.getURL === 'function' ? _event.sender.getURL() : '') || '(unknown sender)';
     //implement later mert Barni lusta volt átírni az url szerkezetet
-  });
-
-
-  handle('epic:get-installed-games', async () => {
-    return await getEpicCtrl().getInstalledGames();
   });
 
   // ── itch.io ────────────────────────────────────────────────────────────────
@@ -577,11 +678,56 @@ handle('steam:get-installed-games', async () => {
     return await getItchCtrl().getProfile();
   });
 
-  // Token-first style: (token, gameId). The API key is managed by the backend — not needed here.
-  handle('itch:get-game-details', async (_event, token, gameId) => {
-    const t = typeof token === 'string' ? token.trim() : '';
-    if (!t) throw new Error('Missing auth token');
-    return await getItchCtrl().getGameDetails(t, Number(gameId));
+  // Supports both call styles:
+  // 1) invoke('itch:get-game-details', token, gameId)
+  // 2) invoke('itch:get-game-details', gameId)
+  handle('itch:get-game-details', async (_event, arg1, arg2) => {
+    const isLikelyGameId = (v) =>
+      typeof v === 'number' ||
+      (typeof v === 'string' && /^\d+$/.test(v.trim()));
+
+    let token = '';
+    let gameId;
+
+    if (isLikelyGameId(arg1)) {
+      gameId = arg1;
+    } else {
+      token = typeof arg1 === 'string' ? arg1.trim() : '';
+      gameId = arg2;
+    }
+
+    const numericGameId = Number(gameId);
+    if (!Number.isFinite(numericGameId) || numericGameId <= 0) {
+      throw new Error('Invalid itch.io game ID');
+    }
+
+    if (!token) {
+      return await getItchCtrl().getGameDetails(numericGameId);
+    }
+
+    return await getItchCtrl().getGameDetails(token, numericGameId);
+  });
+
+  // Supports both call styles:
+  // 1) invoke('itch:get-game-details-by-title', token, title)
+  // 2) invoke('itch:get-game-details-by-title', title)
+  handle('itch:get-game-details-by-title', async (_event, arg1, arg2) => {
+    const looksLikeToken =
+      typeof arg1 === 'string' &&
+      arg1.includes('.') &&
+      typeof arg2 === 'string' &&
+      arg2.trim().length > 0;
+
+    if (looksLikeToken) {
+      const token = String(arg1).trim();
+      const title = String(arg2).trim();
+      if (!title) throw new Error('title is required');
+      return await getItchCtrl().getGameDetailsByTitle(token, title);
+    }
+
+    const title = String(arg1 || '').trim();
+    if (!title) throw new Error('title is required');
+    return await getItchCtrl().getGameDetailsByTitle(title);
   });
 
   handle('itch:open-game', async (_event, gameId) => {
@@ -598,11 +744,81 @@ handle('steam:get-installed-games', async () => {
     return await getGogCtrl().getInstalledGames();
   });
 
-  // Token-first style: (token, productId)
-  handle('gog:get-game-details', async (_event, token, productId) => {
-    const t = typeof token === 'string' ? token.trim() : '';
-    if (!t) throw new Error('Missing auth token');
-    return await getGogCtrl().getGameDetails(t, String(productId));
+  // Supports both call styles:
+  // 1) invoke('gog:get-game-details', token, productId, opts?)
+  // 2) invoke('gog:get-game-details', productId, opts?)
+  handle('gog:get-game-details', async (_event, arg1, arg2, arg3) => {
+    const isLikelyProductId = (v) =>
+      typeof v === 'number' ||
+      (typeof v === 'string' && /^\d+$/.test(v.trim()));
+
+    const tokenFromArg = (v) => {
+      if (typeof v === 'string') return v.trim();
+      if (v && typeof v === 'object' && typeof v.token === 'string') return v.token.trim();
+      return '';
+    };
+
+    let token = '';
+    let productId;
+    let opts;
+
+    if (isLikelyProductId(arg1)) {
+      productId = arg1;
+      opts = arg2;
+    } else {
+      token = tokenFromArg(arg1);
+      productId = arg2;
+      opts = arg3;
+    }
+
+    const productIdText = String(productId || '').trim();
+    if (!productIdText) throw new Error('productId is required');
+
+    if (token) {
+      try {
+        getUserCtrl().setToken(token);
+      } catch {
+        // ignore
+      }
+    }
+
+    return await getGogCtrl().getGameDetails(
+      productIdText,
+      token,
+      opts && typeof opts === 'object' ? opts : undefined
+    );
+  });
+
+  // Supports both call styles:
+  // 1) invoke('gog:get-game-details-by-title', token, title)
+  // 2) invoke('gog:get-game-details-by-title', title)
+  handle('gog:get-game-details-by-title', async (_event, arg1, arg2) => {
+    const looksLikeToken =
+      typeof arg1 === 'string' &&
+      arg1.includes('.') &&
+      typeof arg2 === 'string' &&
+      arg2.trim().length > 0;
+
+    let token = '';
+    let title = '';
+    if (looksLikeToken) {
+      token = String(arg1).trim();
+      title = String(arg2).trim();
+    } else {
+      title = String(arg1 || '').trim();
+    }
+
+    if (!title) throw new Error('title is required');
+
+    if (token) {
+      try {
+        getUserCtrl().setToken(token);
+      } catch {
+        // ignore
+      }
+    }
+
+    return await getGogCtrl().getGameDetailsByTitle(title, token);
   });
 
   handle('gog:open-game', async (_event, productId) => {
@@ -642,29 +858,11 @@ handle('steam:get-installed-games', async () => {
   // progress events are pushed to the renderer via webContents.send so the
   // renderer only needs ipcRenderer.on('torrent:progress', cb).
 
-  const fallbackTrackers = [
-    'udp://tracker.opentrackr.org:1337/announce',
-    'udp://open.stealth.si:80/announce',
-    'udp://tracker.torrent.eu.org:451/announce',
-    'udp://exodus.desync.com:6969/announce',
-    'udp://tracker.openbittorrent.com:6969/announce',
-  ];
-
-  function addFallbackTrackersIfMissing(magnetUri) {
-    const raw = String(magnetUri || '').trim();
-    if (!raw.toLowerCase().startsWith('magnet:?')) return raw;
-    const hasTrackers = /(?:\?|&)tr=/i.test(raw);
-    if (hasTrackers) return raw;
-    const suffix = fallbackTrackers.map((tr) => `&tr=${encodeURIComponent(tr)}`).join('');
-    return `${raw}${suffix}`;
-  }
-
   handle('torrent:start', async (event, magnetUri, savePath) => {
     // Decode all HTML-encoded ampersands that scrapers may leave in the magnet URI.
-    const decodedMagnet  = String(magnetUri || '').trim()
+    const mUri  = String(magnetUri || '').trim()
       .replace(/&#0*38;/g, '&')
       .replace(/&amp;/gi, '&');
-    const mUri = addFallbackTrackersIfMissing(decodedMagnet);
     const sPath = String(savePath  || '').trim() || app.getPath('downloads');
     console.log('[torrent:start] mUri (full):', mUri);
     console.log('[torrent:start] sPath:', sPath);

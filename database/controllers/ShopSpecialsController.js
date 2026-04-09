@@ -34,7 +34,7 @@ class ShopSpecialsController extends Controller {
         // ensure the referenced game exists
         const isThereForeignKey = await this.#checkForeignKeys(data.game_id);
         if (isThereForeignKey != true) {
-            console.error("Error while getting ")
+            console.error("Error while getting foreign key")
             throw isThereForeignKey;
         }
 
@@ -42,17 +42,25 @@ class ShopSpecialsController extends Controller {
         try {
             const existing = await this.show(data.game_id);
             if (existing) {
-                this.update(data);
+                if (data.featured === 0 && data.coming_soon === 0 && data.discount_percent === 0) {
+                    await this.delete(data.game_id);
+                    return { message: `All flags are false, entry with game_id ${data.game_id} deleted from table ${this.tableName}` };
+                }
+                await this.update(data);
                 return { message: `shop_specials entry already exists for game_id ${data.game_id}, it is updated`, id: existing.id };
             }
         } catch (err) {
             console.error(`Error while checking existing shop_specials for game_id ${data.game_id}: ${err}`);
             throw err;
         }
-
+        if (data.featured === 0 && data.coming_soon === 0 && data.discount_percent === 0) {
+            return { message: `All flags are false, entry with game_id ${data.game_id} create aborted from table ${this.tableName}` };
+        }
         const query = 'INSERT INTO shop_specials (game_id, featured, coming_soon, discount_percent) VALUES (?, ?, ?, ?);';
-        const values = [data.game_id, data.featured ?? false, data.coming_soon ?? false, data.discount_percent ?? false];
-
+        const values = [data.game_id, data.featured ?? 0, data.coming_soon ?? false, data.discount_percent ?? 0];
+        if(!values[1] && !values[2] && !values[3] || (values[1] === 0 && (values[2] === 0 || values[2] === false) && values[3] === 0)) {
+            return { message: `All flags are false, entry with game_id ${data.game_id} create aborted from table ${this.tableName}` };
+        }
         try {
             const [result] = await this.dbConnection.execute(query, values);
             return { message: `Element created in table ${this.tableName}`, id: result.insertId };
@@ -76,7 +84,7 @@ class ShopSpecialsController extends Controller {
         const query = 'UPDATE shop_specials SET featured = ?, coming_soon = ?, discount_percent = ? WHERE game_id = ?;';
         const values = [data.featured ?? old.featured, data.coming_soon ?? old.coming_soon, data.discount_percent ?? old.discount_percent, game_id];
 
-        if (!values[0] && !values[1] && !values[2]) {
+        if (!values[0] && !values[1] && !values[2] || (values[0] === 0 && values[1] === 0 && values[2] === 0)) {
             await this.delete(game_id);
             return { message: `All flags are false, entry with game_id ${game_id} deleted from table ${this.tableName}` };
         }
@@ -93,7 +101,6 @@ class ShopSpecialsController extends Controller {
     async delete(game_id) {
         await this.ready;
 
-        console.log(".\n.\n.\n", game_id, "\n.\n.\n");
         const query = `DELETE FROM ${this.tableName} WHERE game_id = ?;`;
         try {
             await this.dbConnection.execute(query, [game_id]);
@@ -122,11 +129,12 @@ class ShopSpecialsController extends Controller {
                 throw new Error(`Invalid filter: ${filter}`);
         }
 
-        let query = `SELECT * FROM shop_specials WHERE ${column} = true ORDER BY game_id LIMIT ?`;
+        let query = `SELECT * FROM shop_specials WHERE NOT ${column} = 0 ORDER BY game_id LIMIT ?`;
         const params = [20];
-        if (from > 0) {
+        const safeFrom = Number(from);
+        if (Number.isFinite(safeFrom) && safeFrom > 0) {
             query += ' OFFSET ?';
-            params.push(from);
+            params.push(safeFrom);
         }
 
         const ids = [];
@@ -143,14 +151,11 @@ class ShopSpecialsController extends Controller {
         const gamesController = new GamesController();
         const games = [];
         for (const id of ids) {
-            try {
-                const game = await gamesController.getWithAllForeign(id);
-                if (game) {
-                    games.push(game);
-                }
-            } catch (err) {
-                console.error(`Error while fetching game with id ${id} from GamesController: ${err}`);
+            const game = await gamesController.getWithAllForeign(id);
+            if (!game || game instanceof Error) {
+                throw new Error(`Failed to fetch game details for shop_specials game_id=${id}`);
             }
+            games.push(game);
         }
 
         return games;
