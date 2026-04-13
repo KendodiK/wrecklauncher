@@ -356,6 +356,19 @@ module.exports.GETGamesInList = async function (req, res) {
     }
 }
 
+<<<<<<< Updated upstream
+=======
+module.exports.GETGameCount = async function (req, res) {
+    try {
+        const gamesCtrl = new GamesController();
+        const count = await gamesCtrl.getGameCount();
+        return res.json({ count });
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+}
+
+>>>>>>> Stashed changes
 module.exports.GETSearch = async function (req, res) {
     try {
         const { needle } = req.params;
