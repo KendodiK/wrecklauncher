@@ -16,3 +16,6 @@ frontendv3/src/components/pages/shopveiw.jsx
 frontendv3/src/components/pages/gamepage.jsx
 
 .env
+frontend/my-electron-app/csharp/LocalApi/obj/Debug/net8.0/WreckLauncher.LocalApi.AssemblyInfoInputs.cache
+frontend/my-electron-app/csharp/LocalApi/obj/Debug/net8.0/WreckLauncher.LocalApi.AssemblyInfo.cs
+frontend/my-electron-app/csharp/LocalApi/obj/Debug/net8.0/WreckLauncher.LocalApi.AssemblyInfo.cs
