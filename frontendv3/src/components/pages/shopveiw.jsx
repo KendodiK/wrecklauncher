@@ -325,7 +325,7 @@ const ensureFullBrowsePages = async () => {
 			});
 
 
-			if (batch.length <= 1) {
+			if (batch.length < BATCH_SIZE) {
 				setHasMoreBrowse(false);
 			}
 
@@ -477,32 +477,6 @@ const ensureFullBrowsePages = async () => {
 						.map((game) => mapGameCard(game, 'upcoming'))
 						.slice(0, CAROUSEL_INITIAL_ITEMS)
 				);
-
-				// If specials endpoints are empty, keep shop sections usable with browse-data fallbacks.
-				if (featuredCards.length < 1) {
-					featuredCards = transformedGames
-						.slice(0, CAROUSEL_INITIAL_ITEMS)
-						.map((game) => ({ ...game, tags: [...(Array.isArray(game.tags) ? game.tags : []), 'featured'] }));
-				}
-
-				if (discountedCards.length < 1) {
-					const discountedFallback = transformedGames
-						.filter((game) => Number(game.discountPercent) > 0)
-						.slice(0, CAROUSEL_INITIAL_ITEMS)
-						.map((game) => ({ ...game, tags: [...(Array.isArray(game.tags) ? game.tags : []), 'discount'] }));
-
-					discountedCards = discountedFallback.length > 0
-						? discountedFallback
-						: transformedGames
-							.slice(CAROUSEL_CHUNK_SIZE, CAROUSEL_CHUNK_SIZE + CAROUSEL_INITIAL_ITEMS)
-							.map((game) => ({ ...game, tags: [...(Array.isArray(game.tags) ? game.tags : []), 'discount'] }));
-				}
-
-				if (upcomingCards.length < 1) {
-					upcomingCards = transformedGames
-						.slice(CAROUSEL_CHUNK_SIZE * 2, CAROUSEL_CHUNK_SIZE * 2 + CAROUSEL_INITIAL_ITEMS)
-						.map((game) => ({ ...game, tags: [...(Array.isArray(game.tags) ? game.tags : []), 'upcoming'] }));
-				}
 
 				const featuredNextOffset = featuredPage2.status === 'fulfilled'
 					? featuredChunk2.nextFrom

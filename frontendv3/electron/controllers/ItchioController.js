@@ -195,47 +195,6 @@ class ItchioController extends GamesController {
   }
 
   /**
-   * @param {unknown} value
-   * @returns {string}
-   */
-  #normalizeTitleForCompare(value) {
-    return String(value || '')
-      .toLowerCase()
-      .replace(/[\u00a9\u00ae\u2122]/g, '')
-      .replace(/[^a-z0-9]+/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-  }
-
-  /**
-   * @param {unknown} query
-   * @param {unknown} candidate
-   * @returns {number}
-   */
-  #titleMatchScore(query, candidate) {
-    const q = this.#normalizeTitleForCompare(query);
-    const c = this.#normalizeTitleForCompare(candidate);
-    if (!q || !c) return 0;
-    if (q === c) return 1;
-    if (q.includes(c) || c.includes(q)) return 0.9;
-
-    const qTokens = new Set(q.split(' ').filter((t) => t.length > 1));
-    const cTokens = new Set(c.split(' ').filter((t) => t.length > 1));
-    if (qTokens.size < 1 || cTokens.size < 1) return 0;
-
-    let overlap = 0;
-    for (const token of qTokens) {
-      if (cTokens.has(token)) overlap += 1;
-    }
-    if (overlap < 1) return 0;
-
-    const union = qTokens.size + cTokens.size - overlap;
-    const jaccard = union > 0 ? overlap / union : 0;
-    const coverage = overlap / Math.min(qTokens.size, cTokens.size);
-    return Math.max(jaccard, coverage * 0.9);
-  }
-
-  /**
    * Search itch.io games by title and return ranked candidates.
    *
    * @param {string} title
@@ -281,7 +240,7 @@ class ItchioController extends GamesController {
         gameId,
         title: resultTitle,
         url: href,
-        score: this.#titleMatchScore(needle, resultTitle),
+        score: this._titleMatchScore(needle, resultTitle),
       });
     }
 
@@ -349,7 +308,6 @@ class ItchioController extends GamesController {
    */
   async getGameDetails(tokenOrAppId, maybeAppId) {
     const hasExplicitToken = maybeAppId !== undefined;
-    const token = hasExplicitToken && typeof tokenOrAppId === 'string' ? tokenOrAppId.trim() : '';
     const rawAppId = hasExplicitToken ? maybeAppId : tokenOrAppId;
     const id = Number(rawAppId);
     if (!Number.isFinite(id) || id <= 0) throw new Error(`Invalid itch.io game ID: ${String(rawAppId)}`);
@@ -388,7 +346,7 @@ class ItchioController extends GamesController {
 
 
     const url = `${joinUrl(this.#serverUrl, 'api', 'itch', 'game', String(id))}`;
-    const { ok, status, json } = await fetchJsonSafe(url, {
+    const { ok, status, json, text } = await fetchJsonSafe(url, {
       method: 'GET',
       headers: {
         'Accept': 'application/json',
@@ -403,27 +361,25 @@ class ItchioController extends GamesController {
         e.code = 'WRECK_INVALID_TOKEN';
         throw e;
       }
-      const msg = (json && typeof json === 'object' ? json.error : null) || `HTTP ${status}`;
+      const msg = (json && typeof json === 'object' ? (json.error ?? json.message) : null) || text || `HTTP ${status}`;
       throw new Error(`itch.io game fetch failed: ${String(msg).slice(0, 300)}`);
     }
 
     if (!json || typeof json !== 'object') return null;
 
-    const normalizedDetails = {
-      gameId: typeof json.gameId === 'number' ? json.gameId : (typeof json.app_id === 'number' ? json.app_id : id),
-      title: typeof json.title === 'string' ? json.title : `itch:${id}`,
-      coverUrl: json.coverUrl ?? json.cover_url ?? json.banner_img ?? null,
-      shortText: json.shortText ?? json.short_text ?? json.description ?? null,
-      minPrice: typeof json.minPrice === 'number' ? json.minPrice : (typeof json.min_price === 'number' ? json.min_price : 0),
-      url: json.url ?? null,
-      raw: {
-        ...json,
-        source: 'scrape-endpoint',
-      },
-    };
+    const serverDetails = /** @type {any} */ (json);
+    const resolvedGameId = Number(serverDetails.gameId ?? serverDetails.app_id ?? serverDetails.id ?? id);
+    const resolvedPrice = [
+      serverDetails.price,
+      serverDetails.min_price,
+      serverDetails.minPrice,
+      serverDetails.cost,
+    ]
+      .map((value) => Number(value))
+      .find((value) => Number.isFinite(value));
 
-    const scrapedGenres = Array.isArray(json.genres)
-      ? json.genres
+    const resolvedGenres = Array.isArray(serverDetails.genres)
+      ? serverDetails.genres
           .map((entry) => {
             if (typeof entry === 'string') return entry;
             if (entry && typeof entry === 'object') return entry.name ?? entry.genre ?? entry.description ?? null;
@@ -432,29 +388,23 @@ class ItchioController extends GamesController {
           .filter((value) => typeof value === 'string' && value.trim())
       : [];
 
-    if (token) {
-      try {
-        await super.syncScrapedGameWithServer(token, {
-          app_id: String(normalizedDetails.gameId ?? id),
-          platform_name: 'itch',
-          name: normalizedDetails.title,
-          banner_img: normalizedDetails.coverUrl,
-          description: normalizedDetails.shortText,
-          minimum_requirements: '',
-          cost: normalizedDetails.minPrice,
-          genre_names: scrapedGenres,
-          country_code: 'DE',
-        });
-      } catch (err) {
-        if (err && typeof err === 'object' && /** @type {any} */ (err).code === 'WRECK_INVALID_TOKEN') {
-          throw err;
-        }
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn(`Failed to sync itch game details for appID ${id}: ${msg}`);
-      }
-    }
-
-    return normalizedDetails;
+    return {
+      ...serverDetails,
+      gameId: Number.isFinite(resolvedGameId) && resolvedGameId > 0 ? resolvedGameId : id,
+      title:
+        typeof serverDetails.title === 'string'
+          ? serverDetails.title
+          : (typeof serverDetails.name === 'string' ? serverDetails.name : `itch:${id}`),
+      coverUrl: serverDetails.cover_url ?? serverDetails.coverUrl ?? serverDetails.banner_img ?? null,
+      shortText: serverDetails.description ?? serverDetails.short_text ?? serverDetails.shortText ?? null,
+      minPrice: Number.isFinite(resolvedPrice) ? Number(resolvedPrice) : 0,
+      url: typeof serverDetails.url === 'string' ? serverDetails.url : null,
+      genreNames: resolvedGenres,
+      raw: {
+        ...(serverDetails.raw && typeof serverDetails.raw === 'object' ? serverDetails.raw : {}),
+        source: 'scrape-endpoint',
+      },
+    };
   }
 
   /**

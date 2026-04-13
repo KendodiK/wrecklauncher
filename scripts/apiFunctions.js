@@ -23,78 +23,6 @@ const { error } = require('console');
 const shopSpecials = require('./fetchShopSpecials.js');
 //#endregion
 
-function normalizeCountryCodeInput(value, fallback = 'DE') {
-    const normalized = String(value || fallback).trim().toUpperCase();
-    return /^[A-Z]{2}$/.test(normalized) ? normalized : fallback;
-}
-
-function normalizeOffsetParam(fromRaw) {
-    const offset = Number(fromRaw);
-    if (!Number.isFinite(offset) || offset < 0 || !Number.isInteger(offset)) {
-        return null;
-    }
-    return offset;
-}
-
-async function resolvePlatformIdFromParam(platformRef) {
-    const raw = String(platformRef ?? '').trim();
-    if (!raw) return null;
-
-    if (/^\d+$/.test(raw)) {
-        const numericId = Number(raw);
-        if (!Number.isFinite(numericId) || numericId <= 0) return null;
-        return numericId;
-    }
-
-    const normalized = apiHelpers.normalizePlatformName(raw);
-    const candidates = new Set([
-        raw.toLowerCase(),
-        normalized,
-    ]);
-
-    if (normalized === 'itch') candidates.add('itchio');
-    if (normalized === 'itchio') candidates.add('itch');
-    if (normalized === 'gogcom') candidates.add('gog');
-
-    const platformsCtrl = new PlatformsController();
-    for (const candidate of candidates) {
-        if (!candidate) continue;
-        const row = await platformsCtrl.getByPlatformName(candidate).catch(() => null);
-        const id = Number(row?.id);
-        if (Number.isFinite(id) && id > 0) {
-            return id;
-        }
-    }
-
-    return null;
-}
-
-function parseIncomingCost(body) {
-    if (!body || typeof body !== 'object') return null;
-
-    const hasCost = body.cost !== undefined && body.cost !== null && String(body.cost).trim() !== '';
-    if (hasCost) return body.cost;
-
-    const hasPrice = body.price !== undefined && body.price !== null && String(body.price).trim() !== '';
-    if (hasPrice) return body.price;
-
-    return null;
-}
-
-function normalizeCostToCents(value) {
-    const numeric = Number(value);
-    if (!Number.isFinite(numeric)) {
-        return null;
-    }
-
-    // Preserve already-cents integers, otherwise convert major units to cents.
-    if (Number.isInteger(numeric) && Math.abs(numeric) >= 1000) {
-        return Math.trunc(numeric);
-    }
-
-    return Math.round(numeric * 100);
-}
-
 module.exports.fetchInitialShopSpecialsData = async function() {
   try {    
     const games = await shopSpecials.getShopSpecials();
@@ -343,19 +271,14 @@ module.exports.GETGameById = async function (req, res) {
 module.exports.GETGamesByPlatformIdWithAllData = async function (req, res) {
     try {
         const { platformId, appId } = req.params;
-        const countryCode = normalizeCountryCodeInput(req.query?.country_code ?? req.body?.country_code, 'DE');
+        const countryCode = req.query?.country_code ?? req.body?.country_code;
         const appIdNum = Number(appId);
         if (!Number.isFinite(appIdNum) || appIdNum <= 0) {
             return res.status(400).json({ error: `Invalid appId: ${String(appId)}` });
         }
 
-        const resolvedPlatformId = await resolvePlatformIdFromParam(platformId);
-        if (!resolvedPlatformId) {
-            return res.status(400).json({ error: `Invalid platformId: ${String(platformId)}` });
-        }
-
         const gameCtrl = new GamesController();
-        const gameId = await gameCtrl.getGameIdByAppId(appIdNum, resolvedPlatformId);
+        const gameId = await gameCtrl.getGameIdByAppId(appIdNum, platformId);
         if (!gameId) {
             return res.status(404).json({ error: `Game not found by appId: ${appIdNum}` });
         }
@@ -405,23 +328,13 @@ module.exports.GETGameByIdWithAllData = async function (req, res) {
 module.exports.GETGamesInListByPlatformId = async function (req, res) {
     try {
         const { platformId, from } = req.params;
-        const normalizedFrom = normalizeOffsetParam(from);
-        if (normalizedFrom == null) {
-            return res.status(400).json({ error: `Invalid from offset: ${String(from)}` });
-        }
-
-        const resolvedPlatformId = await resolvePlatformIdFromParam(platformId);
-        if (!resolvedPlatformId) {
-            return res.status(400).json({ error: `Invalid platformId: ${String(platformId)}` });
-        }
-
-        const countryCode = normalizeCountryCodeInput(req.query?.country_code ?? req.body?.country_code, 'DE');
+        const countryCode = req.query?.country_code ?? req.body?.country_code;
 
         const gameCtrl = new GamesController();
-        const games = await gameCtrl.getAllGamesByPlatformFrom(countryCode, resolvedPlatformId, normalizedFrom);
+        const games = await gameCtrl.getAllGamesByPlatformFrom(countryCode, platformId, from);
 
         if (games instanceof Error) {
-            return res.status(404).json({ error: games.message });
+            res.status(404).json({ error: games.message });
         }
         return res.json(games);
     } catch (err) {
@@ -620,28 +533,20 @@ module.exports.POSTNewGame = async function (req, res) {
             description,
             banner_img: bannerImg,
             minimum_requirements: minRequirements,
-            platform_name: platformNameRaw,
+            platform_name: platformName,
             platform_id: platformId,
-            country_code: countryCodeRaw,
-            genre_names: incomingGenreNames,
+            country_code: countryCode,
+            cost: price,
+            genre_names: genreNames
         } = req.body;
-
-        const inputPrice = parseIncomingCost(req.body);
-        const countryCode = normalizeCountryCodeInput(countryCodeRaw, 'DE');
-        let genreNames = Array.isArray(incomingGenreNames) ? incomingGenreNames : [];
-
         let missing = [];
         if(appId == null) {missing.push("app_id")}
         if(name == null) {missing.push("name")}
-        if(inputPrice == null) {missing.push("price")}
+        if(price == null) {missing.push("price")}
+        if(countryCode == null) {missing.push("country_code")}
         if (missing.length) {
             return res.status(400).json({ message: 'Missing required fields', missing });
         }
-
-        let platformName = apiHelpers.normalizePlatformName(platformNameRaw);
-        if (platformName === 'itch') platformName = 'itchio';
-        if (platformName === 'gogcom') platformName = 'gog';
-
         // Resolve platform name: prefer provided platform_name, otherwise try to look up by platform_id
         let resolvedPlatformName = platformName ?? null;
         if (!resolvedPlatformName && platformId != null) {
@@ -681,14 +586,13 @@ module.exports.POSTNewGame = async function (req, res) {
         };
 
 
-        const normalizedPlatform = apiHelpers.normalizePlatformName(resolvedPlatformName);
-        if ((!Array.isArray(genreNames) || genreNames.length === 0) && (normalizedPlatform === 'itch' || normalizedPlatform === 'itchio')) {
+        if ((!Array.isArray(genreNames) || genreNames.length === 0) && String(resolvedPlatformName ?? '').trim().toLowerCase() === 'itch') {
             const itchDetails = await apiHelpers.fetchItchGameDetails(req.body.app_id, { includePageDetails: true });
             genreNames = apiHelpers.normalizeGenreNames(itchDetails?.genres ?? []);
         }
         const countyId = await apiHelpers.getCountryIdByCode(countryCode);
         
-        const uploadedGame = await gamesCtrl.uploadWithAll(gameData, null, genreNames, {"price": inputPrice, "country_id": countyId});
+        const uploadedGame = await gamesCtrl.uploadWithAll(gameData, null, genreNames, {"price": price, "country_id": countyId});
         return res.status(201).json({ message: 'Game uploaded successfully', gameId: uploadedGame.id });
     } catch (err) {
         console.error('Error in /api/games/upload endpoint:', err);
@@ -740,6 +644,7 @@ module.exports.POSTNewPirateSiteConnectionByGameId = async function (req, res) {
         }
         const data = {
             "game_id": gameId,
+            "site_id": siteId ?? null,
             "pirate_site_id": siteId ?? null,
             "site_name": siteName ?? null,
             "link": link,
@@ -976,20 +881,10 @@ module.exports.PUTGames = async function (req, res) {
             banner_img: bannerImg,
             description,
             minimum_requirements: minimumRequirements,
+            cost,
             genre_names: genreNames,
-            country_code: countryCodeRaw,
+            country_code: countryCode,
         } = req.body;
-
-        const incomingCost = parseIncomingCost(req.body);
-        const normalizedCountryCode = normalizeCountryCodeInput(countryCodeRaw, 'DE');
-        const hasGameFieldUpdate = [
-            appId,
-            platformId,
-            name,
-            bannerImg,
-            description,
-            minimumRequirements,
-        ].some((value) => value !== undefined);
 
         const gameData = {
             "app_id": appId,
@@ -1000,48 +895,38 @@ module.exports.PUTGames = async function (req, res) {
             "minimum_requirements": minimumRequirements,
         }
 
-        let updatedGame = null;
-        if (hasGameFieldUpdate) {
-            updatedGame = await gamesCtrl.update(numericGameId, gameData);
-            if (updatedGame instanceof Error) {
-                return res.status(400).json({ message: updatedGame.message });
-            }
-        } else {
-            const existing = await gamesCtrl.show(numericGameId);
-            if (!existing) {
-                return res.status(404).json({ error: `Game not found: ${numericGameId}` });
-            }
+        const updatedGame = await gamesCtrl.update(numericGameId, gameData);
+        if (updatedGame instanceof Error) {
+            return res.status(400).json({ message: updatedGame.message });
         }
 
-        if (incomingCost != null) {
-            const priceInCents = normalizeCostToCents(incomingCost);
-            if (!Number.isFinite(priceInCents)) {
-                return res.status(400).json({ error: 'Invalid cost/price value' });
-            }
+        if (cost != null) {
+            const numericCost = Number(cost);
+            if (Number.isFinite(numericCost)) {
+                const normalizedCountryCode = String(countryCode || 'DE').trim() || 'DE';
+                const countyId = await apiHelpers.getCountryIdByCode(normalizedCountryCode);
+                const existingPrices = await pricesCtrl.getByGameId(numericGameId);
+                const existingPriceForCountry = Array.isArray(existingPrices)
+                    ? existingPrices.find((priceRow) =>
+                        String(priceRow?.county_code || '').trim().toLowerCase() === normalizedCountryCode.toLowerCase()
+                    )
+                    : null;
 
-            const countyId = await apiHelpers.getCountryIdByCode(normalizedCountryCode);
-            const existingPrices = await pricesCtrl.getByGameId(numericGameId);
-            const existingPriceForCountry = Array.isArray(existingPrices)
-                ? existingPrices.find((priceRow) =>
-                    String(priceRow?.county_code || '').trim().toLowerCase() === normalizedCountryCode.toLowerCase()
-                )
-                : null;
-
-            if (existingPriceForCountry && existingPriceForCountry.id != null) {
-                const existingPriceCents = Number(existingPriceForCountry.price);
-                if (!Number.isFinite(existingPriceCents) || existingPriceCents !== priceInCents) {
+                // Prices are stored in cents in this backend query path.
+                const priceInCents = Math.round(numericCost * 100);
+                if (existingPriceForCountry && existingPriceForCountry.id != null) {
                     await pricesCtrl.update(existingPriceForCountry.id, {
                         gameId: numericGameId,
                         countyId,
                         price: priceInCents,
                     });
+                } else {
+                    await pricesCtrl.create({
+                        gameId: numericGameId,
+                        countyId,
+                        price: priceInCents,
+                    });
                 }
-            } else {
-                await pricesCtrl.create({
-                    gameId: numericGameId,
-                    countyId,
-                    price: priceInCents,
-                });
             }
         }
 
@@ -1065,10 +950,6 @@ module.exports.PUTGames = async function (req, res) {
                 await gamesGenresCtrl.create({ game_id: numericGameId, genre_id: genreId });
                 existingGenres.add(key);
             }
-        }
-
-        if (!updatedGame) {
-            updatedGame = await gamesCtrl.show(numericGameId);
         }
 
         return res.json(updatedGame);

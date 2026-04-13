@@ -17,12 +17,11 @@ class GamesPirateSitesConnectionTableMaker extends DatabaseHandler {
             CREATE TABLE IF NOT EXISTS game_pirates_sites_connections (
             game_id MEDIUMINT UNSIGNED NOT NULL, INDEX(game_id),
             site_id TINYINT NOT NULL, INDEX(site_id),
-            link VARCHAR(516) NOT NULL
+            link TEXT NOT NULL
         );
         `;
         try {
-            await this.dbConnection.execute(query);
-            console.log("'Games-pirate sites connection' table created or already exists.");
+            await this.dbConnection.execute(query);            console.log("'Games-pirate sites connection' table created or already exists.");
         } catch (err) {
             console.error("Error creating games-pirate sites connection table:", err);
         }

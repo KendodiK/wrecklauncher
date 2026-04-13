@@ -63,9 +63,8 @@ class GamesController extends Controller {
     async update(id, data) {
         await super.update();
 
-        const incomingPlatformId = data.platform_id ?? data.plafrom_id ?? null;
-        if (incomingPlatformId != null) {
-            let foreignKeyCheck = await this.#checkForeignKeys({ platform_id: incomingPlatformId });
+        if ( data.plafrom_id ) {
+            let foreignKeyCheck = await this.#checkForeignKeys(data);
             if (foreignKeyCheck instanceof Error) {
                 throw foreignKeyCheck;
             }
@@ -76,7 +75,7 @@ class GamesController extends Controller {
         const query = 'UPDATE `games` SET app_id = ?, platform_id = ?, name = ?, banner_img = ?, description = ?, minimum_requirements = ? WHERE id = ?;';
         const values = [
             data.app_id ?? old.app_id, 
-            incomingPlatformId ?? old.platform_id,
+            data.platform_id ?? old.platform_id, 
             data.name ?? old.name, 
             data.banner_img ?? old.banner_img,
             data.description ?? old.description, 
@@ -112,7 +111,7 @@ class GamesController extends Controller {
      * @returns {Array} - ["message": string, "id": int]
      */
     async uploadWithAll(data, genre_ids, genre_names, price_data) {
-        let platfromId = data.platform_id ?? data.plafrom_id ?? null;
+        let platfromId = data.plafrom_id ?? null;
         let platformName = data.platform_name ?? null;
         const appId = data.app_id;
 
@@ -129,12 +128,8 @@ class GamesController extends Controller {
             platfromId = platform.id;
         }
 
-        data.platform_id = platfromId;
-        data.plafrom_id = platfromId;
-
         const exists = await this.getGameIdByAppIdAndPlatform(appId, platfromId)
         if ( exists ) {
-            await this.#upsertPricesForGame(exists, price_data);
             // return the existing game row (so callers can access `.id`)
             return await this.show(exists);
         }
@@ -172,78 +167,30 @@ class GamesController extends Controller {
             }
         }
 
-        await this.#upsertPricesForGame(gameId, price_data);
+        // --- adding price ---
+        if (price_data != null) {
+            const pricesCtrl = new PricesController();
+            const entries = Array.isArray(price_data) ? price_data : [price_data];
+            for (const entry of entries) {
+                const countyId = entry.countyId ?? entry.county_id ?? entry.country_id ?? entry.countryId ?? null;
+                const priceVal = entry.price ?? entry.cost ?? null;
+                if (countyId == null || priceVal == null) {
+                    continue;
+                }
+                const priceInt = Number(priceVal);
+                if (!Number.isFinite(priceInt)) {
+                    throw new Error(`Invalid price value: ${priceVal}`);
+                }
+
+                const pricePayload = { gameId, countyId, price: priceInt };
+                const createdPrice = await pricesCtrl.create(pricePayload);
+                if (createdPrice instanceof Error) {
+                    throw createdPrice;
+                }
+            }
+        }
         
         return game;
-    }
-
-    /**
-     * Normalize incoming prices to integer cents.
-     * Accepts either major currency unit numbers (12.34) or already-cents values (1234).
-     * @param {unknown} value
-     * @returns {number|null}
-     */
-    #toPriceCents(value) {
-        const numeric = Number(value);
-        if (!Number.isFinite(numeric)) {
-            return null;
-        }
-
-        // If callers already provide integer cents, keep as-is.
-        if (Number.isInteger(numeric) && Math.abs(numeric) >= 1000) {
-            return Math.trunc(numeric);
-        }
-
-        return Math.round(numeric * 100);
-    }
-
-    /**
-     * Upsert one or more country-scoped price rows for a game.
-     * @param {number} gameId
-     * @param {Array|Object|null|undefined} price_data
-     * @returns {Promise<void>}
-     */
-    async #upsertPricesForGame(gameId, price_data) {
-        if (price_data == null) {
-            return;
-        }
-
-        const pricesCtrl = new PricesController();
-        const entries = Array.isArray(price_data) ? price_data : [price_data];
-        for (const entry of entries) {
-            if (!entry || typeof entry !== 'object') {
-                continue;
-            }
-
-            const countyId = entry.countyId ?? entry.county_id ?? entry.country_id ?? entry.countryId ?? null;
-            const priceVal = entry.price ?? entry.cost ?? null;
-            if (countyId == null || priceVal == null) {
-                continue;
-            }
-
-            const priceCents = this.#toPriceCents(priceVal);
-            if (!Number.isFinite(priceCents)) {
-                throw new Error(`Invalid price value: ${priceVal}`);
-            }
-
-            const lookupQuery = 'SELECT id FROM prices WHERE game_id = ? AND county_id = ? LIMIT 1;';
-            const [rows] = await this.dbConnection.execute(lookupQuery, [gameId, countyId]);
-            const existingPriceId = Array.isArray(rows) && rows[0] ? rows[0].id : null;
-
-            if (existingPriceId != null) {
-                await pricesCtrl.update(existingPriceId, {
-                    gameId,
-                    countyId,
-                    price: priceCents,
-                });
-            } else {
-                await pricesCtrl.create({
-                    gameId,
-                    countyId,
-                    price: priceCents,
-                });
-            }
-        }
     }
 
     /**
@@ -254,10 +201,15 @@ class GamesController extends Controller {
      */
     async getGameIdByAppId(app_id, platform_id) {
         await this.ready;
+
+        const resolvedPlatformId = await this.#resolvePlatformId(platform_id);
+        if (!resolvedPlatformId) {
+            return null;
+        }
         
         const query = `SELECT id FROM ${this.tableName} WHERE app_id = ? AND platform_id = ? LIMIT 1;`;
         try {
-            const [rows] = await this.dbConnection.execute(query, [app_id, platform_id]);
+            const [rows] = await this.dbConnection.execute(query, [app_id, resolvedPlatformId]);
             if (!rows || rows.length === 0 || rows[0]?.id == null) {
                 return null;
             }
@@ -277,9 +229,14 @@ class GamesController extends Controller {
     async getGameIdByAppIdAndPlatform(app_id, platform_id) {
         await this.ready;
 
+        const resolvedPlatformId = await this.#resolvePlatformId(platform_id);
+        if (!resolvedPlatformId) {
+            return null;
+        }
+
         const query = `SELECT id FROM ${this.tableName} WHERE app_id = ? AND platform_id = ? LIMIT 1;`;
         try {
-            const [rows] = await this.dbConnection.execute(query, [app_id, platform_id]);
+            const [rows] = await this.dbConnection.execute(query, [app_id, resolvedPlatformId]);
             if (!rows || rows.length === 0 || rows[0]?.id == null) {
                 return null;
             }
@@ -416,11 +373,16 @@ class GamesController extends Controller {
     async getAllGamesByPlatformFrom(countyCode, platform_id, from) {
         await this.ready;
 
+        const resolvedPlatformId = await this.#resolvePlatformId(platform_id);
+        if (!resolvedPlatformId) {
+            return [];
+        }
+
         let game_ids = [];
         try {
             const query = 'SELECT id FROM games WHERE platform_id = ? ORDER BY id LIMIT 20 OFFSET ?;';
 
-            const [rows] = await this.dbConnection.execute(query, [platform_id, from]);
+            const [rows] = await this.dbConnection.execute(query, [resolvedPlatformId, from]);
             for (const row of rows) {
                 game_ids.push(row.id);
             }
@@ -439,6 +401,57 @@ class GamesController extends Controller {
             }
         }
         return games;
+    }
+
+    /**
+     * Resolve a platform reference to a numeric platform id.
+     * Accepts either a direct numeric id or common platform name aliases.
+     *
+     * @param {number|string|null|undefined} platform
+     * @returns {Promise<number|null>}
+     */
+    async #resolvePlatformId(platform) {
+        if (platform === null || platform === undefined) {
+            return null;
+        }
+
+        const raw = String(platform).trim().toLowerCase();
+        if (!raw) {
+            return null;
+        }
+
+        if (/^\d+$/.test(raw)) {
+            const id = Number(raw);
+            if (!Number.isFinite(id) || id <= 0) {
+                return null;
+            }
+            return id;
+        }
+
+        const aliasMap = {
+            steam: ['steam'],
+            gog: ['gog', 'gog.com'],
+            'gog.com': ['gog.com', 'gog'],
+            itchio: ['itchio', 'itch', 'itch.io'],
+            itch: ['itch', 'itchio', 'itch.io'],
+            'itch.io': ['itch.io', 'itchio', 'itch'],
+        };
+
+        const namesToTry = aliasMap[raw] ?? [raw];
+        for (const platformName of namesToTry) {
+            const [rows] = await this.dbConnection.execute(
+                'SELECT id FROM platforms WHERE LOWER(platform_name) = ? LIMIT 1;',
+                [platformName]
+            );
+            if (rows && rows.length > 0 && rows[0]?.id != null) {
+                const id = Number(rows[0].id);
+                if (Number.isFinite(id) && id > 0) {
+                    return id;
+                }
+            }
+        }
+
+        return null;
     }
 
     /**

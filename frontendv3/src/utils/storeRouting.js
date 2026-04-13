@@ -1,18 +1,8 @@
-const PLATFORM_ID_TO_NAME = Object.freeze({
-	1: 'steam',
-	3: 'itchio',
-	4: 'gog',
-});
-
 function toCanonicalStorePlatform(value) {
 	if (value === null || value === undefined) return null;
 
 	const raw = String(value).trim().toLowerCase();
 	if (!raw) return null;
-
-	if (/^\d+$/.test(raw)) {
-		return PLATFORM_ID_TO_NAME[Number(raw)] || null;
-	}
 
 	if (raw === 'steam') return 'steam';
 	if (raw === 'gog' || raw === 'gog.com') return 'gog';
@@ -51,13 +41,6 @@ export function resolveStorePlatformFromGame(game, fallback = 'steam') {
 		return normalizeStorePlatform(candidate, fallback);
 	}
 
-	const byId = [game.platform_id, game.platformId];
-	for (const candidate of byId) {
-		if (candidate === null || candidate === undefined) continue;
-		if (!String(candidate).trim()) continue;
-		return normalizeStorePlatform(candidate, fallback);
-	}
-
 	return normalizeStorePlatform(fallback, 'steam');
 }
 
@@ -66,12 +49,6 @@ export function resolveStorePlatformFromGameStrict(game) {
 
 	const byName = [game.platform_name, game.platform, game.platformName];
 	for (const candidate of byName) {
-		const normalized = normalizeStorePlatformStrict(candidate);
-		if (normalized) return normalized;
-	}
-
-	const byId = [game.platform_id, game.platformId];
-	for (const candidate of byId) {
 		const normalized = normalizeStorePlatformStrict(candidate);
 		if (normalized) return normalized;
 	}

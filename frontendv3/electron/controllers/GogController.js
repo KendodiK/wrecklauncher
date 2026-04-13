@@ -282,52 +282,11 @@ async #fetchGogCoverUrl(appId) {
 }
 
   /**
-   * @param {unknown} value
-   * @returns {string}
-   */
-  #normalizeTitleForCompare(value) {
-    return String(value || '')
-      .toLowerCase()
-      .replace(/[\u00a9\u00ae\u2122]/g, '')
-      .replace(/[^a-z0-9]+/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-  }
-
-  /**
-   * @param {unknown} query
-   * @param {unknown} candidate
-   * @returns {number}
-   */
-  #titleMatchScore(query, candidate) {
-    const q = this.#normalizeTitleForCompare(query);
-    const c = this.#normalizeTitleForCompare(candidate);
-    if (!q || !c) return 0;
-    if (q === c) return 1;
-    if (q.includes(c) || c.includes(q)) return 0.9;
-
-    const qTokens = new Set(q.split(' ').filter((t) => t.length > 1));
-    const cTokens = new Set(c.split(' ').filter((t) => t.length > 1));
-    if (qTokens.size < 1 || cTokens.size < 1) return 0;
-
-    let overlap = 0;
-    for (const token of qTokens) {
-      if (cTokens.has(token)) overlap += 1;
-    }
-    if (overlap < 1) return 0;
-
-    const union = qTokens.size + cTokens.size - overlap;
-    const jaccard = union > 0 ? overlap / union : 0;
-    const coverage = overlap / Math.min(qTokens.size, cTokens.size);
-    return Math.max(jaccard, coverage * 0.9);
-  }
-
-  /**
    * @param {string} title
    * @returns {string[]}
    */
   #buildSlugCandidatesFromTitle(title) {
-    const normalized = this.#normalizeTitleForCompare(title);
+    const normalized = this._normalizeTitleForCompare(title);
     if (!normalized) return [];
 
     const words = normalized.split(' ').filter(Boolean);
@@ -375,7 +334,7 @@ async #fetchGogCoverUrl(appId) {
       if (!details || typeof details !== 'object') continue;
 
       const matchedTitle = String(details.title || '').trim();
-      const score = this.#titleMatchScore(needle, matchedTitle);
+      const score = this._titleMatchScore(needle, matchedTitle);
 
       matches.push({
         slug,

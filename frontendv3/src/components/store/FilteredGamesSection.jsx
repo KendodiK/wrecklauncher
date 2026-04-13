@@ -62,6 +62,12 @@ const FilteredGamesSection = ({
 		setCurrentPage(1);
 	}, [searchQuery, selectedGenres, selectedPlatforms, priceRange]);
 
+	useEffect(() => {
+		if (currentPage > totalPages) {
+			setCurrentPage(totalPages);
+		}
+	}, [currentPage, totalPages]);
+
 	// Reset selected game if not in current page
 	useEffect(() => {
 		if (!pagedGames.length) {
@@ -75,28 +81,30 @@ const FilteredGamesSection = ({
 	}, [pagedGames, selectedGame]);
 
 const handleNextPage = async () => {
-	// If there are already pages left, just move to next page
-	console.log('Handling next page. Current page:', currentPage, 'Total pages:', totalPages, 'Filtered games:', filteredGames.length, 'Games per page:', gamesPerPage, 'Can load more:', canLoadMore, 'Is loading more:', isLoadingMore, 'Offset:', (currentPage * gamesPerPage));
-	console.log(filteredGames.length, currentPage, gamesPerPage, totalPages);
 	if (currentPage < totalPages) {
-		setCurrentPage(p => p + 1);
+		setCurrentPage((p) => Math.min(totalPages, p + 1));
 		return;
 	}
 
-	// If on last page, the next batch should already be prefetched by useEffect below
-	// Only increment page if new games were added (already handled by prefetch)
-	if (filteredGames.length > currentPage * gamesPerPage) {
-		setCurrentPage(p => p + 1);
-	} else {
-		// No more games fetched, do not increment page
-		console.log('No more games to load or reached the end.');
+	if (!canLoadMore || typeof onRequestNextPage !== 'function' || isLoadingMore) {
+		return;
+	}
+
+	try {
+		const loaded = await onRequestNextPage();
+		const didLoad = typeof loaded === 'number' ? loaded > 0 : Boolean(loaded);
+		if (didLoad) {
+			setCurrentPage((p) => p + 1);
+		}
+	} catch (error) {
+		console.error('Failed to load next browse page:', error);
 	}
 };
 
 // Prefetch next page when on last page
 useEffect(() => {
 	if (
-		currentPage === totalPages &&
+		currentPage >= Math.max(1, totalPages - 1) &&
 		canLoadMore &&
 		typeof onRequestNextPage === 'function' &&
 		!isLoadingMore

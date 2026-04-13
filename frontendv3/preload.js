@@ -129,6 +129,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     if (typeof token === 'string' && token.trim()) setAuthToken(token);
     return token;
   },
+  getPlatformUserId: (platformName, platformUsername) => {
+    return invokeAuthed('user:get-platform-userid', platformName, platformUsername);
+  },
   getPlatformUserID: (platformName, platformUsername) => {
     return invokeAuthed('user:get-platform-userid', platformName, platformUsername);
   },
@@ -189,6 +192,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   cloudscraperFetch: (url, options) => ipcRenderer.invoke('cloudscraper:fetch', url, options),
   cloudscraperDodiRepacksHome: () => ipcRenderer.invoke('cloudscraper:dodi-repacks-home'),
   cloudscraperSearchByxatab: (query, page) => ipcRenderer.invoke('cloudscraper:search-byxatab', query, page),
+  fitGirlMagnetLink: (gameName) => ipcRenderer.invoke('fitgirl:magnet-link', gameName),
+  pcGamesTorrentMagnetLink: (gameName) => ipcRenderer.invoke('pcgamestorrent:magnet-link', gameName),
   FitGirlMagnetLink: (gameName) => ipcRenderer.invoke('fitgirl:magnet-link', gameName),
   PcGamesTorrentMagnetLink: (gameName) => ipcRenderer.invoke('pcgamestorrent:magnet-link', gameName),
   ComingSoonGames: (from) => ipcRenderer.invoke('shop-specials:coming-soon', from),
@@ -229,7 +234,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getGames: (from, countryCode = 'DE') => ipcRenderer.invoke('games:get-games', from, { countryCode }),
   getAllDetailsByID: (id, countryCode = 'DE') => ipcRenderer.invoke('games:get-all-details-by-id', id, { countryCode }),
   getAllDetailsByAppIDAndPlatform: (appId, platform, countryCode = 'DE') =>
-    ipcRenderer.invoke('games:get-all-details-by-appid-and-platform', { appId, platform, countryCode }),
+    ipcRenderer.invoke('games:get-all-details-by-appid-and-platform', {
+      appId,
+      platform,
+      countryCode,
+      token: getAuthToken() || undefined,
+    }),
   // SettingsController
   getSettings: () => ipcRenderer.invoke('settings:get'),
   updateSetting: (category, key, value) => ipcRenderer.invoke('settings:update', category, key, value),

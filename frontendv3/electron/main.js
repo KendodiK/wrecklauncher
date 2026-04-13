@@ -283,8 +283,12 @@ function getShopSpecialsCtrl() {
   handleAuthed('user:get-platform-userid', async ({ token }, platformName, platformUsername) => {
     // Ensure the controller uses the token from renderer.
     getUserCtrl().setToken(token);
-    const platformId = await getPlatformsCtrl().getPlatform(String(platformName));
-    return await getUserCtrl().getPlatformUserID(String(platformId), String(platformUsername));
+    const platformRow = await getPlatformsCtrl().getPlatform(String(platformName));
+    const resolvedPlatformId = Number(platformRow?.id ?? platformRow?.platform_id);
+    if (!Number.isFinite(resolvedPlatformId) || resolvedPlatformId <= 0) {
+      throw new Error(`Failed to resolve platform id for: ${String(platformName)}`);
+    }
+    return await getUserCtrl().getPlatformUserId(String(resolvedPlatformId), String(platformUsername));
   });
 
   handleAuthed('user:get-owned-games-from-steam', async ({ token }) => {
@@ -353,7 +357,7 @@ function getShopSpecialsCtrl() {
     });
 
   handleAuthed('platform:get-users', async ({ token }) => {
-    return await getPlatformsCtrl().getPlatformUserIDAll(token);
+    return await getPlatformsCtrl().getAllPlatformUserIds(token);
   });
 
   handleAuthed('platform:delete-user', async ({ token }, platformUserId) => {
@@ -400,7 +404,7 @@ handle('steam:get-installed-games', async () => {
       }
     }
 
-    return await getSteamCtrl().getGamesDetails(token || '', Number(appID), cc ? String(cc) : undefined);
+    return await getSteamCtrl().getGameDetails(token || '', Number(appID), cc ? String(cc) : undefined);
   });
 
   // Steam title-based details.
@@ -446,22 +450,22 @@ handle('steam:get-installed-games', async () => {
 
   // Open Steam client install prompt for a Steam AppID.
   handle('steam:install-game', async (_event, appID) => {
-    return await getSteamCtrl().clientGameControllUtil(appID, 'install');
+    return await getSteamCtrl().clientGameControlUtil(appID, 'install');
   });
 
   // Open Steam client uninstall prompt for a Steam AppID.
   handle('steam:delete-game', async (_event, appID) => {
-    return await getSteamCtrl().clientGameControllUtil(appID, 'uninstall');
+    return await getSteamCtrl().clientGameControlUtil(appID, 'uninstall');
   });
 
   // Open Steam store page for a Steam AppID.
   handle('steam:store-page', async (_event, appID) => {
-    return await getSteamCtrl().clientGameControllUtil(appID, 'store');
+    return await getSteamCtrl().clientGameControlUtil(appID, 'store');
   });
 
   // Run/launch a Steam game by AppID.
   handle('steam:run-game', async (_event, appID) => {
-    return await getSteamCtrl().clientGameControllUtil(appID, 'run');
+    return await getSteamCtrl().clientGameControlUtil(appID, 'run');
   });
 
   // Game DB details (requires backend support)
@@ -478,7 +482,7 @@ handle('steam:get-installed-games', async () => {
   async function getPirateSitesForGame(name) {
     let sites = [];
     try {
-      const fitGirlLink = await getFitGirlCtrl().FitGirlMagnetLink(await makeNameSlug(name));
+      const fitGirlLink = await getFitGirlCtrl().fitGirlMagnetLink(await makeNameSlug(name));
       if (fitGirlLink) {        
         sites.push({ name: 'FitGirl Repacks', url: fitGirlLink });
       }
@@ -487,7 +491,7 @@ handle('steam:get-installed-games', async () => {
     }
     console.log('Attempting to fetch PCGamesTorrent link for game:', await makeNameSlug(name));
     try {
-      const pcGamesTorrentLink = await getPcGamesTorrentCtrl().PcGamesTorrentMagnetLink(await makeNameSlug(name));
+      const pcGamesTorrentLink = await getPcGamesTorrentCtrl().pcGamesTorrentMagnetLink(await makeNameSlug(name));
       if (pcGamesTorrentLink) {
         sites.push({ name: 'PCGamesTorrent', url: pcGamesTorrentLink });
       }
@@ -584,26 +588,31 @@ handle('steam:get-installed-games', async () => {
     if (!gameDetails) return null;
     console.log('Fetched game details:', gameDetails);
     console.log('Pirate sites from backend:', gameDetails.pirate_sites);
-      if(!Array.isArray(gameDetails.pirate_sites) || gameDetails.pirate_sites.length === 0){
-        gameDetails.pirate_sites = await getPirateSitesForGame(gameDetails.name || '');
-        if(token && gameDetails.pirate_sites.length > 0){
-        for (const site of gameDetails.pirate_sites) {
-          //FINISH THIS LATER!!!!!
-          try{
-          const siteUrl = site && typeof site === 'object' ? site.url : site;
-          if (siteUrl) {
-            await getGamesCtrl().uploadPirateSites(token, gameDetails.app_id, gameDetails.platform_name, [String(siteUrl)]);
+    if (!Array.isArray(gameDetails.pirate_sites) || gameDetails.pirate_sites.length === 0) {
+      gameDetails.pirate_sites = await getPirateSitesForGame(gameDetails.name || '');
+      const hasScrapedSites = Array.isArray(gameDetails.pirate_sites) && gameDetails.pirate_sites.length > 0;
+
+      if (token && hasScrapedSites) {
+        try {
+          const uploadSummary = await getGamesCtrl().uploadPirateSites(
+            token,
+            gameDetails.app_id ?? appId,
+            gameDetails.platform_name ?? platform,
+            gameDetails.pirate_sites
+          );
+          console.log('Uploaded scraped pirate sites:', uploadSummary);
+        } catch (e) {
+          if (e && typeof e === 'object' && e.code === 'WRECK_INVALID_TOKEN') {
+            throw e;
           }
-          } catch(e){
-            console.warn('Failed to upload pirate site:', e);
-          }
+          console.warn('Failed to upload scraped pirate sites:', e);
         }
       }
-        console.log('Fetched pirate sites:', gameDetails.pirate_sites);
-        return gameDetails;
-      } else {
-        return gameDetails;
-      }
+
+      console.log('Fetched pirate sites:', gameDetails.pirate_sites);
+    }
+
+    return gameDetails;
   });
   handle('games:get-all-details-by-id', async (event, id, opts) => {
     const senderUrl = getSenderUrl(event);
@@ -846,11 +855,11 @@ handle('steam:get-installed-games', async () => {
     return await getCloudscraperCtrl().searchByxatab(String(query), Number(page || 1));
   });
   handle('fitgirl:magnet-link', async (_event, gameName) => {
-    return await getFitGirlCtrl().FitGirlMagnetLink(String(gameName));
+    return await getFitGirlCtrl().fitGirlMagnetLink(String(gameName));
   });
 
   handle('pcgamestorrent:magnet-link', async (_event, gameName) => {
-    return await getPcGamesTorrentCtrl().PcGamesTorrentMagnetLink(String(gameName));
+    return await getPcGamesTorrentCtrl().pcGamesTorrentMagnetLink(String(gameName));
   });
 
   

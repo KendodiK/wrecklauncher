@@ -37,47 +37,6 @@ class SteamGamesController extends GamesController {
   }
 
   /**
-   * @param {unknown} value
-   * @returns {string}
-   */
-  static #normalizeTitleForCompare(value) {
-    return String(value || '')
-      .toLowerCase()
-      .replace(/[\u00a9\u00ae\u2122]/g, '')
-      .replace(/[^a-z0-9]+/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-  }
-
-  /**
-   * @param {unknown} query
-   * @param {unknown} candidate
-   * @returns {number}
-   */
-  static #titleMatchScore(query, candidate) {
-    const q = SteamGamesController.#normalizeTitleForCompare(query);
-    const c = SteamGamesController.#normalizeTitleForCompare(candidate);
-    if (!q || !c) return 0;
-    if (q === c) return 1;
-    if (q.includes(c) || c.includes(q)) return 0.9;
-
-    const qTokens = new Set(q.split(' ').filter((t) => t.length > 1));
-    const cTokens = new Set(c.split(' ').filter((t) => t.length > 1));
-    if (qTokens.size < 1 || cTokens.size < 1) return 0;
-
-    let overlap = 0;
-    for (const token of qTokens) {
-      if (cTokens.has(token)) overlap += 1;
-    }
-    if (overlap < 1) return 0;
-
-    const union = qTokens.size + cTokens.size - overlap;
-    const jaccard = union > 0 ? overlap / union : 0;
-    const coverage = overlap / Math.min(qTokens.size, cTokens.size);
-    return Math.max(jaccard, coverage * 0.9);
-  }
-
-  /**
    * Search Steam store app IDs by game title.
    *
    * @param {string} title
@@ -119,7 +78,7 @@ class SteamGamesController extends GamesController {
         return {
           appid,
           title: candidateTitle,
-          score: SteamGamesController.#titleMatchScore(needle, candidateTitle),
+          score: this._titleMatchScore(needle, candidateTitle),
           url: `https://store.steampowered.com/app/${appid}`,
         };
       })
@@ -143,7 +102,7 @@ class SteamGamesController extends GamesController {
     if (matches.length < 1) return null;
 
     for (const match of matches.slice(0, 5)) {
-      const details = await this.getGamesDetails(token, match.appid, cc);
+      const details = await this.getGameDetails(token, match.appid, cc);
       if (!details) continue;
 
       return {
@@ -224,7 +183,7 @@ class SteamGamesController extends GamesController {
    * @param {string} [cc]
    * @returns {Promise<import('../models').SteamGameDetails|null>}
    */
-  async getGamesDetails(token, appID, cc = 'de') {
+  async getGameDetails(token, appID, cc = 'de') {
     const appIdNum = Number(appID);
     if (!Number.isFinite(appIdNum) || appIdNum <= 0) throw new Error(`Invalid Steam AppID: ${String(appID)}`);
     const lang = 'en';
@@ -357,6 +316,18 @@ class SteamGamesController extends GamesController {
 
     return null;
   }
+
+  /**
+   * Backward-compatible alias for older call sites.
+   * @param {string} token
+   * @param {number} appID
+   * @param {string} [cc]
+   * @returns {Promise<import('../models').SteamGameDetails|null>}
+   */
+  async getGamesDetails(token, appID, cc = 'de') {
+    return this.getGameDetails(token, appID, cc);
+  }
+
   /**
    * Runs, installs, deletes or opens the store page for a steam game via the steam:// URL scheme. Note: this requires the user to have the Steam client installed and properly registered to handle steam:// links.
    * 
@@ -364,7 +335,7 @@ class SteamGamesController extends GamesController {
    * @param {string} action install/store/run/uninstall
    * @returns 
    */
-  async clientGameControllUtil(appID, action) {
+  async clientGameControlUtil(appID, action) {
     const appIdNum = Number(appID);
     if (!Number.isFinite(appIdNum) || appIdNum <= 0) throw new Error(`Invalid Steam AppID: ${String(appID)}`);
 
@@ -376,6 +347,16 @@ class SteamGamesController extends GamesController {
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(`Failed to open Steam client URL (${url}): ${msg}`);
     }
+  }
+
+  /**
+   * Backward-compatible alias for the legacy misspelled method name.
+   * @param {string} appID
+   * @param {string} action
+   * @returns {Promise<{ ok: boolean, url: string }>}
+   */
+  async clientGameControllUtil(appID, action) {
+    return this.clientGameControlUtil(appID, action);
   }
 
 async getInstalledGames() {
