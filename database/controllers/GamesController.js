@@ -376,12 +376,12 @@ class GamesController extends Controller {
     async getGameCount() {
         await this.ready;
         try {
-            const query = `SELECT COUNT(*) AS count FROM ${this.tableName};`;
+            const query = `SELECT COUNT(*) AS countedGames FROM games;`;
             const [rows] = await this.dbConnection.execute(query);
-            if (rows && rows[0] && rows[0].count != null) {
-                return rows[0].count;
+            if (rows && rows[0].countedGames != null) {
+                return rows[0].countedGames;
             }
-            return 0;
+            return rows;
         } catch (err) {
             console.error(`Error while fetching game count from table ${this.tableName}: ${err}`);
             throw err;
