@@ -84,6 +84,8 @@ footer {
     z-index: 20;
     display: flex;
     justify-content: center;
+    align-items: center;
+    gap: 0.5rem;
     margin: 0;
     background-color: var(--secundary-color);
     color: var(--text-color);
@@ -92,13 +94,21 @@ footer {
     height: 8vh;
 }
 
+a {
+    color: var(--text-color);
+}
+
+a:hover {
+    color: #919191;
+}
+
 .content {
     height: 300vh;
 }
 
 .wrapper {
     align-items: center;
-    height: 150vh;
+    height: 170vh;
 }
 
 .title {
@@ -123,10 +133,18 @@ footer {
     width: 15vw;
     height: auto;
     margin-bottom: 2vh;
+}
 
+.scroll-animation .anchorlauncher-logo {
     animation: move-anchorlch-logo forwards;
     animation-timeline: scroll();
     animation-range: 35vh 50vh;
+}
+
+.no-scroll-animation .anchorlauncher-logo {
+    position: relative;
+    top: 0;
+    left: 0;
 }
 
 .steam-logo, .ea-logo, .ithcio-logo { 
@@ -148,25 +166,52 @@ footer {
 .steam-logo {
     top: 6vh;
     left: 8vw;
+}
+
+.scroll-animation .steam-logo {
     animation: move-steam forwards;
     animation-timeline: scroll();
     animation-range: 0vh 35vh;
 }
 
+.no-scroll-animation .steam-logo {
+    position: absolute;
+    top: 15vh;
+    left: 10vw;
+}
+
 .ea-logo {
     top: 12vh;
     left: 76vw;
+}
+
+.scroll-animation .ea-logo {
     animation: move-ea forwards;
     animation-timeline: scroll();
     animation-range: 0vh 35vh;
 }
 
+.no-scroll-animation .ea-logo {
+    position: absolute;
+    top: 20vh;
+    left: 85vw;
+}
+
 .ithcio-logo {
     top: 26vh;
     left: 22vw;
+}
+
+.scroll-animation .ithcio-logo {
     animation: move-ithcio forwards;
     animation-timeline: scroll();
     animation-range: 0vh 35vh;
+}
+
+.no-scroll-animation .ithcio-logo {
+    position: absolute;
+    top: 30vh;
+    left: 30vw;
 }
 
 .anchor-image {
@@ -178,10 +223,20 @@ footer {
     left: 90vw;
     opacity: 0;
     transform: translateX(-50%);
+}
 
+.scroll-animation .anchor-image {
     animation: show-anchor forwards;
     animation-timeline: scroll();
     animation-range: 45vh 50vh;
+}
+
+.no-scroll-animation .anchor-image {
+    position: absolute;
+    top: 100vh;
+    left: 90vw;
+    opacity: 1;
+    transform: translateX(-50%);
 }
 
 .sites-ul {
@@ -213,6 +268,8 @@ footer {
     width: 60vw;
     height: auto;
 }
+
+/* Animations */
 
 @keyframes move-steam {
     from {
@@ -287,3 +344,5 @@ footer {
         opacity: 1;
     }
 }
+
+/* responsive */
