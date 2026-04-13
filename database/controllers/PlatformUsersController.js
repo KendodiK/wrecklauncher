@@ -114,7 +114,7 @@ class PlatformUsersController extends Controller {
     async createUserWhithAllForeginData(data) {
         let platformId = null;
         if (data.native_user_id == null) {
-            throw new Error("cannot create user whitout native user")
+            throw new Error("cannot create user whitout native user id")
         }
 
         if (data.platform_id == null && data.platform_name != null) { 

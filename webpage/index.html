@@ -11,7 +11,12 @@
 <header>
     <nav>
         <ul>
-            <li>AnchorLauncher</li>
+            <li>
+                <div class="nav-wrapper">
+                    <img src="img/logo.svg" alt="AnchorLauncher Logo" class="nav-logo">
+                    AnchorLauncher
+                </div>
+            </li>
             <li><button class="download-btn-header">Download</button></li>
         </ul>
     </nav>
@@ -25,17 +30,18 @@
         <h2 class="slogen">All your games together</h2>
         <img id="anchorlauncher-logo" class="anchorlauncher-logo" src="img/logo.svg" alt="anchorlauncher_logo">
         <p>Brose and launch all your games from multiple sites just as:</p>
-        <ul>
-            <li>Steam</li>
-            <li>ithc.io</li>
-            <li>gogo.com</li>
+        <ul id="sites-ul" class="sites-ul">
+            
         </ul>
         <img id="anchor-image" class="anchor-image" src="img/anchor_disp.svg" alt="achor_image" >
-        <!--<div id="chain-container" class="chain-container">-->
-        </div>
-        <div><p>Currently featureing: 00000 games from all over the launchers</p></div>
+        <div><p>Currently featureing: <span id="game-count">0</span> games from all over the launchers</p></div>
+    </div>
+    <img src="./img/ship.svg" alt="ship_image" class="ship-image">
+    <div>
         <h2>Helps to navigate in the word of pirating</h2>
-
+        <p>Using sites like:</p>
+        <ul id="pirate-ul" class="sites-ul">
+        </ul>
     </div>
 </body>
 <footer>

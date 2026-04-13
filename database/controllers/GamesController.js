@@ -403,6 +403,21 @@ class GamesController extends Controller {
         return games;
     }
 
+    async getGameCount() {
+        await this.ready;
+        try {
+            const query = `SELECT COUNT(*) AS count FROM ${this.tableName};`;
+            const [rows] = await this.dbConnection.execute(query);
+            if (rows && rows[0] && rows[0].count != null) {
+                return rows[0].count;
+            }
+            return 0;
+        } catch (err) {
+            console.error(`Error while fetching game count from table ${this.tableName}: ${err}`);
+            throw err;
+        }
+    }
+
     /**
      * Resolve a platform reference to a numeric platform id.
      * Accepts either a direct numeric id or common platform name aliases.
