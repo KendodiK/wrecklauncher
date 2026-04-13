@@ -92,6 +92,8 @@ app.get('/api/steam/profile-id/:vanityurl', apiFunctions.GETSteamProfileId); // 
 
 app.get('/steam/api/get-owned-games', tokenValidate(), apiFunctions.GETOwnedGamesSteam); // old path: /steam/api/getOwnedGames
 
+app.get("/api/games/gamecount", apiFunctions.GETGameCount); //new path v2.3
+
 app.get("/api/games/:id", apiFunctions.GETGameById);
 /*
   route: /api/games/app/:appId/all
@@ -127,7 +129,6 @@ app.get("/api/games/platform/:platformId/list/:from/details", apiFunctions.GETGa
 
 app.get("/api/games/list/:from", apiFunctions.GETGamesInList);
 
-app.get("/api/games/gamecount", apiFunctions.GETGameCount); //new path v2.3
 
 app.get("/api/search/:needle", apiFunctions.GETSearch);
 /*
