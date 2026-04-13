@@ -27,7 +27,6 @@ class GamesGenresConnnectionController extends Controller {
             throw foreignKeyCheck;
         }
 
-        console.log(data.game_id, data.genre_id);
         const query = 'INSERT INTO `games_genres_connections` (game_id, genre_id) VALUES (?, ?)';
         let values = [data.game_id, data.genre_id];
         try {
@@ -103,7 +102,6 @@ class GamesGenresConnnectionController extends Controller {
             throw err;
         }
 
-        console.log(data);
         try {
             const [genreRows] = await this.dbConnection.execute('SELECT id FROM genres WHERE id = ?', [data.genre_id]);
             if (!genreRows || genreRows.length === 0) {

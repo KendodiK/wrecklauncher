@@ -98,6 +98,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   minimize: () => ipcRenderer.send('window:minimize'),
   maximize: () => ipcRenderer.send('window:maximize'),
   close: () => ipcRenderer.send('window:close'),
+  toggleDevTools: () => ipcRenderer.send('window:toggle-devtools'),
   invoke: (channel, ...args) => invokeWithTokenSync(channel, ...args),
 
   // Controller helpers (serverless modules in Electron main)
@@ -206,12 +207,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // GamesController
   getGames: (from) => ipcRenderer.invoke('games:get-games', from),
   getAllDetailsByID: (id) => ipcRenderer.invoke('games:get-all-details-by-id', id),
+  getAllDetailsByAppIDAndPlatform: (platform, appId, token) => ipcRenderer.invoke('games:get-all-details-by-appid-and-platform', {platform}, {appId}, {token}),
+  // SettingsController
+  getSettings: () => ipcRenderer.invoke('settings:get'),
+  updateSetting: (category, key, value) => ipcRenderer.invoke('settings:update', category, key, value),
+  updateSettings: (newSettings) => ipcRenderer.invoke('settings:update-bulk', newSettings),
+  resetSettings: () => ipcRenderer.invoke('settings:reset'),
+  clearCache: () => ipcRenderer.invoke('settings:clear-cache'),
+  updatePlatformConnection: (platform, connected, username) => 
+    ipcRenderer.invoke('settings:update-platform', platform, connected, username),
 });
+
+ //getAllDetailsByAppIDAndPlatform: (platform, appId) => ipcRenderer.invoke('games:get-all-details-by-appid-and-platform', {platform}, {appId}),
 
 // Optional legacy-style alias used by some code paths
 contextBridge.exposeInMainWorld('api', {
   minimize: () => ipcRenderer.send('window:minimize'),
   maximize: () => ipcRenderer.send('window:maximize'),
   close: () => ipcRenderer.send('window:close'),
+  toggleDevTools: () => ipcRenderer.send('window:toggle-devtools'),
   invoke: (channel, ...args) => invokeWithTokenSync(channel, ...args),
 });

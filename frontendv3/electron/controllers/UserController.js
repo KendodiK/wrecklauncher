@@ -126,7 +126,7 @@ class UserController extends TokenController {
 
     const key = '434EECE4774CA9E521E678472784C794';
     console.log(`[UserController] Fetching owned games for SteamID ${steamID} with API key ${key}`);
-    const url = `https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key=${key}&steamid=${encodeURIComponent(String(steamID))}&format=json`;
+    const url = `https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key=${key}&steamid=${encodeURIComponent(String(steamID))}&include_appinfo=1&include_played_free_games=1&format=json`;
     const { ok, status, json, text } = await fetchJsonSafe(url, { method: 'GET' });
     if (!ok) throw new Error(httpErrorMessage(status, json, text));
     return json?.response?.games ?? [];

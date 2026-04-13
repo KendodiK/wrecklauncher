@@ -9,7 +9,7 @@ const PlatformSelector = ({ platforms = [], selectedPlatforms = [], onSelectPlat
 
 	const defaultPlatforms = [
 		{ id: 'steam', name: 'Steam' },
-		{ id: 'epic', name: 'Epic Games' },
+		{ id: 'itchio', name: 'Itch.io' },
 		{ id: 'gog', name: 'GOG' },
 	];
 

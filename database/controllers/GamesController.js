@@ -38,8 +38,8 @@ class GamesController extends Controller {
             throw foreignKeyCheck;
         }
 
-        const query = 'INSERT INTO `games` (app_id, platform_id, name, banner_img, description, minimum_requirements, cost) VALUES (?, ?, ?, ?, ?, ?, ?)';
-        const values = [data.app_id, data.platform_id, data.name, data.banner_img ?? "", data.description ?? "", data.minimum_requirements ?? "", data.cost ?? 0.0];
+        const query = 'INSERT INTO `games` (app_id, platform_id, name, banner_img, description, minimum_requirements) VALUES (?, ?, ?, ?, ?, ?);';
+        const values = [data.app_id, data.platform_id, data.name, data.banner_img ?? "", String(data.description).slice(0, 1000) ?? "", data.minimum_requirements ?? ""];
         try {
             const [result] = await this.dbConnection.execute(query, values);
             return { message: `${result.insertId} Element created in table ${this.tableName}`, id: result.insertId };
@@ -125,7 +125,8 @@ class GamesController extends Controller {
 
         const exists = await this.getGameIdByAppIdAndPlatform(appId, platfromId)
         if ( exists ) {
-            return await this.index(exists)
+            // return the existing game row (so callers can access `.id`)
+            return await this.show(exists);
         }
 
         const game = await this.create(data);
@@ -162,17 +163,25 @@ class GamesController extends Controller {
         }
 
         // --- adding price ---
-        if (Array.isArray(price_data) && price_data.length > 0) {
-            const priceCtrl = PricesController();
-            const priceData = {
-                "gameId": gameId,
-                "countyId": price_data.county_id,
-                "price": price_data.price
-            }
-            const price = priceCtrl.create(priceData);
+        if (price_data != null) {
+            const pricesCtrl = new PricesController();
+            const entries = Array.isArray(price_data) ? price_data : [price_data];
+            for (const entry of entries) {
+                const countyId = entry.countyId ?? entry.county_id ?? entry.country_id ?? entry.countryId ?? null;
+                const priceVal = entry.price ?? entry.cost ?? null;
+                if (countyId == null || priceVal == null) {
+                    continue;
+                }
+                const priceInt = Number(priceVal);
+                if (!Number.isFinite(priceInt)) {
+                    throw new Error(`Invalid price value: ${priceVal}`);
+                }
 
-            if (price instanceof Error) {
-                    throw price;
+                const pricePayload = { gameId, countyId, price: priceInt };
+                const createdPrice = await pricesCtrl.create(pricePayload);
+                if (createdPrice instanceof Error) {
+                    throw createdPrice;
+                }
             }
         }
         
@@ -303,7 +312,6 @@ class GamesController extends Controller {
         let games = [];
         for (const game_id of game_ids) {
             const game = await this.getWithAllForeign(game_id, countyCode);
-            console.log(game);
             if (game) {
                 games.push(game);
             } else {

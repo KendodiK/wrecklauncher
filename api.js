@@ -154,6 +154,37 @@ function getSteamHeaderImageUrl(appId) {
   return `https://cdn.akamai.steamstatic.com/steam/apps/${numericAppId}/header.jpg`;
 }
 
+/**
+ * Verify that a Steam app ID exists by calling the Steam store API.
+ * Returns true if the app exists, false otherwise.
+ * @param {number} appId - The Steam app ID to verify
+ * @returns {Promise<boolean>}
+ */
+async function verifySteamGameExists(appId) {
+  try {
+    const numericAppId = Number(appId);
+    if (!Number.isFinite(numericAppId) || numericAppId <= 0) return false;
+
+    const url = `https://store.steampowered.com/api/appdetails?appids=${numericAppId}`;
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'WreckLauncher/1.0',
+      },
+    });
+
+    if (!response.ok) return false;
+
+    const data = await response.json();
+    const appData = data[numericAppId];
+    
+    // Check if the app exists and is not marked as unavailable
+    return appData?.success === true;
+  } catch (err) {
+    console.error(`Error verifying Steam game ${appId}:`, err);
+    return false;
+  }
+}
+
 function getFirstStringByPaths(source, paths) {
   for (const path of paths) {
     let cursor = source;
@@ -405,6 +436,72 @@ async function fetchItchGameDetails(appId, { includeRaw = false, includePageDeta
   }
 }
 
+/**
+ * Fetch the user's itch.io library (owned games) using the API key.
+ * Automatically fetches ALL pages and returns the complete list.
+ * @returns {Promise<{ owned_keys: Array<{ game_id: number, game: object, download_key_id: number, created_at: string }>, total: number } | null>}
+ */
+async function fetchItchLibrary() {
+  if (!itchApiKey) return null;
+
+  const pageSize = 50;
+  const allKeys = [];
+  let page = 1;
+  let hasMore = true;
+
+  try {
+    while (hasMore) {
+      const endpoint = `https://itch.io/api/1/${itchApiKey}/my-owned-keys?page=${page}&page_size=${pageSize}`;
+      const response = await fetch(endpoint);
+      if (!response.ok) {
+        if (page === 1) return null; // First page failed, return null
+        break; // Subsequent page failed, return what we have
+      }
+
+      const payload = await response.json();
+      if (!payload || typeof payload !== 'object') break;
+
+      const ownedKeys = Array.isArray(payload.owned_keys) ? payload.owned_keys : [];
+      if (ownedKeys.length === 0) {
+        hasMore = false;
+      } else {
+        for (const key of ownedKeys) {
+          allKeys.push({
+            game_id: key.game_id ?? key.game?.id ?? null,
+            download_key_id: key.download_key_id ?? key.id ?? null,
+            created_at: key.created_at ?? null,
+            game: key.game ? {
+              id: key.game.id ?? null,
+              title: key.game.title ?? null,
+              url: key.game.url ?? null,
+              cover_url: key.game.cover_url ?? key.game.still_cover_url ?? null,
+              short_text: key.game.short_text ?? null,
+              classification: key.game.classification ?? null,
+              min_price: key.game.min_price ?? null,
+              user: key.game.user ? {
+                id: key.game.user.id ?? null,
+                username: key.game.user.username ?? null,
+                url: key.game.user.url ?? null,
+              } : null,
+            } : null,
+          });
+        }
+        // If we got fewer than pageSize, we're done
+        hasMore = ownedKeys.length >= pageSize;
+        page++;
+      }
+    }
+
+    return {
+      owned_keys: allKeys,
+      total: allKeys.length,
+    };
+  } catch (err) {
+    console.warn('Failed to fetch itch library:', err?.message);
+    return allKeys.length > 0 ? { owned_keys: allKeys, total: allKeys.length } : null;
+  }
+}
+
 async function fetchGogGameDetails(appId, { includeRaw = false } = {}) {
   const numericAppId = Number(appId);
   if (!Number.isFinite(numericAppId) || numericAppId <= 0) return null;
@@ -596,7 +693,8 @@ async function fetchItadDealsDaily() {
   const dealsResp = await fetchItad('/deals/v2', {
     query: {
       country: 'US',
-      limit: 100,
+      limit: 500,
+      sort: '-cut',
       shops: matchedShops.map((s) => s.shopId).join(','),
       mature: 'false',
     },
@@ -667,7 +765,6 @@ async function fetchItadDealsDaily() {
 
     const appId = appIdsByShopAndItadId.get(`${shopId}:${itadGameId}`);
     if (!appId) continue;
-
     const itchDetails = platformInfo.platformName === 'itch'
       ? await fetchItchGameDetails(appId, { includePageDetails: true })
       : null;
@@ -852,16 +949,62 @@ function shouldSkipGameBecausePriceMissing(gameLike, sourceLabel, gameName) {
 
 async function upsertShopSpecialsFromIgdb({ trending = [], upcoming = [] } = {}) {
   // shop_specials.game_id references games.id, so we ensure the games exist first.
-  // User requirement: store games as Steam games (platform=steam, app_id=steam appid).
+  // Prefer platform-specific records (gog/itch) over steam when IGDB provides multiple external ids.
   const platformsCtrl = new platformsController();
-  const steamPlatform = await platformsCtrl.create({ name: 'steam' });
-  const steamPlatformId = steamPlatform?.id;
-  if (!steamPlatformId) {
-    throw new Error('Failed to resolve/create steam platform');
-  }
 
   const gamesCtrl = new gamesController();
   const shopSpecialsCtrl = new shopSpecialsController();
+
+  // Priority mapping for IGDB external_games.category -> preferred platform name
+  const IGDB_CATEGORY_PRIORITY = [
+    { category: 5, platformName: 'gog' },
+    { category: 11, platformName: 'itch' },
+    { category: 1, platformName: 'steam' },
+  ];
+
+  function getPreferredPlatformFromIgdbGame(igdbGame) {
+    const externalGames = igdbGame?.external_games;
+    if (!Array.isArray(externalGames) || externalGames.length === 0) return null;
+
+    for (const map of IGDB_CATEGORY_PRIORITY) {
+      const eg = externalGames.find((e) => Number(e?.category) === map.category && (e?.uid || e?.url));
+      if (!eg) continue;
+
+      // Try to extract a numeric id if present, otherwise return raw uid/url as fallback
+      let candidate = parseNumericShopGameId(eg.uid ?? eg.url ?? null);
+      if (candidate == null && typeof eg.uid === 'string') {
+        const m = eg.uid.match(/(\d+)(?!.*\d)/);
+        if (m) candidate = Number(m[1]);
+      }
+
+      return { platformName: map.platformName, appId: candidate ?? (eg.uid ?? eg.url ?? null) };
+    }
+    return null;
+  }
+
+  async function verifyPlatformAppExists(platformName, appId) {
+    try {
+      if (!platformName || appId == null) return false;
+      if (platformName === 'steam') return await verifySteamGameExists(appId);
+      if (platformName === 'gog') {
+        const details = await fetchGogGameDetails(appId, { includeRaw: false });
+        return details != null;
+      }
+      if (platformName === 'itch' || platformName === 'itch.io' || platformName === 'itchio') {
+        const details = await fetchItchGameDetails(appId, { includeRaw: false });
+        return details != null;
+      }
+    } catch (err) {
+      return false;
+    }
+    return false;
+  }
+
+  async function resolvePlatformId(platformName) {
+    if (!platformName) return null;
+    const p = await platformsCtrl.create({ name: platformName });
+    return Number(p?.id) || null;
+  }
 
   // Make sure DB connection is ready, then wipe existing specials.
   // Note: this will also remove any manually-managed flags (e.g. discounted).
@@ -882,28 +1025,55 @@ async function upsertShopSpecialsFromIgdb({ trending = [], upcoming = [] } = {})
     if (shouldSkipGameBecausePriceMissing(igdbGame, 'IGDB', igdbGame?.name)) {
       return null;
     }
-
-    const steamAppId = getSteamAppIdFromIgdbGame(igdbGame);
-    if (!steamAppId) {
-      console.log('Skipping IGDB game: missing Steam appid (external_games category=1):', {
+    const resolved = getPreferredPlatformFromIgdbGame(igdbGame);
+    if (!resolved) {
+      console.log('Skipping IGDB game: missing external platform ids:', {
         igdbId: igdbGame?.id,
         name: igdbGame?.name,
       });
       return null;
     }
 
+    let { platformName, appId } = resolved;
+
+    // Verify the chosen platform/app actually exists; if not, try fallbacks (steam last)
+    let verified = await verifyPlatformAppExists(platformName, appId);
+    if (!verified && platformName !== 'steam') {
+      const steamAppId = getSteamAppIdFromIgdbGame(igdbGame);
+      if (steamAppId) {
+        verified = await verifyPlatformAppExists('steam', steamAppId);
+        if (verified) {
+          platformName = 'steam';
+          appId = steamAppId;
+        }
+      }
+    }
+
+    if (!verified) {
+      console.log('Skipping IGDB game: platform app verification failed:', {
+        igdbId: igdbGame?.id,
+        name: igdbGame?.name,
+        attempted: { platformName, appId },
+      });
+      return null;
+    }
+
     const genreNames = normalizeGenreNames((igdbGame?.genres ?? []).map((g) => g?.name));
 
-    const existingGameId = await gamesCtrl.getGameIdByAppIdAndPlatform(steamAppId, steamPlatformId);
+    const platformId = await resolvePlatformId(platformName);
+    if (!platformId) {
+      console.log('Skipping IGDB game: failed to resolve platform id:', { platformName });
+      return null;
+    }
+
+    const existingGameId = await gamesCtrl.getGameIdByAppIdAndPlatform(appId, platformId);
     if (existingGameId != null) {
       const numericExisting = Number(existingGameId);
-      if (!Number.isFinite(numericExisting)) {
-        return null;
-      }
+      if (!Number.isFinite(numericExisting)) return null;
 
       const refreshedBanner = await getPlatformBannerUrl({
-        platformName: 'steam',
-        appId: steamAppId,
+        platformName,
+        appId,
         fallbackBanner: normalizeIgdbImageUrl(igdbGame?.cover?.url) ?? '',
       });
       if (typeof refreshedBanner === 'string' && refreshedBanner.trim()) {
@@ -916,7 +1086,8 @@ async function upsertShopSpecialsFromIgdb({ trending = [], upcoming = [] } = {})
         } catch (err) {
           console.warn('Failed to refresh existing IGDB game banner_img', {
             gameId: numericExisting,
-            steamAppId,
+            platformName,
+            appId,
             err: err?.message,
           });
         }
@@ -926,12 +1097,12 @@ async function upsertShopSpecialsFromIgdb({ trending = [], upcoming = [] } = {})
     }
 
     const gameData = {
-      app_id: steamAppId,
-      platform_id: steamPlatformId,
-      name: igdbGame?.name ?? String(steamAppId),
+      app_id: appId,
+      platform_id: platformId,
+      name: igdbGame?.name ?? String(appId),
       banner_img: await getPlatformBannerUrl({
-        platformName: 'steam',
-        appId: steamAppId,
+        platformName,
+        appId,
         fallbackBanner: normalizeIgdbImageUrl(igdbGame?.cover?.url) ?? '',
       }),
       description: igdbGame?.summary ?? '',
@@ -943,7 +1114,7 @@ async function upsertShopSpecialsFromIgdb({ trending = [], upcoming = [] } = {})
     const createdId = created?.id;
     const numericCreated = Number(createdId);
     if (!Number.isFinite(numericCreated)) {
-      console.warn('Skipping IGDB game: created game missing numeric id', { steamAppId, created });
+      console.warn('Skipping IGDB game: created game missing numeric id', { platformName, appId, created });
       return null;
     }
     return numericCreated;
@@ -954,27 +1125,26 @@ async function upsertShopSpecialsFromIgdb({ trending = [], upcoming = [] } = {})
   const specialsByGameId = new Map();
 
   async function addSpecial(igdbGame, flags) {
-    if (shouldSkipGameBecausePriceMissing(igdbGame, 'IGDB', igdbGame?.name)) {
-      return;
-    }
+    if (shouldSkipGameBecausePriceMissing(igdbGame, 'IGDB', igdbGame?.name)) return;
 
-    const steamAppId = getSteamAppIdFromIgdbGame(igdbGame);
-    if (!steamAppId) {
-      console.log('Skipping shop_special: missing Steam appid (external_games category=1):', {
+    const resolved = getPreferredPlatformFromIgdbGame(igdbGame);
+    if (!resolved) {
+      console.log('Skipping shop_special: missing external platform id for IGDB game:', {
         igdbId: igdbGame?.id,
         name: igdbGame?.name,
       });
       return;
     }
 
-    let gameId = gameIdByAppId.get(steamAppId);
+    const platformKey = `${resolved.platformName}:${resolved.appId}`;
+    let gameId = gameIdByAppId.get(platformKey);
     if (gameId == null) {
       gameId = await ensureGameId(igdbGame);
       if (gameId == null) {
-        console.warn('Skipping shop_special: could not resolve game id for IGDB game', { steamAppId, name: igdbGame?.name });
+        console.warn('Skipping shop_special: could not resolve game id for IGDB game', { platformKey, name: igdbGame?.name });
         return;
       }
-      gameIdByAppId.set(steamAppId, gameId);
+      gameIdByAppId.set(platformKey, gameId);
     }
 
     // Extra safety: ensure it's numeric before using as a DB foreign key.
@@ -1041,30 +1211,74 @@ async function fetchGamesDaily() {
   let trending = [];
   let upcoming = [];
 
-  // 1️⃣ Trending / Featured
-  try {
-    trending = await fetchIGDB(
-      "games",
-      `fields id, name, summary, cover.url, genres.name, hypes, follows, external_games.category, external_games.uid;
-       where external_games.category = 1;
-       sort hypes desc;
-       limit 100;`
-    );
-    console.log('Fetched trending games successfully');
-    console.log(trending);
 
-    for (const g of trending) {
-      const steamAppId = getSteamAppIdFromIgdbGame(g);
-      if (!steamAppId) {
-        console.log('IGDB game missing Steam appid (external_games category=1):', {
-          igdbId: g?.id,
-          name: g?.name,
-        });
-      }
-    }
-  } catch (err) {
-    console.error('Failed to fetch trending games:', err);
+  //#1 Popular games based on visits (can change later but eh)
+  try{
+  rows = await fetchIGDB(
+    "popularity_primitives",
+    "fields game_id,value,popularity_type; where popularity_type = (1,3,5,6) & value > 0; limit 500;"
+  );
+  console.log('Fetched popularity primitives successfully');
+  const scores = {};
+  const weights = {
+  1:0.2,
+  3:0.3,
+  5:1,
+  6:0.2
+};
+  for (const r of rows) {
+  if (!weights[r.popularity_type]) continue;
+
+  if (!scores[r.game_id]) scores[r.game_id] = 0;
+
+  scores[r.game_id] += r.value * weights[r.popularity_type];
   }
+  const ranked = Object.entries(scores)
+  .map(([game_id, score]) => ({ game_id: Number(game_id), score }))
+  .sort((a,b) => b.score - a.score)
+  .slice(0,10);
+  try{
+  const ids = ranked.map(g => g.game_id).join(",")
+  const trending = await fetchIGDB(
+    "games",
+    `fields name,external_games.category, external_games.uid,summary,genres.name,external_games.uid;
+     where id = (${ids}) & external_games.category in (1,5,11);`
+  );
+  console.log('Fetched trending games successfully');
+  console.log(trending.length);
+  }catch(err){
+    console.error('Failed to extract game IDs from popularity primitives:', err);
+  }
+  }catch(err){
+    console.error('Failed to fetch popularity primitives from IGDB:', err);
+  }
+ 
+
+
+  // 1️⃣ Trending / Featured
+  // try {
+  //   trending = await fetchIGDB(
+  //     "games",
+  //     `fields id, name, summary, cover.url, genres.name, hypes, follows, external_games.category, external_games.uid;
+  //      where external_games.category = 1;
+  //      sort hypes desc;
+  //      limit 100;`
+  //   );
+  //   console.log('Fetched trending games successfully');
+  //   console.log(trending);
+
+  //   for (const g of trending) {
+  //     const steamAppId = getSteamAppIdFromIgdbGame(g);
+  //     if (!steamAppId) {
+  //       console.log('IGDB game missing Steam appid (external_games category=1):', {
+  //         igdbId: g?.id,
+  //         name: g?.name,
+  //       });
+  //     }
+  //   }
+  // } catch (err) {
+  //   console.error('Failed to fetch trending games:', err);
+  // }
   
   // 2️⃣ Coming Soon
   try {
@@ -1076,17 +1290,7 @@ async function fetchGamesDaily() {
        limit 100;`
     );
     console.log('Fetched upcoming games successfully');
-    console.log(upcoming);
-
-    for (const g of upcoming) {
-      const steamAppId = getSteamAppIdFromIgdbGame(g);
-      if (!steamAppId) {
-        console.log('IGDB game missing Steam appid (external_games category=1):', {
-          igdbId: g?.id,
-          name: g?.name,
-        });
-      }
-    }
+    console.log(upcoming.length);
   } catch (err) {
     console.error('Failed to fetch upcoming games:', err);
   }
@@ -1254,6 +1458,18 @@ app.get('/api/itch/game/:appId', async (req, res) => {
     };
 
     return res.json(result);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/itch/library', async (req, res) => {
+  try {
+    const library = await fetchItchLibrary();
+    if (!library) {
+      return res.status(404).json({ error: 'Could not fetch itch.io library (ITCH_API_KEY may be missing)' });
+    }
+    return res.json(library);
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

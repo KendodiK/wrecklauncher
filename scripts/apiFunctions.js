@@ -18,8 +18,119 @@ const PlatformUsersController = require('../database/controllers/PlatformUsersCo
 const ShopSpecialsController = require('../database/controllers/ShopSpecialsController.js');
 const PricesController = require('../database/controllers/PricesController.js');
 const PirateSitesController = require('../database/controllers/PirateSitesController.js');
+const ShopSpecialsMaker = require('../database/makers/ShopSpecialsTableMaker.js');
 const { error } = require('console');
+const shopSpecials = require('./fetchShopSpecials.js');
 //#endregion
+
+module.exports.fetchInitialShopSpecialsData = async function() {
+  try {    
+    const games = await shopSpecials.getShopSpecials();
+    try{
+        const shopSpecialsMaker = new ShopSpecialsMaker();
+        await shopSpecialsMaker.delete();
+        await shopSpecialsMaker.create();         
+    }catch (err) {
+        console.error('Error resetting shop_specials table:', err);
+        return;
+    }
+    console.log('Uploading shop specials data...');
+    for (const game of games) {
+        const fakeRes = {
+          status(code) { this.statusCode = code; return this; },
+          json(data) { this._data = data; return this; },
+          send(data) { this._data = data; return this; }
+        };
+      try {
+        const platformName = apiHelpers.normalizePlatformName(game.shop);
+        try {
+            if (!platformName) {
+                console.log('Skipping upload: unable to determine platform for game', { name: game.name ?? game.title, shop: game.shop, platform: game.platform, platform_name: game.platform_name });
+                continue;
+            }
+
+            // Resolve platform via controller directly to avoid using HTTP-like helpers
+            const platformsCtrl = new PlatformsController();
+            let platformRow = null;
+            try {
+                platformRow = await platformsCtrl.getByPlatformName(platformName);
+            } catch (err) {
+                console.warn('Platform lookup failed:', { platformName, err: err?.message });
+            }
+
+            let platform_id = platformRow?.id ?? null;
+            if (!platform_id) {
+                try {
+                    const created = await platformsCtrl.create({ name: platformName });
+                    platform_id = created?.id ?? null;
+                } catch (err) {
+                    console.warn('Platform creation failed:', { platformName, err: err?.message });
+                }
+            }
+
+            if (!platform_id) {
+                console.log('Skipping upload: unable to find or create platform for game', { name: game.name ?? game.title, shop: game.shop, platform: game.platform, platform_name: game.platform_name });
+                continue;
+            }
+        } catch (err) {
+            console.error('Error ensuring platform exists:', err);
+            console.log('Skipping upload for game due to platform issues', { name: game.name ?? game.title, shop: game.shop, platform: game.platform, platform_name: game.platform_name });
+            continue;
+        }
+        const payload = {
+          app_id: game.appId ?? game.app_id ?? null,
+          name: game.name ?? game.title ?? null,
+          description: game.description ?? null,
+          banner_img: game.headerImageUrl ?? game.banner_img ?? null,
+          minimum_requirements: game.minimum_requirements ?? null,
+          platform_name: platformName,
+          country_code: game.countryCode ?? game.country_code ?? 'DE',
+          // POSTNewGame expects `cost` in this codepath (it maps cost -> price internally)
+          cost: Number(game.price ?? game.min_price ?? -1),
+          genre_names: Array.isArray(game.genres) ? game.genres : (game.genre_names ?? []),
+        };
+
+        // Basic sanity: require app_id and name before calling the upload handler
+        if (payload.app_id == null || payload.name == null) {
+          console.log('Skipping upload: missing id or name', { app: payload.app_id, name: payload.name });
+          continue;
+        }
+
+
+
+        const uploadResp = await this.POSTNewGame({ body: payload }, fakeRes);
+        const resp = fakeRes._data ?? {};
+        const uploadedId = uploadResp.gameId ?? resp.gameId ?? resp.id ?? null;
+        //upload to shopspecials table
+        if (uploadedId) {
+          try {
+            const shopSpecialsPayload = {
+              gameId: uploadedId,
+              featured: game.popularityScore ?? 0,
+              coming_soon: game.upcoming ?? 0,
+              discount_percent: game.discount ?? 0,
+              country_code: payload.country_code
+            };
+            const shopSpecialsResp = await this.POSTNewShopSpecials({ body: shopSpecialsPayload, params: shopSpecialsPayload }, fakeRes);
+          }
+          catch (err) {            
+            console.error('Error uploading shop special for game:', err);
+          }
+        }    
+        else{
+            console.warn(`Upload failed for game ${payload.name} (app_id: ${payload.app_id}). Response:`, { uploadedId,uploadResp, resp });
+        }          
+      } catch (err) {
+        console.error('Error uploading game data:', err);
+      }
+    }
+    console.log('Fetched shop specials:', games.length, 'games');
+  } catch (err) {
+    console.error('Error fetching initial shop specials data:', err);
+  }
+}
+
+
 
 // ============================================================================= ///
 // ================================== GET ===================================== ///
@@ -438,26 +549,20 @@ module.exports.POSTNewNativeUser = async function (req, res) {
 
 module.exports.POSTNewGame = async function (req, res) {
     try {
-        if (apiHelpers.shouldSkipGameBecausePriceMissing(req.body, 'upload', req.body?.name)) {
-        return res.status(200).json({ message: 'Skipped upload: non-free game is missing price.' });
-        } //---> nem kell!!
-
         const gamesCtrl = new GamesController();
         const platformCtrl = new PlatformsController();
-
         const {
             app_id: appId,
             name,
             description,
             banner_img: bannerImg,
             minimum_requirements: minRequirements,
-            platform_name: platformName, 
-            plaform_id: platformId, 
-            country_code: countryCode, 
-            cost: price, 
+            platform_name: platformName,
+            platform_id: platformId,
+            country_code: countryCode,
+            cost: price,
             genre_names: genreNames
         } = req.body;
-
         let missing = [];
         if(appId == null) {missing.push("app_id")}
         if(name == null) {missing.push("name")}
@@ -466,21 +571,38 @@ module.exports.POSTNewGame = async function (req, res) {
         if (missing.length) {
             return res.status(400).json({ message: 'Missing required fields', missing });
         }
-        
-        let resolvedPlatformName = platformName == null ? await platformCtrl.show(platformId) : platformName;
-        if(!resolvedPlatformName) {
-            return res.status(400).json({ error: 'Could not upload no platform name given or DB don`t contain platform with given platform id'})
+        // Resolve platform name: prefer provided platform_name, otherwise try to look up by platform_id
+        let resolvedPlatformName = platformName ?? null;
+        if (!resolvedPlatformName && platformId != null) {
+            const platformRow = await platformCtrl.show(platformId).catch(() => null);
+            resolvedPlatformName = platformRow?.platform_name ?? null;
         }
-        let resolvedPlatformId = platformId;
-        if(!resolvedPlatformId) {
-            const platform = await platformCtrl.getByPlatformName(resolvedPlatformName);
-            resolvedPlatformId = platform.id;
+        if (!resolvedPlatformName) {
+            return res.status(400).json({ error: 'Could not upload: no platform name given and platform_id did not resolve to an existing platform' });
+        }
+
+        // Resolve platform id: prefer provided platform_id, otherwise try to find by name or create it
+        let resolvedPlatformId = platformId ?? null;
+        if (!resolvedPlatformId) {
+            let platformRow = await platformCtrl.getByPlatformName(resolvedPlatformName).catch(() => null);
+            if (platformRow && platformRow.id) {
+                resolvedPlatformId = platformRow.id;
+            } else {
+                const created = await platformCtrl.create({ name: resolvedPlatformName }).catch(() => null);
+                resolvedPlatformId = created?.id ?? null;
+            }
+        }
+
+        if (!Number.isFinite(Number(resolvedPlatformId)) || Number(resolvedPlatformId) <= 0) {
+            return res.status(400).json({ error: 'Could not resolve platform id for given platform name' });
         }
 
         const gameData = {
             "app_id": appId,
+            // provide both spellings so uploadWithAll and create() receive the id
             "platform_id": resolvedPlatformId,
-            "platform_name": platformName,
+            "plafrom_id": resolvedPlatformId,
+            "platform_name": resolvedPlatformName,
             "name": name,
             "banner_img": bannerImg,
             "description": description,
@@ -494,7 +616,7 @@ module.exports.POSTNewGame = async function (req, res) {
         }
         const countyId = await apiHelpers.getCountryIdByCode(countryCode);
         
-        const uploadedGame = await gamesCtrl.uploadWithAll(gameData, null, genreNames, {"price": price, "county_id": countyId});
+        const uploadedGame = await gamesCtrl.uploadWithAll(gameData, null, genreNames, {"price": price, "country_id": countyId});
         return res.status(201).json({ message: 'Game uploaded successfully', gameId: uploadedGame.id });
     } catch (err) {
         console.error('Error in /api/games/upload endpoint:', err);

@@ -1,6 +1,6 @@
 1.
 -------------------------------------------------------
-Minden { body } paraméter megadása *ulon_szavak* strukturával JSON-ben
+Minden { body } paraméter megadása *kulon_szavak* strukturával JSON-ben
 
 2.
 -------------------------------------------------------

@@ -1,219 +1,114 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import CompactFiltersSidebar from './CompactFiltersSidebar.jsx';
 
-/**
- * Filtered games section with list on left and compact filters on right
- */
-const FilteredGamesSection = ({ games = [], title = "Browse Games" }) => {
+function normalizePlatformId(value) {
+	const normalized = String(value || '').trim().toLowerCase();
+	if (!normalized) return '';
+	if (['itch', 'itchio', 'itch.io'].includes(normalized)) return 'itchio';
+	if (['epic games', 'epic_games'].includes(normalized)) return '';
+	return normalized;
+}
+
+const FilteredGamesSection = ({
+	games = [],
+	title = "Browse Games",
+	onRequestNextPage,
+	canLoadMore = false,
+	isLoadingMore = false,
+}) => {
 	const navigate = useNavigate();
 	const [searchQuery, setSearchQuery] = useState('');
 	const [selectedGenres, setSelectedGenres] = useState([]);
 	const [selectedPlatforms, setSelectedPlatforms] = useState([]);
 	const [priceRange, setPriceRange] = useState({ min: 0, max: 100 });
 	const [selectedGame, setSelectedGame] = useState(null);
-	const [hoveredGame, setHoveredGame] = useState(null);
 	const [currentPage, setCurrentPage] = useState(1);
-	const hideTimeoutRef = useRef(null);
 	const gamesPerPage = 20;
 
-	const displayGame = hoveredGame || selectedGame;
-	const [previewScreenshots, setPreviewScreenshots] = useState([]);
-	const [previewMovie, setPreviewMovie] = useState('');
-	const [previewLoading, setPreviewLoading] = useState(false);
-	const [previewMediaError, setPreviewMediaError] = useState('');
-
-	// Cleanup timeout on unmount
-	useEffect(() => {
-		return () => {
-			if (hideTimeoutRef.current) {
-				clearTimeout(hideTimeoutRef.current);
-			}
-		};
-	}, []);
-
-	// Load Steam media (screenshots + movie) for the preview panel.
-	useEffect(() => {
-		let cancelled = false;
-
-		const loadPreviewMedia = async () => {
-			if (!displayGame) {
-				setPreviewScreenshots([]);
-				setPreviewMovie('');
-				setPreviewMediaError('');
-				setPreviewLoading(false);
-				return;
-			}
-
-			const appId = Number(displayGame.appid || displayGame.app_id || displayGame.id);
-			if (!Number.isFinite(appId) || appId <= 0) {
-				setPreviewScreenshots([]);
-				setPreviewMovie('');
-				setPreviewMediaError('Invalid app id for Steam media');
-				setPreviewLoading(false);
-				return;
-			}
-
-			const api = typeof window !== 'undefined' ? window.electronAPI : null;
-			if (!api || typeof api.getSteamGameDetails !== 'function') {
-				setPreviewScreenshots([]);
-				setPreviewMovie('');
-				setPreviewMediaError('Steam API bridge not available');
-				setPreviewLoading(false);
-				return;
-			}
-
-			setPreviewLoading(true);
-			setPreviewMediaError('');
-			try {
-				const details = await api.getSteamGameDetails(appId, 'us');
-				const raw = details && typeof details === 'object' && details.raw && typeof details.raw === 'object' ? details.raw : {};
-
-				const screenshots = Array.isArray(raw.screenshots)
-					? raw.screenshots
-							.map((s) => (s && typeof s === 'object' ? (s.path_full || s.path_thumbnail) : null))
-							.filter((url) => typeof url === 'string' && url.trim())
-					: [];
-
-				let movie = '';
-				if (Array.isArray(raw.movies) && raw.movies.length) {
-					for (const m of raw.movies) {
-						if (!m || typeof m !== 'object') continue;
-						const mp4 = m.mp4 && typeof m.mp4 === 'object' ? m.mp4 : null;
-						const webm = m.webm && typeof m.webm === 'object' ? m.webm : null;
-						const candidate =
-							(mp4 && (mp4.max || mp4['480'])) ||
-							(webm && (webm.max || webm['480'])) ||
-							'';
-						if (typeof candidate === 'string' && candidate.trim()) {
-							movie = candidate;
-							break;
-						}
-					}
-				}
-
-				console.log('[ShopPreview] Steam media', {
-					appId,
-					screenshots: screenshots.length,
-					movies: Array.isArray(raw.movies) ? raw.movies.length : 0,
-					movieUrlFound: Boolean(movie),
-				});
-
-				if (!cancelled) {
-					setPreviewScreenshots(screenshots);
-					setPreviewMovie(typeof movie === 'string' ? movie : '');
-					if (!movie) {
-						setPreviewMediaError('No playable movie URL found in Steam response');
-					}
-				}
-			} catch (err) {
-				console.error('[ShopPreview] Failed to load Steam media:', err);
-				if (!cancelled) {
-					setPreviewScreenshots([]);
-					setPreviewMovie('');
-					setPreviewMediaError(err instanceof Error ? err.message : 'Failed to load Steam media');
-				}
-			} finally {
-				if (!cancelled) setPreviewLoading(false);
-			}
-		};
-
-		loadPreviewMedia();
-
-		return () => {
-			cancelled = true;
-		};
-	}, [displayGame]);
-
-	const genres = useMemo(() => {
-		const names = new Set();
-		for (const game of games) {
-			for (const g of Array.isArray(game.genres) ? game.genres : []) {
-				if (typeof g === 'string' && g.trim()) names.add(g.trim());
-				if (g && typeof g === 'object') {
-					const v = g.genre || g.name || g.description;
-					if (typeof v === 'string' && v.trim()) names.add(v.trim());
-				}
-			}
-		}
-		return Array.from(names).sort((a, b) => a.localeCompare(b)).map((name, idx) => ({ id: idx + 1, name }));
-	}, [games]);
-
-	const platforms = useMemo(() => {
-		const names = new Set();
-		for (const game of games) {
-			const p = game.platform || game.platform_name;
-			if (typeof p === 'string' && p.trim()) names.add(p.trim().toLowerCase());
-		}
-		return Array.from(names).sort((a, b) => a.localeCompare(b)).map((id) => ({
-			id,
-			name: id.charAt(0).toUpperCase() + id.slice(1),
-		}));
-	}, [games]);
-
-	// Filter games based on current filters
+	// Filtered games based on filters
 	const filteredGames = useMemo(() => {
 		return games.filter(game => {
-			// Search filter
-			if (searchQuery && !(game.title || game.name || '').toLowerCase().includes(searchQuery.toLowerCase())) {
+			if (searchQuery && !(game.title || game.name || '').toLowerCase().includes(searchQuery.toLowerCase()))
 				return false;
-			}
 
-			// Genre filter
 			if (selectedGenres.length > 0) {
 				const gameGenres = Array.isArray(game.genres) ? game.genres : [];
-				const hasMatchingGenre = selectedGenres.some(genreId => 
-					gameGenres.includes(genreId) || 
-					gameGenres.some(g => typeof g === 'object' && g.id === genreId)
+				const hasMatch = selectedGenres.some(gId =>
+					gameGenres.includes(gId) ||
+					gameGenres.some(g => typeof g === 'object' && g.id === gId)
 				);
-				if (!hasMatchingGenre) return false;
+				if (!hasMatch) return false;
 			}
 
-			// Platform filter
-			if (selectedPlatforms.length > 0 && !selectedPlatforms.includes(game.platform)) {
-				return false;
-			}
+			const gamePlatform = normalizePlatformId(game.platform || game.platform_name);
+			if (selectedPlatforms.length > 0 && !selectedPlatforms.includes(gamePlatform)) return false;
 
-			// Price filter
 			const price = game.price ?? 0;
-			if (price < priceRange.min || price > priceRange.max) {
-				return false;
-			}
+			if (price < priceRange.min || price > priceRange.max) return false;
 
 			return true;
 		});
 	}, [games, searchQuery, selectedGenres, selectedPlatforms, priceRange]);
 
 	const totalPages = Math.max(1, Math.ceil(filteredGames.length / gamesPerPage));
+
 	const pagedGames = useMemo(() => {
 		const start = (currentPage - 1) * gamesPerPage;
 		return filteredGames.slice(start, start + gamesPerPage);
 	}, [filteredGames, currentPage]);
 
+	const displayGame = selectedGame || pagedGames[0] || null;
+
+	// Reset page when filters change
 	useEffect(() => {
 		setCurrentPage(1);
 	}, [searchQuery, selectedGenres, selectedPlatforms, priceRange]);
 
+	// Reset selected game if not in current page
 	useEffect(() => {
-		if (currentPage > totalPages) {
-			setCurrentPage(totalPages);
+		if (!pagedGames.length) {
+			setSelectedGame(null);
+			return;
 		}
-	}, [currentPage, totalPages]);
-
-	const handleGameClick = (game) => {
-		if (game.appid || game.app_id || game.id) {
-			const gameId = game.appid || game.app_id || game.id;
-			navigate(`/game/${gameId}`);
+		const selectedId = selectedGame?.appid || selectedGame?.app_id || selectedGame?.id;
+		if (!pagedGames.some(g => (g.appid || g.app_id || g.id) === selectedId)) {
+			setSelectedGame(pagedGames[0]);
 		}
-	};
+	}, [pagedGames, selectedGame]);
 
-	const handleGenreToggle = (genreId) => {
-		setSelectedGenres(prev => 
-			prev.includes(genreId) 
-				? prev.filter(id => id !== genreId)
-				: [...prev, genreId]
-		);
-	};
+const handleNextPage = async () => {
+	// If there are already pages left, just move to next page
+	console.log('Handling next page. Current page:', currentPage, 'Total pages:', totalPages, 'Filtered games:', filteredGames.length, 'Games per page:', gamesPerPage, 'Can load more:', canLoadMore, 'Is loading more:', isLoadingMore, 'Offset:', (currentPage * gamesPerPage));
+	console.log(filteredGames.length, currentPage, gamesPerPage, totalPages);
+	if (currentPage < totalPages) {
+		setCurrentPage(p => p + 1);
+		return;
+	}
+
+	// If on last page, the next batch should already be prefetched by useEffect below
+	// Only increment page if new games were added (already handled by prefetch)
+	if (filteredGames.length > currentPage * gamesPerPage) {
+		setCurrentPage(p => p + 1);
+	} else {
+		// No more games fetched, do not increment page
+		console.log('No more games to load or reached the end.');
+	}
+};
+
+// Prefetch next page when on last page
+useEffect(() => {
+	if (
+		currentPage === totalPages &&
+		canLoadMore &&
+		typeof onRequestNextPage === 'function' &&
+		!isLoadingMore
+	) {
+		onRequestNextPage();
+	}
+	// Only run when on last page
+	// eslint-disable-next-line react-hooks/exhaustive-deps
+}, [currentPage, totalPages, canLoadMore, isLoadingMore]);
 
 	const handleResetFilters = () => {
 		setSearchQuery('');
@@ -223,17 +118,23 @@ const FilteredGamesSection = ({ games = [], title = "Browse Games" }) => {
 		setCurrentPage(1);
 	};
 
+	const toStoreGameUrl = (game) => {
+		const gameId = game?.appid || game?.app_id || game?.id;
+		if (!gameId) return '';
+		const platform = normalizePlatformId(game?.platform_name || game?.platform) || 'steam';
+		return `/store/game/${encodeURIComponent(platform)}/${encodeURIComponent(gameId)}`;
+	};
+
 	return (
 		<div className="w-full flex gap-4">
-			{/* Left side - Game list */}
-			<div className={`${displayGame ? 'w-[50%]' : 'flex-1'} bg-slate-800/40 backdrop-blur-sm rounded-lg border border-slate-700/50 overflow-hidden flex flex-col transition-all duration-500 ease-in-out`}>
-				{/* Header */}
+			{/* Game list */}
+			<div className="w-[50%] bg-slate-800/40 backdrop-blur-sm rounded-lg border border-slate-700/50 flex flex-col overflow-hidden">
 				<div className="px-4 py-3 border-b border-slate-700/50 flex items-center justify-between">
 					<div>
 						<h3 className="text-lg font-semibold text-slate-100">{title}</h3>
 						<p className="text-sm text-slate-400 mt-0.5">{filteredGames.length} games found</p>
 					</div>
-					<button 
+					<button
 						onClick={() => navigate('/shop/all-games')}
 						className="text-sm text-slate-400 hover:text-slate-200 transition-colors px-3 py-2 rounded hover:bg-slate-700/50"
 					>
@@ -241,231 +142,92 @@ const FilteredGamesSection = ({ games = [], title = "Browse Games" }) => {
 					</button>
 				</div>
 
-				{/* Games list */}
 				<div className="flex-1 overflow-y-auto scrollbar-thin">
-					{filteredGames.length > 0 ? (
-						pagedGames.map((game, index) => {
-							const gameId = game.appid || game.app_id || game.id;
-							const isSelected = displayGame && (displayGame.appid || displayGame.app_id || displayGame.id) === gameId;
-							
-							return (
-								<div
-									key={gameId}
-									className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-all duration-300 border-b border-slate-700/30 animate-in fade-in slide-in-from-left-2 animate-stagger-fast ${
-										isSelected 
-											? 'bg-slate-700/50' 
-											: 'hover:bg-slate-700/30'
-									}`}
-									style={{
-										animationDelay: `${index * 25}ms`
-									}}
-									onClick={() => handleGameClick(game)}
-								onMouseEnter={() => {
-									if (hideTimeoutRef.current) {
-										clearTimeout(hideTimeoutRef.current);
-										hideTimeoutRef.current = null;
-									}
-									setHoveredGame(game);
-								}}
-								onMouseLeave={() => {
-									hideTimeoutRef.current = setTimeout(() => {
-										setHoveredGame(null);
-									}, 150);
-								}}
-								>
-									{/* Game thumbnail */}
-									<div className="w-20 h-11 flex-shrink-0 rounded overflow-hidden bg-slate-900/50">
-										<img
-											src={game.image || game.banner_img}
-											alt={game.title || game.name}
-											className="w-full h-full object-cover"
-											onError={(e) => {
-												e.target.style.display = 'none';
-											}}
-										/>
-									</div>
+					{pagedGames.length > 0 ? pagedGames.map(game => {
+						const gameId = game.appid || game.app_id || game.id;
+						const isSelected = displayGame && (displayGame.appid || displayGame.app_id || displayGame.id) === gameId;
 
-									{/* Game info */}
-									<div className="flex-1 min-w-0">
-										<h4 className="text-sm font-medium text-slate-100 truncate mb-1">
-											{game.title || game.name}
-										</h4>
-										
-										{/* Tags/Genres */}
-										<div className="flex flex-wrap gap-1">
-											{game.tags && game.tags.slice(0, 3).map((tag, idx) => (
-												<span
-													key={idx}
-													className="text-xs px-2 py-0.5 bg-slate-900/50 text-slate-400 rounded"
-												>
-													{tag}
-												</span>
-											))}
-										</div>
-									</div>
-
-									{/* Price section */}
-									<div className="flex items-center gap-2 flex-shrink-0">
-										{game.discount && game.discount > 0 && (
-											<div className="px-2 py-1 bg-green-600 text-white text-xs font-bold rounded">
-												-{game.discount}%
-											</div>
-										)}
-										<div className="text-right">
-											{game.originalPrice && game.discount && (
-												<div className="text-xs text-slate-500 line-through">
-													{game.originalPrice}€
-												</div>
-											)}
-											<div className={`text-sm font-semibold ${
-												game.price === 0 
-													? 'text-green-400' 
-													: game.discount 
-														? 'text-green-400' 
-														: 'text-slate-100'
-											}`}>
-												{game.price === 0 ? 'Free' : `${game.price}€`}
-											</div>
-										</div>
+						return (
+							<div
+								key={gameId}
+								className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors border-b border-slate-700/30 ${
+									isSelected ? 'bg-slate-700/50' : 'hover:bg-slate-700/30'
+								}`}
+								onClick={() => setSelectedGame(game)}
+							>
+								<div className="w-20 h-11 flex-shrink-0 rounded overflow-hidden bg-slate-900/50">
+									<img
+										src={game.image || game.banner_img}
+										alt={game.title || game.name}
+										className="w-full h-full object-cover"
+										onError={e => e.target.style.display = 'none'}
+									/>
+								</div>
+								<div className="flex-1 min-w-0">
+									<h4 className="text-sm font-medium text-slate-100 truncate mb-1">{game.title || game.name}</h4>
+									<div className="flex flex-wrap gap-1">
+										{game.tags?.slice(0, 3).map((tag, idx) => (
+											<span key={idx} className="text-xs px-2 py-0.5 bg-slate-900/50 text-slate-400 rounded">{tag}</span>
+										))}
 									</div>
 								</div>
-							);
-						})
-					) : (
-						<div className="flex-1 flex items-center justify-center text-slate-500 p-4 animate-in fade-in duration-500">
-							<p className="text-sm">No games match your filters</p>
+							</div>
+						);
+					}) : (
+						<div className="flex-1 flex items-center justify-center text-slate-500 p-4">
+							No games match your filters
 						</div>
 					)}
 				</div>
 
-				{filteredGames.length > gamesPerPage && (
-					<div className="px-3 py-2 border-t border-slate-700/50 bg-slate-800/60 flex items-center justify-between">
-						<button
-							onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-							disabled={currentPage === 1}
-							className="px-3 py-1 text-xs rounded bg-slate-800/50 border border-slate-700/50 text-slate-200 disabled:opacity-40"
-						>
-							Prev
-						</button>
-						<div className="text-xs text-slate-300">Page {currentPage} / {totalPages}</div>
-						<button
-							onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-							disabled={currentPage === totalPages}
-							className="px-3 py-1 text-xs rounded bg-slate-800/50 border border-slate-700/50 text-slate-200 disabled:opacity-40"
-						>
-							Next
-						</button>
+				{/* Pagination */}
+				<div className="px-3 py-2 border-t border-slate-700/50 bg-slate-800/60 flex items-center justify-between">
+					<button
+						onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+						disabled={currentPage === 1}
+						className="px-3 py-1 text-xs rounded bg-slate-800/50 border border-slate-700/50 text-slate-200 disabled:opacity-40"
+					>
+						Prev
+					</button>
+					<div className="text-xs text-slate-300">Page {currentPage} / {canLoadMore ? `${totalPages}+` : totalPages}</div>
+					<button
+						onClick={handleNextPage}
+						disabled={isLoadingMore || (!canLoadMore && currentPage === totalPages)}
+						className="px-3 py-1 text-xs rounded bg-slate-800/50 border border-slate-700/50 text-slate-200 disabled:opacity-40"
+					>
+						{isLoadingMore ? 'Loading...' : 'Next'}
+					</button>
+				</div>
+			</div>
+
+			{/* Game preview */}
+			<div className="w-[30%] bg-slate-800/40 backdrop-blur-sm rounded-lg border border-slate-700/50 overflow-hidden flex flex-col">
+				{displayGame ? (
+					<>
+						<div className="px-3 py-2 border-b border-slate-700/50">
+							<h3 className="text-sm font-semibold text-slate-100 truncate">{displayGame.title || displayGame.name}</h3>
+						</div>
+						<div className="flex-1 overflow-y-auto p-3 scrollbar-thin">
+							<div className="w-full aspect-[16/9] rounded overflow-hidden bg-slate-900/50 mb-3">
+								<img src={displayGame.image || displayGame.banner_img} alt={displayGame.title || displayGame.name} className="w-full h-full object-cover" onError={e => e.target.style.display = 'none'} />
+							</div>
+							<p className="text-xs text-slate-300 leading-relaxed mb-3">{displayGame.description || 'No description available.'}</p>
+							<button onClick={() => navigate(toStoreGameUrl(displayGame), { state: { game: displayGame } })}
+								className="w-full rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-sm font-semibold py-2 transition-colors">
+								Open Game Page
+							</button>
+						</div>
+					</>
+				) : (
+					<div className="flex-1 flex items-center justify-center text-slate-500 p-4 text-sm">
+						No games available for preview
 					</div>
 				)}
 			</div>
 
-			{/* Middle - Game preview (collapsible) */}
-			{displayGame && (
-			<div 
-				className="w-[30%] bg-slate-800/40 backdrop-blur-sm rounded-lg border border-slate-700/50 overflow-hidden flex flex-col transition-all duration-500 ease-in-out animate-in slide-in-from-right"
-				onMouseEnter={() => {
-					if (hideTimeoutRef.current) {
-						clearTimeout(hideTimeoutRef.current);
-						hideTimeoutRef.current = null;
-					}
-				}}
-				onMouseLeave={() => {
-					hideTimeoutRef.current = setTimeout(() => {
-						setHoveredGame(null);
-					}, 150);
-				}}
-			>
-				<>
-					{/* Header */}
-						<div className="px-3 py-2 border-b border-slate-700/50">
-							<h3 className="text-sm font-semibold text-slate-100 truncate">
-								{displayGame.title || displayGame.name}
-							</h3>
-						</div>
-
-						{/* Preview content */}
-						<div className="flex-1 overflow-y-auto p-3 scrollbar-thin">
-							{/* Main image back on top */}
-							<div className="w-full aspect-[16/9] rounded overflow-hidden bg-slate-900/50 mb-3">
-								<img
-									src={displayGame.image || displayGame.banner_img}
-									alt={displayGame.title || displayGame.name}
-									className="w-full h-full object-cover"
-									onError={(e) => {
-										e.target.style.display = 'none';
-									}}
-								/>
-							</div>
-
-							{/* Steam screenshots (replaces single static image) */}
-							<div className="mb-3">
-								<div className="text-xs text-slate-400 mb-2">Screenshots</div>
-								{previewLoading ? (
-									<div className="w-full h-24 rounded bg-slate-900/50 animate-pulse" />
-								) : previewScreenshots.length > 0 ? (
-									<div className="grid grid-cols-2 gap-2">
-										{previewScreenshots.slice(0, 4).map((src, idx) => (
-											<div key={`${src}-${idx}`} className="aspect-video rounded overflow-hidden bg-slate-900/50">
-												<img
-													src={src}
-													alt={`${displayGame.title || displayGame.name} screenshot ${idx + 1}`}
-													className="w-full h-full object-cover"
-													loading="lazy"
-												/>
-											</div>
-										))}
-									</div>
-								) : (
-									<div className="w-full h-24 rounded bg-slate-900/50 flex items-center justify-center text-xs text-slate-500">
-										No screenshots available
-									</div>
-								)}
-							</div>
-
-							{/* Steam movie after screenshots */}
-							<div className="mb-3">
-								<div className="text-xs text-slate-400 mb-2">Trailer</div>
-								{previewMovie ? (
-									<div className="w-full aspect-video rounded overflow-hidden bg-slate-900/50">
-										<video
-											src={previewMovie}
-											controls
-											preload="none"
-												playsInline
-											className="w-full h-full object-cover"
-										/>
-									</div>
-								) : (
-										<div className="w-full h-16 rounded bg-slate-900/50 flex items-center justify-center text-xs text-slate-500 text-center px-2">
-											{previewMediaError || 'No movie available'}
-									</div>
-								)}
-							</div>
-
-							{/* Description */}
-							{displayGame.description && (
-								<p className="text-xs text-slate-300 leading-relaxed mb-3">
-									{displayGame.description}
-								</p>
-							)}
-
-							{/* Tags (max 5) */}
-							<div className="flex flex-wrap gap-1">
-								{displayGame.tags && displayGame.tags.slice(0, 5).map((tag, idx) => (
-									<span
-										key={idx}
-										className="text-xs px-2 py-1 bg-slate-700/50 text-slate-300 rounded"
-									>
-										{tag}
-									</span>
-								))}
-							</div>
-						</div>
-					</>
-			</div>
-			)}
-			{/* Right side - Compact filters sidebar */}
-			<CompactFiltersSidebar				searchQuery={searchQuery}
+			{/* Filters */}
+			<CompactFiltersSidebar
+				searchQuery={searchQuery}
 				onSearchChange={setSearchQuery}
 				selectedGenres={selectedGenres}
 				onGenresChange={setSelectedGenres}
@@ -480,3 +242,343 @@ const FilteredGamesSection = ({ games = [], title = "Browse Games" }) => {
 };
 
 export default FilteredGamesSection;
+
+
+// import React, { useState, useMemo, useRef, useEffect } from 'react';
+// import { useNavigate } from 'react-router-dom';
+// import CompactFiltersSidebar from './CompactFiltersSidebar.jsx';
+
+// function normalizePlatformId(value) {
+// 	const normalized = String(value || '').trim().toLowerCase();
+// 	if (!normalized) return '';
+// 	if (normalized === 'itch' || normalized === 'itchio' || normalized === 'itch.io') return 'itchio';
+// 	if (normalized === 'epic games' || normalized === 'epic_games') return '';
+// 	return normalized;
+// }
+
+// /**
+//  * Filtered games section with list on left and compact filters on right
+//  */
+// const FilteredGamesSection = ({
+// 	games = [],
+// 	title = "Browse Games",
+// 	onRequestNextPage,
+// 	canLoadMore = false,
+// 	isLoadingMore = false,
+// }) => {
+// 	const navigate = useNavigate();
+// 	const [searchQuery, setSearchQuery] = useState('');
+// 	const [selectedGenres, setSelectedGenres] = useState([]);
+// 	const [selectedPlatforms, setSelectedPlatforms] = useState([]);
+// 	const [priceRange, setPriceRange] = useState({ min: 0, max: 100 });
+// 	const [selectedGame, setSelectedGame] = useState(null);
+// 	const [currentPage, setCurrentPage] = useState(1);
+// 	const gamesPerPage = 20;
+// const loadMoreRef = useRef(null);
+
+// 	const genres = useMemo(() => {
+// 		const names = new Set();
+// 		for (const game of games) {
+// 			for (const g of Array.isArray(game.genres) ? game.genres : []) {
+// 				if (typeof g === 'string' && g.trim()) names.add(g.trim());
+// 				if (g && typeof g === 'object') {
+// 					const v = g.genre || g.name || g.description;
+// 					if (typeof v === 'string' && v.trim()) names.add(v.trim());
+// 				}
+// 			}
+// 		}
+// 		return Array.from(names).sort((a, b) => a.localeCompare(b)).map((name, idx) => ({ id: idx + 1, name }));
+// 	}, [games]);
+
+// 	const platforms = useMemo(() => {
+// 		const names = new Set();
+// 		for (const game of games) {
+// 			const p = game.platform || game.platform_name;
+// 			if (typeof p === 'string' && p.trim()) names.add(p.trim().toLowerCase());
+// 		}
+// 		return Array.from(names).sort((a, b) => a.localeCompare(b)).map((id) => ({
+// 			id,
+// 			name: id.charAt(0).toUpperCase() + id.slice(1),
+// 		}));
+// 	}, [games]);
+
+// 	// Filter games based on current filters
+// 	const filteredGames = useMemo(() => {
+// 		return games.filter(game => {
+// 			// Search filter
+// 			if (searchQuery && !(game.title || game.name || '').toLowerCase().includes(searchQuery.toLowerCase())) {
+// 				return false;
+// 			}
+
+// 			// Genre filter
+// 			if (selectedGenres.length > 0) {
+// 				const gameGenres = Array.isArray(game.genres) ? game.genres : [];
+// 				const hasMatchingGenre = selectedGenres.some(genreId => 
+// 					gameGenres.includes(genreId) || 
+// 					gameGenres.some(g => typeof g === 'object' && g.id === genreId)
+// 				);
+// 				if (!hasMatchingGenre) return false;
+// 			}
+
+// 			// Platform filter
+// 			const gamePlatform = normalizePlatformId(game.platform || game.platform_name);
+// 			if (selectedPlatforms.length > 0 && !selectedPlatforms.includes(gamePlatform)) {
+// 				return false;
+// 			}
+
+// 			// Price filter
+// 			const price = game.price ?? 0;
+// 			if (price < priceRange.min || price > priceRange.max) {
+// 				return false;
+// 			}
+
+// 			return true;
+// 		});
+// 	}, [games, searchQuery, selectedGenres, selectedPlatforms, priceRange]);
+
+// 	const totalPages = Math.max(1, Math.ceil(filteredGames.length / gamesPerPage));
+// 	const showPagination = filteredGames.length > gamesPerPage || canLoadMore || currentPage > 1;
+// 	const pageCountLabel = canLoadMore ? `${totalPages}+` : String(totalPages);
+// 	const pagedGames = useMemo(() => {
+// 		const start = (currentPage - 1) * gamesPerPage;
+// 		return filteredGames.slice(start, start + gamesPerPage);
+// 	}, [filteredGames, currentPage]);
+
+// 	const displayGame = selectedGame || pagedGames[0] || null;
+// 	useEffect(() => {
+// 		setCurrentPage(1);
+// 	}, [searchQuery, selectedGenres, selectedPlatforms, priceRange]);
+
+// 	useEffect(() => {
+// 		if (currentPage > totalPages) {
+// 			setCurrentPage(totalPages);
+// 		}
+// 	}, [currentPage, totalPages]);
+
+// 	useEffect(() => {
+// 		if (!pagedGames.length) {
+// 			setSelectedGame(null);
+// 			return;
+// 		}
+
+// 		const selectedId = selectedGame?.appid || selectedGame?.app_id || selectedGame?.id;
+// 		const hasSelectedInPage = pagedGames.some((game) => (game.appid || game.app_id || game.id) === selectedId);
+// 		if (!hasSelectedInPage) {
+// 			setSelectedGame(pagedGames[0]);
+// 		}
+// 	}, [pagedGames, selectedGame]);
+
+// 	const handleGameClick = (game) => {
+// 		setSelectedGame(game);
+// 	};
+
+// 	const toStoreGameUrl = (game) => {
+// 		const gameId = game?.appid || game?.app_id || game?.id;
+// 		if (!gameId) return '';
+// 		const platform = normalizePlatformId(game?.platform_name || game?.platform) || 'steam';
+// 		return `/store/game/${encodeURIComponent(platform)}/${encodeURIComponent(gameId)}`;
+// 	};
+
+// 	const handleResetFilters = () => {
+// 		setSearchQuery('');
+// 		setSelectedGenres([]);
+// 		setSelectedPlatforms([]);
+// 		setPriceRange({ min: 0, max: 100 });
+// 		setCurrentPage(1);
+// 	};
+
+// 	const handleNextPage = async () => {
+// 		if (currentPage < totalPages) {
+// 			setCurrentPage((p) => Math.min(totalPages, p + 1));
+// 			return;
+// 		}
+
+// 		if (canLoadMore && typeof onRequestNextPage === 'function') {
+// 			const loaded = await onRequestNextPage();
+// 			if (loaded) {
+// 				setCurrentPage((p) => p + 1);
+// 			}
+// 		}
+// 	};
+
+// 	return (
+// 		<div className="w-full flex gap-4">
+// 			{/* Left side - Game list */}
+// 			<div className="w-[50%] bg-slate-800/40 backdrop-blur-sm rounded-lg border border-slate-700/50 overflow-hidden flex flex-col">
+// 				{/* Header */}
+// 				<div className="px-4 py-3 border-b border-slate-700/50 flex items-center justify-between">
+// 					<div>
+// 						<h3 className="text-lg font-semibold text-slate-100">{title}</h3>
+// 						<p className="text-sm text-slate-400 mt-0.5">{filteredGames.length} games found</p>
+// 					</div>
+// 					<button 
+// 						onClick={() => navigate('/shop/all-games')}
+// 						className="text-sm text-slate-400 hover:text-slate-200 transition-colors px-3 py-2 rounded hover:bg-slate-700/50"
+// 					>
+// 						See all
+// 					</button>
+// 				</div>
+
+// 				{/* Games list */}
+// 				<div className="flex-1 overflow-y-auto scrollbar-thin">
+// 					{filteredGames.length > 0 ? (
+// 						pagedGames.map((game) => {
+// 							const gameId = game.appid || game.app_id || game.id;
+// 							const isSelected = displayGame && (displayGame.appid || displayGame.app_id || displayGame.id) === gameId;
+							
+// 							return (
+// 								<div
+// 									key={gameId}
+// 									className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors border-b border-slate-700/30 ${
+// 										isSelected 
+// 											? 'bg-slate-700/50' 
+// 											: 'hover:bg-slate-700/30'
+// 									}`}
+// 									onClick={() => handleGameClick(game)}
+// 								>
+// 									{/* Game thumbnail */}
+// 									<div className="w-20 h-11 flex-shrink-0 rounded overflow-hidden bg-slate-900/50">
+// 										<img
+// 											src={game.image || game.banner_img}
+// 											alt={game.title || game.name}
+// 											className="w-full h-full object-cover"
+// 											onError={(e) => {
+// 												e.target.style.display = 'none';
+// 											}}
+// 										/>
+// 									</div>
+
+// 									{/* Game info */}
+// 									<div className="flex-1 min-w-0">
+// 										<h4 className="text-sm font-medium text-slate-100 truncate mb-1">
+// 											{game.title || game.name}
+// 										</h4>
+										
+// 										{/* Tags/Genres */}
+// 										<div className="flex flex-wrap gap-1">
+// 											{game.tags && game.tags.slice(0, 3).map((tag, idx) => (
+// 												<span
+// 													key={idx}
+// 													className="text-xs px-2 py-0.5 bg-slate-900/50 text-slate-400 rounded"
+// 												>
+// 													{tag}
+// 												</span>
+// 											))}
+// 										</div>
+// 									</div>
+
+// 									{/* Price section */}
+// 									<div className="flex items-center gap-2 flex-shrink-0">
+// 										{game.discount && game.discount > 0 && (
+// 											<div className="px-2 py-1 bg-green-600 text-white text-xs font-bold rounded">
+// 												-{game.discount}%
+// 											</div>
+// 										)}
+// 										<div className="text-right">
+// 											{game.originalPrice && game.discount && (
+// 												<div className="text-xs text-slate-500 line-through">
+// 													{game.originalPrice}€
+// 												</div>
+// 											)}
+// 											<div className={`text-sm font-semibold ${
+// 												game.price === 0 
+// 													? 'text-green-400' 
+// 													: game.discount 
+// 														? 'text-green-400' 
+// 														: 'text-slate-100'
+// 											}`}>
+// 												{game.price === 0 ? 'Free' : `${game.price}€`}
+// 											</div>
+// 										</div>
+// 									</div>
+// 								</div>
+// 							);
+// 						})
+// 					) : (
+// 						<div className="flex-1 flex items-center justify-center text-slate-500 p-4">
+// 							<p className="text-sm">No games match your filters</p>
+// 						</div>
+// 					)}
+// 				</div>
+
+// 				{showPagination && (
+// 					<div className="px-3 py-2 border-t border-slate-700/50 bg-slate-800/60 flex items-center justify-between">
+// 						<button
+// 							onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+// 							disabled={currentPage === 1}
+// 							className="px-3 py-1 text-xs rounded bg-slate-800/50 border border-slate-700/50 text-slate-200 disabled:opacity-40"
+// 						>
+// 							Prev
+// 						</button>
+// 						<div className="text-xs text-slate-300">Page {currentPage} / {pageCountLabel}</div>
+// 						<button
+// 							onClick={handleNextPage}
+// 							disabled={isLoadingMore || (currentPage === totalPages && !canLoadMore)}
+// 							className="px-3 py-1 text-xs rounded bg-slate-800/50 border border-slate-700/50 text-slate-200 disabled:opacity-40"
+// 						>
+// 							{isLoadingMore ? 'Loading...' : 'Next'}
+// 						</button>
+// 					</div>
+// 				)}
+// 			</div>
+
+// 			{/* Middle - Game preview (fixed) */}
+// 			<div className="w-[30%] bg-slate-800/40 backdrop-blur-sm rounded-lg border border-slate-700/50 overflow-hidden flex flex-col">
+// 				{displayGame ? (
+// 					<>
+// 						<div className="px-3 py-2 border-b border-slate-700/50">
+// 							<h3 className="text-sm font-semibold text-slate-100 truncate">
+// 								{displayGame.title || displayGame.name}
+// 							</h3>
+// 						</div>
+
+// 						<div className="flex-1 overflow-y-auto p-3 scrollbar-thin">
+// 							<div className="w-full aspect-[16/9] rounded overflow-hidden bg-slate-900/50 mb-3">
+// 								<img
+// 									src={displayGame.image || displayGame.banner_img}
+// 									alt={displayGame.title || displayGame.name}
+// 									className="w-full h-full object-cover"
+// 									onError={(e) => {
+// 										e.target.style.display = 'none';
+// 									}}
+// 								/>
+// 							</div>
+
+// 							<p className="text-xs text-slate-300 leading-relaxed mb-3">
+// 								{displayGame.description || 'No description available from database.'}
+// 							</p>
+
+// 							<button
+// 								onClick={() => {
+// 									const target = toStoreGameUrl(displayGame);
+// 									if (!target) return;
+// 									navigate(target, { state: { game: displayGame } });
+// 								}}
+// 								className="w-full rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-sm font-semibold py-2 transition-colors"
+// 							>
+// 								Open Game Page
+// 							</button>
+// 						</div>						
+// 					</>
+// 				) : (
+// 					<div className="flex-1 flex items-center justify-center text-slate-500 p-4 text-sm">
+// 						No games available for preview
+// 					</div>
+// 				)}
+// 			</div>
+// 			{/* Right side - Compact filters sidebar */}
+// 			<CompactFiltersSidebar				searchQuery={searchQuery}
+// 				onSearchChange={setSearchQuery}
+// 				selectedGenres={selectedGenres}
+// 				onGenresChange={setSelectedGenres}
+// 				selectedPlatforms={selectedPlatforms}
+// 				onPlatformsChange={setSelectedPlatforms}
+// 				priceRange={priceRange}
+// 				onPriceChange={setPriceRange}
+// 				onReset={handleResetFilters}
+// 			/>
+// 		</div>
+// 	);
+// };
+
+// export default FilteredGamesSection;

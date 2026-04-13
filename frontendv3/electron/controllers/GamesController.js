@@ -95,6 +95,49 @@ class GamesController {
         : (genreNamesFromBackend && genreNamesFromBackend.length ? genreNamesFromBackend : null),
     };
   }
+  /**
+   * 
+   * @param {string} appId 
+   * @param {string} platform 
+   * @returns 
+   */
+  async getAllDetailsByAppIDAndPlatform(appId, platform){
+    if (!appId || !String(appId).trim()) throw new Error('App ID is required');
+    if (!platform || !String(platform).trim()) throw new Error('Platform is required');
+    const url = joinUrl(this.#serverUrl, 'api', 'games', enc(String(platform)), enc(String(appId)), 'all');
+    const { ok, status, json, text } = await fetchJsonSafe(url,{
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+      },
+    });
+    if (!ok) {
+      const apiError = json && typeof json === 'object' ? (json.error || json.message) : null;
+      const snippet = String(apiError ?? text ?? 'Unknown error').replace(/\s+/g, ' ').trim().slice(0, 300);
+      throw new Error(`Failed to fetch game details (HTTP ${status}): ${snippet}`);
+    }
+    const obj = json && typeof json === 'object' ? json : null;
+    console.log('getAllDetailsByAppIDAndPlatform response:', obj);
+    const rawGenres = Array.isArray(obj?.genres) ? obj.genres : null;
+    const genreNamesFromBackend = Array.isArray(rawGenres)
+      ? rawGenres          .map((g) => (g && typeof g === 'object' ? (g.genre ?? g.name ?? g.description) : null))
+          .filter((v) => typeof v === 'string' && v.trim())
+      : null;
+    console.log('Platform + appid gameDetails: ', json);  
+    return {
+      app_id: obj?.app_id ?? null,
+      name: obj?.name ?? null,
+      platform_name: obj?.platform_name ?? obj?.platform ?? null,
+      banner_img: obj?.banner_img ?? null,
+      description: obj?.description ?? null,
+      minimum_requirements: obj?.minimum_requirements ?? null,
+      cost: obj?.cost ?? 0,
+      genre_names: Array.isArray(obj?.genre_names)
+        ? obj.genre_names
+        : (genreNamesFromBackend && genreNamesFromBackend.length ? genreNamesFromBackend : null),      
+      pirate_sites: Array.isArray(obj?.pirate_sites) ? obj.pirate_sites : null,
+    };    
+  }
 
   /**
    * GET /api/games/list/:from
@@ -123,8 +166,57 @@ class GamesController {
 
     return Array.isArray(json) ? json : (json ?? []);
   }
+  /**
+   * 
+   * @param {string} token 
+   * @param {string} appId 
+   * @param {string} platform 
+   * @param {object} pirateSites 
+   */
+  //FINISH LATER!!!!!!!!!!!!!!!!!!!!
+  async uploadPirateSites(token, appId, platform, pirateSites){
+    if (!token || !String(token).trim()) throw new Error('Token is required');
+    if (!appId || !String(appId).trim()) throw new Error('App ID is required');
+    if (!platform || !String(platform).trim()) throw new Error('Platform is required');
+    if (!pirateSites || !Array.isArray(pirateSites)) throw new Error('Pirate sites array is required');
+    const gameUrl = joinUrl(this.#serverUrl, 'api', 'games', enc(String(platform)), enc(String(appId)));
+    const { ok, status, json, text } = await fetchJsonSafe(gameUrl, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      }
+    });
 
-  
+    if (!ok) {
+      const apiError = json && typeof json === 'object' ? (json.error || json.message) : null;
+      const snippet = String(apiError ?? text ?? 'Unknown error').replace(/\s+/g, ' ').trim().slice(0, 300);
+      throw new Error(`Failed to fetch game details (HTTP ${status}): ${snippet}`);
+    }
+    for (const site of pirateSites) {
+      if (!site || typeof site !== 'string' || !site.trim()) {
+        throw new Error('Each pirate site must be a non-empty string');
+      }    
+    const url = joinUrl(this.#serverUrl, 'api', 'pirate_sites', enc(String(json.id)));
+    console.log('Uploading pirate sites to:', url, 'Sites:', pirateSites);
+    const { ok: uploadOk, status: uploadStatus, json: uploadJson, text: uploadText } = await fetchJsonSafe(url, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ sites: pirateSites })
+    });
+    if (!uploadOk) {
+      const apiError = uploadJson && typeof uploadJson === 'object' ? (uploadJson.error || uploadJson.message) : null;
+      const snippet = String(apiError ?? uploadText ?? 'Unknown error').replace(/\s+/g, ' ').trim().slice(0, 300);
+      throw new Error(`Failed to upload pirate sites (HTTP ${uploadStatus}): ${snippet}`);
+    }    
+  }
+  return true;
+  }
+
 }
 
 module.exports = GamesController;
