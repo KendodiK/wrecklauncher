@@ -123,6 +123,8 @@ app.get("/api/games/platform/:platformId/list/:from/details", apiFunctions.GETGa
 
 app.get("/api/games/list/:from", apiFunctions.GETGamesInList);
 
+app.get("/api/games/gamecount", apiFunctions.GETGameCount); //new path v2.3
+
 app.get("/api/search/:needle", apiFunctions.GETSearch);
 /*
   route: /api/nativeUser/
@@ -176,7 +178,11 @@ app.get("/api/friends/:nativeUserId", apiFunctions.GETFriendsOfNativeUser);
 */
 app.get("/api/messages/:friendsId", apiFunctions.GETChatlogByFriendId); //old path: /api/chat/:friendsId TEST NEEDED!
 
+app.get("/api/platforms", apiFunctions.GETPlatforms); //new path v2.3
+
 app.get("/api/platforms/:platformName", apiFunctions.GETPlatformByPlatromName);
+
+app.get("/api/pirate-sites", apiFunctions.GETPirateSites); //new path v2.3
 
 app.get("/api/platform-users/:nativeUserId", tokenValidate(), apiFunctions.GETPlatformUsersByNativeUserId); //old path: /api/platform_users
 

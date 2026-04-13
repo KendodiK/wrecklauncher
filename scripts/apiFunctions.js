@@ -17,6 +17,7 @@ const PlatformsController = require('../database/controllers/PlatformsController
 const PlatformUsersController = require('../database/controllers/PlatformUsersController.js');
 const ShopSpecialsController = require('../database/controllers/ShopSpecialsController.js');
 const PricesController = require('../database/controllers/PricesController.js');
+const PirateSitesController = require('../database/controllers/PirateSitesController.js');
 const { error } = require('console');
 //#endregion
 
@@ -235,6 +236,16 @@ module.exports.GETGamesInList = async function (req, res) {
     }
 }
 
+module.exports.GETGameCount = async function (req, res) {
+    try {
+        const gamesCtrl = new GamesController();
+        const count = await gamesCtrl.getGameCount();
+        return res.json({ count });
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+}
+
 module.exports.GETSearch = async function (req, res) {
     try {
         const { needle } = req.params;
@@ -323,6 +334,17 @@ module.exports.GETChatlogByFriendId = async function (req, res) {
     }
 }
 
+module.exports.GETPlatforms = async function (req, res) { 
+    try {
+        const platformCtrl = new PlatformsController();
+        const platforms = await platformCtrl.index();
+        return res.json(platforms);
+    } catch (err) {
+        console.error('Error in /api/platforms endpoint:', err);
+        return res.status(500).json({ error: err.message });
+    }
+}
+
 module.exports.GETPlatformByPlatromName = async function (req, res) {
     try {
         const { platformName } = req.params;
@@ -349,6 +371,18 @@ module.exports.GETPlatformUsersByNativeUserId = async function (req, res) {
     } catch (err) {
         return res.status(500).json({ error: err.message });
     }
+}
+
+module.exports.GETPirateSites = async function (req, res) {
+    try {
+        const pirateSitesCtrl = new PirateSitesController();
+        const pirateSites = await pirateSitesCtrl.index();
+        return res.json(pirateSites);
+    } catch (err) {
+        console.error('Error in /api/pirate-sites endpoint:', err);
+        return res.status(500).json({ error: err.message });
+    }
+
 }
 
 module.exports.GETShopSpecialsFilteredInList = async function (req, res) {
