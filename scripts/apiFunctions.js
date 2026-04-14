@@ -25,6 +25,8 @@ const shopSpecials = require('./fetchShopSpecials.js');
 
 module.exports.fetchInitialShopSpecialsData = async function() {
   try {    
+        const postNewGame = module.exports.POSTNewGame;
+        const postNewShopSpecials = module.exports.POSTNewShopSpecials;
     const games = await shopSpecials.getShopSpecials();
     try{
         const shopSpecialsMaker = new ShopSpecialsMaker();
@@ -95,10 +97,7 @@ module.exports.fetchInitialShopSpecialsData = async function() {
           console.log('Skipping upload: missing id or name', { app: payload.app_id, name: payload.name });
           continue;
         }
-
-
-
-        const uploadResp = await this.POSTNewGame({ body: payload }, fakeRes);
+    const uploadResp = await postNewGame({ body: payload }, fakeRes);
         const resp = fakeRes._data ?? {};
         const uploadedId = uploadResp.gameId ?? resp.gameId ?? resp.id ?? null;
         //upload to shopspecials table
@@ -111,7 +110,7 @@ module.exports.fetchInitialShopSpecialsData = async function() {
               discount_percent: game.discount ?? 0,
               country_code: payload.country_code
             };
-            const shopSpecialsResp = await this.POSTNewShopSpecials({ body: shopSpecialsPayload, params: shopSpecialsPayload }, fakeRes);
+                        const shopSpecialsResp = await postNewShopSpecials({ body: shopSpecialsPayload, params: shopSpecialsPayload }, fakeRes);
           }
           catch (err) {            
             console.error('Error uploading shop special for game:', err);
@@ -208,7 +207,7 @@ module.exports.GETOwnedGamesSteam = async function (req, res) {
         const platformUserCtrl = new PlatformUsersController();
         const platformCtrl = new PlatformsController();
 
-        const { userId } = req.auth;
+        const { userId } = req.body ||req.auth;
         const platformUsers = await platformUserCtrl.getByNativeUserId(userId);
         const steamPlatform = await platformCtrl.getByPlatformName('steam');
         if (!steamPlatform) {
@@ -356,19 +355,6 @@ module.exports.GETGamesInList = async function (req, res) {
     }
 }
 
-<<<<<<< Updated upstream
-=======
-module.exports.GETGameCount = async function (req, res) {
-    try {
-        const gamesCtrl = new GamesController();
-        const count = await gamesCtrl.getGameCount();
-        return res.json(count);
-    } catch (err) {
-        return res.status(500).json({ error: err.message });
-    }
-}
-
->>>>>>> Stashed changes
 module.exports.GETSearch = async function (req, res) {
     try {
         const { needle } = req.params;
@@ -550,8 +536,9 @@ module.exports.POSTNewGame = async function (req, res) {
             platform_id: platformId,
             country_code: countryCode,
             cost: price,
-            genre_names: genreNames
+            genre_names: rawGenreNames
         } = req.body;
+        let genreNames = rawGenreNames;
         let missing = [];
         if(appId == null) {missing.push("app_id")}
         if(name == null) {missing.push("name")}
@@ -669,6 +656,9 @@ module.exports.POSTNewPirateSiteConnectionByGameId = async function (req, res) {
         }
         return res.json(result);
     } catch (err) {
+        if (String(err?.message || '').includes('Duplicate entry for game_id and pirate_site_id')) {
+            return res.status(409).json({ message: err.message });
+        }
         console.error('Error in /api/pirate_sites/:gameId/siteId endpoint:', err);
         return res.status(500).json({ error: err.message });
     }

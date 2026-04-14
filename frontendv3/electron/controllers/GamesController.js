@@ -837,17 +837,6 @@ _collapseWhitespace(text) {
     };
 
     /**
-     * Best-effort compatibility for backend variants that require site_id.
-     * @param {string|null} siteName
-     * @returns {number|null}
-     */
-    const getLikelySiteId = (siteName) => {
-      if (siteName === 'fitgirl') return 1;
-      if (siteName === 'pcgames') return 2;
-      return null;
-    };
-
-    /**
      * Keep persisted pirate links under legacy DB limits.
      * For magnets we preserve core identifiers (xt + dn) and drop long tracker lists.
      * @param {string} rawLink
@@ -891,13 +880,14 @@ _collapseWhitespace(text) {
       return link.slice(0, Math.max(32, maxLength));
     };
 
-    /** @type {Array<{ originalLink: string, link: string, siteName: string|null }>} */
+    /** @type {Array<{ originalLink: string, link: string, siteName: string|null, siteId: number|null }>} */
     const normalizedSites = [];
     const seenLinks = new Set();
 
     for (const rawSite of pirateSites) {
       let link = null;
       let siteName = null;
+      let siteId = null;
 
       if (typeof rawSite === 'string') {
         link = rawSite.trim();
@@ -905,6 +895,8 @@ _collapseWhitespace(text) {
         const anySite = /** @type {any} */ (rawSite);
         link = String(anySite.url ?? anySite.link ?? '').trim();
         siteName = normalizeSiteName(anySite.name ?? anySite.site_name ?? anySite.siteName ?? null);
+        const parsedSiteId = Number(anySite.site_id ?? anySite.siteId ?? anySite.pirate_site_id ?? anySite.pirateSiteId ?? null);
+        siteId = Number.isFinite(parsedSiteId) && parsedSiteId > 0 ? parsedSiteId : null;
       }
 
       if (!link) continue;
@@ -918,6 +910,7 @@ _collapseWhitespace(text) {
         originalLink: link,
         link: compactPirateLinkForStorage(link, 500),
         siteName,
+        siteId,
       });
     }
 
@@ -945,18 +938,20 @@ _collapseWhitespace(text) {
       const postNewPath = joinUrl(this.#serverUrl, 'api', 'pirate-sites', enc(String(gameId)));
       const putNewPath = joinUrl(this.#serverUrl, 'api', 'pirate-sites', enc(String(gameId)));
       const legacyPath = joinUrl(this.#serverUrl, 'api', 'pirate_sites', enc(String(gameId)));
-      const likelySiteId = getLikelySiteId(site.siteName);
+      const explicitSiteId = Number.isFinite(Number(site.siteId)) && Number(site.siteId) > 0
+        ? Number(site.siteId)
+        : null;
       const structuredBody = {
         game_id: gameId,
         gameId,
         link: site.link,
         ...(site.siteName ? { site_name: site.siteName, siteName: site.siteName } : {}),
-        ...(typeof likelySiteId === 'number' && Number.isFinite(likelySiteId)
+        ...(typeof explicitSiteId === 'number' && Number.isFinite(explicitSiteId)
           ? {
-              site_id: likelySiteId,
-              siteId: likelySiteId,
-              pirate_site_id: likelySiteId,
-              pirateSiteId: likelySiteId,
+              site_id: explicitSiteId,
+              siteId: explicitSiteId,
+              pirate_site_id: explicitSiteId,
+              pirateSiteId: explicitSiteId,
             }
           : {}),
       };
@@ -999,18 +994,18 @@ _collapseWhitespace(text) {
         },
       ];
 
-      if (typeof likelySiteId === 'number' && Number.isFinite(likelySiteId) && likelySiteId > 0) {
+      if (typeof explicitSiteId === 'number' && Number.isFinite(explicitSiteId) && explicitSiteId > 0) {
         attemptBodies.push(
           {
             label: 'PUT /api/pirate-sites/:siteId/game/:gameId',
             method: 'PUT',
-            url: joinUrl(this.#serverUrl, 'api', 'pirate-sites', enc(String(likelySiteId)), 'game', enc(String(gameId))),
+            url: joinUrl(this.#serverUrl, 'api', 'pirate-sites', enc(String(explicitSiteId)), 'game', enc(String(gameId))),
             body: { game_id: gameId, gameId, link: site.link },
           },
           {
             label: 'PUT /api/pirate_sites/:siteId/game/:gameId',
             method: 'PUT',
-            url: joinUrl(this.#serverUrl, 'api', 'pirate_sites', enc(String(likelySiteId)), 'game', enc(String(gameId))),
+            url: joinUrl(this.#serverUrl, 'api', 'pirate_sites', enc(String(explicitSiteId)), 'game', enc(String(gameId))),
             body: { game_id: gameId, gameId, link: site.link },
           }
         );

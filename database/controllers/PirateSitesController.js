@@ -4,12 +4,34 @@ class PirateSitesController extends Controller {
     constructor() {
         super('pirate_sites');
     }
+
     async index() {
         return super.index();
     }
 
     async show(id) {
         return super.show(id);
+    }
+
+    /**
+     * Fetch pirate site row by name.
+     * @param {string} name
+     * @returns {Promise<object|null>}
+     */
+    async getByName(name) {
+        await this.ready;
+
+        const normalizedName = String(name ?? '').trim();
+        if (!normalizedName) return null;
+
+        const query = 'SELECT * FROM `pirate_sites` WHERE LOWER(name) = LOWER(?) LIMIT 1;';
+        try {
+            const [rows] = await this.dbConnection.execute(query, [normalizedName]);
+            return rows?.[0] ?? null;
+        } catch (err) {
+            console.error(`Error while selecting by name from table ${this.tableName}: ${err}`);
+            throw err;
+        }
     }
 
     /**
@@ -21,7 +43,7 @@ class PirateSitesController extends Controller {
         await super.create();
 
         let uniqueCheck = await this.#checkUniqueConstraint(data);
-        if (uniqueCheck != null ||uniqueCheck instanceof Error) {
+        if (uniqueCheck instanceof Error) {
             throw uniqueCheck;
         }
 
@@ -69,7 +91,7 @@ class PirateSitesController extends Controller {
             const values = [data.name];
             const [rows] = await this.dbConnection.execute(query, values);
             if (rows.length > 0) {
-                return new Error({ message: `Element with name ${data.name} already exists in table ${this.tableName}`, id: rows[0].id });
+                return new Error(`Element with name ${data.name} already exists in table ${this.tableName}`);
             }
             return null;
         } catch (err) {
