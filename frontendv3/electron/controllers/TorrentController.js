@@ -28,6 +28,9 @@ class TorrentController {
   /** @type {Map<string, Promise<any>> | null} */
   static #pending = null;
 
+  /** @type {Set<string>} */
+  #forcedPaused = new Set();
+
   /**
    * Lazily initialise the WebTorrent client (ESM dynamic import).
    * @returns {Promise<import('webtorrent').default>}
@@ -83,6 +86,8 @@ class TorrentController {
    */
   #snapshot(t, fallbackPath = '') {
     const tr = t.timeRemaining;
+    const hash = String(t.infoHash ?? '').trim().toLowerCase();
+    const forcedPaused = !!hash && this.#forcedPaused.has(hash);
     return {
       infoHash:      t.infoHash      ?? '',
       name:          t.name          ?? t.infoHash ?? 'Pending…',
@@ -96,10 +101,38 @@ class TorrentController {
       // Infinity is valid for structured-clone (IPC) but becomes null in JSON.stringify.
       // Encode it as -1 so the renderer can display '∞' without special-casing.
       timeRemaining: (tr == null || !Number.isFinite(tr)) ? -1 : tr,
-      paused:        t.paused        ?? false,
+      paused:        forcedPaused || (t.paused ?? false),
       done:          t.done          ?? false,
       path:          t.path          || fallbackPath,
     };
+  }
+
+  /**
+   * Resolve a real torrent object by infoHash from the active client.
+   * In some WebTorrent flows `client.get(infoHash)` may return a lightweight stub,
+   * so we prefer scanning `client.torrents` first.
+   *
+   * @param {string} infoHash
+   * @returns {import('webtorrent').Torrent | null}
+   */
+  #findTorrentByInfoHash(infoHash) {
+    const client = this.#client;
+    if (!client) return null;
+    const target = String(infoHash || '').trim().toLowerCase();
+    if (!target) return null;
+
+    const fromList = Array.isArray(client.torrents)
+      ? client.torrents.find((/** @type {any} */ torrent) => {
+          const hash = String(torrent?.infoHash || '').trim().toLowerCase();
+          return hash === target;
+        })
+      : null;
+
+    if (fromList) return fromList;
+
+    const fromGet = client.get(String(infoHash));
+    if (!fromGet) return null;
+    return /** @type {import('webtorrent').Torrent} */ (fromGet);
   }
 
   // ─── Public API ──────────────────────────────────────────────────────────────
@@ -124,9 +157,10 @@ class TorrentController {
 
     // Guard against concurrent calls with the same magnet URI while add() is in flight.
     if (!TorrentController.#pending) TorrentController.#pending = new Map();
-    if (TorrentController.#pending.has(magnetOrUri)) {
+    const pending = TorrentController.#pending;
+    if (pending.has(magnetOrUri)) {
       console.log('[TorrentController] concurrent add in progress, waiting…');
-      const torrent = await TorrentController.#pending.get(magnetOrUri);
+      const torrent = await pending.get(magnetOrUri);
       return this.#snapshot(torrent, savePath);
     }
 
@@ -141,8 +175,8 @@ class TorrentController {
       return torrent;
     })();
 
-    TorrentController.#pending.set(magnetOrUri, addResultPromise.finally(() => {
-      TorrentController.#pending.delete(magnetOrUri);
+    pending.set(magnetOrUri, addResultPromise.finally(() => {
+      pending.delete(magnetOrUri);
     }));
 
     let torrent;
@@ -178,7 +212,7 @@ class TorrentController {
       onProgress({ ...this.#snapshot(torrent, savePath), done: true });
     });
 
-    torrent.on('error', (err) => {
+    torrent.on('error', (/** @type {any} */ err) => {
       clearInterval(/** @type {any} */ (ticker));
       ticker = null;
       const errObj = err instanceof Error ? err : new Error(String(err));
@@ -194,11 +228,24 @@ class TorrentController {
    * @param {string} infoHash
    */
   pause(infoHash) {
-    const client = this.#client;
-    if (!client) throw new Error('No active WebTorrent client');
-    const t = client.get(infoHash);
+    if (!this.#client) throw new Error('No active WebTorrent client');
+    const t = this.#findTorrentByInfoHash(infoHash);
     if (!t) throw new Error(`Torrent not found: ${infoHash}`);
-    t.pause();
+    const hash = String(t.infoHash || infoHash || '').trim().toLowerCase();
+    if (typeof t.pause === 'function') {
+      t.pause();
+    }
+    const torrentAny = /** @type {any} */ (t);
+    if (Array.isArray(torrentAny.wires)) {
+      for (const wire of torrentAny.wires) {
+        try {
+          wire?.destroy?.();
+        } catch {
+          // ignore
+        }
+      }
+    }
+    if (hash) this.#forcedPaused.add(hash);
     return this.#snapshot(t);
   }
 
@@ -207,11 +254,29 @@ class TorrentController {
    * @param {string} infoHash
    */
   resume(infoHash) {
-    const client = this.#client;
-    if (!client) throw new Error('No active WebTorrent client');
-    const t = client.get(infoHash);
+    if (!this.#client) throw new Error('No active WebTorrent client');
+    const t = this.#findTorrentByInfoHash(infoHash);
     if (!t) throw new Error(`Torrent not found: ${infoHash}`);
-    t.resume();
+    const hash = String(t.infoHash || infoHash || '').trim().toLowerCase();
+    if (hash) this.#forcedPaused.delete(hash);
+    if (typeof t.resume === 'function') {
+      t.resume();
+    }
+    const torrentAny = /** @type {any} */ (t);
+    if (typeof torrentAny._drain === 'function') {
+      try {
+        torrentAny._drain();
+      } catch {
+        // ignore
+      }
+    }
+    if (torrentAny.discovery?.tracker && typeof torrentAny.discovery.tracker.start === 'function') {
+      try {
+        torrentAny.discovery.tracker.start();
+      } catch {
+        // ignore
+      }
+    }
     return this.#snapshot(t);
   }
 
@@ -222,9 +287,10 @@ class TorrentController {
    * @returns {Promise<void>}
    */
   remove(infoHash, destroyStore = false) {
-    const client = this.#client;
-    if (!client) return Promise.resolve();
-    const t = client.get(infoHash);
+    if (!this.#client) return Promise.resolve();
+    const t = this.#findTorrentByInfoHash(infoHash);
+    const hash = String(t?.infoHash || infoHash || '').trim().toLowerCase();
+    if (hash) this.#forcedPaused.delete(hash);
     if (!t) return Promise.resolve();
     return new Promise((resolve, reject) => {
       t.destroy({ destroyStore }, (err) => {
@@ -240,7 +306,7 @@ class TorrentController {
    */
   getStatus() {
     if (!this.#client) return [];
-    return this.#client.torrents.map((t) => this.#snapshot(t));
+    return this.#client.torrents.map((/** @type {any} */ t) => this.#snapshot(t));
   }
 
   /**

@@ -122,7 +122,7 @@ const Storeslider = ({ items, onCardClick, onNearEnd, nearEndThreshold = 5 }) =>
                         visible,
                         style: { zIndex: 8 },
                         animate: {
-                            x: dir * 220 * spread,
+                            x: dir * 320 * spread,
                             y: 10,
                             scale: 0.92,
                             opacity: 0.75,
@@ -136,7 +136,7 @@ const Storeslider = ({ items, onCardClick, onNearEnd, nearEndThreshold = 5 }) =>
                         visible,
                         style: { zIndex: 6 },
                         animate: {
-                            x: dir * 380 * spread,
+                            x: dir * 520 * spread,
                             y: 18,
                             scale: 0.84,
                             opacity: 0.38,
@@ -150,7 +150,7 @@ const Storeslider = ({ items, onCardClick, onNearEnd, nearEndThreshold = 5 }) =>
                         visible,
                         style: { zIndex: 4 },
                         animate: {
-                            x: dir * 520 * spread,
+                            x: dir * 700 * spread,
                             y: 24,
                             scale: 0.78,
                             opacity: 0.2,
@@ -164,7 +164,7 @@ const Storeslider = ({ items, onCardClick, onNearEnd, nearEndThreshold = 5 }) =>
                     visible,
                     style: { zIndex: 2 },
                     animate: {
-                        x: dir * 640 * spread,
+                        x: dir * 860 * spread,
                         y: 28,
                         scale: 0.72,
                         opacity: 0,

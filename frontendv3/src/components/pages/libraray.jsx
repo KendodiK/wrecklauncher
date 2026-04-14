@@ -49,7 +49,7 @@ function toSteamLibraryGame(game, installedAppIds) {
 		appid: appId,
 		title,
 		launcherId: 'steam',
-		coverUrl: `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/header.jpg`,
+		coverUrl: `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/library_600x900_2x.jpg`,
 		heroUrl: `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/library_hero.jpg`,
 		genres: ['Steam'],
 		tags,
@@ -61,6 +61,34 @@ function toSteamLibraryGame(game, installedAppIds) {
 		installed: isInstalled,
 		owned: true,
 	};
+}
+
+function getLibraryGameKey(game) {
+	if (!game || typeof game !== 'object') return null;
+	const launcherId = String(game.launcherId || '').trim().toLowerCase();
+	const appId = Number(game.appid);
+	if (launcherId && Number.isFinite(appId) && appId > 0) {
+		return `${launcherId}:${appId}`;
+	}
+	const id = String(game.id || '').trim();
+	if (id) return `id:${id}`;
+	const title = String(game.title || '').trim().toLowerCase();
+	if (launcherId && title) return `${launcherId}:title:${title}`;
+	return null;
+}
+
+function dedupeLibraryGames(games) {
+	if (!Array.isArray(games)) return [];
+	const seen = new Set();
+	const out = [];
+	for (const game of games) {
+		if (!game) continue;
+		const key = getLibraryGameKey(game) || `fallback:${out.length}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		out.push(game);
+	}
+	return out;
 }
 
 const LibraryPage = () => {
@@ -81,7 +109,7 @@ const LibraryPage = () => {
 	const [actionState, setActionState] = useState({ busyAction: '', text: '', type: '' });
 
 	const ownedGames = useMemo(() => {
-		return libraryGames.filter((g) => g.owned === true);
+		return dedupeLibraryGames(libraryGames.filter((g) => g.owned === true));
 	}, [libraryGames]);
 
 	useEffect(() => {
@@ -126,11 +154,12 @@ const LibraryPage = () => {
 				const normalizedGames = (ownedSteamGames || [])
 					.map((game) => toSteamLibraryGame(game, installedAppIds))
 					.filter(Boolean);
+				const uniqueGames = dedupeLibraryGames(normalizedGames);
 
 				if (!cancelled) {
-					setLibraryGames(normalizedGames);
+					setLibraryGames(uniqueGames);
 					setActiveLauncherId('steam');
-					setActiveGameId(normalizedGames[0]?.id ?? '');
+					setActiveGameId(uniqueGames[0]?.id ?? '');
 				}
 			} catch (error) {
 				console.error('Failed to load Steam library:', error);
@@ -152,9 +181,11 @@ const LibraryPage = () => {
 	}, []);
 
 	const searchPool = useMemo(() => {
+		const q = deferredSearch.trim();
+		if (!q) return ownedGames;
 		if (scope === 'all') return ownedGames;
 		return ownedGames.filter((g) => g.launcherId === activeLauncherId);
-	}, [activeLauncherId, scope, ownedGames]);
+	}, [activeLauncherId, deferredSearch, scope, ownedGames]);
 
 	const filteredGames = useMemo(() => {
 		let result = [...searchPool];
@@ -181,16 +212,19 @@ const LibraryPage = () => {
 			return left.title.localeCompare(right.title);
 		});
 
-		return result;
+		return dedupeLibraryGames(result);
 	}, [deferredSearch, hideZeroPlaytime, searchPool, sortBy]);
 
-	const activeGame = useMemo(
-		() => ownedGames.find((g) => g.id === activeGameId) ?? filteredGames[0] ?? null,
-		[activeGameId, filteredGames, ownedGames],
-	);
+	const activeGame = useMemo(() => {
+		if (!filteredGames.length) return null;
+		return filteredGames.find((g) => g.id === activeGameId) ?? filteredGames[0] ?? null;
+	}, [activeGameId, filteredGames]);
 
 	useEffect(() => {
-		if (!filteredGames.length) return;
+		if (!filteredGames.length) {
+			if (activeGameId !== '') setActiveGameId('');
+			return;
+		}
 		if (!filteredGames.some((g) => g.id === activeGameId)) {
 			setActiveGameId(filteredGames[0].id);
 		}
@@ -201,14 +235,6 @@ const LibraryPage = () => {
 	const canUseSteamActions = Number.isFinite(activeSteamAppId) && activeSteamAppId > 0 && activeGame?.launcherId === 'steam';
 	const isActiveGameInstalled = activeGame?.installed === true;
 	const primarySteamAction = isActiveGameInstalled ? 'run' : 'install';
-
-	const resetFilters = () => {
-		setScope('launcher');
-		setSearch('');
-		setSortBy('title-asc');
-		setHideZeroPlaytime(false);
-		setShowMenu(false);
-	};
 
 	const handleSteamAction = async (action) => {
 		if (!canUseSteamActions) {
@@ -256,16 +282,23 @@ const LibraryPage = () => {
 		}
 	};
 
-	const handleOpenGamePage = (game) => {
-		const appId = Number(game?.appid ?? game?.id);
-		if (!Number.isFinite(appId) || appId <= 0) return;
-		navigate(`/game/${appId}`, { state: { game } });
-	};
-
 	const handleOpenStorePage = (game) => {
 		const appId = Number(game?.appid ?? game?.id);
 		if (!Number.isFinite(appId) || appId <= 0) return;
-		navigate(`/store/game/steam/${appId}`, {
+		const numericPlatformId = Number(game?.platform_id ?? game?.platformId);
+		let routePlatform = 'steam';
+		if (Number.isFinite(numericPlatformId)) {
+			if (numericPlatformId === 2) routePlatform = 'gog';
+			else if (numericPlatformId === 3) routePlatform = 'itchio';
+			else if (numericPlatformId === 4) routePlatform = 'epic';
+		} else {
+			const rawPlatform = String(game?.launcherId || game?.platform_name || game?.platform || 'steam').trim().toLowerCase();
+			if (rawPlatform === 'itch' || rawPlatform === 'itch.io' || rawPlatform === 'itchio') routePlatform = 'itchio';
+			else if (rawPlatform === 'gog') routePlatform = 'gog';
+			else if (rawPlatform === 'epic games' || rawPlatform === 'epic_games' || rawPlatform === 'epic') routePlatform = 'epic';
+			else routePlatform = rawPlatform || 'steam';
+		}
+		navigate(`/store/game/${encodeURIComponent(routePlatform)}/${appId}`, {
 			state: {
 				game,
 			},
@@ -294,10 +327,10 @@ const LibraryPage = () => {
 
 			{/* Library header with owned games count */}
 			<div className="absolute top-4 left-6 z-10">
-				<h1 className="text-3xl font-bold text-white mb-1">My Library</h1>
+				
 				<p className="text-sm text-slate-300">
 					{ownedGames.length} {ownedGames.length === 1 ? 'game' : 'games'} owned
-					{scope === 'launcher' && searchPool.length > 0 && ` • ${searchPool.length} on ${activeLauncherId}`}
+					{scope === 'launcher' && deferredSearch.trim() !== '' && searchPool.length > 0 && ` • ${searchPool.length} on ${activeLauncherId}`}
 				</p>
 			</div>
 
@@ -388,35 +421,6 @@ const LibraryPage = () => {
 							>
 								Sort: Most Played
 							</button>
-							<button
-								type="button"
-								onClick={() => setSortBy('playtime-asc')}
-								className={`library-scope-btn ${sortBy === 'playtime-asc' ? 'library-scope-btn-active' : ''}`}
-							>
-								Sort: Least Played
-							</button>
-							<button
-								type="button"
-								onClick={() => setHideZeroPlaytime((value) => !value)}
-								className={`library-scope-btn ${hideZeroPlaytime ? 'library-scope-btn-active' : ''}`}
-							>
-								{hideZeroPlaytime ? 'Showing played titles only' : 'Show all playtime states'}
-							</button>
-							<button
-								type="button"
-								onClick={resetFilters}
-								className="library-scope-btn"
-							>
-								Reset search and filters
-							</button>
-							<div className="library-scope-divider" />
-							<button
-								type="button"
-								onClick={() => { setShowAllGames(true); setShowMenu(false); }}
-								className="library-scope-btn-open-all"
-							>
-								Open All Games
-							</button>
 						</div>
 					) : null}
 				</header>
@@ -442,7 +446,6 @@ const LibraryPage = () => {
 							activeGameId={activeGame?.id ?? ''}
 							onSelect={(id) => setActiveGameId(id)}
 							onOpenStore={handleOpenStorePage}
-							onOpenGamePage={handleOpenGamePage}
 						/>
 					</div>
 

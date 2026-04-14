@@ -17,6 +17,10 @@ const DEFAULT_SETTINGS = {
 		concurrent: 3,
 	},
 	account: {
+		profile: {
+			bio: '',
+			avatarUrl: '',
+		},
 		platforms: {
 			steam: { connected: false, username: '', profileLink: '' },
 			gog: { connected: false, username: '' },
@@ -82,7 +86,13 @@ const SettingsPage = () => {
 	const [loading, setLoading] = useState(true);
 	const [saving, setSaving] = useState(false);
 	const [steamBusy, setSteamBusy] = useState(false);
+	const [gogBusy, setGogBusy] = useState(false);
+	const [itchBusy, setItchBusy] = useState(false);
 	const [steamForm, setSteamForm] = useState({ username: '', profileLink: '' });
+	const [gogUsername, setGogUsername] = useState('');
+	const [itchUsername, setItchUsername] = useState('');
+	const [itchOAuthStatus, setItchOAuthStatus] = useState({ isLoggedIn: false, hasToken: false });
+	const [profileForm, setProfileForm] = useState({ bio: '', avatarUrl: '' });
 	const [message, setMessage] = useState({ type: '', text: '' });
 
 	// Load settings on mount
@@ -100,6 +110,23 @@ const SettingsPage = () => {
 				username: normalized?.account?.platforms?.steam?.username || '',
 				profileLink: normalized?.account?.platforms?.steam?.profileLink || '',
 			});
+			setGogUsername(normalized?.account?.platforms?.gog?.username || '');
+			setItchUsername(normalized?.account?.platforms?.itch?.username || '');
+			setProfileForm({
+				bio: normalized?.account?.profile?.bio || '',
+				avatarUrl: normalized?.account?.profile?.avatarUrl || '',
+			});
+			try {
+				if (typeof window.electronAPI.getItchOAuthStatus === 'function') {
+					const oauthStatus = await window.electronAPI.getItchOAuthStatus();
+					setItchOAuthStatus({
+						isLoggedIn: Boolean(oauthStatus?.isLoggedIn),
+						hasToken: Boolean(oauthStatus?.hasToken),
+					});
+				}
+			} catch {
+				setItchOAuthStatus({ isLoggedIn: false, hasToken: false });
+			}
 		} catch (error) {
 			console.error('Failed to load settings:', error);
 			const fallbackSettings = normalizeSettings(null);
@@ -108,9 +135,47 @@ const SettingsPage = () => {
 				username: fallbackSettings.account.platforms.steam.username,
 				profileLink: fallbackSettings.account.platforms.steam.profileLink,
 			});
+			setGogUsername(fallbackSettings.account.platforms.gog.username);
+			setItchUsername(fallbackSettings.account.platforms.itch.username);
+			setProfileForm({
+				bio: fallbackSettings.account.profile.bio,
+				avatarUrl: fallbackSettings.account.profile.avatarUrl,
+			});
 			setMessage({ type: 'error', text: 'Settings endpoint unavailable, using defaults' });
 		} finally {
 			setLoading(false);
+		}
+	};
+
+	const persistPlatformConnection = async (platform, connected, username) => {
+		try {
+			const updated = await window.electronAPI.updatePlatformConnection(platform, connected, username);
+			const normalized = normalizeSettings(updated);
+			setSettings(normalized);
+			return normalized;
+		} catch (error) {
+			if (!isMissingSettingsHandlerError(error, 'settings:update-platform')) {
+				throw error;
+			}
+
+			const localUpdated = normalizeSettings({
+				...settings,
+				account: {
+					...(settings?.account || {}),
+					platforms: {
+						...(settings?.account?.platforms || {}),
+						[platform]: {
+							...(settings?.account?.platforms?.[platform] || {}),
+							connected,
+							username,
+						},
+					},
+				},
+			});
+
+			setSettings(localUpdated);
+			setMessage({ type: 'error', text: `Settings backend unavailable, ${platform} state kept locally` });
+			return localUpdated;
 		}
 	};
 
@@ -262,6 +327,145 @@ const SettingsPage = () => {
 		}
 	};
 
+	const handleGogConnection = async () => {
+		const gogSettings = settings?.account?.platforms?.gog;
+		if (gogSettings?.connected) {
+			try {
+				setGogBusy(true);
+				await persistPlatformConnection('gog', false, '');
+				setMessage({ type: 'success', text: 'GOG disconnected' });
+			} catch (error) {
+				console.error('Failed to disconnect GOG:', error);
+				setMessage({ type: 'error', text: 'Failed to disconnect GOG' });
+			} finally {
+				setGogBusy(false);
+			}
+			return;
+		}
+
+		const username = gogUsername.trim();
+		if (!username) {
+			setMessage({ type: 'error', text: 'GOG username is required' });
+			return;
+		}
+
+		try {
+			setGogBusy(true);
+			await persistPlatformConnection('gog', true, username);
+			setMessage({ type: 'success', text: 'GOG connected successfully' });
+		} catch (error) {
+			console.error('Failed to connect GOG:', error);
+			setMessage({ type: 'error', text: 'Failed to connect GOG' });
+		} finally {
+			setGogBusy(false);
+		}
+	};
+
+	const handleItchConnection = async () => {
+		const itchSettings = settings?.account?.platforms?.itch;
+		if (itchSettings?.connected) {
+			try {
+				setItchBusy(true);
+				if (typeof window.electronAPI.logoutItchOAuth === 'function') {
+					await window.electronAPI.logoutItchOAuth();
+				}
+				setItchOAuthStatus({ isLoggedIn: false, hasToken: false });
+				await persistPlatformConnection('itch', false, '');
+				setMessage({ type: 'success', text: 'Itch.io disconnected' });
+			} catch (error) {
+				console.error('Failed to disconnect Itch.io:', error);
+				setMessage({ type: 'error', text: 'Failed to disconnect Itch.io' });
+			} finally {
+				setItchBusy(false);
+			}
+			return;
+		}
+
+		let username = itchUsername.trim();
+
+		try {
+			setItchBusy(true);
+
+			if (typeof window.electronAPI.loginItchOAuth === 'function') {
+				await window.electronAPI.loginItchOAuth();
+			}
+
+			if (typeof window.electronAPI.getItchOAuthStatus === 'function') {
+				const status = await window.electronAPI.getItchOAuthStatus();
+				setItchOAuthStatus({
+					isLoggedIn: Boolean(status?.isLoggedIn),
+					hasToken: Boolean(status?.hasToken),
+				});
+			}
+
+			if (typeof window.electronAPI.getItchProfile === 'function') {
+				const profile = await window.electronAPI.getItchProfile();
+				const profileUsername = String(profile?.username || '').trim();
+				if (profileUsername) {
+					username = profileUsername;
+					setItchUsername(profileUsername);
+				}
+			}
+
+			if (!username) {
+				throw new Error('Itch.io username is required');
+			}
+
+			await persistPlatformConnection('itch', true, username);
+			setMessage({ type: 'success', text: 'Itch.io connected successfully' });
+		} catch (error) {
+			console.error('Failed to connect Itch.io:', error);
+			setMessage({
+				type: 'error',
+				text: error instanceof Error ? error.message : 'Failed to connect Itch.io',
+			});
+		} finally {
+			setItchBusy(false);
+		}
+	};
+
+	const handleSaveProfile = async () => {
+		try {
+			setSaving(true);
+			const updated = await window.electronAPI.updateSettings({
+				account: {
+					profile: {
+						bio: profileForm.bio.trim(),
+						avatarUrl: profileForm.avatarUrl.trim(),
+					},
+				},
+			});
+			const normalized = normalizeSettings(updated);
+			setSettings(normalized);
+			setProfileForm({
+				bio: normalized?.account?.profile?.bio || '',
+				avatarUrl: normalized?.account?.profile?.avatarUrl || '',
+			});
+			setMessage({ type: 'success', text: 'Profile settings saved' });
+			setTimeout(() => setMessage({ type: '', text: '' }), 2000);
+		} catch (error) {
+			console.error('Failed to save profile settings:', error);
+			if (isMissingSettingsHandlerError(error, 'settings:update-bulk')) {
+				const localUpdated = normalizeSettings({
+					...settings,
+					account: {
+						...(settings?.account || {}),
+						profile: {
+							bio: profileForm.bio.trim(),
+							avatarUrl: profileForm.avatarUrl.trim(),
+						},
+					},
+				});
+				setSettings(localUpdated);
+				setMessage({ type: 'error', text: 'Settings backend unavailable, profile kept locally' });
+			} else {
+				setMessage({ type: 'error', text: 'Failed to save profile settings' });
+			}
+		} finally {
+			setSaving(false);
+		}
+	};
+
 	if (loading) {
 		return (
 			<div className="flex-1 px-4 py-3 text-slate-100 flex items-center justify-center">
@@ -283,6 +487,8 @@ const SettingsPage = () => {
 	}
 
 	const steamSettings = settings.account.platforms.steam;
+	const gogSettings = settings.account.platforms.gog;
+	const itchSettings = settings.account.platforms.itch;
 
 	return (
 		<div className="flex-1 px-6 py-4 text-slate-100 overflow-y-auto">
@@ -574,38 +780,90 @@ const SettingsPage = () => {
 							</div>
 						</div>
 
-						{/* Platform Connections */}
-						{Object.entries(settings.account.platforms).filter(([platform]) => platform !== 'steam').map(([platform, data]) => (
-							<div key={platform} className="flex items-center justify-between p-3 bg-slate-700/30 rounded-lg">
-								<div className="flex items-center">
-									<div className={`w-10 h-10 rounded-lg flex items-center justify-center mr-3 ${
-										data.connected ? 'bg-green-900/30 text-green-400' : 'bg-slate-700 text-slate-400'
-									}`}>
-										{platform.charAt(0).toUpperCase()}
-									</div>
-									<div>
-										<p className="text-sm font-medium capitalize">{platform}</p>
-										<p className="text-xs text-slate-400">
-											{data.connected ? `Connected as ${data.username || 'User'}` : 'Not connected'}
-										</p>
-									</div>
+						<div className="rounded-lg border border-slate-600 bg-slate-900/30 p-4">
+							<div className="flex items-start justify-between gap-4 mb-4">
+								<div>
+									<p className="text-sm font-medium">GOG account</p>
+									<p className="text-xs text-slate-400 mt-1">Connect your GOG username for account tracking.</p>
 								</div>
+								<span className={`text-xs px-2 py-1 rounded-full ${
+									gogSettings.connected ? 'bg-green-900/40 text-green-300 border border-green-700/60' : 'bg-slate-700 text-slate-300 border border-slate-600'
+								}`}>
+									{gogSettings.connected ? 'Connected' : 'Not connected'}
+								</span>
+							</div>
+
+							<div className="flex flex-col gap-4 md:flex-row md:items-end">
+								<label className="block flex-1">
+									<span className="text-sm font-medium">GOG username</span>
+									<input
+										type="text"
+										value={gogUsername}
+										onChange={(e) => setGogUsername(e.target.value)}
+										disabled={saving || gogBusy}
+										placeholder="yourgogname"
+										className="mt-2 w-full bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
+									/>
+								</label>
+
 								<button
-									onClick={() => {
-										// TODO: Implement platform connection dialog
-										alert(`${platform} connection dialog not yet implemented`);
-									}}
-									disabled={saving}
+									onClick={handleGogConnection}
+									disabled={saving || gogBusy}
 									className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-										data.connected
+										gogSettings.connected
 											? 'bg-slate-600 hover:bg-slate-500'
 											: 'bg-blue-600 hover:bg-blue-700'
 									}`}
 								>
-									{data.connected ? 'Disconnect' : 'Connect'}
+									{gogBusy ? 'Working...' : gogSettings.connected ? 'Disconnect GOG' : 'Connect GOG'}
 								</button>
 							</div>
-						))}
+						</div>
+
+						<div className="rounded-lg border border-slate-600 bg-slate-900/30 p-4">
+							<div className="flex items-start justify-between gap-4 mb-4">
+								<div>
+									<p className="text-sm font-medium">Itch.io account</p>
+									<p className="text-xs text-slate-400 mt-1">Uses existing itch OAuth handlers and stores the linked username in account settings.</p>
+								</div>
+								<span className={`text-xs px-2 py-1 rounded-full ${
+									itchSettings.connected ? 'bg-green-900/40 text-green-300 border border-green-700/60' : 'bg-slate-700 text-slate-300 border border-slate-600'
+								}`}>
+									{itchSettings.connected ? 'Connected' : 'Not connected'}
+								</span>
+							</div>
+
+							<div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+								<label className="block">
+									<span className="text-sm font-medium">Itch.io username</span>
+									<input
+										type="text"
+										value={itchUsername}
+										onChange={(e) => setItchUsername(e.target.value)}
+										disabled={saving || itchBusy}
+										placeholder="youritchname"
+										className="mt-2 w-full bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
+									/>
+								</label>
+
+								<button
+									onClick={handleItchConnection}
+									disabled={saving || itchBusy}
+									className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+										itchSettings.connected
+											? 'bg-slate-600 hover:bg-slate-500'
+											: 'bg-blue-600 hover:bg-blue-700'
+									}`}
+								>
+									{itchBusy ? 'Working...' : itchSettings.connected ? 'Disconnect Itch.io' : 'Connect Itch.io'}
+								</button>
+							</div>
+
+							<p className="mt-3 text-xs text-slate-400">
+								OAuth status: {itchOAuthStatus.isLoggedIn ? 'logged in' : 'not logged in'}
+								{itchOAuthStatus.hasToken ? ' (token available)' : ''}
+							</p>
+						</div>
 
 						{/* Sync Frequency */}
 						<div className="flex items-center justify-between mt-4">
@@ -624,6 +882,51 @@ const SettingsPage = () => {
 								<option value="12">Every 12 hours</option>
 								<option value="24">Every 24 hours</option>
 							</select>
+						</div>
+					</div>
+				</section>
+
+				<section className="mb-8 bg-slate-800/50 rounded-lg p-6 border border-slate-700">
+					<h2 className="text-xl font-semibold mb-4 flex items-center">
+						<svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.121 17.804A13.937 13.937 0 0112 16c2.634 0 5.09.73 7.121 2.004M15 10a3 3 0 11-6 0 3 3 0 016 0z" />
+						</svg>
+						Profile
+					</h2>
+
+					<div className="space-y-4">
+						<div>
+							<label className="text-sm font-medium">Profile picture URL</label>
+							<input
+								type="url"
+								value={profileForm.avatarUrl}
+								onChange={(e) => setProfileForm((prev) => ({ ...prev, avatarUrl: e.target.value }))}
+								disabled={saving}
+								placeholder="https://example.com/avatar.png"
+								className="mt-2 w-full bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
+							/>
+						</div>
+
+						<div>
+							<label className="text-sm font-medium">Bio</label>
+							<textarea
+								rows={4}
+								value={profileForm.bio}
+								onChange={(e) => setProfileForm((prev) => ({ ...prev, bio: e.target.value }))}
+								disabled={saving}
+								placeholder="Write a short bio"
+								className="mt-2 w-full bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500 resize-none"
+							/>
+						</div>
+
+						<div className="flex justify-end">
+							<button
+								onClick={handleSaveProfile}
+								disabled={saving}
+								className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-60"
+							>
+								Save profile
+							</button>
 						</div>
 					</div>
 				</section>

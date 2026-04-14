@@ -3,7 +3,7 @@ import GameSliderBase from '../shared/GameSliderBase.jsx';
 
 // Library game strip — wrapper around GameSliderBase in translate mode.
 // Renders game cover cards with active card highlight.
-const LibraryGameStrip = ({ games, activeGameId, onSelect, onOpenStore, onOpenGamePage }) => {
+const LibraryGameStrip = ({ games, activeGameId, onSelect, onOpenStore }) => {
   // Map LibraryGame data to the format GameSliderBase expects
   const sliderGames = (games ?? []).map((game) => ({
     id: game.id,
@@ -24,6 +24,7 @@ const LibraryGameStrip = ({ games, activeGameId, onSelect, onOpenStore, onOpenGa
       classNameContainer="lib-strip-cards"
       classNameCard="lib-strip-card"
       classNameCardActive="lib-strip-card-active"
+      advanceOnActiveClick
       transitionMs={300}
       onCurrentCardChange={(card) => {
         if (typeof onSelect === 'function') {
@@ -55,22 +56,17 @@ const LibraryGameStrip = ({ games, activeGameId, onSelect, onOpenStore, onOpenGa
                 <button
                   type="button"
                   className="lib-strip-card-popover-btn"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
                   onClick={(event) => {
+                    event.preventDefault();
                     event.stopPropagation();
                     onOpenStore?.(game);
                   }}
                 >
                   Open Store Page
-                </button>
-                <button
-                  type="button"
-                  className="lib-strip-card-popover-btn"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onOpenGamePage?.(game);
-                  }}
-                >
-                  Open Game Page
                 </button>
               </div>
             ) : null}

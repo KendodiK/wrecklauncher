@@ -169,6 +169,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   runSteamGame: (appID) => ipcRenderer.invoke('steam:run-game', appID),
   // itch.io
   getItchInstalledGames: () => ipcRenderer.invoke('itch:get-installed-games'),
+  getItchClientId: () => ipcRenderer.invoke('itch:get-client-id'),
+  loginItchOAuth: (clientId) => ipcRenderer.invoke('itch:oauth-login', clientId),
+  logoutItchOAuth: () => ipcRenderer.invoke('itch:oauth-logout'),
+  getItchOAuthStatus: () => ipcRenderer.invoke('itch:oauth-status'),
+  getItchProfile: () => ipcRenderer.invoke('itch:get-profile'),
   getItchGameDetails: (gameId) => {
     return invokeAuthed('itch:get-game-details', gameId);
   },

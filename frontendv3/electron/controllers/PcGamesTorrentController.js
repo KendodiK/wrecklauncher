@@ -132,7 +132,7 @@ class PcGamesTorrentController {
         console.warn('[PcGamesTorrent] no magnet extracted from download page');
         return null;
       }
-      console.log('[PcGamesTorrent] extracted magnet:', magnet.slice(0, 120));
+  
       return magnet
         .replace(/&#0*38;/g, '&')
         .replace(/&amp;/gi, '&');

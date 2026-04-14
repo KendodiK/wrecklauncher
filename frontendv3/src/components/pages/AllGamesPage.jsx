@@ -89,7 +89,7 @@ const AllGamesPage = () => {
 	const [allGames, setAllGames] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [searchQuery, setSearchQuery] = useState('');
-	const [selectedGenres, setSelectedGenres] = useState([]);
+	const [selectedTags, setSelectedTags] = useState([]);
 	const [selectedPlatforms, setSelectedPlatforms] = useState([]);
 	const [priceRange, setPriceRange] = useState({ min: 0, max: 100 });
 	const [currentPage, setCurrentPage] = useState(1);
@@ -109,18 +109,31 @@ const AllGamesPage = () => {
 		setCurrentPage(1);
 	}, [platform]);
 
-	const genres = useMemo(() => {
-		const names = new Set();
+	const { quickTags, advancedTags } = useMemo(() => {
+		const counts = new Map();
+		const labels = new Map();
 		for (const game of allGames) {
-			for (const g of Array.isArray(game.genres) ? game.genres : []) {
-				if (typeof g === 'string' && g.trim()) names.add(g.trim());
-				if (g && typeof g === 'object') {
-					const v = g.genre || g.name || g.description;
-					if (typeof v === 'string' && v.trim()) names.add(v.trim());
-				}
+			const tags = Array.isArray(game?.tags) ? game.tags : [];
+			for (const rawTag of tags) {
+				const label = String(rawTag || '').trim();
+				if (!label) continue;
+				const key = label.toLowerCase();
+				counts.set(key, (counts.get(key) || 0) + 1);
+				if (!labels.has(key)) labels.set(key, label);
 			}
 		}
-		return Array.from(names).sort((a, b) => a.localeCompare(b)).map((name, idx) => ({ id: idx + 1, name }));
+
+		const ordered = [...counts.entries()]
+			.sort((a, b) => {
+				if (b[1] !== a[1]) return b[1] - a[1];
+				return (labels.get(a[0]) || a[0]).localeCompare(labels.get(b[0]) || b[0]);
+			})
+			.map(([key]) => labels.get(key) || key);
+
+		return {
+			quickTags: ordered.slice(0, 4),
+			advancedTags: ordered.slice(4),
+		};
 	}, [allGames]);
 
 	const platforms = useMemo(() => {
@@ -212,14 +225,17 @@ const AllGamesPage = () => {
 				return false;
 			}
 
-			// Genre filter
-			if (selectedGenres.length > 0) {
-				const gameGenres = Array.isArray(game.genres) ? game.genres : [];
-				const hasMatchingGenre = selectedGenres.some(genreId => 
-					gameGenres.includes(genreId) || 
-					gameGenres.some(g => typeof g === 'object' && g.id === genreId)
+			// Tag filter: game must contain all selected tags
+			if (selectedTags.length > 0) {
+				const gameTags = new Set(
+					(Array.isArray(game.tags) ? game.tags : [])
+						.map((tag) => String(tag || '').trim().toLowerCase())
+						.filter(Boolean),
 				);
-				if (!hasMatchingGenre) return false;
+				const hasAllSelectedTags = selectedTags.every((selectedTag) =>
+					gameTags.has(String(selectedTag || '').trim().toLowerCase()),
+				);
+				if (!hasAllSelectedTags) return false;
 			}
 
 			// Platform filter
@@ -237,7 +253,7 @@ const AllGamesPage = () => {
 
 			return true;
 		});
-	}, [allGames, searchQuery, selectedGenres, selectedPlatforms, priceRange]);
+	}, [allGames, searchQuery, selectedTags, selectedPlatforms, priceRange]);
 
 	// Pagination calculations
 	const totalPages = Math.max(1, Math.ceil(filteredGames.length / gamesPerPage));
@@ -261,7 +277,7 @@ const AllGamesPage = () => {
 
 	const handleResetFilters = () => {
 		setSearchQuery('');
-		setSelectedGenres([]);
+		setSelectedTags([]);
 		const normalized = normalizePlatformId(platform);
 		setSelectedPlatforms(normalized ? [normalized] : []);
 		setPriceRange({ min: 0, max: 100 });
@@ -498,11 +514,13 @@ const AllGamesPage = () => {
 					setSearchQuery(value);
 					setCurrentPage(1);
 				}}
-				selectedGenres={selectedGenres}
-				onGenresChange={(genres) => {
-					setSelectedGenres(genres);
+				selectedTags={selectedTags}
+				onTagsChange={(tags) => {
+					setSelectedTags(tags);
 					setCurrentPage(1);
 				}}
+				quickTags={quickTags}
+				advancedTags={advancedTags}
 				selectedPlatforms={selectedPlatforms}
 				onPlatformsChange={(platforms) => {
 					setSelectedPlatforms(platforms);
