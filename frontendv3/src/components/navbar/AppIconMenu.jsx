@@ -45,17 +45,6 @@ const AppIconMenu = ({ dropdownOpen, openDropdown, scheduleCloseDropdown, closeD
           </button>
           <button
             type="button"
-            className="menu-item w-full text-left px-3 py-2 hover:bg-neutral-700"
-            onClick={(e) => {
-              e.stopPropagation();
-              closeDropdown();
-              console.log('Toggle Offline/Online (placeholder)');
-            }}
-          >
-            Go Offline / Go Online
-          </button>
-          <button
-            type="button"
             className="menu-item w-full text-left px-3 py-2 hover:bg-red-700 text-red-100"
             onClick={(e) => {
               e.stopPropagation();

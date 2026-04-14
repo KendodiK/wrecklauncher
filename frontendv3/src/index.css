@@ -101,12 +101,12 @@ body {
    ============================================ */
 
 .carousel {
-  --shop-card-w: 220px;
-  --shop-card-h: 320px;
+  --shop-card-w: 360px;
+  --shop-card-h: 216px;
   position: relative;
   width: 80%;
   margin: 0 auto;
-  height: calc(var(--shop-card-h) + 60px);
+  height: calc(var(--shop-card-h) + 80px);
   border: 1px solid rgba(51, 65, 85, 0.55);
   border-radius: 16px;
   background: rgba(15, 23, 42, 0.35);
@@ -172,12 +172,28 @@ body {
   height: var(--shop-card-h);
   margin-left: calc(var(--shop-card-w) / -2);
   margin-top: calc(var(--shop-card-h) / -2);
-  border-radius: 14px;
+  border-radius: 0;
   overflow: hidden;
-  background: rgba(2, 6, 23, 0.7);
-  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: #d8d8d8;
+  border: 5px solid #000;
  
   cursor: pointer;
+}
+
+@media (max-width: 1024px) {
+  .carousel {
+    --shop-card-w: 300px;
+    --shop-card-h: 180px;
+    width: 88%;
+  }
+}
+
+@media (max-width: 640px) {
+  .carousel {
+    --shop-card-w: 240px;
+    --shop-card-h: 144px;
+    width: 95%;
+  }
 }
 
 .carousel .shop-card img {
@@ -213,7 +229,7 @@ body {
 
 /* Active shop card highlight */
 .carousel .shop-card.shop-card-active {
-  border-color: rgba(52, 211, 153, 0.45);
+  border-color: #000;
 }
 
 /* ============================================

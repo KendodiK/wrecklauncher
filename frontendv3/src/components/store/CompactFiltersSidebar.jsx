@@ -7,8 +7,10 @@ import PriceRangeSlider from './PriceRangeSlider.jsx';
 const CompactFiltersSidebar = ({
 	searchQuery = '',
 	onSearchChange,
-	selectedGenres = [],
-	onGenresChange,
+	selectedTags = [],
+	onTagsChange,
+	quickTags = [],
+	advancedTags = [],
 	selectedPlatforms = [],
 	onPlatformsChange,
 	priceRange = { min: 0, max: 100 },
@@ -18,14 +20,6 @@ const CompactFiltersSidebar = ({
 	const [platformsOpen, setPlatformsOpen] = useState(false);
 	const [advancedOpen, setAdvancedOpen] = useState(false);
 
-	// Quick access genres
-	const quickGenres = [
-		{ id: 1, name: 'Action' },
-		{ id: 2, name: 'Adventure' },
-		{ id: 3, name: 'RPG' },
-		{ id: 4, name: 'Strategy' },
-	];
-
 	// All platforms
 	const platforms = [
 		{ id: 'steam', name: 'Steam' },
@@ -33,11 +27,11 @@ const CompactFiltersSidebar = ({
 		{ id: 'gog', name: 'GOG' },
 	];
 
-	const handleGenreToggle = (genreId) => {
-		if (selectedGenres.includes(genreId)) {
-			onGenresChange(selectedGenres.filter(id => id !== genreId));
+	const handleTagToggle = (tagName) => {
+		if (selectedTags.includes(tagName)) {
+			onTagsChange(selectedTags.filter((tag) => tag !== tagName));
 		} else {
-			onGenresChange([...selectedGenres, genreId]);
+			onTagsChange([...selectedTags, tagName]);
 		}
 	};
 
@@ -51,7 +45,7 @@ const CompactFiltersSidebar = ({
 
 	const hasActiveFilters = 
 		searchQuery || 
-		selectedGenres.length > 0 || 
+		selectedTags.length > 0 || 
 		selectedPlatforms.length > 0 || 
 		priceRange.min > 0 || 
 		priceRange.max < 100;
@@ -71,24 +65,27 @@ const CompactFiltersSidebar = ({
 
 			{/* Scrollable content */}
 			<div className="flex-1 overflow-y-auto scrollbar-thin">
-				{/* Quick genre select */}
+				{/* Quick tag select */}
 				<div className="p-4 border-b border-slate-700/50">
-					<h3 className="text-sm font-semibold text-slate-100 mb-3">Quick genre select</h3>
+					<h3 className="text-sm font-semibold text-slate-100 mb-3">Top tags</h3>
 					<div className="grid grid-cols-2 gap-2">
-						{quickGenres.map(genre => (
+						{quickTags.map((tag) => (
 							<button
-								key={genre.id}
-								onClick={() => handleGenreToggle(genre.id)}
+								key={tag}
+								onClick={() => handleTagToggle(tag)}
 								className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-									selectedGenres.includes(genre.id)
+									selectedTags.includes(tag)
 										? 'bg-blue-600 text-white'
 										: 'bg-slate-700/50 text-slate-300 hover:bg-slate-700'
 								}`}
 							>
-								{genre.name}
+								{tag}
 							</button>
 						))}
 					</div>
+					{quickTags.length === 0 && (
+						<p className="text-xs text-slate-400">No tags available yet.</p>
+					)}
 				</div>
 
 				{/* Platforms dropdown */}
@@ -155,6 +152,29 @@ const CompactFiltersSidebar = ({
 					</button>
 					{advancedOpen && (
 						<div className="px-4 pb-4">
+							{advancedTags.length > 0 && (
+								<div className="mb-4">
+									<label className="block text-sm font-medium text-slate-300 mb-2">
+										Other Tags
+									</label>
+									<div className="flex flex-wrap gap-2">
+										{advancedTags.map((tag) => (
+											<button
+												key={tag}
+												type="button"
+												onClick={() => handleTagToggle(tag)}
+												className={`px-2.5 py-1 rounded-md text-xs transition-all ${
+													selectedTags.includes(tag)
+														? 'bg-blue-600 text-white'
+														: 'bg-slate-700/50 text-slate-300 hover:bg-slate-700'
+												}`}
+											>
+												{tag}
+											</button>
+										))}
+									</div>
+								</div>
+							)}
 							{/* Price Range */}
 							<div>
 								<label className="block text-sm font-medium text-slate-300 mb-2">
