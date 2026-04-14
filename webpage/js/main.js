@@ -1,13 +1,10 @@
 document.addEventListener("DOMContentLoaded", async () => {
     const sitesUl = document.getElementById("sites-ul");
     const pirateUl = document.getElementById("pirate-ul");
-    const content = document.getElementById("content");
 
     if (CSS.supports("animation-timeline: scroll()")) {
-        // modern megoldás
         document.body.classList.add("scroll-animation");
     } else {
-        // fallback (pl. JS scroll listener)
         document.body.classList.add("no-scroll-animation");
     }
 

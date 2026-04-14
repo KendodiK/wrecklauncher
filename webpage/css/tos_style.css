@@ -1,67 +1,13 @@
-:root {
-    --primary-color: #00a7a7ff;
-    --text-color: #ffffff;
-    --secundary-color: #222042;
-
-    --logos-to-value: 30vh;
-}
-
 html {
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    background-color: var(--primary-color);
-    color: var(--text-color);
-    text-align: center;
     background-image: url("../img/bg_simple.svg");
-    background-repeat: no-repeat;
     background-attachment: scroll;
     background-size: cover;
     background-position: 50% -10vh;
     background-size: 100vw;
-    margin: 0;
-    padding: 0;
 }
 
-body {
-    margin: 0;
-    padding: 0;
-    overflow-x: hidden;
+body {   
     height: fit-content;
-}
-
-header {
-    position: fixed;
-    top: 0;
-    left: 0;
-    z-index: 20;
-    margin: 0;
-    background-color: var(--secundary-color);
-    opacity: 0.9;
-    color: var(--text-color);
-    width: 100%;
-    height: 8vh;
-}
-
-nav {
-    margin: 0;
-    z-index: 20;
-    width: 100%;
-    height: 8vh;
-}
-
-nav ul {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    list-style-type: none;
-    font-weight: bold;
-    margin: 0;
-    padding: 2vh 3vw;
-}
-
-.nav-wrapper {
-    display: flex;
-    align-items: center;
-    font-size: 1.5vw;
 }
 
 nav ul li button {
@@ -77,20 +23,6 @@ nav ul li button {
     width: 2vw;
     height: auto;
     margin-right: 1vw;
-}
-
-footer {
-    z-index: 20;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 0.5rem;
-    margin: 0;
-    background-color: var(--secundary-color);
-    color: var(--text-color);
-    opacity: 0.9;
-    width: 100%;
-    height: 8vh;
 }
 
 a {
