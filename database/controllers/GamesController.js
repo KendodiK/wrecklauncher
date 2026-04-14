@@ -441,6 +441,21 @@ class GamesController extends Controller {
         return games;
     }
 
+    async getGameCount() {
+        await this.ready;
+        try {
+            const query = `SELECT COUNT(*) AS countedGames FROM games;`;
+            const [rows] = await this.dbConnection.execute(query);
+            if (rows && rows[0].countedGames != null) {
+                return rows[0].countedGames;
+            }
+            return rows;
+        } catch (err) {
+            console.error(`Error while fetching game count from table ${this.tableName}: ${err}`);
+            throw err;
+        }
+    }
+
     /**
      * Check if the foreign keys (platform_id) are valid.
      * @param {Object} data - The data to validate.

@@ -92,6 +92,8 @@ app.get('/api/steam/profile-id/:vanityurl', apiFunctions.GETSteamProfileId); // 
 
 app.get('/steam/api/get-owned-games', tokenValidate(), apiFunctions.GETOwnedGamesSteam); // old path: /steam/api/getOwnedGames
 
+app.get("/api/games/gamecount", apiFunctions.GETGameCount); //new path v2.3
+
 app.get("/api/games/:id", apiFunctions.GETGameById);
 /*
   route: /api/games/app/:appId/all
@@ -126,6 +128,7 @@ app.get("/api/games/:id/details", apiFunctions.GETGameByIdWithAllData); //old pa
 app.get("/api/games/platform/:platformId/list/:from/details", apiFunctions.GETGamesInListByPlatformId); //old path: /api/games/list/:platformId/all/:from
 
 app.get("/api/games/list/:from", apiFunctions.GETGamesInList);
+
 
 app.get("/api/search/:needle", apiFunctions.GETSearch);
 /*
@@ -180,7 +183,11 @@ app.get("/api/friends/:nativeUserId", apiFunctions.GETFriendsOfNativeUser);
 */
 app.get("/api/messages/:friendsId", apiFunctions.GETChatlogByFriendId); //old path: /api/chat/:friendsId TEST NEEDED!
 
+app.get("/api/platforms", apiFunctions.GETPlatforms); //new path v2.3
+
 app.get("/api/platforms/:platformName", apiFunctions.GETPlatformByPlatromName);
+
+app.get("/api/pirate-sites", apiFunctions.GETPirateSites); //new path v2.3
 
 app.get("/api/platform-users/:nativeUserId", tokenValidate(), apiFunctions.GETPlatformUsersByNativeUserId); //old path: /api/platform_users
 

@@ -1,79 +1,63 @@
-document.addEventListener("DOMContentLoaded", () => {
-    const anchImg = document.getElementById("anchor-image");
-    const chainContainer = document.getElementById("chain-container");
+document.addEventListener("DOMContentLoaded", async () => {
+    const sitesUl = document.getElementById("sites-ul");
+    const pirateUl = document.getElementById("pirate-ul");
 
-    if (anchImg && chainContainer) {
-        //onOpacityOne(anchImg, loadChains);
+    const fallbackSites = ["Steam", "itch.io", "gogo.com"];
+    const fallbackPirateSites = ["PC games", "Fit-girl repack"];
+    const url = "https://api.anchorlauncher.hu/api";
+
+    let sitesFromApi = []; 
+    try {
+        await fetch(`${url}/platforms`).then(response => response.json())
+            .then(data => {
+                sitesFromApi = data;
+            });
+    } catch (error) {
+        console.error("Error fetching platforms from API:", error);
     }
 
-    function loadChains() {
-        let chainPozes = [];
+    let pirateSitesFromApi = [];
+    try {
+        await fetch(`${url}/pirate-sites`).then(response => response.json())
+            .then(data => {
+                pirateSitesFromApi = data;
+            });
+    } catch (error) {
+        console.error("Error fetching pirate sites from API:", error);
+    }
 
-        const anchorRect = anchImg.getBoundingClientRect();
-        console.log(anchorRect);
-        const containerRect = chainContainer.getBoundingClientRect();
-        const baseX = anchorRect.left - containerRect.left - 40;
-        const baseY = anchorRect.top - containerRect.top;   
-
-        for (let i = 0; i < 25; i++) {
-            let pozY = baseY;
-            let pozX = baseX - i * 42;
-            let chainPoz = [pozX, pozY];
-            chainPozes.push(chainPoz);
+    if (sitesFromApi.length > 0) {
+        for(const site of sitesFromApi) {
+            let row = `<li>${site.platform_name}</li>`;
+            sitesUl.insertAdjacentHTML("beforeend", row);
         }
-
-        console.log(chainPozes);
-
-        for (let i = 0; i < 25; i++) {
-            const img = document.createElement('img');
-            img.src = (i % 2 === 0) ? 'img/link_one.svg' : 'img/link_two.svg';
-            img.style.width = "4vw";
-            img.style.height = "auto";
-            img.style.position = "absolute";
-            img.style.left = chainPozes[i][0] + 'px';
-            img.style.top = chainPozes[i][1] + 'px';
-            chainContainer.appendChild(img);
+    } else {
+        console.log("No platforms received from API, using fallback list.");
+        for(const site of fallbackSites) {
+            let row = `<li>${site}</li>`;
+            sitesUl.insertAdjacentHTML("beforeend", row);
         }
     }
 
-    function onOpacityOne(el, cb) {
-        if (!el) return;
-        const get = () => parseFloat(window.getComputedStyle(el).opacity) || 0;
-
-        if (get() >= 0.999) return cb();
-
-        const onTransitionEnd = (e) => {
-            if (e.propertyName === 'opacity' && get() >= 0.999) {
-            cleanup();
-            cb();
-            }
-        };
-
-        const mo = new MutationObserver(() => {
-            if (get() >= 0.999) {
-            cleanup();
-            cb();
-            }
-        });
-
-        let rafId;
-        function poll() {
-            if (get() >= 0.999) {
-            cleanup();
-            cb();
-            } else {
-            rafId = requestAnimationFrame(poll);
-            }
+    if (pirateSitesFromApi.length > 0) {
+        for(const site of pirateSitesFromApi) {
+            let row = `<li>${site.name}</li>`;
+            pirateUl.insertAdjacentHTML("beforeend", row);
         }
-
-        function cleanup() {
-            el.removeEventListener('transitionend', onTransitionEnd);
-            mo.disconnect();
-            if (rafId) cancelAnimationFrame(rafId);
+    } else {
+        console.log("No pirate sites received from API, using fallback list.");
+        for(const site of fallbackPirateSites) {
+            let row = `<li>${site}</li>`;
+            pirateUl.insertAdjacentHTML("beforeend", row);
         }
-
-        el.addEventListener('transitionend', onTransitionEnd);
-        mo.observe(el, { attributes: true, attributeFilter: ['style', 'class'] });
-        rafId = requestAnimationFrame(poll);
     }
+
+    await fetch(`${url}/games/gamecount`).then(response => response.json())
+        .then(data => {
+            const gameCountElement = document.getElementById("game-count");
+            gameCountElement.textContent = `${data.count}`;
+        }).catch(error => {
+            console.error("Error fetching game count from API:", error);
+        }
+    );
 });
