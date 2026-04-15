@@ -172,6 +172,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getItchClientId: () => ipcRenderer.invoke('itch:get-client-id'),
   loginItchOAuth: (clientId) => ipcRenderer.invoke('itch:oauth-login', clientId),
   loginItchOAuthAndUpload: (clientId) => invokeAuthed('itch:oauth-login-and-upload', clientId),
+  getItchOAuthToken: () => ipcRenderer.invoke('itch:get-oauth-token'),
   logoutItchOAuth: () => ipcRenderer.invoke('itch:oauth-logout'),
   getItchOAuthStatus: () => ipcRenderer.invoke('itch:oauth-status'),
   getItchProfile: () => ipcRenderer.invoke('itch:get-profile'),

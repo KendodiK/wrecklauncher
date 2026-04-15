@@ -668,6 +668,7 @@ handle('steam:get-installed-games', async () => {
     // Use provided clientId or fall back to hardcoded default.
     const id = String(clientId || ITCH_OAUTH_CLIENT_ID || '').trim();
     if (!id) throw new Error('itch.io OAuth client ID is required. Provide it as argument or set ITCH_OAUTH_CLIENT_ID in main.js.');
+    console.log(await getItchCtrl().login(id));
     return await getItchCtrl().login(id);
   });
 
@@ -680,6 +681,7 @@ handle('steam:get-installed-games', async () => {
 
     const ctrl = getItchCtrl();
     let profile = null;
+    let loginResult = null;
 
     if (ctrl.isLoggedIn()) {
       try {
@@ -690,19 +692,58 @@ handle('steam:get-installed-games', async () => {
     }
 
     if (!profile) {
-      const loginResult = await ctrl.login(id);
+      loginResult = await ctrl.login(id);
       if (!loginResult || loginResult.success !== true) {
         throw new Error('itch.io OAuth login was cancelled');
       }
-      profile = await ctrl.getProfile();
+      profile = await ctrl.getProfile().catch(() => null);
+      const loginUserId = loginResult?.user?.id ?? null;
+      const loginUsername = String(loginResult?.user?.username ?? '').trim();
+      if (!profile && ((loginUserId !== null && loginUserId !== undefined) || !!loginUsername)) {
+        profile = {
+          id: loginUserId,
+          username: loginUsername || null,
+          display_name: (loginResult.user?.display_name ?? loginUsername) || null,
+          url: null,
+          cover_url: null,
+        };
+      }
     }
 
-    const profileId = String(profile?.id ?? '').trim();
-    const profileUsername = String(profile?.username ?? profile?.display_name ?? '').trim();
     const oauthToken = String(ctrl.getAccessToken() || '').trim();
+    const tokenPrefix = oauthToken.replace(/[^a-zA-Z0-9]/g, '').slice(0, 12);
+    const generatedUsername = tokenPrefix ? `itch_${tokenPrefix}` : 'itch_oauth_user';
+    const profileUsername = String(
+      profile?.username ??
+      profile?.display_name ??
+      loginResult?.user?.username ??
+      generatedUsername
+    ).trim() || generatedUsername;
 
-    if (!profileId) throw new Error('itch.io profile ID is missing after login');
-    if (!profileUsername) throw new Error('itch.io profile username is missing after login');
+    const profileId = String(
+      profile?.id ??
+      profile?.user_id ??
+      profile?.userid ??
+      loginResult?.user?.id ??
+      profileUsername
+    ).trim() || profileUsername;
+
+    const resolvedProfile = {
+      id: profileId,
+      username: profileUsername,
+      display_name: String(profile?.display_name ?? profileUsername).trim() || profileUsername,
+      url: typeof profile?.url === 'string' ? profile.url : null,
+      cover_url: typeof profile?.cover_url === 'string' ? profile.cover_url : null,
+    };
+
+    console.log('Resolved itch.io profile:', {
+      rawProfile: profile,
+      loginResult,
+      generatedUsername,
+      resolvedProfile,
+      oauthToken,
+    });
+
     if (!oauthToken) throw new Error('itch.io OAuth token is missing after login');
 
     const platform = await getPlatformsCtrl().getPlatform('itchio');
@@ -714,6 +755,9 @@ handle('steam:get-installed-games', async () => {
     const platformUsers = await getPlatformsCtrl().getAllPlatformUserIds(token).catch(() => []);
     const existing = Array.isArray(platformUsers)
       ? platformUsers.find((row) => {
+          const rowOauthToken = String(row?.oauth_token ?? row?.oauthToken ?? '').trim();
+          if (rowOauthToken && rowOauthToken === oauthToken) return true;
+
           const rowPlatformId = Number(row?.platform_id ?? row?.platformId ?? row?.platform?.id);
           if (!Number.isFinite(rowPlatformId) || rowPlatformId !== platformId) return false;
 
@@ -730,7 +774,8 @@ handle('steam:get-installed-games', async () => {
         success: true,
         created: false,
         platformUserId: existing?.id ?? existing?.platformUserID ?? existing?.platform_user_id ?? null,
-        profile,
+        profile: resolvedProfile,
+        oauthToken,
       };
     }
 
@@ -746,8 +791,14 @@ handle('steam:get-installed-games', async () => {
       success: true,
       created: true,
       platformUserId: created?.id ?? created?.platformUserID ?? created?.platform_user_id ?? null,
-      profile,
+      profile: resolvedProfile,
+      oauthToken,
     };
+  });
+
+  handle('itch:get-oauth-token', async () => {
+    const oauthToken = String(getItchCtrl().getAccessToken() || '').trim();
+    return oauthToken || null;
   });
 
   handle('itch:oauth-logout', async () => {

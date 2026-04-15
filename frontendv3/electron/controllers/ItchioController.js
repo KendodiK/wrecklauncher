@@ -505,15 +505,51 @@ class ItchioController extends GamesController {
       }
 
       const payload = await response.json();
-      const user = payload?.user ?? payload;
-      if (!user || typeof user !== 'object') return null;
+      const candidates = [
+        payload?.user,
+        payload?.me,
+        payload?.profile,
+        payload?.account,
+        payload?.data?.user,
+        payload?.data?.me,
+        payload?.result?.user,
+        payload?.result?.me,
+        payload?.response?.user,
+        payload?.response?.me,
+        payload?.user?.user,
+        payload,
+      ].filter((entry) => entry && typeof entry === 'object');
+
+      /** @type {any|null} */
+      let user = null;
+      for (const candidate of candidates) {
+        const c = /** @type {any} */ (candidate);
+        const candidateId = c.id ?? c.user_id ?? c.userid ?? c.userId ?? c.account_id ?? c.accountId ?? c.profile_id ?? c.profileId ?? c.user?.id ?? null;
+        const candidateUsername = c.username ?? c.user_name ?? c.userName ?? c.name ?? c.login ?? c.slug ?? c.user?.username ?? null;
+
+        const hasId = candidateId !== null && candidateId !== undefined && String(candidateId).trim() !== '';
+        const hasUsername = typeof candidateUsername === 'string' && candidateUsername.trim() !== '';
+        if (hasId || hasUsername) {
+          user = c;
+          break;
+        }
+      }
+
+      if (!user) return null;
+
+      const resolvedId = user.id ?? user.user_id ?? user.userid ?? user.userId ?? user.account_id ?? user.accountId ?? user.profile_id ?? user.profileId ?? user.user?.id ?? null;
+      const resolvedUsername = user.username ?? user.user_name ?? user.userName ?? user.name ?? user.login ?? user.slug ?? user.user?.username ?? null;
+      const normalizedId = resolvedId === null || resolvedId === undefined ? '' : String(resolvedId).trim();
+      const normalizedUsername = typeof resolvedUsername === 'string' ? resolvedUsername.trim() : '';
+
+      if (!normalizedId && !normalizedUsername) return null;
 
       return {
-        id: user.id ?? null,
-        username: user.username ?? null,
-        display_name: user.display_name ?? user.username ?? null,
-        url: user.url ?? null,
-        cover_url: user.cover_url ?? null,
+        id: normalizedId || null,
+        username: normalizedUsername || null,
+        display_name: (user.display_name ?? user.displayName ?? user.full_name ?? user.fullName ?? normalizedUsername) || null,
+        url: user.url ?? user.profile_url ?? user.profileUrl ?? user.user?.url ?? null,
+        cover_url: user.cover_url ?? user.coverUrl ?? user.avatar_url ?? user.avatarUrl ?? user.user?.cover_url ?? null,
       };
     } catch (err) {
       if (err instanceof Error && err.message.includes('expired')) throw err;
@@ -552,7 +588,7 @@ class ItchioController extends GamesController {
 
       // itch.io OAuth URL - using implicit grant (token in URL fragment)
       const redirectUri = 'urn:ietf:wg:oauth:2.0:oob';
-      const scope = 'profile:me';
+      const scope = 'profile:*';
       const authUrl = `https://itch.io/user/oauth?client_id=${encodeURIComponent(clientId)}&scope=${encodeURIComponent(scope)}&response_type=token&redirect_uri=${encodeURIComponent(redirectUri)}`;
 
       authWindow.loadURL(authUrl);
