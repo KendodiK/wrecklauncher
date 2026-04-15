@@ -1,68 +1,19 @@
 :root {
-    --primary-color: #00a7a7ff;
-    --text-color: #ffffff;
-    --secundary-color: #222042;
-
     --logos-to-value: 30vh;
 }
 
 html {
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    background-color: var(--primary-color);
-    color: var(--secundary-color);
-    text-align: center;
     background-image: url("../img/background.svg");
+    background-color: var(--primary-color);
     background-repeat: no-repeat;
     background-attachment: scroll;
     background-size: cover;
     background-position: 50% -10vh;
     background-size: 100vw;
-    height: 300vh;
-    margin: 0;
-    padding: 0;
 }
 
 body {
-    margin: 0;
-    padding: 0;
-    overflow-x: hidden;
     height: 300vh;
-}
-
-header {
-    position: fixed;
-    top: 0;
-    left: 0;
-    z-index: 20;
-    margin: 0;
-    background-color: var(--secundary-color);
-    opacity: 0.9;
-    color: var(--text-color);
-    width: 100%;
-    height: 8vh;
-}
-
-nav {
-    margin: 0;
-    z-index: 20;
-    width: 100%;
-    height: 8vh;
-}
-
-nav ul {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    list-style-type: none;
-    font-weight: bold;
-    margin: 0;
-    padding: 2vh 3vw;
-}
-
-.nav-wrapper {
-    display: flex;
-    align-items: center;
-    font-size: 1.5vw;
 }
 
 nav ul li button {
@@ -80,25 +31,22 @@ nav ul li button {
     margin-right: 1vw;
 }
 
-footer {
-    z-index: 20;
-    display: flex;
-    justify-content: center;
-    margin: 0;
-    background-color: var(--secundary-color);
+a {
     color: var(--text-color);
-    opacity: 0.9;
-    width: 100%;
-    height: 8vh;
+}
+
+a:hover {
+    color: #919191;
 }
 
 .content {
+    text-align: center;
     height: 300vh;
 }
 
 .wrapper {
     align-items: center;
-    height: 150vh;
+    height: 170vh;
 }
 
 .title {
@@ -123,10 +71,18 @@ footer {
     width: 15vw;
     height: auto;
     margin-bottom: 2vh;
+}
 
+.scroll-animation .anchorlauncher-logo {
     animation: move-anchorlch-logo forwards;
     animation-timeline: scroll();
     animation-range: 35vh 50vh;
+}
+
+.no-scroll-animation .anchorlauncher-logo {
+    position: relative;
+    top: 0;
+    left: 0;
 }
 
 .steam-logo, .ea-logo, .ithcio-logo { 
@@ -148,25 +104,52 @@ footer {
 .steam-logo {
     top: 6vh;
     left: 8vw;
+}
+
+.scroll-animation .steam-logo {
     animation: move-steam forwards;
     animation-timeline: scroll();
     animation-range: 0vh 35vh;
 }
 
+.no-scroll-animation .steam-logo {
+    position: absolute;
+    top: 15vh;
+    left: 10vw;
+}
+
 .ea-logo {
     top: 12vh;
     left: 76vw;
+}
+
+.scroll-animation .ea-logo {
     animation: move-ea forwards;
     animation-timeline: scroll();
     animation-range: 0vh 35vh;
 }
 
+.no-scroll-animation .ea-logo {
+    position: absolute;
+    top: 20vh;
+    left: 85vw;
+}
+
 .ithcio-logo {
     top: 26vh;
     left: 22vw;
+}
+
+.scroll-animation .ithcio-logo {
     animation: move-ithcio forwards;
     animation-timeline: scroll();
     animation-range: 0vh 35vh;
+}
+
+.no-scroll-animation .ithcio-logo {
+    position: absolute;
+    top: 30vh;
+    left: 30vw;
 }
 
 .anchor-image {
@@ -178,10 +161,20 @@ footer {
     left: 90vw;
     opacity: 0;
     transform: translateX(-50%);
+}
 
+.scroll-animation .anchor-image {
     animation: show-anchor forwards;
     animation-timeline: scroll();
     animation-range: 45vh 50vh;
+}
+
+.no-scroll-animation .anchor-image {
+    position: absolute;
+    top: 100vh;
+    left: 90vw;
+    opacity: 1;
+    transform: translateX(-50%);
 }
 
 .sites-ul {
@@ -213,6 +206,8 @@ footer {
     width: 60vw;
     height: auto;
 }
+
+/* Animations */
 
 @keyframes move-steam {
     from {
@@ -287,3 +282,5 @@ footer {
         opacity: 1;
     }
 }
+
+/* responsive */
