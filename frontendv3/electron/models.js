@@ -108,6 +108,8 @@
  * @property {number}  timeRemaining  - Estimated milliseconds remaining (Infinity when unknown).
  * @property {boolean} paused         - Whether the torrent is currently paused.
  * @property {boolean} done           - Whether the torrent has finished downloading.
+ * @property {string}  magnetURI      - Magnet URI used to add the torrent (when available).
+ * @property {string}  savePath       - Absolute path to the download directory.
  * @property {string}  path           - Absolute path to the directory where files are saved.
  */
 

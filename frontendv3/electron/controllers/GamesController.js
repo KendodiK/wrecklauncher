@@ -837,13 +837,13 @@ _collapseWhitespace(text) {
     };
 
     /**
-     * Keep persisted pirate links under legacy DB limits.
-     * For magnets we preserve core identifiers (xt + dn) and drop long tracker lists.
+     * Keep persisted pirate links under DB limits while preserving full magnets in normal cases.
+     * For very large payloads we still compact magnets to their core identifiers.
      * @param {string} rawLink
      * @param {number} [maxLength]
      * @returns {string}
      */
-    const compactPirateLinkForStorage = (rawLink, maxLength = 500) => {
+    const compactPirateLinkForStorage = (rawLink, maxLength = 16000) => {
       const link = String(rawLink || '').trim();
       if (!link) return '';
       if (link.length <= maxLength) return link;
@@ -908,7 +908,7 @@ _collapseWhitespace(text) {
 
       normalizedSites.push({
         originalLink: link,
-        link: compactPirateLinkForStorage(link, 500),
+        link: compactPirateLinkForStorage(link, 16000),
         siteName,
         siteId,
       });

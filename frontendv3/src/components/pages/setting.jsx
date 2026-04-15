@@ -382,11 +382,23 @@ const SettingsPage = () => {
 		}
 
 		let username = itchUsername.trim();
+		let uploadResult = null;
 
 		try {
 			setItchBusy(true);
 
-			if (typeof window.electronAPI.loginItchOAuth === 'function') {
+			if (typeof window.electronAPI.loginItchOAuthAndUpload === 'function') {
+				try {
+					uploadResult = await window.electronAPI.loginItchOAuthAndUpload();
+				} catch (error) {
+					if (!isMissingSettingsHandlerError(error, 'itch:oauth-login-and-upload')) {
+						throw error;
+					}
+					if (typeof window.electronAPI.loginItchOAuth === 'function') {
+						await window.electronAPI.loginItchOAuth();
+					}
+				}
+			} else if (typeof window.electronAPI.loginItchOAuth === 'function') {
 				await window.electronAPI.loginItchOAuth();
 			}
 
@@ -396,6 +408,12 @@ const SettingsPage = () => {
 					isLoggedIn: Boolean(status?.isLoggedIn),
 					hasToken: Boolean(status?.hasToken),
 				});
+			}
+
+			const uploadedUsername = String(uploadResult?.profile?.username || uploadResult?.profile?.display_name || '').trim();
+			if (uploadedUsername) {
+				username = uploadedUsername;
+				setItchUsername(uploadedUsername);
 			}
 
 			if (typeof window.electronAPI.getItchProfile === 'function') {
@@ -412,7 +430,12 @@ const SettingsPage = () => {
 			}
 
 			await persistPlatformConnection('itch', true, username);
-			setMessage({ type: 'success', text: 'Itch.io connected successfully' });
+			setMessage({
+				type: 'success',
+				text: uploadResult?.created === false
+					? 'Itch.io connected (already linked in DB)'
+					: 'Itch.io connected successfully',
+			});
 		} catch (error) {
 			console.error('Failed to connect Itch.io:', error);
 			setMessage({

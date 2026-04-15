@@ -4,7 +4,6 @@ class PirateSitesController extends Controller {
     constructor() {
         super('pirate_sites');
     }
-
     async index() {
         return super.index();
     }
@@ -43,7 +42,7 @@ class PirateSitesController extends Controller {
         await super.create();
 
         let uniqueCheck = await this.#checkUniqueConstraint(data);
-        if (uniqueCheck instanceof Error) {
+        if (uniqueCheck != null ||uniqueCheck instanceof Error) {
             throw uniqueCheck;
         }
 
@@ -91,7 +90,7 @@ class PirateSitesController extends Controller {
             const values = [data.name];
             const [rows] = await this.dbConnection.execute(query, values);
             if (rows.length > 0) {
-                return new Error(`Element with name ${data.name} already exists in table ${this.tableName}`);
+                return new Error({ message: `Element with name ${data.name} already exists in table ${this.tableName}`, id: rows[0].id });
             }
             return null;
         } catch (err) {

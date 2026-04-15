@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { getStorePlatformLabel, normalizeStorePlatform } from '../../utils/storeRouting.js';
+import { useDownloadManager } from '../../context/DownloadManagerContext.jsx';
 
 const fallback = {
 	id: null,
@@ -450,6 +451,38 @@ function normalizePirateLinksFromAny(value) {
 	return out;
 }
 
+function decodeHtmlAmpersands(value) {
+	return String(value || '')
+		.replace(/&#0*38;/g, '&')
+		.replace(/&amp;/gi, '&')
+		.trim();
+}
+
+function extractSlugFromUrl(href) {
+	if (!hasFilledText(href)) return '';
+	try {
+		const parsed = new URL(String(href));
+		const chunks = parsed.pathname
+			.split('/')
+			.map((chunk) => decodeURIComponent(chunk).trim())
+			.filter(Boolean);
+		if (chunks.length < 1) return '';
+		return chunks[chunks.length - 1].replace(/\.html?$/i, '').trim();
+	} catch {
+		return '';
+	}
+}
+
+function pirateEntryKey(entry, fallback = '') {
+	const fromId = String(entry?.id || '').trim();
+	if (fromId) return fromId;
+	const fromHref = String(entry?.href || '').trim().toLowerCase();
+	if (fromHref) return fromHref;
+	const fromLabel = String(entry?.label || '').trim().toLowerCase();
+	if (fromLabel) return fromLabel;
+	return String(fallback || '').trim().toLowerCase();
+}
+
 function defaultSiteForPlatform(platform, appId) {
 	if (!appId) return [];
 	if (platform === 'gog') {
@@ -639,11 +672,13 @@ const StoreGamePage = () => {
 	const { id, platform } = useParams();
 	const location = useLocation();
 	const navigate = useNavigate();
+	const { startDownload } = useDownloadManager();
 	const [platformDetails, setPlatformDetails] = useState(null);
 	const [dbDetails, setDbDetails] = useState(null);
 	const [scrapedTargets, setScrapedTargets] = useState([]);
 	const [errorMessage, setErrorMessage] = useState('');
 	const [currentScreenshot, setCurrentScreenshot] = useState(0);
+	const [startingPirateKeys, setStartingPirateKeys] = useState([]);
 	const [loading, setLoading] = useState(true);
 
 	const routeState = useMemo(() => normalizeLocationState(location?.state), [location?.state]);
@@ -1093,13 +1128,57 @@ const StoreGamePage = () => {
 		await handleOpenPlatform(target);
 	};
 
-	const handleOpenPirateLink = (entry) => {
-		if (!entry?.href) return;
-		if (openExternalUrl(entry.href)) return;
+	const handleOpenPirateLink = async (entry) => {
+		const rawHref = String(entry?.href || '').trim();
+		if (!rawHref) return;
+
+		const entryKey = pirateEntryKey(entry, rawHref);
+		setStartingPirateKeys((prev) => (prev.includes(entryKey) ? prev : [...prev, entryKey]));
+		setErrorMessage('');
+
 		try {
-			window.location.assign(entry.href);
-		} catch {
-			setErrorMessage('Could not open pirate download link.');
+			let torrentId = decodeHtmlAmpersands(rawHref);
+			const lowerHref = torrentId.toLowerCase();
+			const label = String(entry?.label || '').toLowerCase();
+
+			if (!/^magnet:\?/i.test(torrentId)) {
+				const api = typeof window !== 'undefined' ? window.electronAPI : null;
+				const slugFallback = slugFromTitle(model.title, '-') || '';
+				const slugFromLink = extractSlugFromUrl(torrentId);
+				const slug = slugFromLink || slugFallback;
+
+				if ((/fitgirl-repacks\.site/.test(lowerHref) || label.includes('fitgirl')) && slug && typeof api?.fitGirlMagnetLink === 'function') {
+					const resolved = await api.fitGirlMagnetLink(slug);
+					if (hasFilledText(resolved)) {
+						torrentId = decodeHtmlAmpersands(resolved);
+					}
+				} else if ((/pcgamestorrents?\.com/.test(lowerHref) || /igg-games\.com/.test(lowerHref) || label.includes('pcgamestorrent')) && slug && typeof api?.pcGamesTorrentMagnetLink === 'function') {
+					const resolved = await api.pcGamesTorrentMagnetLink(slug);
+					if (hasFilledText(resolved)) {
+						torrentId = decodeHtmlAmpersands(resolved);
+					}
+				}
+			}
+
+			if (!/^magnet:\?/i.test(torrentId) && !/^https?:\/\//i.test(torrentId)) {
+				throw new Error('Unsupported pirate download link.');
+			}
+
+			await startDownload({
+				magnetUri: torrentId,
+				artwork: {
+					imageUrl: model.heroImage || model.coverImage || '',
+					thumbnailUrl: model.coverImage || model.heroImage || '',
+					coverUrl: model.coverImage || model.heroImage || '',
+					image: model.coverImage || model.heroImage || '',
+				},
+			});
+
+			navigate('/downloads');
+		} catch (error) {
+			setErrorMessage(error instanceof Error ? error.message : 'Could not start pirate download.');
+		} finally {
+			setStartingPirateKeys((prev) => prev.filter((key) => key !== entryKey));
 		}
 	};
 
@@ -1170,16 +1249,21 @@ const StoreGamePage = () => {
 										<div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3">
 											<p className="text-[11px] uppercase tracking-[0.18em] text-amber-200">Pirate Downloads</p>
 											<div className="mt-2 flex flex-col gap-2">
-												{model.pirate_links.map((entry, index) => (
+												{model.pirate_links.map((entry, index) => {
+													const pirateKey = pirateEntryKey(entry, index);
+													const isStartingPirate = startingPirateKeys.includes(pirateKey);
+													return (
 													<button
 														key={entry.id || `${entry.label}-${index}`}
 														type="button"
 														onClick={() => handleOpenPirateLink(entry)}
-														className="w-full rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-950 transition-colors hover:bg-amber-400"
+														disabled={isStartingPirate}
+														className="w-full rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-950 transition-colors hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
 													>
-														{entry.label}
+														{isStartingPirate ? 'Starting Download...' : entry.label}
 													</button>
-												))}
+													);
+												})}
 											</div>
 										</div>
 									) : null}

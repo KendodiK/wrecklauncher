@@ -3,6 +3,7 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 
 const isDev = process.env.NODE_ENV === 'development';
+const ITCH_OAUTH_CLIENT_ID = 'e0ee61cc2f4a3ad1a984914d3d833341';
 
 let mainWindow;
 
@@ -653,9 +654,9 @@ handle('steam:get-installed-games', async () => {
     return getItchCtrl().getInstalledGames();
   });
 
-  // Get itch.io OAuth client ID from environment
+  // Get hardcoded itch.io OAuth client ID
   handle('itch:get-client-id', async () => {
-    return process.env.ITCH_CLIENT_ID || null;
+    return ITCH_OAUTH_CLIENT_ID;
   });
 
   // OAuth-based library (uses user's own token)
@@ -664,10 +665,89 @@ handle('steam:get-installed-games', async () => {
   });
 
   handle('itch:oauth-login', async (_event, clientId) => {
-    // Use provided clientId or fall back to env
-    const id = "e0ee61cc2f4a3ad1a984914d3d833341";
-    if (!id) throw new Error('itch.io OAuth client ID is required. Set ITCH_CLIENT_ID in .env or pass it as argument.');
+    // Use provided clientId or fall back to hardcoded default.
+    const id = String(clientId || ITCH_OAUTH_CLIENT_ID || '').trim();
+    if (!id) throw new Error('itch.io OAuth client ID is required. Provide it as argument or set ITCH_OAUTH_CLIENT_ID in main.js.');
     return await getItchCtrl().login(id);
+  });
+
+  // Runs itch OAuth and persists the linked account in platform_users for the authed Wreck user.
+  handleAuthed('itch:oauth-login-and-upload', async ({ token }, clientId) => {
+    const id = String(clientId || ITCH_OAUTH_CLIENT_ID || '').trim();
+    if (!id) {
+      throw new Error('itch.io OAuth client ID is required. Provide it as argument or set ITCH_OAUTH_CLIENT_ID in main.js.');
+    }
+
+    const ctrl = getItchCtrl();
+    let profile = null;
+
+    if (ctrl.isLoggedIn()) {
+      try {
+        profile = await ctrl.getProfile();
+      } catch {
+        profile = null;
+      }
+    }
+
+    if (!profile) {
+      const loginResult = await ctrl.login(id);
+      if (!loginResult || loginResult.success !== true) {
+        throw new Error('itch.io OAuth login was cancelled');
+      }
+      profile = await ctrl.getProfile();
+    }
+
+    const profileId = String(profile?.id ?? '').trim();
+    const profileUsername = String(profile?.username ?? profile?.display_name ?? '').trim();
+    const oauthToken = String(ctrl.getAccessToken() || '').trim();
+
+    if (!profileId) throw new Error('itch.io profile ID is missing after login');
+    if (!profileUsername) throw new Error('itch.io profile username is missing after login');
+    if (!oauthToken) throw new Error('itch.io OAuth token is missing after login');
+
+    const platform = await getPlatformsCtrl().getPlatform('itchio');
+    const platformId = Number(platform?.id ?? platform?.platform_id);
+    if (!Number.isFinite(platformId) || platformId <= 0) {
+      throw new Error('Failed to resolve itchio platform ID');
+    }
+
+    const platformUsers = await getPlatformsCtrl().getAllPlatformUserIds(token).catch(() => []);
+    const existing = Array.isArray(platformUsers)
+      ? platformUsers.find((row) => {
+          const rowPlatformId = Number(row?.platform_id ?? row?.platformId ?? row?.platform?.id);
+          if (!Number.isFinite(rowPlatformId) || rowPlatformId !== platformId) return false;
+
+          const rowProfileId = String(row?.platform_profile_id ?? row?.platform_prof_id ?? row?.platformProfileId ?? '').trim();
+          const rowUsername = String(row?.platform_user_name ?? row?.platformUserName ?? '').trim().toLowerCase();
+
+          if (rowProfileId) return rowProfileId === profileId;
+          return rowUsername && rowUsername === profileUsername.toLowerCase();
+        })
+      : null;
+
+    if (existing) {
+      return {
+        success: true,
+        created: false,
+        platformUserId: existing?.id ?? existing?.platformUserID ?? existing?.platform_user_id ?? null,
+        profile,
+      };
+    }
+
+    const created = await getPlatformsCtrl().createPlatformUser(
+      token,
+      'itchio',
+      profileUsername,
+      oauthToken,
+      profileId,
+    );
+
+    return {
+      success: true,
+      created: true,
+      platformUserId: created?.id ?? created?.platformUserID ?? created?.platform_user_id ?? null,
+      profile,
+    };
   });
 
   handle('itch:oauth-logout', async () => {

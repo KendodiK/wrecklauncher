@@ -192,6 +192,31 @@ class GamesPirateSitesConncectionController extends Controller {
         data.pirate_site_id = resolvedSiteId;
         data.link = normalizedLink;
 
+        // If the connection already exists for this game+site pair, keep one row
+        // and refresh its link instead of returning a duplicate error.
+        const existingConnection = await this.show(gameId, resolvedSiteId);
+        if (existingConnection) {
+            const existingNormalizedLink = this.#normalizeLinkForStorage(existingConnection?.link);
+            if (existingNormalizedLink === normalizedLink) {
+                return {
+                    message: `Element already exists in table ${this.tableName}`,
+                    updated: false,
+                    unchanged: true,
+                };
+            }
+
+            const updateResult = await this.update({
+                game_id: gameId,
+                site_id: resolvedSiteId,
+                link: normalizedLink,
+            });
+
+            return {
+                ...updateResult,
+                updated: true,
+            };
+        }
+
         let duplicateCheck = await this.#checkUniqueConstraint(data);
         if (duplicateCheck instanceof Error) {
             throw duplicateCheck;
@@ -251,12 +276,12 @@ class GamesPirateSitesConncectionController extends Controller {
     }
 
     /**
-     * Keep links within legacy DB limits while preserving magnet identity.
+        * Keep links within DB limits while preserving full magnet links in normal cases.
      * @param {unknown} rawLink
      * @param {number} [maxLength]
      * @returns {string}
      */
-    #normalizeLinkForStorage(rawLink, maxLength = 500) {
+        #normalizeLinkForStorage(rawLink, maxLength = 16000) {
         const link = String(rawLink ?? '').trim();
         if (!link) return '';
         if (link.length <= maxLength) return link;

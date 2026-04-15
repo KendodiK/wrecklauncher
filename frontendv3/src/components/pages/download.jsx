@@ -131,7 +131,7 @@ const DownloadsPage = () => {
 													</svg>
 												)}
 											</button>
-											<button type="button" onClick={() => remove(item.infoHash, false)} className="rounded-lg border border-rose-700/70 bg-rose-900/20 px-3 py-1.5 text-xs text-rose-100 hover:bg-rose-900/40">Remove</button>
+											<button type="button" onClick={() => remove(item.infoHash, true)} className="rounded-lg border border-rose-700/70 bg-rose-900/20 px-3 py-1.5 text-xs text-rose-100 hover:bg-rose-900/40">Remove</button>
 												</div>
 												<details className="mt-2 rounded-lg border border-slate-700/70 bg-slate-900/40 px-2 py-1.5 text-xs text-slate-300">
 													<summary className="cursor-pointer list-none text-[11px] uppercase tracking-[0.1em] text-slate-400">Advanced</summary>

@@ -41,7 +41,7 @@ class PlatformsController {
     if (normalized === 'itchio') candidates.push('itch', 'itch.io');
     if (normalized === 'gog') candidates.push('gog.com');
 
-    return Array.from(new Set(candidates.map((entry) => this._normalizePlatformName(entry)).filter(Boolean)));
+    return Array.from(new Set(candidates.map((entry) => String(entry || '').trim().toLowerCase()).filter(Boolean)));
   }
 
   /**
