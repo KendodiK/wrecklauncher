@@ -502,6 +502,119 @@ handle('steam:get-installed-games', async () => {
     return sites;
   }
 
+  /**
+   * @param {unknown} value
+   * @returns {string}
+   */
+  function normalizePirateSiteName(value) {
+    const raw = String(value || '').trim().toLowerCase();
+    if (!raw) return '';
+    if (raw.includes('fitgirl')) return 'fitgirl';
+    if (raw.includes('pcgames')) return 'pcgames';
+    return raw.replace(/[^a-z0-9]+/g, '');
+  }
+
+  /**
+   * @param {unknown} value
+   * @returns {string}
+   */
+  function normalizePirateSiteLink(value) {
+    return String(value || '').trim();
+  }
+
+  /**
+   * @param {any} site
+   * @returns {{ nameKey: string, displayName: string, link: string }|null}
+   */
+  function normalizePirateSiteEntry(site) {
+    if (site == null) return null;
+
+    if (typeof site === 'string') {
+      const link = normalizePirateSiteLink(site);
+      if (!link) return null;
+      return { nameKey: '', displayName: '', link };
+    }
+
+    if (typeof site !== 'object') return null;
+
+    const rawName = String(site.site_name ?? site.siteName ?? site.name ?? site.label ?? '').trim();
+    const link = normalizePirateSiteLink(site.link ?? site.url ?? site.href ?? '');
+    if (!link) return null;
+
+    return {
+      nameKey: normalizePirateSiteName(rawName),
+      displayName: rawName,
+      link,
+    };
+  }
+
+  /**
+   * @param {Array<any>|null|undefined} backendSites
+   * @param {Array<any>|null|undefined} scrapedSites
+   * @returns {{ sitesToSync: Array<{ name: string, url: string }>, mergedSites: Array<{ site_name: string, link: string }> }}
+   */
+  function buildPirateSiteSyncPlan(backendSites, scrapedSites) {
+    const backendNormalized = Array.isArray(backendSites)
+      ? backendSites.map((entry) => normalizePirateSiteEntry(entry)).filter(Boolean)
+      : [];
+    const scrapedNormalized = Array.isArray(scrapedSites)
+      ? scrapedSites.map((entry) => normalizePirateSiteEntry(entry)).filter(Boolean)
+      : [];
+
+    const backendByName = new Map();
+    const backendLinks = new Set();
+    for (const site of backendNormalized) {
+      backendLinks.add(site.link.toLowerCase());
+      if (site.nameKey && !backendByName.has(site.nameKey)) {
+        backendByName.set(site.nameKey, site);
+      }
+    }
+
+    /** @type {Array<{ name: string, url: string }>} */
+    const sitesToSync = [];
+    for (const scraped of scrapedNormalized) {
+      if (scraped.nameKey) {
+        const current = backendByName.get(scraped.nameKey);
+        if (!current || current.link.toLowerCase() !== scraped.link.toLowerCase()) {
+          sitesToSync.push({
+            name: scraped.displayName || scraped.nameKey,
+            url: scraped.link,
+          });
+        }
+        continue;
+      }
+
+      if (!backendLinks.has(scraped.link.toLowerCase())) {
+        sitesToSync.push({
+          name: scraped.displayName || 'Pirate Download',
+          url: scraped.link,
+        });
+      }
+    }
+
+    const mergedByKey = new Map();
+    for (const site of backendNormalized) {
+      const key = site.nameKey || `link:${site.link.toLowerCase()}`;
+      mergedByKey.set(key, {
+        site_name: site.displayName || site.nameKey || 'Pirate Download',
+        link: site.link,
+      });
+    }
+
+    for (const site of scrapedNormalized) {
+      const key = site.nameKey || `link:${site.link.toLowerCase()}`;
+      mergedByKey.set(key, {
+        site_name: site.displayName || site.nameKey || 'Pirate Download',
+        link: site.link,
+      });
+    }
+
+    return {
+      sitesToSync,
+      mergedSites: Array.from(mergedByKey.values()),
+    };
+  }
+
   function getSenderUrl(event) {
     return (
       event?.senderFrame?.url ||
@@ -588,29 +701,34 @@ handle('steam:get-installed-games', async () => {
 
     if (!gameDetails) return null;
     console.log('Fetched game details:', gameDetails);
-    console.log('Pirate sites from backend:', gameDetails.pirate_sites);
-    if (!Array.isArray(gameDetails.pirate_sites) || gameDetails.pirate_sites.length === 0) {
-      gameDetails.pirate_sites = await getPirateSitesForGame(gameDetails.name || '');
-      const hasScrapedSites = Array.isArray(gameDetails.pirate_sites) && gameDetails.pirate_sites.length > 0;
+    const backendPirateSites = Array.isArray(gameDetails.pirate_sites) ? gameDetails.pirate_sites : [];
+    console.log('Pirate sites from backend:', backendPirateSites);
 
-      if (token && hasScrapedSites) {
-        try {
-          const uploadSummary = await getGamesCtrl().uploadPirateSites(
-            token,
-            gameDetails.app_id ?? appId,
-            gameDetails.platform_name ?? platform,
-            gameDetails.pirate_sites
-          );
-          console.log('Uploaded scraped pirate sites:', uploadSummary);
-        } catch (e) {
-          if (e && typeof e === 'object' && e.code === 'WRECK_INVALID_TOKEN') {
-            throw e;
-          }
-          console.warn('Failed to upload scraped pirate sites:', e);
+    const scrapedPirateSites = await getPirateSitesForGame(gameDetails.name || '');
+    const syncPlan = buildPirateSiteSyncPlan(backendPirateSites, scrapedPirateSites);
+
+    // Always expose the freshest scrape output while preserving DB-only entries.
+    gameDetails.pirate_sites = syncPlan.mergedSites;
+    console.log('Fetched pirate sites:', scrapedPirateSites);
+
+    if (token && syncPlan.sitesToSync.length > 0) {
+      try {
+        const uploadSummary = await getGamesCtrl().uploadPirateSites(
+          token,
+          gameDetails.app_id ?? appId,
+          gameDetails.platform_name ?? platform,
+          syncPlan.sitesToSync
+        );
+        console.log('Uploaded scraped pirate site changes:', {
+          attempted: syncPlan.sitesToSync.length,
+          ...uploadSummary,
+        });
+      } catch (e) {
+        if (e && typeof e === 'object' && e.code === 'WRECK_INVALID_TOKEN') {
+          throw e;
         }
+        console.warn('Failed to upload scraped pirate site changes:', e);
       }
-
-      console.log('Fetched pirate sites:', gameDetails.pirate_sites);
     }
 
     return gameDetails;
@@ -980,10 +1098,6 @@ handle('steam:get-installed-games', async () => {
   // Cloudscraper helpers
   handle('cloudscraper:fetch', async (_event, url, options) => {
     return await getCloudscraperCtrl().fetch(String(url), options && typeof options === 'object' ? options : {});
-  });
-
-  handle('cloudscraper:dodi-repacks-home', async () => {
-    return await getCloudscraperCtrl().fetchDodiRepacksHome();
   });
 
   handle('cloudscraper:search-byxatab', async (_event, query, page) => {
