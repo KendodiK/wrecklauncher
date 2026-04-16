@@ -1,5 +1,6 @@
 //#region Requires
 const apiFunctions = require('./scripts/apiFunctions.js');
+const apiHelpers = require('./scripts/apiHelpers.js');
 const fetchShopSpecials = require('./scripts/fetchShopSpecials.js');
 
 const express = require('express');
@@ -51,36 +52,7 @@ server.on('listening', async () => {
 //#endregion
 
 //#region Midleware
-function tokenValidate(req) {
-  return async (req, res, next) => {
-    try {
-      const auth = req.headers?.authorization;
-      if (!auth || !auth.toLowerCase().startsWith('bearer ')) {
-        return res.status(401).json({ error: 'Missing or invalid Authorization header' });
-      }
-      const token = auth.slice('bearer '.length).trim();
 
-      const parts = token.split('.');
-      if (parts.length !== 2 || !parts[0] || !parts[1]) {
-        return res.status(401).json({ error: 'Invalid token format' });
-      }
-
-      const [userId, userUniqueToken] = parts;
-
-      const nativeUserCtrl = new nativeUserController();
-      const user = await nativeUserCtrl.show(userId);
-      if (!user || user.token !== userUniqueToken) {
-        return res.status(401).json({ error: 'Invalid token' });
-      }
-      req.auth = { userId, user, token };
-
-      return next();
-    } catch (error) {
-      console.error('Error in token validation:', error);
-      return res.status(500).json({ error: 'Internal server error during token validation' });
-    }
-  };
-}
 //#endregion
 
 //#region APIEndpoints
@@ -90,7 +62,7 @@ app.get('/api/itch/game/:appId', apiFunctions.GETItchGames);
 
 app.get('/api/steam/profile-id/:vanityurl', apiFunctions.GETSteamProfileId); // old path: /api/steam/profile_id/:vanityurl
 
-app.get('/steam/api/get-owned-games', tokenValidate(), apiFunctions.GETOwnedGamesSteam); // old path: /steam/api/getOwnedGames
+app.get('/steam/api/get-owned-games', apiHelpers.tokenValidate, apiFunctions.GETOwnedGamesSteam); // old path: /steam/api/getOwnedGames
 
 app.get("/api/games/gamecount", apiFunctions.GETGameCount); //new path v2.3
 
@@ -120,7 +92,7 @@ app.get("/api/platforms/:platformName", apiFunctions.GETPlatformByPlatromName);
 
 app.get("/api/pirate-sites", apiFunctions.GETPirateSites); //new path v2.3
 
-app.get("/api/platform-users/:nativeUserId", tokenValidate(), apiFunctions.GETPlatformUsersByNativeUserId); //old path: /api/platform_users
+app.get("/api/platform-users/:nativeUserId", apiHelpers.tokenValidate, apiFunctions.GETPlatformUsersByNativeUserId); //old path: /api/platform_users
 
 app.get("/api/shop-specials/:filter/list/:from", apiFunctions.GETShopSpecialsFilteredInList); //old path: /api/shop_specials/:filter/:from
 
@@ -128,39 +100,39 @@ app.get("/api/shop-specials/:filter/list/:from", apiFunctions.GETShopSpecialsFil
 
 app.post('/api/native-users', apiFunctions.POSTNewNativeUser); //old path: /api/signup
 
-app.post("/api/games", tokenValidate(), apiFunctions.POSTNewGame);
+app.post("/api/games", apiHelpers.tokenValidate, apiFunctions.POSTNewGame);
 
-app.post("/api/prices", tokenValidate(), apiFunctions.POSTNewPrice);
+app.post("/api/prices", apiHelpers.tokenValidate, apiFunctions.POSTNewPrice);
 
-app.post("/api/pirate-sites/:gameId", tokenValidate(), apiFunctions.POSTNewPirateSiteConnectionByGameId); //old path: /api/pirate_sites/:gameId - PUT! - no tokenValidate()
+app.post("/api/pirate-sites/:gameId", apiHelpers.tokenValidate, apiFunctions.POSTNewPirateSiteConnectionByGameId); //old path: /api/pirate_sites/:gameId - PUT! - no apiHelpers.tokenValidate
 
-app.post("/api/friends", tokenValidate(), apiFunctions.POSTNewFriends);
+app.post("/api/friends", apiHelpers.tokenValidate, apiFunctions.POSTNewFriends);
 
-app.post("/api/platforms", tokenValidate(), apiFunctions.POSTNewPlatform);
+app.post("/api/platforms", apiHelpers.tokenValidate, apiFunctions.POSTNewPlatform);
 
-app.post("/api/platform-users", tokenValidate(), apiFunctions.POSTNewPlatformUser); //old path: /api/platform_users
+app.post("/api/platform-users", apiHelpers.tokenValidate, apiFunctions.POSTNewPlatformUser); //old path: /api/platform_users
 
-app.post("/api/countries", tokenValidate(), apiFunctions.POSTNewCountry); //old path: /api/counties
+app.post("/api/countries", apiHelpers.tokenValidate, apiFunctions.POSTNewCountry); //old path: /api/counties
 
-app.post("/api/shop-specials/:gameId", tokenValidate(), apiFunctions.POSTNewShopSpecials); // totally new path
+app.post("/api/shop-specials/:gameId", apiHelpers.tokenValidate, apiFunctions.POSTNewShopSpecials); // totally new path
 
 // -------------------      PUT       ------------------ //
 
-app.put("/api/native-users", tokenValidate(), apiFunctions.PUTNativeUserProfileInfo); // totally new path
+app.put("/api/native-users", apiHelpers.tokenValidate, apiFunctions.PUTNativeUserProfileInfo); // totally new path
 
-app.put("/api/login", tokenValidate(), apiFunctions.PUTNativeUserLogin);
+app.put("/api/login", apiHelpers.tokenValidate, apiFunctions.PUTNativeUserLogin);
 
-app.put("/api/games/:gameId", tokenValidate(), apiFunctions.PUTGames); //old path: /api/games/:id no tokenValidate()
+app.put("/api/games/:gameId", apiHelpers.tokenValidate, apiFunctions.PUTGames); //old path: /api/games/:id no apiHelpers.tokenValidate
 
-app.put("/api/shop-specials/:gameId", tokenValidate(), apiFunctions.PUTShopSpecialsByGameId); //old path: /api/shop_specials/:gameId - no tokenValidate()
+app.put("/api/shop-specials/:gameId", apiHelpers.tokenValidate, apiFunctions.PUTShopSpecialsByGameId); //old path: /api/shop_specials/:gameId - no apiHelpers.tokenValidate
 
-app.put("/api/pirate-sites/:siteId/game/:gameId", tokenValidate(), apiFunctions.PUTPirateSitesByGameId); //old path: /api/pirate_sites/:gameId/:siteId - no tokenValidate()
+app.put("/api/pirate-sites/:siteId/game/:gameId", apiHelpers.tokenValidate, apiFunctions.PUTPirateSitesByGameId); //old path: /api/pirate_sites/:gameId/:siteId - no apiHelpers.tokenValidate
 
 // -------------------     DELETE     ------------------ //
 
-app.delete("/api/friends/:friendShipId", tokenValidate(), apiFunctions.DELETEFriends);
+app.delete("/api/friends/:friendShipId", apiHelpers.tokenValidate, apiFunctions.DELETEFriends);
 
-app.delete("/api/platform-users/:platfromUserId", tokenValidate(), apiFunctions.DELETEPlatformUser); //old path: /api/platform_user/:platfromUserId
+app.delete("/api/platform-users/:platfromUserId", apiHelpers.tokenValidate, apiFunctions.DELETEPlatformUser); //old path: /api/platform_user/:platfromUserId
 
-app.delete("/api/native-users", tokenValidate(), apiFunctions.DELETENAtiveUser); // old path: /api/native_user
+app.delete("/api/native-users", apiHelpers.tokenValidate, apiFunctions.DELETENAtiveUser); // old path: /api/native_user
 //#endregion

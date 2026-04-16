@@ -11,6 +11,37 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, Number(ms) || 0));
 }
 
+module.exports.tokenValidate = function (req) {
+  return async (req, res, next) => {
+    try {
+      const auth = req.headers?.authorization;
+      if (!auth || !auth.toLowerCase().startsWith('bearer ')) {
+        return res.status(401).json({ error: 'Missing or invalid Authorization header' });
+      }
+      const token = auth.slice('bearer '.length).trim();
+
+      const parts = token.split('.');
+      if (parts.length !== 2 || !parts[0] || !parts[1]) {
+        return res.status(401).json({ error: 'Invalid token format' });
+      }
+
+      const [userId, userUniqueToken] = parts;
+
+      const nativeUserCtrl = new nativeUserController();
+      const user = await nativeUserCtrl.show(userId);
+      if (!user || user.token !== userUniqueToken) {
+        return res.status(401).json({ error: 'Invalid token' });
+      }
+      req.auth = { userId, user, token };
+
+      return next();
+    } catch (error) {
+      console.error('Error in token validation:', error);
+      return res.status(500).json({ error: 'Internal server error during token validation' });
+    }
+  };
+}
+
 /**
  * Fetch helper that retries on HTTP 429 (Too Many Requests) until a non-429 response is received.
  * Respects the `Retry-After` header when present and applies exponential backoff between attempts.
