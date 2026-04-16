@@ -870,12 +870,16 @@ handle('steam:get-installed-games', async () => {
     return await getItchCtrl().getGameDetailsByTitle(title);
   });
 
-  handle('itch:open-game', async (_event, gameId) => {
-    return await getItchCtrl().clientGameControlUtil(gameId, 'open');
+  handle('itch:open-game', async (_event, gameId, gameUrl) => {
+    return await getItchCtrl().clientGameControlUtil(gameId, 'open', gameUrl);
   });
 
-  handle('itch:install-game', async (_event, gameId) => {
-    return await getItchCtrl().clientGameControlUtil(gameId, 'install');
+  handle('itch:run-game', async (_event, gameId, gameUrl, installLocation) => {
+    return await getItchCtrl().clientGameControlUtil(gameId, 'run', gameUrl, installLocation);
+  });
+
+  handle('itch:install-game', async (_event, gameId, gameUrl) => {
+    return await getItchCtrl().clientGameControlUtil(gameId, 'install', gameUrl);
   });
 
   // ── GOG ───────────────────────────────────────────────────────────────────

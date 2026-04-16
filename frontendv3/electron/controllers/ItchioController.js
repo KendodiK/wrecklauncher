@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 const { shell, BrowserWindow } = require('electron');
 const GamesController = require('./GamesController');
 const { joinUrl, normalizeBaseUrl } = require('../lib/url');
@@ -119,7 +120,7 @@ class ItchioController extends GamesController {
 
   /**
    * Scan itch.io installed games from the apps directory.
-   * Each installed game has a `.itch/receipt.json` file inside its install folder.
+    * Each installed game has a `.itch/receipt.json` or `.itch/receipt.json.gz` file.
    *
    * @returns {import('../models').ItchInstalledGame[]}
    */
@@ -141,11 +142,20 @@ class ItchioController extends GamesController {
       if (!entry.isDirectory()) continue;
       const gameDir = path.join(appsDir, entry.name);
       const receiptPath = path.join(gameDir, '.itch', 'receipt.json');
+      const receiptGzipPath = path.join(gameDir, '.itch', 'receipt.json.gz');
 
-      if (!fs.existsSync(receiptPath)) continue;
+      if (!fs.existsSync(receiptPath) && !fs.existsSync(receiptGzipPath)) continue;
 
       try {
-        const raw = JSON.parse(fs.readFileSync(receiptPath, 'utf8'));
+        let receiptText = '';
+        if (fs.existsSync(receiptPath)) {
+          receiptText = fs.readFileSync(receiptPath, 'utf8');
+        } else {
+          const compressed = fs.readFileSync(receiptGzipPath);
+          receiptText = zlib.gunzipSync(compressed).toString('utf8');
+        }
+
+        const raw = JSON.parse(receiptText);
         const game = raw?.game ?? raw;
         const upload = raw?.upload ?? null;
 
@@ -775,29 +785,128 @@ class ItchioController extends GamesController {
   }
 
   /**
+   * Resolve a launchable executable from an itch install directory.
+   *
+   * @param {string|null|undefined} installLocation
+   * @returns {string|null}
+   */
+  #resolveLaunchExecutable(installLocation) {
+    const baseDir = String(installLocation || '').trim();
+    if (!baseDir) return null;
+    if (!fs.existsSync(baseDir)) return null;
+
+    /** @type {string[]} */
+    const exeCandidates = [];
+    const queue = [baseDir];
+    const skipDirNames = new Set(['.itch', '__macosx']);
+
+    while (queue.length > 0) {
+      const currentDir = queue.shift();
+      if (!currentDir) continue;
+
+      /** @type {import('fs').Dirent[]} */
+      let entries = [];
+      try {
+        entries = fs.readdirSync(currentDir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+
+      for (const entry of entries) {
+        const fullPath = path.join(currentDir, entry.name);
+        if (entry.isDirectory()) {
+          if (!skipDirNames.has(entry.name.toLowerCase())) {
+            queue.push(fullPath);
+          }
+          continue;
+        }
+
+        if (!entry.isFile()) continue;
+        if (!/\.exe$/i.test(entry.name)) continue;
+        exeCandidates.push(fullPath);
+      }
+    }
+
+    if (exeCandidates.length < 1) return null;
+
+    const excludedExePattern = /(unins|uninstall|crashpad|crashhandler|unitycrash|updater|redist|vcredist|eac|easyanticheat)/i;
+    const preferred = exeCandidates.filter((candidate) => !excludedExePattern.test(path.basename(candidate)));
+    const pool = preferred.length > 0 ? preferred : exeCandidates;
+    pool.sort((a, b) => a.length - b.length);
+    return pool[0] || null;
+  }
+
+  /**
    * Open the itch.io client for a game action via URL scheme.
    *
-   * @param {string|number} gameId  itch.io game ID
-   * @param {'open'|'install'} action
+   * @param {string|number|null|undefined} gameId  itch.io game ID
+   * @param {'open'|'install'|'run'} action
+   * @param {string|null|undefined} [gameUrl] itch.io game page URL fallback
+   * @param {string|null|undefined} [installLocation] local install path fallback for run
    * @returns {Promise<{ ok: boolean, url: string }>}
    */
-  async clientGameControlUtil(gameId, action) {
-    // itch:// scheme: itch://games/{gameId} opens the game page in the client.
-    // There is no documented itch://install/... scheme, so we fall back to https for install.
+  async clientGameControlUtil(gameId, action, gameUrl, installLocation) {
     const id = Number(gameId);
-    if (!Number.isFinite(id) || id <= 0) throw new Error(`Invalid itch.io game ID: ${String(gameId)}`);
+    const hasValidId = Number.isFinite(id) && id > 0;
+    const normalizedGameUrl = typeof gameUrl === 'string' ? gameUrl.trim() : '';
+    const hasValidGameUrl = /^https?:\/\//i.test(normalizedGameUrl);
+    const normalizedInstallLocation = typeof installLocation === 'string' ? installLocation.trim() : '';
+    const hasValidInstallLocation = !!normalizedInstallLocation && fs.existsSync(normalizedInstallLocation);
 
-    const url = action === 'install'
-      ? `https://itch.io/games/${encodeURIComponent(String(id))}`
-      : `itch://games/${encodeURIComponent(String(id))}`;
-
-    try {
-      await shell.openExternal(url);
-      return { ok: true, url };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      throw new Error(`Failed to open itch.io URL (${url}): ${msg}`);
+    if (!hasValidId && !hasValidGameUrl && !hasValidInstallLocation) {
+      throw new Error(`Invalid itch.io game target: id=${String(gameId)} url=${String(gameUrl || '')} install=${String(installLocation || '')}`);
     }
+
+    /** @type {string[]} */
+    const candidateUrls = [];
+
+    if (action === 'run' && hasValidInstallLocation) {
+      const launchExecutable = this.#resolveLaunchExecutable(normalizedInstallLocation);
+      if (launchExecutable) {
+        try {
+          const openError = await shell.openPath(launchExecutable);
+          if (!openError) {
+            return { ok: true, url: launchExecutable };
+          }
+        } catch {
+          // fallback to itch:// / https targets
+        }
+      }
+    }
+
+    // Use itch client URL scheme first for both open and install flows.
+    if (hasValidId) {
+      if (action === 'run') {
+        candidateUrls.push(`itch://games/${encodeURIComponent(String(id))}/launch`);
+      }
+      candidateUrls.push(`itch://games/${encodeURIComponent(String(id))}`);
+    }
+
+    // If client invocation fails, fall back to the actual game URL (not id-based fake path).
+    if (hasValidGameUrl) {
+      if (action === 'install' || action === 'run' || !hasValidId) {
+        candidateUrls.push(normalizedGameUrl);
+      }
+    }
+
+    if (candidateUrls.length < 1 && hasValidGameUrl) {
+      candidateUrls.push(normalizedGameUrl);
+    }
+
+    /** @type {unknown|null} */
+    let lastError = null;
+
+    for (const url of candidateUrls) {
+      try {
+        await shell.openExternal(url);
+        return { ok: true, url };
+      } catch (err) {
+        lastError = err;
+      }
+    }
+
+    const msg = lastError instanceof Error ? lastError.message : String(lastError);
+    throw new Error(`Failed to open itch.io URL (${candidateUrls.join(' -> ')}): ${msg}`);
   }
 }
 

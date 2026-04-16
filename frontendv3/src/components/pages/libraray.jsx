@@ -125,6 +125,7 @@ function toItchLibraryGame(ownedKey, installedById, normalizedItchId) {
 		appid: appId,
 		title,
 		launcherId: 'itch',
+		installLocation: typeof installed?.installLocation === 'string' && installed.installLocation.trim() ? installed.installLocation.trim() : null,
 		coverUrl,
 		heroUrl: coverUrl,
 		genres: ['Itch.io'],
@@ -157,6 +158,7 @@ function toItchInstalledOnlyLibraryGame(installed, normalizedItchId) {
 		appid: appId,
 		title,
 		launcherId: 'itch',
+		installLocation: typeof installed?.installLocation === 'string' && installed.installLocation.trim() ? installed.installLocation.trim() : null,
 		coverUrl,
 		heroUrl: coverUrl,
 		genres: ['Itch.io'],
@@ -415,37 +417,67 @@ const LibraryPage = () => {
 	}, [activeGameId, filteredGames]);
 
 	const progressWidth = activeGame ? `${Math.max(3, Math.min(activeGame.progress, 100))}%` : '0%';
-	const activeSteamAppId = Number(activeGame?.appid);
-	const canUseSteamActions = Number.isFinite(activeSteamAppId) && activeSteamAppId > 0 && activeGame?.launcherId === 'steam';
+	const activeGameAppId = Number(activeGame?.appid);
+	const normalizedLauncherId = String(activeGame?.launcherId || '').trim().toLowerCase();
+	const activeItchGameUrl = typeof activeGame?.url === 'string' ? activeGame.url.trim() : '';
+	const activeItchInstallLocation = typeof activeGame?.installLocation === 'string' ? activeGame.installLocation.trim() : '';
+	const hasActiveItchGameUrl = /^https?:\/\//i.test(activeItchGameUrl);
+	const hasActiveItchInstallLocation = activeItchInstallLocation.length > 0;
+	const isSteamLauncher = normalizedLauncherId === 'steam';
+	const isItchLauncher = normalizedLauncherId === 'itch' || normalizedLauncherId === 'itchio' || normalizedLauncherId === 'itch.io';
+	const canUseSteamActions = Number.isFinite(activeGameAppId) && activeGameAppId > 0 && isSteamLauncher;
+	const canUseItchActions = isItchLauncher;
+	const canExecuteItchAction =
+		isItchLauncher
+		&& ((Number.isFinite(activeGameAppId) && activeGameAppId > 0) || hasActiveItchGameUrl || hasActiveItchInstallLocation);
+	const canUsePrimaryAction = canUseSteamActions || canUseItchActions;
 	const isActiveGameInstalled = activeGame?.installed === true;
-	const primarySteamAction = isActiveGameInstalled ? 'run' : 'install';
+	const primaryAction = isActiveGameInstalled ? 'open' : 'install';
+	const primaryActionLabel = isActiveGameInstalled ? 'OPEN' : 'INSTALL';
+	const primaryActionBusyLabel = isActiveGameInstalled ? 'OPENING' : 'INSTALLING';
+	const primaryActionUsesDownloadStyle = !isActiveGameInstalled;
 
-	const handleSteamAction = async (action) => {
-		if (!canUseSteamActions) {
+	const handleLibraryAction = async (action) => {
+		if (!canUsePrimaryAction) {
 			setActionState({
 				busyAction: '',
-				text: 'Steam actions are only available for Steam library items.',
+				text: 'Open/Install actions are available for Steam and Itch library items.',
 				type: 'error',
 			});
 			return;
 		}
 
 		const actions = {
-			run: {
-				fn: () => window.electronAPI.runSteamGame(activeSteamAppId),
-				success: `Opening ${activeGame?.title || 'game'} in Steam.`,
+			open: {
+				fn: () => {
+					if (canUseSteamActions) {
+						return window.electronAPI.runSteamGame(activeGameAppId);
+					}
+					if (canExecuteItchAction) {
+						return window.electronAPI.runItchGame(
+							Number.isFinite(activeGameAppId) && activeGameAppId > 0 ? activeGameAppId : null,
+							activeItchGameUrl || null,
+							activeItchInstallLocation || null,
+						);
+					}
+					throw new Error('This itch game has no valid game ID or URL for opening.');
+				},
+				success: `${activeGame?.title || 'Game'} launched via ${canUseSteamActions ? 'Steam' : 'Itch.io'}.`,
 			},
 			install: {
-				fn: () => window.electronAPI.installSteamGame(activeSteamAppId),
-				success: `Opened Steam install prompt for ${activeGame?.title || 'game'}.`,
-			},
-			delete: {
-				fn: () => window.electronAPI.deleteSteamGame(activeSteamAppId),
-				success: `Opened Steam uninstall prompt for ${activeGame?.title || 'game'}.`,
-			},
-			store: {
-				fn: () => window.electronAPI.storePageSteam(activeSteamAppId),
-				success: `Opened the Steam store page for ${activeGame?.title || 'game'}.`,
+				fn: () => {
+					if (canUseSteamActions) {
+						return window.electronAPI.installSteamGame(activeGameAppId);
+					}
+					if (canExecuteItchAction) {
+						return window.electronAPI.installItchGame(
+							Number.isFinite(activeGameAppId) && activeGameAppId > 0 ? activeGameAppId : null,
+							activeItchGameUrl || null,
+						);
+					}
+					throw new Error('This itch game has no valid game ID or URL for install action.');
+				},
+				success: `Opened ${canUseSteamActions ? 'Steam' : 'Itch.io'} install flow for ${activeGame?.title || 'game'}.`,
 			},
 		};
 
@@ -457,10 +489,10 @@ const LibraryPage = () => {
 			await selectedAction.fn();
 			setActionState({ busyAction: '', text: selectedAction.success, type: 'success' });
 		} catch (error) {
-			console.error(`Failed to ${action} Steam game:`, error);
+			console.error(`Failed to ${action} library game:`, error);
 			setActionState({
 				busyAction: '',
-				text: error instanceof Error ? error.message : `Failed to ${action} Steam game.`,
+				text: error instanceof Error ? error.message : `Failed to ${action} library game.`,
 				type: 'error',
 			});
 		}
@@ -649,17 +681,11 @@ const LibraryPage = () => {
 							<p className="library-status-size">{activeGame?.installedSize ?? '0 MB'}</p>
 							<button
 								type="button"
-								className={`library-play-btn ${isActiveGameInstalled ? '' : 'library-play-btn-download'}`}
-								onClick={() => handleSteamAction(primarySteamAction)}
-								disabled={!canUseSteamActions || actionState.busyAction !== ''}
+								className={`library-play-btn ${primaryActionUsesDownloadStyle ? 'library-play-btn-download' : ''}`}
+								onClick={() => handleLibraryAction(primaryAction)}
+								disabled={!canUsePrimaryAction || actionState.busyAction !== ''}
 							>
-								{actionState.busyAction === primarySteamAction
-									? isActiveGameInstalled
-										? 'OPENING'
-										: 'DOWNLOADING'
-									: isActiveGameInstalled
-										? 'PLAY'
-										: 'DOWNLOAD'}
+								{actionState.busyAction === primaryAction ? primaryActionBusyLabel : primaryActionLabel}
 								{isActiveGameInstalled ? (
 									<svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
 										<path d="m8 5 11 7-11 7V5z" />

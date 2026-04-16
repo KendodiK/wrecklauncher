@@ -183,8 +183,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getItchGameDetailsByTitle: (title) => {
     return invokeAuthed('itch:get-game-details-by-title', title);
   },
-  openItchGame: (gameId) => ipcRenderer.invoke('itch:open-game', gameId),
-  installItchGame: (gameId) => ipcRenderer.invoke('itch:install-game', gameId),
+  runItchGame: (gameId, gameUrl, installLocation) => ipcRenderer.invoke('itch:run-game', gameId, gameUrl, installLocation),
+  openItchGame: (gameId, gameUrl) => ipcRenderer.invoke('itch:open-game', gameId, gameUrl),
+  installItchGame: (gameId, gameUrl) => ipcRenderer.invoke('itch:install-game', gameId, gameUrl),
   // GOG
   getGogInstalledGames: () => ipcRenderer.invoke('gog:get-installed-games'),
   getGogGameDetails: (productId) => {
