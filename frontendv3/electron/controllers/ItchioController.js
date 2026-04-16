@@ -574,8 +574,8 @@ class ItchioController extends GamesController {
       throw new Error('itch.io OAuth client ID is required');
     }
 
-    return new Promise((resolve, reject) => {
-      // Create a hidden window for OAuth
+    return new Promise((resolve) => {
+      // Create OAuth window
       const authWindow = new BrowserWindow({
         width: 600,
         height: 700,
@@ -588,115 +588,180 @@ class ItchioController extends GamesController {
 
       // itch.io OAuth URL - using implicit grant (token in URL fragment)
       const redirectUri = 'urn:ietf:wg:oauth:2.0:oob';
-      const scope = 'profile:*';
+      const scope = 'profile';
       const authUrl = `https://itch.io/user/oauth?client_id=${encodeURIComponent(clientId)}&scope=${encodeURIComponent(scope)}&response_type=token&redirect_uri=${encodeURIComponent(redirectUri)}`;
 
-      authWindow.loadURL(authUrl);
+      let settled = false;
 
-      // Listen for page title changes - itch.io shows token in the title after auth
-      authWindow.webContents.on('page-title-updated', async (event, title) => {
-        // When using oob redirect, itch.io shows "Authorization - itch.io" then displays token
-        // We need to check the page content for the token
-      });
+      /**
+       * @param {string|null|undefined} value
+       * @returns {string|null}
+       */
+      const normalizeToken = (value) => {
+        const token = String(value || '').trim();
+        if (!token) return null;
+        if (!/^[A-Za-z0-9_-]{20,}$/.test(token)) return null;
+        return token;
+      };
 
-      // Listen for navigation to detect the token in the URL or page
-      authWindow.webContents.on('did-navigate', async (event, url) => {
-        // Check if we're on the authorization success page
-        if (url.includes('itch.io/user/oauth') || url.includes('oauth/authorize')) {
-          // Try to extract token from the page
-          try {
-            const token = await authWindow.webContents.executeJavaScript(`
-              (function() {
-                // Look for token in various places
-                const codeEl = document.querySelector('code');
-                if (codeEl) return codeEl.textContent.trim();
-                
-                const preEl = document.querySelector('pre');
-                if (preEl) return preEl.textContent.trim();
-                
-                // Check for token in URL hash
-                if (window.location.hash) {
-                  const params = new URLSearchParams(window.location.hash.substring(1));
-                  const accessToken = params.get('access_token');
-                  if (accessToken) return accessToken;
-                }
-                
-                return null;
-              })()
-            `);
+      /**
+       * @param {{ success: boolean, user?: { id: number, username: string } }} result
+       */
+      const finish = (result) => {
+        if (settled) return;
+        settled = true;
+        if (pollTimer) clearInterval(pollTimer);
+        resolve(result);
+      };
 
-            if (token && typeof token === 'string' && token.length > 10) {
-              // Save the token
-              this.#oauthToken = { access_token: token };
-              this.#saveTokenToDisk(this.#oauthToken);
+      /**
+       * @param {string} token
+       */
+      const persistTokenAndResolve = async (token) => {
+        if (settled) return;
 
-              // Get user profile to confirm login
-              try {
-                const profile = await this.getProfile();
-                authWindow.close();
-                resolve({
-                  success: true,
-                  user: profile ? { id: profile.id, username: profile.username } : undefined,
-                });
-              } catch {
-                authWindow.close();
-                resolve({ success: true });
-              }
-            }
-          } catch (err) {
-            // Ignore - might not be on the right page yet
-          }
-        }
-      });
+        this.#oauthToken = { access_token: token };
+        this.#saveTokenToDisk(this.#oauthToken);
 
-      // Also check when page finishes loading
-      authWindow.webContents.on('did-finish-load', async () => {
         try {
-          const token = await authWindow.webContents.executeJavaScript(`
+          const profile = await this.getProfile();
+          const profileId = Number(profile?.id);
+          const profileUsername = String(profile?.username || '').trim();
+
+          finish({
+            success: true,
+            user:
+              Number.isFinite(profileId) && profileId > 0 && profileUsername
+                ? { id: profileId, username: profileUsername }
+                : undefined,
+          });
+          if (!authWindow.isDestroyed()) authWindow.close();
+        } catch {
+          finish({ success: true });
+          if (!authWindow.isDestroyed()) authWindow.close();
+        }
+      };
+
+      const readTokenFromPage = async () => {
+        if (authWindow.isDestroyed()) return null;
+        try {
+          const rawToken = await authWindow.webContents.executeJavaScript(`
             (function() {
-              const codeEl = document.querySelector('code');
-              if (codeEl) return codeEl.textContent.trim();
-              
-              const preEl = document.querySelector('pre');
-              if (preEl) return preEl.textContent.trim();
-              
-              // Check URL hash
-              if (window.location.hash) {
-                const params = new URLSearchParams(window.location.hash.substring(1));
-                const accessToken = params.get('access_token');
-                if (accessToken) return accessToken;
+              function fromLocation() {
+                try {
+                  if (window.location.hash) {
+                    const hashParams = new URLSearchParams(window.location.hash.substring(1));
+                    const hashToken = hashParams.get('access_token');
+                    if (hashToken) return hashToken;
+                  }
+
+                  if (window.location.search) {
+                    const queryParams = new URLSearchParams(window.location.search.substring(1));
+                    const queryToken = queryParams.get('access_token') || queryParams.get('token');
+                    if (queryToken) return queryToken;
+                  }
+                } catch {
+                  // ignore URL parse errors
+                }
+                return null;
               }
-              
-              return null;
+
+              function fromElements() {
+                const inputSelectors = [
+                  'input.api_key_input',
+                  'input[name="access_token"]',
+                  'input[name="token"]',
+                  'input[type="text"][readonly]',
+                  'input[readonly].api_key_input'
+                ];
+
+                for (const selector of inputSelectors) {
+                  const el = document.querySelector(selector);
+                  if (!el) continue;
+                  const value = (typeof el.value === 'string' ? el.value : (el.getAttribute && el.getAttribute('value'))) || '';
+                  const trimmed = String(value).trim();
+                  if (trimmed) return trimmed;
+                }
+
+                const codeEl = document.querySelector('code');
+                if (codeEl && codeEl.textContent) {
+                  const codeValue = codeEl.textContent.trim();
+                  if (codeValue) return codeValue;
+                }
+
+                const preEl = document.querySelector('pre');
+                if (preEl && preEl.textContent) {
+                  const preValue = preEl.textContent.trim();
+                  if (preValue) return preValue;
+                }
+
+                return null;
+              }
+
+              function fromBodyText() {
+                const text = (document.body && document.body.innerText ? document.body.innerText : '') || '';
+                const match = text.match(/\b([A-Za-z0-9_-]{20,})\b/);
+                return match ? match[1] : null;
+              }
+
+              return fromLocation() || fromElements() || fromBodyText() || null;
             })()
           `);
 
-          if (token && typeof token === 'string' && token.length > 10) {
-            this.#oauthToken = { access_token: token };
-            this.#saveTokenToDisk(this.#oauthToken);
-
-            try {
-              const profile = await this.getProfile();
-              authWindow.close();
-              resolve({
-                success: true,
-                user: profile ? { id: profile.id, username: profile.username } : undefined,
-              });
-            } catch {
-              authWindow.close();
-              resolve({ success: true });
-            }
-          }
+          return normalizeToken(rawToken);
         } catch {
-          // Ignore
+          return null;
         }
+      };
+
+      const tryResolveToken = async () => {
+        if (settled) return;
+        const token = await readTokenFromPage();
+        if (!token) return;
+        await persistTokenAndResolve(token);
+      };
+
+      // itch can open the success page in a popup, so keep navigation in this tracked window.
+      authWindow.webContents.setWindowOpenHandler(({ url }) => {
+        if (url && !authWindow.isDestroyed()) {
+          authWindow.loadURL(url).catch(() => {});
+        }
+        return { action: 'deny' };
       });
+
+      authWindow.loadURL(authUrl);
+
+      authWindow.webContents.on('did-navigate', () => {
+        tryResolveToken().catch(() => {});
+      });
+      authWindow.webContents.on('did-navigate-in-page', () => {
+        tryResolveToken().catch(() => {});
+      });
+      authWindow.webContents.on('did-redirect-navigation', () => {
+        tryResolveToken().catch(() => {});
+      });
+      authWindow.webContents.on('dom-ready', () => {
+        tryResolveToken().catch(() => {});
+      });
+      authWindow.webContents.on('did-finish-load', () => {
+        tryResolveToken().catch(() => {});
+      });
+      authWindow.webContents.on('page-title-updated', () => {
+        tryResolveToken().catch(() => {});
+      });
+
+      // Some OOB pages render token asynchronously without navigation/title change.
+      const pollTimer = setInterval(() => {
+        if (settled || authWindow.isDestroyed()) {
+          clearInterval(pollTimer);
+          return;
+        }
+        tryResolveToken().catch(() => {});
+      }, 500);
 
       // Handle window close (user cancelled)
       authWindow.on('closed', () => {
-        if (!this.#oauthToken) {
-          resolve({ success: false });
-        }
+        finish({ success: false });
       });
     });
   }

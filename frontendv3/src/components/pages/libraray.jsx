@@ -63,6 +63,116 @@ function toSteamLibraryGame(game, installedAppIds) {
 	};
 }
 
+function normalizeItchGameId(value) {
+	const raw = String(value ?? '').trim();
+	if (!raw) return null;
+	const numeric = Number(raw);
+	if (Number.isFinite(numeric) && numeric > 0) {
+		return String(Math.trunc(numeric));
+	}
+	return raw.toLowerCase();
+}
+
+function extractItchOwnedGameId(ownedKey) {
+	return normalizeItchGameId(
+		ownedKey?.game_id ?? ownedKey?.game?.id ?? ownedKey?.download_key_id ?? ownedKey?.id,
+	);
+}
+
+function extractItchInstalledGameId(installed) {
+	return normalizeItchGameId(installed?.gameId ?? installed?.id);
+}
+
+function resolveLibraryCoverUrl(coverUrl, title, fallbackLabel = 'Game') {
+	if (typeof coverUrl === 'string' && coverUrl.trim()) return coverUrl.trim();
+	const label = String(title || fallbackLabel).trim() || fallbackLabel;
+	return `https://via.placeholder.com/300x420?text=${encodeURIComponent(label)}`;
+}
+
+function toItchLibraryGame(ownedKey, installedById, normalizedItchId) {
+	if (!normalizedItchId) return null;
+
+	const game = ownedKey?.game && typeof ownedKey.game === 'object' ? ownedKey.game : {};
+	const installed = installedById.get(normalizedItchId) || null;
+	const numericAppId = Number(normalizedItchId);
+	const appId = Number.isFinite(numericAppId) && numericAppId > 0 ? numericAppId : null;
+
+	const title =
+		typeof game?.title === 'string' && game.title.trim()
+			? game.title.trim()
+			: typeof installed?.title === 'string' && installed.title.trim()
+				? installed.title.trim()
+				: `itch:${normalizedItchId}`;
+
+	const url =
+		typeof game?.url === 'string' && game.url.trim()
+			? game.url.trim()
+			: typeof installed?.url === 'string' && installed.url.trim()
+				? installed.url.trim()
+				: null;
+
+	const coverUrl = resolveLibraryCoverUrl(game?.cover_url ?? installed?.coverUrl ?? null, title, 'Itch');
+	const isInstalled = !!installed;
+	const tags = ['Owned'];
+	if (isInstalled) {
+		tags.push('Installed');
+	} else {
+		tags.push('Ready to install');
+	}
+
+	return {
+		id: `itch:${normalizedItchId}`,
+		appid: appId,
+		title,
+		launcherId: 'itch',
+		coverUrl,
+		heroUrl: coverUrl,
+		genres: ['Itch.io'],
+		tags,
+		cracked: false,
+		installedSize: isInstalled ? 'Installed on this PC' : `Game ID ${normalizedItchId}`,
+		playtime: '0m',
+		playtimeMinutes: 0,
+		progress: isInstalled ? 100 : 0,
+		installed: isInstalled,
+		owned: true,
+		platform_name: 'itchio',
+		url,
+	};
+}
+
+function toItchInstalledOnlyLibraryGame(installed, normalizedItchId) {
+	if (!normalizedItchId) return null;
+
+	const numericAppId = Number(normalizedItchId);
+	const appId = Number.isFinite(numericAppId) && numericAppId > 0 ? numericAppId : null;
+	const title =
+		typeof installed?.title === 'string' && installed.title.trim()
+			? installed.title.trim()
+			: `itch:${normalizedItchId}`;
+	const coverUrl = resolveLibraryCoverUrl(installed?.coverUrl ?? null, title, 'Itch');
+
+	return {
+		id: `itch:${normalizedItchId}`,
+		appid: appId,
+		title,
+		launcherId: 'itch',
+		coverUrl,
+		heroUrl: coverUrl,
+		genres: ['Itch.io'],
+		tags: ['Installed', 'Local'],
+		cracked: false,
+		installedSize: 'Installed on this PC',
+		playtime: '0m',
+		playtimeMinutes: 0,
+		progress: 100,
+		installed: true,
+		owned: true,
+		platform_name: 'itchio',
+		url: typeof installed?.url === 'string' && installed.url.trim() ? installed.url.trim() : null,
+	};
+}
+
 function getLibraryGameKey(game) {
 	if (!game || typeof game !== 'object') return null;
 	const launcherId = String(game.launcherId || '').trim().toLowerCase();
@@ -123,50 +233,124 @@ const LibraryPage = () => {
 				const settings = await window.electronAPI.getSettings();
 				const steamSettings = settings?.account?.platforms?.steam;
 				const username = typeof steamSettings?.username === 'string' ? steamSettings.username.trim() : '';
+				const itchSettings = settings?.account?.platforms?.itch;
 
-				if (!steamSettings?.connected || !username) {
-					if (!cancelled) {
-						setLibraryGames([]);
-						setActiveGameId('');
+				/** @type {any[]} */
+				const mergedLibraryGames = [];
+				const loadErrors = [];
+
+				if (steamSettings?.connected && username) {
+					try {
+						const installedSteamGamesPromise =
+							typeof window.electronAPI.getSteamInstalledGames === 'function'
+								? window.electronAPI.getSteamInstalledGames()
+								: window.electronAPI.invoke('steam:get-installed-games');
+
+						const [ownedSteamGames, installedSteamGames] = await Promise.all([
+							window.electronAPI.getOwnedGamesFromSteam(username),
+							installedSteamGamesPromise.catch((error) => {
+								console.warn('Failed to load installed Steam games:', error);
+								return [];
+							}),
+						]);
+
+						const installedAppIds = new Set(
+							(Array.isArray(installedSteamGames) ? installedSteamGames : [])
+								.map((game) => extractSteamAppId(game))
+								.filter((appId) => appId != null),
+						);
+
+						const normalizedSteamGames = (ownedSteamGames || [])
+							.map((game) => toSteamLibraryGame(game, installedAppIds))
+							.filter(Boolean);
+
+						mergedLibraryGames.push(...normalizedSteamGames);
+					} catch (error) {
+						console.error('Failed to load Steam library:', error);
+						loadErrors.push(error instanceof Error ? error.message : 'Failed to load Steam library');
 					}
-					return;
 				}
 
-				const installedSteamGamesPromise =
-					typeof window.electronAPI.getSteamInstalledGames === 'function'
-						? window.electronAPI.getSteamInstalledGames()
-						: window.electronAPI.invoke('steam:get-installed-games');
+				if (itchSettings?.connected) {
+					try {
+						const installedItchGamesPromise =
+							typeof window.electronAPI.getItchInstalledGames === 'function'
+								? window.electronAPI.getItchInstalledGames()
+								: window.electronAPI.invoke('itch:get-installed-games');
 
-				const [ownedSteamGames, installedSteamGames] = await Promise.all([
-					window.electronAPI.getOwnedGamesFromSteam(username),
-					installedSteamGamesPromise.catch((error) => {
-						console.warn('Failed to load installed Steam games:', error);
-						return [];
-					}),
-				]);
+						const itchLibraryPromise =
+							typeof window.electronAPI.getItchLibrary === 'function'
+								? window.electronAPI.getItchLibrary()
+								: window.electronAPI.invoke('itch:get-library');
 
-				const installedAppIds = new Set(
-					(Array.isArray(installedSteamGames) ? installedSteamGames : [])
-						.map((game) => extractSteamAppId(game))
-						.filter((appId) => appId != null),
-				);
+						const [itchLibraryPayload, installedItchGames] = await Promise.all([
+							itchLibraryPromise.catch((error) => {
+								console.warn('Failed to load itch owned library:', error);
+								return null;
+							}),
+							installedItchGamesPromise.catch((error) => {
+								console.warn('Failed to load installed itch games:', error);
+								return [];
+							}),
+						]);
 
-				const normalizedGames = (ownedSteamGames || [])
-					.map((game) => toSteamLibraryGame(game, installedAppIds))
-					.filter(Boolean);
-				const uniqueGames = dedupeLibraryGames(normalizedGames);
+						const installedList = Array.isArray(installedItchGames) ? installedItchGames : [];
+						const installedById = new Map();
+						for (const installed of installedList) {
+							const id = extractItchInstalledGameId(installed);
+							if (!id || installedById.has(id)) continue;
+							installedById.set(id, installed);
+						}
+
+						const ownedKeys = Array.isArray(itchLibraryPayload?.owned_keys) ? itchLibraryPayload.owned_keys : [];
+						const ownedMapped = [];
+						const usedInstalledIds = new Set();
+
+						for (const ownedKey of ownedKeys) {
+							const id = extractItchOwnedGameId(ownedKey);
+							const mapped = toItchLibraryGame(ownedKey, installedById, id);
+							if (!mapped) continue;
+							ownedMapped.push(mapped);
+							if (id) usedInstalledIds.add(id);
+						}
+
+						const installedOnlyMapped = [];
+						for (const installed of installedList) {
+							const id = extractItchInstalledGameId(installed);
+							if (!id || usedInstalledIds.has(id)) continue;
+							const mapped = toItchInstalledOnlyLibraryGame(installed, id);
+							if (!mapped) continue;
+							installedOnlyMapped.push(mapped);
+						}
+
+						mergedLibraryGames.push(...ownedMapped, ...installedOnlyMapped);
+					} catch (error) {
+						console.error('Failed to load itch library:', error);
+						loadErrors.push(error instanceof Error ? error.message : 'Failed to load itch library');
+					}
+				}
+
+				const uniqueGames = dedupeLibraryGames(mergedLibraryGames);
+				const launcherPriority = Array.isArray(launchers) ? launchers.map((launcher) => launcher.id) : [];
+				const firstLauncherWithGames =
+					launcherPriority.find((launcherId) => uniqueGames.some((game) => game.launcherId === launcherId))
+					|| uniqueGames[0]?.launcherId
+					|| 'steam';
 
 				if (!cancelled) {
 					setLibraryGames(uniqueGames);
-					setActiveLauncherId('steam');
+					setActiveLauncherId(firstLauncherWithGames);
 					setActiveGameId(uniqueGames[0]?.id ?? '');
+					if (!uniqueGames.length && loadErrors.length) {
+						setErrorMessage(loadErrors.join(' | '));
+					}
 				}
 			} catch (error) {
-				console.error('Failed to load Steam library:', error);
+				console.error('Failed to load library:', error);
 				if (!cancelled) {
 					setLibraryGames([]);
 					setActiveGameId('');
-					setErrorMessage(error instanceof Error ? error.message : 'Failed to load Steam library');
+					setErrorMessage(error instanceof Error ? error.message : 'Failed to load library');
 				}
 			} finally {
 				if (!cancelled) setIsLoading(false);
@@ -310,7 +494,7 @@ const LibraryPage = () => {
 			<main className="library-page flex items-center justify-center">
 				<div className="text-center text-white">
 					<div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-					<p>Loading your Steam library...</p>
+					<p>Loading your library...</p>
 				</div>
 			</main>
 		);
@@ -343,7 +527,7 @@ const LibraryPage = () => {
 						</svg>
 						<h2 className="text-2xl font-semibold mb-2">No games in your library</h2>
 						<p className="text-slate-400 mb-2">
-							{errorMessage || 'Connect Steam on the settings page to import your owned games.'}
+							{errorMessage || 'Connect Steam or Itch.io on the settings page to import your games.'}
 						</p>
 						<p className="text-slate-500 mb-6">Start by connecting your gaming platforms or browse the store</p>
 						<div className="flex gap-3 justify-center">
