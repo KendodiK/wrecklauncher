@@ -1,0 +1,53 @@
+<script>
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+    || window.innerWidth <= 768;
+
+    if (!isMobile) {
+        window.location.href = "../index.html";
+    }
+</script>
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AnchorLauncher</title>
+    <link rel="stylesheet" href="../css/basic.css">
+    <link rel="stylesheet" href="../css/phone_style.css">
+    <link rel="icon" href="../img/logo.svg" type="image/svg+xml">
+    <script src="../js/phone_script.js" defer></script>
+</head>
+<body>
+    <header>
+        <nav>
+            <ul>
+                <li>
+                    <div class="nav-wrapper">
+                        <a href="main.html">
+                        <img src="../img/logo.svg" alt="AnchorLauncher Logo" class="nav-logo">
+                        </a>
+                        AnchorLauncher
+                    </div>
+                </li>
+                <li><img id="menu-img" class="menu-img" src="../img/menu-dots-circle.svg" alt="menu-img"></li>
+            </ul>
+        </nav>
+        <div class="menu-cont" id="menu-cont">
+            <ul>
+                <li><a href="about.html">About the app</a></li>
+                <li><a href="download.html">Download</a></li>
+                <li><a href="contact.html">Contact</a></li>
+            </ul>
+        </div>
+    </header>
+    <div class="content">
+        <h2>Download our launcher from this website on PC!</h2>
+        <p>To download AnchorLauncher, simply visit our website on your PC and click on the "Download" button. This will allow you to easily access and install our game launcher on your computer, giving you a seamless gaming experience.</p>
+    </div>
+    <footer>
+        <p>&copy; AnchorLauncher team - 2026</p>
+        <a href="../tos.html">terms & conditions</a>
+    </footer>
+</body>
+</html>

@@ -45,12 +45,17 @@ server.on('listening', async () => {
   } catch (err) {
     console.error('Error creating database tables on startup:', err);
   }
+<<<<<<< HEAD
   await apiFunctions.fetchInitialShopSpecialsData();
   setInterval(() => {
     apiFunctions.fetchInitialShopSpecialsData().catch((err) => {
       console.error('Error refreshing shop specials data:', err);
     });
   }, 24 * 60 * 60 * 1000); // Refresh shop specials data every day
+=======
+  //await apiFunctions.fetchInitialShopSpecialsData();
+  //setInterval(apiFunctions.fetchInitialShopSpecialsData, 24 * 60 * 60 * 1000); // Refresh shop specials data every day
+>>>>>>> develop
 });
 //#endregion
 
@@ -99,92 +104,23 @@ app.get('/steam/api/get-owned-games', tokenValidate(), apiFunctions.GETOwnedGame
 app.get("/api/games/gamecount", apiFunctions.GETGameCount); //new path v2.3
 
 app.get("/api/games/:id", apiFunctions.GETGameById);
-/*
-  route: /api/games/app/:appId/all
-  params: games.app_id (platform-specific id, e.g. Steam appid)
-  headers: -
-  body: -
 
-  returns:
-    Same shape as /api/games/:id/all.
-*/
 app.get("/api/games/platforms/:platformId/app-id/:appId/details", apiFunctions.GETGamesByPlatformIdWithAllData); //old path: /api/games/platform/:appId/all
-/*
-  route: /api/games/:id
-  params: games.id
-  headers: -
-  body: -
 
-  returns: 
-    {
-      games.id,
-      games.app_id,
-      games.platform_id,
-      games.name,
-      games.banner_img,
-      games.description,
-      games.minimum_requirements,
-      games.cost
-    }
-*/
 app.get("/api/games/:id/details", apiFunctions.GETGameByIdWithAllData); //old path: /api/games/:id/all
 
 app.get("/api/games/platform/:platformId/list/:from/details", apiFunctions.GETGamesInListByPlatformId); //old path: /api/games/list/:platformId/all/:from
 
 app.get("/api/games/list/:from", apiFunctions.GETGamesInList);
 
+app.get("/api/search", apiFunctions.GETSearch);
 
-app.get("/api/search/:needle", apiFunctions.GETSearch);
-/*
-  route: /api/nativeUser/
-  params: -
-  headers: auth token
-  body: -
-
-  returns: 
-    {
-      native_user.id,
-      native_user.token,
-      native_user.user_password,
-      native_user.email,
-      native_user.bio,
-      native_user.pfp
-    }
-*/
 app.get("/api/native-users/:userId", apiFunctions.GETNativeUserById); //old path: /api/nativeUser
 
 app.get("/api/native-users/name/:name", apiFunctions.GETNativeUserByName); //totally new path
-/*
-  params: native_users.id
-  headers: -
-  body: -
 
-  returns: 
-    {
-      {friends.id, native_user.id}
-      {friends.id, native_user.id}
-      .
-      .
-      .
-    }
-*/
 app.get("/api/friends/:nativeUserId", apiFunctions.GETFriendsOfNativeUser);
-/*
-  route: /api/chat/:friendsId
-  params: friends.id
-  headers: -
-  body: from (int, the number where we want to see the messages from)
 
-  returns: 
-    {
-      [0] {chats.id, chats.friends_id, chats.message, chats.sender_id},
-      [1] {chats.id, chats.friends_id, chats.message, chats.sender_id},
-      .
-      .
-      .
-      [9] {chats.id, chats.friends_id, chats.message, chats.sender_id},
-    }
-*/
 app.get("/api/messages/:friendsId", apiFunctions.GETChatlogByFriendId); //old path: /api/chat/:friendsId TEST NEEDED!
 
 app.get("/api/platforms", apiFunctions.GETPlatforms); //new path v2.3
@@ -199,55 +135,14 @@ app.get("/api/shop-specials/:filter/list/:from", apiFunctions.GETShopSpecialsFil
 
 // -------------------     POST      ------------------ //
 
-/*
-  route: /api/signup/
-  params: -
-  headers: -
-  body: username, password, email
-
-  returns: 
-    {
-      {
-        native_user.id,
-        native_user.token,
-        native_user.user_password,
-        native_user.email,
-        native_user.bio,
-        native_user.pfp
-      }
-      {
-        user auth token (user.id + user.token)
-      }
-    }
-*/
 app.post('/api/native-users', apiFunctions.POSTNewNativeUser); //old path: /api/signup
-/*
-  route: /api/games/
-  params: -
-  headers: auth token
-  body: app_id, platform_id || platfrom_name, name, banner_img, description, minimum_requirements, cost, genre_names[]
 
-  returns: 
-    {
-      message: 'Game uploaded successfully', gameId: uploadedGame.id
-    }
-*/
 app.post("/api/games", tokenValidate(), apiFunctions.POSTNewGame);
 
 app.post("/api/prices", tokenValidate(), apiFunctions.POSTNewPrice);
 
 app.post("/api/pirate-sites/:gameId", tokenValidate(), apiFunctions.POSTNewPirateSiteConnectionByGameId); //old path: /api/pirate_sites/:gameId - PUT! - no tokenValidate()
-/*
-  route: /api/friends/
-  params: -
-  headers: auth token
-  body: friendUserid (native_user.id)
 
-  returns: 
-    {
-      message: "frinedship created", id: result.id
-    }
-*/
 app.post("/api/friends", tokenValidate(), apiFunctions.POSTNewFriends);
 
 app.post("/api/platforms", tokenValidate(), apiFunctions.POSTNewPlatform);
@@ -261,6 +156,7 @@ app.post("/api/shop-specials/:gameId", tokenValidate(), apiFunctions.POSTNewShop
 // -------------------      PUT       ------------------ //
 
 app.put("/api/native-users", tokenValidate(), apiFunctions.PUTNativeUserProfileInfo); // totally new path
+<<<<<<< HEAD
 /*
   route: /api/login/
   params: -
@@ -284,18 +180,11 @@ app.put("/api/login", apiFunctions.PUTNativeUserLogin);
   params: game id
   headers: -
   body: app_id, platform_id, name, banner_img, description || null, minimum_requirements || null
+=======
 
-  returns: 
-    {
-      game.id,
-      game.app_id,
-      game.platform_id,
-      game.name,
-      game.banner_img,
-      game.description,
-      game.minimum_requirements
-    }
-*/
+app.put("/api/login", tokenValidate(), apiFunctions.PUTNativeUserLogin);
+>>>>>>> develop
+
 app.put("/api/games/:gameId", tokenValidate(), apiFunctions.PUTGames); //old path: /api/games/:id no tokenValidate()
 
 app.put("/api/shop-specials/:gameId", tokenValidate(), apiFunctions.PUTShopSpecialsByGameId); //old path: /api/shop_specials/:gameId - no tokenValidate()
@@ -304,17 +193,6 @@ app.put("/api/pirate-sites/:siteId/game/:gameId", tokenValidate(), apiFunctions.
 
 // -------------------     DELETE     ------------------ //
 
-/*
-  route: /api/nativeUser/:friendShipId
-  params: friends.id
-  headers: auth token
-  body: -
-
-  returns: 
-    {
-      message
-    }
-*/
 app.delete("/api/friends/:friendShipId", tokenValidate(), apiFunctions.DELETEFriends);
 
 app.delete("/api/platform-users/:platfromUserId", tokenValidate(), apiFunctions.DELETEPlatformUser); //old path: /api/platform_user/:platfromUserId

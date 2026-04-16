@@ -370,6 +370,46 @@ class GamesController extends Controller {
         return games;
     }
 
+    async searchByTags (tags) {
+        await this.ready;
+
+        try {
+            let game_ids = new Set();
+            let full_tags = Array.isArray(tags) ? tags : [];
+            if (tags.length > 0) { 
+                for (const tag of full_tags) {
+                    const query = `SELECT games.id FROM games 
+                                        JOIN games_genres_connections AS ggc ON games.id = ggc.game_id
+                                        JOIN genres ON genres.id = ggc.genre_id
+                                        WHERE genres.genre LIKE "${tag}";`
+                    const rows = await this.dbConnection.execute(query, []);
+                    console.log(`Found ${rows.length} games for tag ${tag}, ${rows}`);
+                    for (const row of rows[0]) {     
+                        if (row && row.id != null) {
+                            game_ids.add(row.id);
+                        }
+                    }
+                }
+            }
+            game_ids = Array.from(game_ids);
+
+            let games = [];
+            for (const game_id of game_ids) {
+                const game = await this.getWithAllForeign(game_id);
+                if (game) {
+                    games.push(game);
+                } else {
+                    console.warn(`Game with id ${game_id} not found in table ${this.tableName}`);
+                }
+            }
+
+            return games;
+        } catch (err) {
+            console.error(`Error while fetching game ids by tag from table ${this.tableName}: ${err}`);
+            throw err;
+        }
+    }
+
     async getAllGamesByPlatformFrom(countyCode, platform_id, from) {
         await this.ready;
 

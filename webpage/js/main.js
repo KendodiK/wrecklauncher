@@ -2,6 +2,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     const sitesUl = document.getElementById("sites-ul");
     const pirateUl = document.getElementById("pirate-ul");
 
+    if (CSS.supports("animation-timeline: scroll()")) {
+        document.body.classList.add("scroll-animation");
+    } else {
+        document.body.classList.add("no-scroll-animation");
+    }
+
     const fallbackSites = ["Steam", "itch.io", "gogo.com"];
     const fallbackPirateSites = ["PC games", "Fit-girl repack"];
     const url = "https://api.anchorlauncher.hu/api";

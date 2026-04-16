@@ -1,0 +1,46 @@
+html {
+    background-image: url("../img/bg_simple.svg");
+    background-attachment: scroll;
+    background-size: cover;
+    background-position: 50% -10vh;
+    background-size: 100vw;
+}
+
+body {   
+    height: fit-content;
+}
+
+nav ul li button {
+    color: #222042;
+    background-color: var(--text-color);
+    padding: 1vh 2vw;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+}
+
+.nav-logo {
+    width: 2vw;
+    height: auto;
+    margin-right: 1vw;
+}
+
+a {
+    color: var(--text-color);
+}
+
+a:hover {
+    color: #919191;
+}
+
+
+.content {
+    height: 100vh;
+    background-color: rgba(46, 46, 46, 0.568);
+    width: 80%;
+    padding: 1rem 1rem;
+    margin-top: 8vh;
+    margin-left: auto;
+    margin-right: auto;
+    text-align: justify;
+}

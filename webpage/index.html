@@ -1,9 +1,18 @@
+<script>
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+    || window.innerWidth <= 768;
+
+    if (isMobile) {
+        window.location.href = "mobile/main.html";
+    }
+</script>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AnchorLauncher</title>
+    <link rel="stylesheet" href="css/basic.css">
     <link rel="stylesheet" href="css/style.css">
     <link rel="icon" href="img/logo.svg" type="image/svg+xml">
     <script src="js/main.js"></script>
@@ -13,7 +22,9 @@
         <ul>
             <li>
                 <div class="nav-wrapper">
+                    <a href="index.html">
                     <img src="img/logo.svg" alt="AnchorLauncher Logo" class="nav-logo">
+                    </a>
                     AnchorLauncher
                 </div>
             </li>
@@ -49,7 +60,7 @@
     </div>
 </body>
 <footer>
-    <p>&copy; AnchorLauncher team</p>
-    <a href="termsConditions.html">terms & conditions</a>
+    <p>&copy; AnchorLauncher team - 2026</p>
+    <a href="tos.html">terms & conditions</a>
 </footer>
 </html>

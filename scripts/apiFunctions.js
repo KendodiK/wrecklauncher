@@ -357,12 +357,28 @@ module.exports.GETGamesInList = async function (req, res) {
 
 module.exports.GETSearch = async function (req, res) {
     try {
-        const { needle } = req.params;
+        const { needle } = req.body;
+        /**
+         * @type {Array<string>}
+         */
+        let { tags } = req.body;
         const gameCtrl = new GamesController();
-        const result = await gameCtrl.search(needle);
-        if (result instanceof Error) {
-            return res.status(400).json({ error: result.error });
+        let resultNeedle = [];
+        if (needle || needle.trim() !== "") {
+            resultNeedle = await gameCtrl.search(needle, tags);
         }
+        let resultTags = [];
+        if (Array.isArray(tags) && tags.length > 0) {
+            resultTags = await gameCtrl.searchByTags(tags);
+        }
+        if (resultTags instanceof Error) {
+            console.error('Error searching by tags:', gatsResult);
+            return res.status(400).json({ error: `Error searching by tags: ${gatsResult.error}` });
+        }
+        if (resultNeedle instanceof Error) {
+            return res.status(400).json({ error: `Error searching by needle: ${resultNeedle.error}` });
+        }
+        const result = [...new Set([...resultNeedle, ...resultTags])];
         return res.json(result);
     } catch (err) {
         return res.status(500).json({ error: err.message });
