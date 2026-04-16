@@ -45,8 +45,8 @@ server.on('listening', async () => {
   } catch (err) {
     console.error('Error creating database tables on startup:', err);
   }
-  await apiFunctions.fetchInitialShopSpecialsData();
-  setInterval(apiFunctions.fetchInitialShopSpecialsData, 24 * 60 * 60 * 1000); // Refresh shop specials data every day
+  //await apiFunctions.fetchInitialShopSpecialsData();
+  //setInterval(apiFunctions.fetchInitialShopSpecialsData, 24 * 60 * 60 * 1000); // Refresh shop specials data every day
 });
 //#endregion
 
@@ -104,7 +104,7 @@ app.get("/api/games/platform/:platformId/list/:from/details", apiFunctions.GETGa
 
 app.get("/api/games/list/:from", apiFunctions.GETGamesInList);
 
-app.get("/api/search/:needle", apiFunctions.GETSearch);
+app.get("/api/search", apiFunctions.GETSearch);
 
 app.get("/api/native-users/:userId", apiFunctions.GETNativeUserById); //old path: /api/nativeUser
 
