@@ -91,6 +91,7 @@ const SettingsPage = () => {
 	const [steamForm, setSteamForm] = useState({ username: '', profileLink: '' });
 	const [gogUsername, setGogUsername] = useState('');
 	const [itchUsername, setItchUsername] = useState('');
+	const [gogOAuthStatus, setGogOAuthStatus] = useState({ isLoggedIn: false, hasToken: false });
 	const [itchOAuthStatus, setItchOAuthStatus] = useState({ isLoggedIn: false, hasToken: false });
 	const [profileForm, setProfileForm] = useState({ bio: '', avatarUrl: '' });
 	const [message, setMessage] = useState({ type: '', text: '' });
@@ -117,6 +118,17 @@ const SettingsPage = () => {
 				avatarUrl: normalized?.account?.profile?.avatarUrl || '',
 			});
 			try {
+				if (typeof window.electronAPI.getGogOAuthStatus === 'function') {
+					const oauthStatus = await window.electronAPI.getGogOAuthStatus();
+					setGogOAuthStatus({
+						isLoggedIn: Boolean(oauthStatus?.isLoggedIn),
+						hasToken: Boolean(oauthStatus?.hasToken),
+					});
+				}
+			} catch {
+				setGogOAuthStatus({ isLoggedIn: false, hasToken: false });
+			}
+			try {
 				if (typeof window.electronAPI.getItchOAuthStatus === 'function') {
 					const oauthStatus = await window.electronAPI.getItchOAuthStatus();
 					setItchOAuthStatus({
@@ -141,6 +153,8 @@ const SettingsPage = () => {
 				bio: fallbackSettings.account.profile.bio,
 				avatarUrl: fallbackSettings.account.profile.avatarUrl,
 			});
+			setGogOAuthStatus({ isLoggedIn: false, hasToken: false });
+			setItchOAuthStatus({ isLoggedIn: false, hasToken: false });
 			setMessage({ type: 'error', text: 'Settings endpoint unavailable, using defaults' });
 		} finally {
 			setLoading(false);
@@ -332,6 +346,10 @@ const SettingsPage = () => {
 		if (gogSettings?.connected) {
 			try {
 				setGogBusy(true);
+				if (typeof window.electronAPI.logoutGogOAuth === 'function') {
+					await window.electronAPI.logoutGogOAuth();
+				}
+				setGogOAuthStatus({ isLoggedIn: false, hasToken: false });
 				await persistPlatformConnection('gog', false, '');
 				setMessage({ type: 'success', text: 'GOG disconnected' });
 			} catch (error) {
@@ -343,19 +361,67 @@ const SettingsPage = () => {
 			return;
 		}
 
-		const username = gogUsername.trim();
-		if (!username) {
-			setMessage({ type: 'error', text: 'GOG username is required' });
-			return;
-		}
+		let username = gogUsername.trim();
+		let uploadResult = null;
 
 		try {
 			setGogBusy(true);
+
+			if (typeof window.electronAPI.loginGogOAuthAndUpload === 'function') {
+				try {
+					uploadResult = await window.electronAPI.loginGogOAuthAndUpload();
+				} catch (error) {
+					if (!isMissingSettingsHandlerError(error, 'gog:oauth-login-and-upload')) {
+						throw error;
+					}
+					if (typeof window.electronAPI.loginGogOAuth === 'function') {
+						await window.electronAPI.loginGogOAuth();
+					}
+				}
+			} else if (typeof window.electronAPI.loginGogOAuth === 'function') {
+				await window.electronAPI.loginGogOAuth();
+			}
+
+			if (typeof window.electronAPI.getGogOAuthStatus === 'function') {
+				const status = await window.electronAPI.getGogOAuthStatus();
+				setGogOAuthStatus({
+					isLoggedIn: Boolean(status?.isLoggedIn),
+					hasToken: Boolean(status?.hasToken),
+				});
+			}
+
+			const uploadedUsername = String(uploadResult?.profile?.username || uploadResult?.profile?.display_name || '').trim();
+			if (uploadedUsername) {
+				username = uploadedUsername;
+				setGogUsername(uploadedUsername);
+			}
+
+			if (typeof window.electronAPI.getGogProfile === 'function') {
+				const profile = await window.electronAPI.getGogProfile();
+				const profileUsername = String(profile?.username || '').trim();
+				if (profileUsername) {
+					username = profileUsername;
+					setGogUsername(profileUsername);
+				}
+			}
+
+			if (!username) {
+				throw new Error('GOG username is required');
+			}
+
 			await persistPlatformConnection('gog', true, username);
-			setMessage({ type: 'success', text: 'GOG connected successfully' });
+			setMessage({
+				type: 'success',
+				text: uploadResult?.created === false
+					? 'GOG connected (already linked in DB)'
+					: 'GOG connected successfully',
+			});
 		} catch (error) {
 			console.error('Failed to connect GOG:', error);
-			setMessage({ type: 'error', text: 'Failed to connect GOG' });
+			setMessage({
+				type: 'error',
+				text: error instanceof Error ? error.message : 'Failed to connect GOG',
+			});
 		} finally {
 			setGogBusy(false);
 		}
@@ -807,7 +873,7 @@ const SettingsPage = () => {
 							<div className="flex items-start justify-between gap-4 mb-4">
 								<div>
 									<p className="text-sm font-medium">GOG account</p>
-									<p className="text-xs text-slate-400 mt-1">Connect your GOG username for account tracking.</p>
+									<p className="text-xs text-slate-400 mt-1">Uses GOG OAuth and stores the linked username in account settings.</p>
 								</div>
 								<span className={`text-xs px-2 py-1 rounded-full ${
 									gogSettings.connected ? 'bg-green-900/40 text-green-300 border border-green-700/60' : 'bg-slate-700 text-slate-300 border border-slate-600'
@@ -841,6 +907,11 @@ const SettingsPage = () => {
 									{gogBusy ? 'Working...' : gogSettings.connected ? 'Disconnect GOG' : 'Connect GOG'}
 								</button>
 							</div>
+
+							<p className="mt-3 text-xs text-slate-400">
+								OAuth status: {gogOAuthStatus.isLoggedIn ? 'logged in' : 'not logged in'}
+								{gogOAuthStatus.hasToken ? ' (token available)' : ''}
+							</p>
 						</div>
 
 						<div className="rounded-lg border border-slate-600 bg-slate-900/30 p-4">

@@ -131,7 +131,7 @@ app.get("/api/games/platform/:platformId/list/:from/details", apiFunctions.GETGa
 
 app.get("/api/games/list/:from", apiFunctions.GETGamesInList);
 
-app.get("/api/search/:needle", apiFunctions.GETSearch);
+app.get("/api/search", apiFunctions.GETSearch);
 /*
   route: /api/nativeUser/
   params: -

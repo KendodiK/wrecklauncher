@@ -4,6 +4,7 @@ const path = require('path');
 
 const isDev = process.env.NODE_ENV === 'development';
 const ITCH_OAUTH_CLIENT_ID = 'e0ee61cc2f4a3ad1a984914d3d833341';
+const GOG_OAUTH_CLIENT_ID = '46899977096215655';
 
 let mainWindow;
 
@@ -786,8 +787,9 @@ handle('steam:get-installed-games', async () => {
     // Use provided clientId or fall back to hardcoded default.
     const id = String(clientId || ITCH_OAUTH_CLIENT_ID || '').trim();
     if (!id) throw new Error('itch.io OAuth client ID is required. Provide it as argument or set ITCH_OAUTH_CLIENT_ID in main.js.');
-    console.log(await getItchCtrl().login(id));
-    return await getItchCtrl().login(id);
+    const loginResult = await getItchCtrl().login(id);
+    console.log(loginResult);
+    return loginResult;
   });
 
   // Runs itch OAuth and persists the linked account in platform_users for the authed Wreck user.
@@ -1004,6 +1006,176 @@ handle('steam:get-installed-games', async () => {
 
   handle('gog:get-installed-games', async () => {
     return await getGogCtrl().getInstalledGames();
+  });
+
+  handle('gog:get-client-id', async () => {
+    return GOG_OAUTH_CLIENT_ID;
+  });
+
+  handle('gog:get-library', async () => {
+    return await getGogCtrl().getLibraryWithUserToken();
+  });
+
+  handle('gog:oauth-login', async (_event, clientId) => {
+    const id = String(clientId || GOG_OAUTH_CLIENT_ID || '').trim();
+    if (!id) {
+      throw new Error('GOG OAuth client ID is required. Provide it as argument or set GOG_OAUTH_CLIENT_ID in main.js.');
+    }
+    const loginResult = await getGogCtrl().login(id);
+    console.log(loginResult);
+    return loginResult;
+  });
+
+  handleAuthed('gog:oauth-login-and-upload', async ({ token }, clientId) => {
+    const id = String(clientId || GOG_OAUTH_CLIENT_ID || '').trim();
+    if (!id) {
+      throw new Error('GOG OAuth client ID is required. Provide it as argument or set GOG_OAUTH_CLIENT_ID in main.js.');
+    }
+
+    const ctrl = getGogCtrl();
+    let profile = null;
+    let loginResult = null;
+
+    if (ctrl.isLoggedIn()) {
+      try {
+        profile = await ctrl.getProfile();
+      } catch {
+        profile = null;
+      }
+    }
+
+    if (!profile) {
+      loginResult = await ctrl.login(id);
+      if (!loginResult || loginResult.success !== true) {
+        const message = String(loginResult?.error || 'GOG OAuth login was cancelled').trim();
+        throw new Error(message || 'GOG OAuth login was cancelled');
+      }
+
+      profile = await ctrl.getProfile().catch(() => null);
+      const loginUserId = loginResult?.user?.id ?? null;
+      const loginUsername = String(loginResult?.user?.username ?? '').trim();
+      if (!profile && ((loginUserId !== null && loginUserId !== undefined) || !!loginUsername)) {
+        profile = {
+          id: loginUserId,
+          username: loginUsername || null,
+          display_name: loginUsername || null,
+          url: null,
+          cover_url: null,
+        };
+      }
+    }
+
+    const oauthToken = String(ctrl.getAccessToken() || '').trim();
+    const tokenPrefix = oauthToken.replace(/[^a-zA-Z0-9]/g, '').slice(0, 12);
+    const generatedUsername = tokenPrefix ? `gog_${tokenPrefix}` : 'gog_oauth_user';
+
+    const profileUsername = String(
+      profile?.username ??
+      profile?.display_name ??
+      loginResult?.user?.username ??
+      generatedUsername
+    ).trim() || generatedUsername;
+
+    const profileId = String(
+      profile?.id ??
+      profile?.user_id ??
+      loginResult?.user?.id ??
+      profileUsername
+    ).trim() || profileUsername;
+
+    const resolvedProfile = {
+      id: profileId,
+      username: profileUsername,
+      display_name: String(profile?.display_name ?? profileUsername).trim() || profileUsername,
+      url: typeof profile?.url === 'string' ? profile.url : null,
+      cover_url: typeof profile?.cover_url === 'string' ? profile.cover_url : null,
+    };
+
+    if (!oauthToken) {
+      throw new Error('GOG OAuth token is missing after login');
+    }
+
+    const platform = await getPlatformsCtrl().getPlatform('gog');
+    const platformId = Number(platform?.id ?? platform?.platform_id);
+    if (!Number.isFinite(platformId) || platformId <= 0) {
+      throw new Error('Failed to resolve gog platform ID');
+    }
+
+    const platformUsers = await getPlatformsCtrl().getAllPlatformUserIds(token).catch(() => []);
+    const existing = Array.isArray(platformUsers)
+      ? platformUsers.find((row) => {
+          const rowOauthToken = String(row?.oauth_token ?? row?.oauthToken ?? '').trim();
+        if (rowOauthToken && rowOauthToken === oauthToken) return true;
+
+          const rowPlatformId = Number(row?.platform_id ?? row?.platformId ?? row?.platform?.id);
+          if (!Number.isFinite(rowPlatformId) || rowPlatformId !== platformId) return false;
+
+          const rowProfileId = String(row?.platform_profile_id ?? row?.platform_prof_id ?? row?.platformProfileId ?? '').trim();
+          const rowUsername = String(row?.platform_user_name ?? row?.platformUserName ?? '').trim().toLowerCase();
+
+          if (rowProfileId) return rowProfileId === profileId;
+          return rowUsername && rowUsername === profileUsername.toLowerCase();
+        })
+      : null;
+
+    const existingId = existing?.id ?? existing?.platformUserID ?? existing?.platform_user_id ?? null;
+    const existingOauthToken = String(existing?.oauth_token ?? existing?.oauthToken ?? '').trim();
+
+    if (existing && existingOauthToken === oauthToken) {
+      return {
+        success: true,
+        created: false,
+        platformUserId: existingId,
+        profile: resolvedProfile,
+        oauthToken,
+      };
+    }
+
+    if (existingId !== null && existingId !== undefined) {
+      try {
+        await getPlatformsCtrl().deletePlatformUser(token, String(existingId));
+      } catch {
+        // ignore stale entry cleanup errors and proceed with create
+      }
+    }
+
+    const created = await getPlatformsCtrl().createPlatformUser(
+      token,
+      'gog',
+      profileUsername,
+      oauthToken,
+      profileId,
+    );
+
+    return {
+      success: true,
+      created: true,
+      platformUserId: created?.id ?? created?.platformUserID ?? created?.platform_user_id ?? null,
+      profile: resolvedProfile,
+      oauthToken,
+    };
+  });
+
+  handle('gog:get-oauth-token', async () => {
+    const oauthToken = String(getGogCtrl().getAccessToken() || '').trim();
+    return oauthToken || null;
+  });
+
+  handle('gog:oauth-logout', async () => {
+    getGogCtrl().logout();
+    return { success: true };
+  });
+
+  handle('gog:oauth-status', async () => {
+    const ctrl = getGogCtrl();
+    return {
+      isLoggedIn: ctrl.isLoggedIn(),
+      hasToken: !!ctrl.getAccessToken(),
+    };
+  });
+
+  handle('gog:get-profile', async () => {
+    return await getGogCtrl().getProfile();
   });
 
   // Supports both call styles:

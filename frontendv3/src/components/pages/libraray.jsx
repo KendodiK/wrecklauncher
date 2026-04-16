@@ -89,6 +89,13 @@ function resolveLibraryCoverUrl(coverUrl, title, fallbackLabel = 'Game') {
 	return `https://via.placeholder.com/300x420?text=${encodeURIComponent(label)}`;
 }
 
+function normalizeLibraryTitleForMatch(value) {
+	return String(value || '')
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, ' ')
+		.trim();
+}
+
 function toItchLibraryGame(ownedKey, installedById, normalizedItchId) {
 	if (!normalizedItchId) return null;
 
@@ -175,6 +182,134 @@ function toItchInstalledOnlyLibraryGame(installed, normalizedItchId) {
 	};
 }
 
+function normalizeGogProductId(value) {
+	const raw = String(value ?? '').trim();
+	if (!raw) return null;
+	const numeric = Number(raw);
+	if (Number.isFinite(numeric) && numeric > 0) {
+		return String(Math.trunc(numeric));
+	}
+	return raw.toLowerCase();
+}
+
+function extractGogOwnedProductId(product) {
+	return normalizeGogProductId(product?.product_id ?? product?.id);
+}
+
+function extractGogInstalledProductId(installed) {
+	return normalizeGogProductId(installed?.productId ?? installed?.id);
+}
+
+function resolveGogStoreUrl(value) {
+	const raw = String(value || '').trim();
+	if (!raw) return null;
+	if (/^https?:\/\//i.test(raw)) return raw;
+	if (raw.startsWith('//')) return `https:${raw}`;
+	if (raw.startsWith('/')) return `https://www.gog.com${raw}`;
+	return `https://www.gog.com/${raw.replace(/^\/+/, '')}`;
+}
+
+function resolveGogCoverUrl(value, title) {
+	const raw = String(value || '').trim();
+	if (!raw) return resolveLibraryCoverUrl(null, title, 'GOG');
+
+	let normalized = raw
+		.replace(/%7Bformatter%7D/gi, '{formatter}')
+		.replace(/%7Bext%7D/gi, '{ext}');
+
+	if (/^https?:\/\//i.test(normalized)) {
+		// already absolute
+	} else if (normalized.startsWith('//')) {
+		normalized = `https:${normalized}`;
+	} else if (normalized.startsWith('/')) {
+		normalized = `https://images.gog-statics.com${normalized}`;
+	} else if (/^[a-z0-9.-]+\.[a-z]{2,}(\/|$)/i.test(normalized)) {
+		normalized = `https://${normalized.replace(/^\/+/, '')}`;
+	} else {
+		normalized = `https://images.gog-statics.com/${normalized.replace(/^\/+/, '')}`;
+	}
+
+	normalized = normalized
+		.replace(/\{formatter\}/gi, 'glx_vertical_cover')
+		.replace(/\{ext\}/gi, 'webp');
+
+	return normalized;
+}
+
+function toGogLibraryGame(product, installed, normalizedGogId) {
+	if (!normalizedGogId) return null;
+	const numericAppId = Number(normalizedGogId);
+	const appId = Number.isFinite(numericAppId) && numericAppId > 0 ? numericAppId : null;
+
+	const title =
+		typeof product?.title === 'string' && product.title.trim()
+			? product.title.trim()
+			: typeof installed?.gameName === 'string' && installed.gameName.trim()
+				? installed.gameName.trim()
+				: `gog:${normalizedGogId}`;
+
+	const isInstalled = !!installed;
+	const tags = ['Owned'];
+	if (isInstalled) {
+		tags.push('Installed');
+	} else {
+		tags.push('Ready to install');
+	}
+
+	return {
+		id: `gog:${normalizedGogId}`,
+		appid: appId,
+		title,
+		launcherId: 'gog',
+		installLocation: typeof installed?.installPath === 'string' && installed.installPath.trim() ? installed.installPath.trim() : null,
+		coverUrl: resolveGogCoverUrl(product?.image ?? null, title),
+		heroUrl: resolveGogCoverUrl(product?.image ?? null, title),
+		genres: ['GOG'],
+		tags,
+		cracked: false,
+		installedSize: isInstalled ? 'Installed on this PC' : `Product ID ${normalizedGogId}`,
+		playtime: '0m',
+		playtimeMinutes: 0,
+		progress: isInstalled ? 100 : 0,
+		installed: isInstalled,
+		owned: true,
+		platform_name: 'gog',
+		url: resolveGogStoreUrl(product?.url ?? null),
+	};
+}
+
+function toGogInstalledOnlyLibraryGame(installed, normalizedGogId) {
+	if (!normalizedGogId) return null;
+
+	const numericAppId = Number(normalizedGogId);
+	const appId = Number.isFinite(numericAppId) && numericAppId > 0 ? numericAppId : null;
+	const title =
+		typeof installed?.gameName === 'string' && installed.gameName.trim()
+			? installed.gameName.trim()
+			: `gog:${normalizedGogId}`;
+
+	return {
+		id: `gog:${normalizedGogId}`,
+		appid: appId,
+		title,
+		launcherId: 'gog',
+		installLocation: typeof installed?.installPath === 'string' && installed.installPath.trim() ? installed.installPath.trim() : null,
+		coverUrl: resolveLibraryCoverUrl(null, title, 'GOG'),
+		heroUrl: resolveLibraryCoverUrl(null, title, 'GOG'),
+		genres: ['GOG'],
+		tags: ['Installed', 'Local'],
+		cracked: false,
+		installedSize: 'Installed on this PC',
+		playtime: '0m',
+		playtimeMinutes: 0,
+		progress: 100,
+		installed: true,
+		owned: true,
+		platform_name: 'gog',
+		url: null,
+	};
+}
+
 function getLibraryGameKey(game) {
 	if (!game || typeof game !== 'object') return null;
 	const launcherId = String(game.launcherId || '').trim().toLowerCase();
@@ -235,6 +370,7 @@ const LibraryPage = () => {
 				const settings = await window.electronAPI.getSettings();
 				const steamSettings = settings?.account?.platforms?.steam;
 				const username = typeof steamSettings?.username === 'string' ? steamSettings.username.trim() : '';
+				const gogSettings = settings?.account?.platforms?.gog;
 				const itchSettings = settings?.account?.platforms?.itch;
 
 				/** @type {any[]} */
@@ -332,6 +468,80 @@ const LibraryPage = () => {
 					}
 				}
 
+				if (gogSettings?.connected) {
+					try {
+						const installedGogGamesPromise =
+							typeof window.electronAPI.getGogInstalledGames === 'function'
+								? window.electronAPI.getGogInstalledGames()
+								: window.electronAPI.invoke('gog:get-installed-games');
+
+						const gogLibraryPromise =
+							typeof window.electronAPI.getGogLibrary === 'function'
+								? window.electronAPI.getGogLibrary()
+								: window.electronAPI.invoke('gog:get-library');
+
+						const [gogLibraryPayload, installedGogGames] = await Promise.all([
+							gogLibraryPromise.catch((error) => {
+								console.warn('Failed to load GOG owned library:', error);
+								return null;
+							}),
+							installedGogGamesPromise.catch((error) => {
+								console.warn('Failed to load installed GOG games:', error);
+								return [];
+							}),
+						]);
+
+						const installedList = Array.isArray(installedGogGames) ? installedGogGames : [];
+						const installedById = new Map();
+						const installedByTitle = new Map();
+						for (const installed of installedList) {
+							const id = extractGogInstalledProductId(installed);
+							if (id && !installedById.has(id)) {
+								installedById.set(id, installed);
+							}
+
+							const normalizedTitle = normalizeLibraryTitleForMatch(installed?.gameName);
+							if (normalizedTitle && !installedByTitle.has(normalizedTitle)) {
+								installedByTitle.set(normalizedTitle, installed);
+							}
+						}
+
+						const ownedProducts = Array.isArray(gogLibraryPayload?.products) ? gogLibraryPayload.products : [];
+						const ownedMapped = [];
+						const usedInstalledIds = new Set();
+
+						for (const product of ownedProducts) {
+							const id = extractGogOwnedProductId(product);
+							const normalizedTitle = normalizeLibraryTitleForMatch(product?.title);
+							const installedMatch =
+								(id ? installedById.get(id) : null)
+								|| (normalizedTitle ? installedByTitle.get(normalizedTitle) : null)
+								|| null;
+							const mapped = toGogLibraryGame(product, installedMatch, id);
+							if (!mapped) continue;
+							ownedMapped.push(mapped);
+
+							const matchedInstalledId = extractGogInstalledProductId(installedMatch);
+							if (matchedInstalledId) usedInstalledIds.add(matchedInstalledId);
+							if (id) usedInstalledIds.add(id);
+						}
+
+						const installedOnlyMapped = [];
+						for (const installed of installedList) {
+							const id = extractGogInstalledProductId(installed);
+							if (!id || usedInstalledIds.has(id)) continue;
+							const mapped = toGogInstalledOnlyLibraryGame(installed, id);
+							if (!mapped) continue;
+							installedOnlyMapped.push(mapped);
+						}
+
+						mergedLibraryGames.push(...ownedMapped, ...installedOnlyMapped);
+					} catch (error) {
+						console.error('Failed to load GOG library:', error);
+						loadErrors.push(error instanceof Error ? error.message : 'Failed to load GOG library');
+					}
+				}
+
 				const uniqueGames = dedupeLibraryGames(mergedLibraryGames);
 				const launcherPriority = Array.isArray(launchers) ? launchers.map((launcher) => launcher.id) : [];
 				const firstLauncherWithGames =
@@ -424,24 +634,104 @@ const LibraryPage = () => {
 	const hasActiveItchGameUrl = /^https?:\/\//i.test(activeItchGameUrl);
 	const hasActiveItchInstallLocation = activeItchInstallLocation.length > 0;
 	const isSteamLauncher = normalizedLauncherId === 'steam';
+	const isGogLauncher = normalizedLauncherId === 'gog' || normalizedLauncherId === 'gog.com';
 	const isItchLauncher = normalizedLauncherId === 'itch' || normalizedLauncherId === 'itchio' || normalizedLauncherId === 'itch.io';
 	const canUseSteamActions = Number.isFinite(activeGameAppId) && activeGameAppId > 0 && isSteamLauncher;
+	const canUseGogActions = Number.isFinite(activeGameAppId) && activeGameAppId > 0 && isGogLauncher;
 	const canUseItchActions = isItchLauncher;
 	const canExecuteItchAction =
 		isItchLauncher
 		&& ((Number.isFinite(activeGameAppId) && activeGameAppId > 0) || hasActiveItchGameUrl || hasActiveItchInstallLocation);
-	const canUsePrimaryAction = canUseSteamActions || canUseItchActions;
+	const canUsePrimaryAction = canUseSteamActions || canUseGogActions || canUseItchActions;
 	const isActiveGameInstalled = activeGame?.installed === true;
 	const primaryAction = isActiveGameInstalled ? 'open' : 'install';
 	const primaryActionLabel = isActiveGameInstalled ? 'OPEN' : 'INSTALL';
 	const primaryActionBusyLabel = isActiveGameInstalled ? 'OPENING' : 'INSTALLING';
 	const primaryActionUsesDownloadStyle = !isActiveGameInstalled;
 
+	const refreshGogInstalledState = async ({ targetProductId = null, attempts = 1, intervalMs = 0 } = {}) => {
+		const normalizedTargetProductId = normalizeGogProductId(targetProductId);
+
+		for (let attempt = 0; attempt < attempts; attempt += 1) {
+			try {
+				const installedPayload =
+					typeof window.electronAPI.getGogInstalledGames === 'function'
+						? await window.electronAPI.getGogInstalledGames()
+						: await window.electronAPI.invoke('gog:get-installed-games');
+
+				const installedList = Array.isArray(installedPayload) ? installedPayload : [];
+				const installedIds = new Set(
+					installedList
+						.map((entry) => extractGogInstalledProductId(entry))
+						.filter((id) => !!id),
+				);
+				const installedTitles = new Set(
+					installedList
+						.map((entry) => normalizeLibraryTitleForMatch(entry?.gameName))
+						.filter((title) => !!title),
+				);
+
+				let targetIsInstalled = false;
+				setLibraryGames((previous) =>
+					previous.map((game) => {
+						const launcher = String(game?.launcherId || game?.platform_name || '').trim().toLowerCase();
+						if (launcher !== 'gog' && launcher !== 'gog.com') return game;
+
+						const normalizedId = normalizeGogProductId(
+							game?.appid ?? String(game?.id || '').replace(/^gog:/i, ''),
+						);
+						const titleKey = normalizeLibraryTitleForMatch(game?.title);
+						const isInstalled = !!(
+							(normalizedId && installedIds.has(normalizedId))
+							|| (titleKey && installedTitles.has(titleKey))
+						);
+
+						if (normalizedTargetProductId && normalizedId === normalizedTargetProductId && isInstalled) {
+							targetIsInstalled = true;
+						}
+
+						if ((game?.installed === true) === isInstalled) return game;
+
+						const baseTags = Array.isArray(game?.tags)
+							? game.tags.filter((tag) => {
+								const normalizedTag = String(tag || '').trim().toLowerCase();
+								return normalizedTag !== 'installed' && normalizedTag !== 'ready to install';
+							})
+							: [];
+
+						return {
+							...game,
+							installed: isInstalled,
+							progress: isInstalled ? 100 : 0,
+							installedSize: isInstalled
+								? 'Installed on this PC'
+								: (normalizedId ? `Product ID ${normalizedId}` : game?.installedSize),
+							tags: [...baseTags, isInstalled ? 'Installed' : 'Ready to install'],
+						};
+					}),
+				);
+
+				if (!normalizedTargetProductId || targetIsInstalled) {
+					return targetIsInstalled;
+				}
+			} catch (error) {
+				console.warn('Failed to refresh GOG installed state:', error);
+				return false;
+			}
+
+			if (attempt + 1 < attempts && intervalMs > 0) {
+				await new Promise((resolve) => setTimeout(resolve, intervalMs));
+			}
+		}
+
+		return false;
+	};
+
 	const handleLibraryAction = async (action) => {
 		if (!canUsePrimaryAction) {
 			setActionState({
 				busyAction: '',
-				text: 'Open/Install actions are available for Steam and Itch library items.',
+				text: 'Open/Install actions are available for Steam, GOG, and Itch library items.',
 				type: 'error',
 			});
 			return;
@@ -453,6 +743,9 @@ const LibraryPage = () => {
 					if (canUseSteamActions) {
 						return window.electronAPI.runSteamGame(activeGameAppId);
 					}
+					if (canUseGogActions) {
+						return window.electronAPI.runGogGame(activeGameAppId);
+					}
 					if (canExecuteItchAction) {
 						return window.electronAPI.runItchGame(
 							Number.isFinite(activeGameAppId) && activeGameAppId > 0 ? activeGameAppId : null,
@@ -462,12 +755,15 @@ const LibraryPage = () => {
 					}
 					throw new Error('This itch game has no valid game ID or URL for opening.');
 				},
-				success: `${activeGame?.title || 'Game'} launched via ${canUseSteamActions ? 'Steam' : 'Itch.io'}.`,
+				success: `${activeGame?.title || 'Game'} launched via ${canUseSteamActions ? 'Steam' : (canUseGogActions ? 'GOG Galaxy' : 'Itch.io')}.`,
 			},
 			install: {
 				fn: () => {
 					if (canUseSteamActions) {
 						return window.electronAPI.installSteamGame(activeGameAppId);
+					}
+					if (canUseGogActions) {
+						return window.electronAPI.installGogGame(activeGameAppId);
 					}
 					if (canExecuteItchAction) {
 						return window.electronAPI.installItchGame(
@@ -477,7 +773,7 @@ const LibraryPage = () => {
 					}
 					throw new Error('This itch game has no valid game ID or URL for install action.');
 				},
-				success: `Opened ${canUseSteamActions ? 'Steam' : 'Itch.io'} install flow for ${activeGame?.title || 'game'}.`,
+				success: `Opened ${canUseSteamActions ? 'Steam' : (canUseGogActions ? 'GOG Galaxy' : 'Itch.io')} install flow for ${activeGame?.title || 'game'}.`,
 			},
 		};
 
@@ -487,6 +783,32 @@ const LibraryPage = () => {
 		try {
 			setActionState({ busyAction: action, text: '', type: '' });
 			await selectedAction.fn();
+
+			if (action === 'install' && canUseGogActions) {
+				setActionState({ busyAction: '', text: selectedAction.success, type: 'success' });
+
+				const targetProductId = normalizeGogProductId(activeGameAppId);
+				void (async () => {
+					const installed = await refreshGogInstalledState({
+						targetProductId,
+						attempts: 30,
+						intervalMs: 4_000,
+					});
+					if (installed) {
+						setActionState({
+							busyAction: '',
+							text: `${activeGame?.title || 'Game'} is installed and ready to launch.`,
+							type: 'success',
+						});
+					}
+				})();
+				return;
+			}
+
+			if (action === 'open' && canUseGogActions) {
+				void refreshGogInstalledState({ attempts: 1 });
+			}
+
 			setActionState({ busyAction: '', text: selectedAction.success, type: 'success' });
 		} catch (error) {
 			console.error(`Failed to ${action} library game:`, error);
@@ -510,7 +832,7 @@ const LibraryPage = () => {
 		} else {
 			const rawPlatform = String(game?.launcherId || game?.platform_name || game?.platform || 'steam').trim().toLowerCase();
 			if (rawPlatform === 'itch' || rawPlatform === 'itch.io' || rawPlatform === 'itchio') routePlatform = 'itchio';
-			else if (rawPlatform === 'gog') routePlatform = 'gog';
+			else if (rawPlatform === 'gog' || rawPlatform === 'gog.com') routePlatform = 'gog';
 			else if (rawPlatform === 'epic games' || rawPlatform === 'epic_games' || rawPlatform === 'epic') routePlatform = 'epic';
 			else routePlatform = rawPlatform || 'steam';
 		}
@@ -559,7 +881,7 @@ const LibraryPage = () => {
 						</svg>
 						<h2 className="text-2xl font-semibold mb-2">No games in your library</h2>
 						<p className="text-slate-400 mb-2">
-							{errorMessage || 'Connect Steam or Itch.io on the settings page to import your games.'}
+							{errorMessage || 'Connect Steam, GOG, or Itch.io on the settings page to import your games.'}
 						</p>
 						<p className="text-slate-500 mb-6">Start by connecting your gaming platforms or browse the store</p>
 						<div className="flex gap-3 justify-center">

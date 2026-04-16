@@ -188,6 +188,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   installItchGame: (gameId, gameUrl) => ipcRenderer.invoke('itch:install-game', gameId, gameUrl),
   // GOG
   getGogInstalledGames: () => ipcRenderer.invoke('gog:get-installed-games'),
+  getGogLibrary: () => ipcRenderer.invoke('gog:get-library'),
+  getGogClientId: () => ipcRenderer.invoke('gog:get-client-id'),
+  loginGogOAuth: (clientId) => ipcRenderer.invoke('gog:oauth-login', clientId),
+  loginGogOAuthAndUpload: (clientId) => invokeAuthed('gog:oauth-login-and-upload', clientId),
+  getGogOAuthToken: () => ipcRenderer.invoke('gog:get-oauth-token'),
+  logoutGogOAuth: () => ipcRenderer.invoke('gog:oauth-logout'),
+  getGogOAuthStatus: () => ipcRenderer.invoke('gog:oauth-status'),
+  getGogProfile: () => ipcRenderer.invoke('gog:get-profile'),
   getGogGameDetails: (productId) => {
     return invokeAuthed('gog:get-game-details', productId);
   },

@@ -13,19 +13,19 @@ class PlatformUsersTableMaker extends DatabaseHandler {
 
     async create() {
         await this.ready;
-        const query = `
+        const createTableQuery = `
             CREATE TABLE IF NOT EXISTS platform_users(
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 native_user_id UUID NOT NULL, INDEX(native_user_id),
                 platform_user_name VARCHAR(64) NOT NULL,
                 platform_id SMALLINT NOT NULL, INDEX(platform_id),
                 platform_profile_id VARCHAR(17) NOT NULL,
-                oauth_token VARCHAR(64),
+                oauth_token VARCHAR(2048) NULL,
                 UNIQUE KEY uq_user_platform_profile (native_user_id, platform_id, platform_profile_id)
             );
         `;
         try {
-            await this.dbConnection.execute(query);
+            await this.dbConnection.execute(createTableQuery);
             console.log("'Platform users' table created or already exists.");
         } catch (err) {
             console.error("Error creating platform users table:", err);
