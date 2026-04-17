@@ -1,21 +1,45 @@
-import React from 'react';
+import React, { useCallback, useMemo } from 'react';
 import GameSliderBase from '../shared/GameSliderBase.jsx';
 
 // Library game strip — wrapper around GameSliderBase in translate mode.
 // Renders game cover cards with active card highlight.
 const LibraryGameStrip = ({ games, activeGameId, onSelect, onOpenStore }) => {
-  // Map LibraryGame data to the format GameSliderBase expects
-  const sliderGames = (games ?? []).map((game) => ({
-    id: game.id,
-    image: game.coverUrl,
-    title: game.title,
-    _origGame: game,
-  }));
+  // Map LibraryGame data to the format GameSliderBase expects.
+  // Keep this memoized to avoid rebuilding slider data on every parent render.
+  const sliderGames = useMemo(
+    () =>
+      (games ?? []).map((game) => ({
+        id: game.id,
+        image: game.coverUrl,
+        title: game.title,
+        _origGame: game,
+      })),
+    [games],
+  );
+
+  const handleCurrentCardChange = useCallback(
+    (card) => {
+      if (typeof onSelect !== 'function') return;
+      if (String(activeGameId) === String(card?.id)) return;
+      onSelect(card.id);
+    },
+    [activeGameId, onSelect],
+  );
+
+  const handleCardClick = useCallback(
+    (card) => {
+      if (typeof onSelect !== 'function') return;
+      if (String(activeGameId) === String(card?.id)) return;
+      onSelect(card.id);
+    },
+    [activeGameId, onSelect],
+  );
 
   return (
     <GameSliderBase
       mode="translate"
       games={sliderGames}
+      showFallbackCards={false}
       activeOffsetPx={200}
       cloneCount={Math.min(5, sliderGames.length)}
       ariaLabel="Library game strip"
@@ -26,16 +50,8 @@ const LibraryGameStrip = ({ games, activeGameId, onSelect, onOpenStore }) => {
       classNameCardActive="lib-strip-card-active"
       advanceOnActiveClick
       transitionMs={300}
-      onCurrentCardChange={(card) => {
-        if (typeof onSelect === 'function') {
-          onSelect(card.id);
-        }
-      }}
-      onCardClick={(card) => {
-        if (typeof onSelect === 'function') {
-          onSelect(card.id);
-        }
-      }}
+      onCurrentCardChange={handleCurrentCardChange}
+      onCardClick={handleCardClick}
       renderCard={({ card, index, currentIndex }) => {
         const isActive = index === currentIndex;
         const game = card._origGame;

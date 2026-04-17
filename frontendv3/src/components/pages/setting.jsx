@@ -14,6 +14,7 @@ const DEFAULT_SETTINGS = {
 	},
 	downloads: {
 		path: 'Downloads/WreckLauncher',
+		pirateTorrentsPath: 'Downloads/WreckLauncher/Pirate Torrents',
 		concurrent: 3,
 	},
 	account: {
@@ -94,6 +95,7 @@ const SettingsPage = () => {
 	const [gogOAuthStatus, setGogOAuthStatus] = useState({ isLoggedIn: false, hasToken: false });
 	const [itchOAuthStatus, setItchOAuthStatus] = useState({ isLoggedIn: false, hasToken: false });
 	const [profileForm, setProfileForm] = useState({ bio: '', avatarUrl: '' });
+	const [downloadPathsForm, setDownloadPathsForm] = useState({ path: '', pirateTorrentsPath: '' });
 	const [message, setMessage] = useState({ type: '', text: '' });
 
 	// Load settings on mount
@@ -116,6 +118,10 @@ const SettingsPage = () => {
 			setProfileForm({
 				bio: normalized?.account?.profile?.bio || '',
 				avatarUrl: normalized?.account?.profile?.avatarUrl || '',
+			});
+			setDownloadPathsForm({
+				path: normalized?.downloads?.path || '',
+				pirateTorrentsPath: normalized?.downloads?.pirateTorrentsPath || normalized?.downloads?.path || '',
 			});
 			try {
 				if (typeof window.electronAPI.getGogOAuthStatus === 'function') {
@@ -152,6 +158,10 @@ const SettingsPage = () => {
 			setProfileForm({
 				bio: fallbackSettings.account.profile.bio,
 				avatarUrl: fallbackSettings.account.profile.avatarUrl,
+			});
+			setDownloadPathsForm({
+				path: fallbackSettings.downloads.path,
+				pirateTorrentsPath: fallbackSettings.downloads.pirateTorrentsPath || fallbackSettings.downloads.path,
 			});
 			setGogOAuthStatus({ isLoggedIn: false, hasToken: false });
 			setItchOAuthStatus({ isLoggedIn: false, hasToken: false });
@@ -240,14 +250,48 @@ const SettingsPage = () => {
 		}
 	};
 
-	const handleClearCache = async () => {
+	const persistDownloadPaths = async (nextDownloads) => {
+		const normalizedPath = String(nextDownloads?.path || '').trim();
+		const normalizedPiratePath = String(nextDownloads?.pirateTorrentsPath || '').trim();
+
+		if (!normalizedPath) {
+			throw new Error('Download path is required');
+		}
+
+		if (!normalizedPiratePath) {
+			throw new Error('Pirate torrent download path is required');
+		}
+
+		const updated = await window.electronAPI.updateSettings({
+			downloads: {
+				...(settings?.downloads || {}),
+				path: normalizedPath,
+				pirateTorrentsPath: normalizedPiratePath,
+			},
+		});
+
+		const normalized = normalizeSettings(updated);
+		setSettings(normalized);
+		setDownloadPathsForm({
+			path: normalized?.downloads?.path || normalizedPath,
+			pirateTorrentsPath: normalized?.downloads?.pirateTorrentsPath || normalizedPiratePath,
+		});
+
+		return normalized;
+	};
+
+	const handleSaveDownloadPaths = async () => {
 		try {
 			setSaving(true);
-			await window.electronAPI.clearCache();
-			setMessage({ type: 'success', text: 'Cache cleared' });
+			await persistDownloadPaths(downloadPathsForm);
+			setMessage({ type: 'success', text: 'Download paths saved' });
+			setTimeout(() => setMessage({ type: '', text: '' }), 2000);
 		} catch (error) {
-			console.error('Failed to clear cache:', error);
-			setMessage({ type: 'error', text: 'Failed to clear cache' });
+			console.error('Failed to save download paths:', error);
+			setMessage({
+				type: 'error',
+				text: error instanceof Error ? error.message : 'Failed to save download paths',
+			});
 		} finally {
 			setSaving(false);
 		}
@@ -295,11 +339,114 @@ const SettingsPage = () => {
 		}
 	};
 
+	const resolvePlatformUserIdForDisconnect = async (platformName, preferredUsername = '') => {
+		const normalizedPlatformName = String(platformName || '').trim().toLowerCase();
+		const normalizedPreferredUsername = String(preferredUsername || '').trim().toLowerCase();
+		if (!normalizedPlatformName) return null;
+
+		if (normalizedPreferredUsername && typeof window.electronAPI.getPlatformUserId === 'function') {
+			try {
+				const directId = await window.electronAPI.getPlatformUserId(normalizedPlatformName, normalizedPreferredUsername);
+				const normalizedDirectId = String(directId ?? '').trim();
+				if (normalizedDirectId) return normalizedDirectId;
+			} catch (error) {
+				console.warn(`Direct platform user lookup failed for ${normalizedPlatformName}:`, error);
+			}
+		}
+
+		if (typeof window.electronAPI.getPlatformUsers !== 'function') return null;
+
+		const usersPayload = await window.electronAPI.getPlatformUsers();
+		const users = Array.isArray(usersPayload)
+			? usersPayload
+			: Array.isArray(usersPayload?.items)
+				? usersPayload.items
+				: Array.isArray(usersPayload?.data)
+					? usersPayload.data
+					: [];
+
+		if (!Array.isArray(users) || users.length < 1) return null;
+
+		let resolvedPlatformId = null;
+		if (typeof window.electronAPI.getPlatform === 'function') {
+			try {
+				const platformRow = await window.electronAPI.getPlatform(normalizedPlatformName);
+				const rawPlatformId = platformRow?.id ?? platformRow?.platform_id ?? platformRow?.platformId;
+				const numericPlatformId = Number(rawPlatformId);
+				if (Number.isFinite(numericPlatformId) && numericPlatformId > 0) {
+					resolvedPlatformId = numericPlatformId;
+				} else {
+					const normalizedTextPlatformId = String(rawPlatformId ?? '').trim();
+					resolvedPlatformId = normalizedTextPlatformId || null;
+				}
+			} catch (error) {
+				console.warn(`Failed to resolve platform id for ${normalizedPlatformName}:`, error);
+			}
+		}
+
+		const platformAliases = new Set([normalizedPlatformName]);
+		if (normalizedPlatformName === 'itchio' || normalizedPlatformName === 'itch.io' || normalizedPlatformName === 'itch') {
+			platformAliases.add('itchio');
+			platformAliases.add('itch');
+			platformAliases.add('itch.io');
+		}
+		if (normalizedPlatformName === 'gog' || normalizedPlatformName === 'gog.com') {
+			platformAliases.add('gog');
+			platformAliases.add('gog.com');
+		}
+
+		const matchesPlatform = (row) => {
+			const rawPlatform = row?.platform_id ?? row?.platformId ?? row?.platform ?? row?.platform_name ?? row?.platformName;
+			const platformText = String(rawPlatform ?? '').trim().toLowerCase();
+
+			if (resolvedPlatformId !== null && resolvedPlatformId !== undefined) {
+				const resolvedNumeric = Number(resolvedPlatformId);
+				const rowNumeric = Number(rawPlatform);
+				if (Number.isFinite(resolvedNumeric) && resolvedNumeric > 0 && Number.isFinite(rowNumeric)) {
+					if (rowNumeric === resolvedNumeric) return true;
+				}
+
+				const resolvedText = String(resolvedPlatformId).trim().toLowerCase();
+				if (resolvedText && platformText === resolvedText) return true;
+			}
+
+			return platformAliases.has(platformText);
+		};
+
+		const getRowUsername = (row) => String(row?.platform_user_name ?? row?.platformUserName ?? row?.username ?? '').trim().toLowerCase();
+
+		const candidateRows = users.filter((row) => row && typeof row === 'object' && matchesPlatform(row));
+		if (candidateRows.length < 1) return null;
+
+		const matchingRow = normalizedPreferredUsername
+			? candidateRows.find((row) => getRowUsername(row) === normalizedPreferredUsername)
+			: null;
+		const selected = matchingRow || candidateRows[0];
+
+		const rawId = selected?.id ?? selected?.platformUserID ?? selected?.platform_user_id;
+		const normalizedId = String(rawId ?? '').trim();
+		return normalizedId || null;
+	};
+
+	const disconnectPlatformUser = async (platformName, preferredUsername = '') => {
+		const platformUserId = await resolvePlatformUserIdForDisconnect(platformName, preferredUsername);
+		if (!platformUserId) return false;
+
+		if (typeof window.electronAPI.deletePlatformUser !== 'function') {
+			throw new Error('Platform disconnect endpoint is unavailable');
+		}
+
+		await window.electronAPI.deletePlatformUser(platformUserId);
+		return true;
+	};
+
 	const handleSteamConnection = async () => {
 		const steamSettings = settings?.account?.platforms?.steam;
 		if (steamSettings?.connected) {
 			try {
 				setSteamBusy(true);
+				const steamUsername = String(steamSettings?.username || steamForm.username || '').trim();
+				await disconnectPlatformUser('steam', steamUsername);
 				await persistSteamSettings(false, '', '');
 				setSteamForm({ username: '', profileLink: '' });
 				setMessage({ type: 'success', text: 'Steam disconnected' });
@@ -578,6 +725,9 @@ const SettingsPage = () => {
 	const steamSettings = settings.account.platforms.steam;
 	const gogSettings = settings.account.platforms.gog;
 	const itchSettings = settings.account.platforms.itch;
+	const canSaveDownloadPaths =
+		downloadPathsForm.path.trim().length > 0
+		&& downloadPathsForm.pirateTorrentsPath.trim().length > 0;
 
 	return (
 		<div className="flex-1 px-6 py-4 text-slate-100 overflow-y-auto">
@@ -758,42 +908,38 @@ const SettingsPage = () => {
 					</h2>
 
 					<div className="space-y-4">
-						{/* Download Path */}
-						<div className="flex items-center justify-between">
-							<div className="flex-1 mr-4">
-								<label className="text-sm font-medium">Download path</label>
-								<p className="text-xs text-slate-400 mt-1 break-all">{settings.downloads.path}</p>
-							</div>
-							<button
-								onClick={() => {
-									// TODO: Implement file picker
-									alert('File picker not yet implemented');
-								}}
+						<div>
+							<label className="text-sm font-medium">General download path</label>
+							<input
+								type="text"
+								value={downloadPathsForm.path}
+								onChange={(e) => setDownloadPathsForm((prev) => ({ ...prev, path: e.target.value }))}
 								disabled={saving}
-								className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-							>
-								Browse
-							</button>
+								placeholder="C:\\Downloads\\WreckLauncher"
+								className="mt-2 w-full bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
+							/>
 						</div>
 
-						{/* Concurrent Downloads */}
-						<div className="flex items-center justify-between">
-							<div>
-								<label className="text-sm font-medium">Concurrent downloads</label>
-								<p className="text-xs text-slate-400">Max simultaneous downloads</p>
-							</div>
-							<select
-								value={settings.downloads.concurrent}
-								onChange={(e) => updateSetting('downloads', 'concurrent', parseInt(e.target.value))}
+						<div>
+							<label className="text-sm font-medium">Pirate torrent download path</label>
+							<input
+								type="text"
+								value={downloadPathsForm.pirateTorrentsPath}
+								onChange={(e) => setDownloadPathsForm((prev) => ({ ...prev, pirateTorrentsPath: e.target.value }))}
 								disabled={saving}
-								className="bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
+								placeholder="C:\\Downloads\\WreckLauncher\\Pirate Torrents"
+								className="mt-2 w-full bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
+							/>
+						</div>
+
+						<div className="flex justify-end">
+							<button
+								onClick={handleSaveDownloadPaths}
+								disabled={saving || !canSaveDownloadPaths}
+								className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-60"
 							>
-								<option value="1">1</option>
-								<option value="2">2</option>
-								<option value="3">3</option>
-								<option value="4">4</option>
-								<option value="5">5</option>
-							</select>
+								Save download paths
+							</button>
 						</div>
 					</div>
 				</section>
@@ -959,24 +1105,6 @@ const SettingsPage = () => {
 							</p>
 						</div>
 
-						{/* Sync Frequency */}
-						<div className="flex items-center justify-between mt-4">
-							<div>
-								<label className="text-sm font-medium">Sync frequency</label>
-								<p className="text-xs text-slate-400">How often to sync owned games</p>
-							</div>
-							<select
-								value={settings.account.syncFrequencyHours}
-								onChange={(e) => updateSetting('account', 'syncFrequencyHours', parseInt(e.target.value))}
-								disabled={saving}
-								className="bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
-							>
-								<option value="1">Every hour</option>
-								<option value="6">Every 6 hours</option>
-								<option value="12">Every 12 hours</option>
-								<option value="24">Every 24 hours</option>
-							</select>
-						</div>
 					</div>
 				</section>
 
@@ -1036,21 +1164,6 @@ const SettingsPage = () => {
 					</h2>
 
 					<div className="space-y-4">
-						{/* Clear Cache */}
-						<div className="flex items-center justify-between">
-							<div>
-								<label className="text-sm font-medium">Clear cache</label>
-								<p className="text-xs text-slate-400">Remove temporary files and cached data</p>
-							</div>
-							<button
-								onClick={handleClearCache}
-								disabled={saving}
-								className="bg-slate-600 hover:bg-slate-500 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-							>
-								Clear
-							</button>
-						</div>
-
 						{/* Reset Settings */}
 						<div className="flex items-center justify-between">
 							<div>

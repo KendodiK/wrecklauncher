@@ -1,4 +1,3 @@
-const { get } = require('cloudscraper');
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 
@@ -83,6 +82,8 @@ app.whenReady().then(() => {
   let shopSpecialsCtrl = null;
   /** @type {import('./controllers/SettingsController')|null} */
   let settingsCtrl = null;
+  /** @type {import('./controllers/PirateLibraryController')|null} */
+  let pirateLibraryCtrl = null;
 
   function getUserCtrl() {
     if (!userCtrl) {
@@ -178,6 +179,14 @@ function getShopSpecialsCtrl() {
     }
     return settingsCtrl;
   }
+
+  function getPirateLibraryCtrl() {
+    if (!pirateLibraryCtrl) {
+      const PirateLibraryController = require('./controllers/PirateLibraryController');
+      pirateLibraryCtrl = new PirateLibraryController();
+    }
+    return pirateLibraryCtrl;
+  }
   /**
    * Registers an IPC handler with consistent error logging.
    * @param {string} channel
@@ -270,7 +279,12 @@ function getShopSpecialsCtrl() {
   handle('user:get-token', async () => await getUserCtrl().getToken());
 
   handle('user:clear-token', async () => {
-    await getUserCtrl()._invalidateToken();
+    const ctrl = getUserCtrl();
+    if (ctrl && typeof ctrl.clearSession === 'function') {
+      await ctrl.clearSession();
+    } else {
+      await ctrl._invalidateToken();
+    }
     return true;
   });
 
@@ -301,6 +315,22 @@ function getShopSpecialsCtrl() {
   handleAuthed('user:get-current-user', async ({ token }) => {
     getUserCtrl().setToken(token);
     return await getUserCtrl().getCurrentUserInfo(token);
+  });
+
+  handleAuthed('friends:get-mine', async ({ token }, nativeUserId) => {
+    getUserCtrl().setToken(token);
+    const normalizedNativeUserId = String(nativeUserId || '').trim();
+    return await getUserCtrl().getFriendsWithProfiles(normalizedNativeUserId || null);
+  });
+
+  handleAuthed('native-users:search', async ({ token }, name) => {
+    getUserCtrl().setToken(token);
+    return await getUserCtrl().searchNativeUsersByName(String(name || '').trim());
+  });
+
+  handleAuthed('friends:add', async ({ token }, friendUserId) => {
+    getUserCtrl().setToken(token);
+    return await getUserCtrl().addFriend(friendUserId);
   });
 
   // Settings (global app settings)
@@ -477,6 +507,14 @@ handle('steam:get-installed-games', async () => {
         ? opts.countryCode
         : 'DE';
     return await getGamesCtrl().getGames(Number(from), countryCode || 'DE');
+  });
+
+  handle('games:search', async (_event, needle, opts) => {
+    const normalizedNeedle = String(needle || '').trim();
+    const tags = opts && typeof opts === 'object' && Array.isArray(opts.tags)
+      ? opts.tags.map((tag) => String(tag || '').trim()).filter((tag) => !!tag)
+      : [];
+    return await getGamesCtrl().searchGames(normalizedNeedle, { tags });
   });
   async function makeNameSlug(name) {
     return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
@@ -1002,6 +1040,10 @@ handle('steam:get-installed-games', async () => {
     return await getItchCtrl().clientGameControlUtil(gameId, 'install', gameUrl);
   });
 
+  handle('itch:delete-game', async (_event, gameId, gameUrl, installLocation) => {
+    return await getItchCtrl().clientGameControlUtil(gameId, 'uninstall', gameUrl, installLocation);
+  });
+
   // ── GOG ───────────────────────────────────────────────────────────────────
 
   handle('gog:get-installed-games', async () => {
@@ -1267,6 +1309,29 @@ handle('steam:get-installed-games', async () => {
     return await getGogCtrl().clientGameControlUtil(productId, 'install');
   });
 
+  handle('gog:delete-game', async (_event, productId) => {
+    return await getGogCtrl().clientGameControlUtil(productId, 'uninstall');
+  });
+
+  // ── Local pirate library (manual EXE-based entries) ─────────────────────
+
+  handle('pirate-library:get-games', async () => {
+    return await getPirateLibraryCtrl().getGames();
+  });
+
+  handle('pirate-library:add-game-from-dialog', async (event) => {
+    const ownerWindow = BrowserWindow.fromWebContents(event.sender) || mainWindow || null;
+    return await getPirateLibraryCtrl().addGameFromDialog(ownerWindow);
+  });
+
+  handle('pirate-library:remove-game', async (_event, gameId) => {
+    return await getPirateLibraryCtrl().removeGame(String(gameId || ''));
+  });
+
+  handle('pirate-library:run-game', async (_event, executablePath) => {
+    return await getPirateLibraryCtrl().runGame(String(executablePath || ''));
+  });
+
   // Cloudscraper helpers
   handle('cloudscraper:fetch', async (_event, url, options) => {
     return await getCloudscraperCtrl().fetch(String(url), options && typeof options === 'object' ? options : {});
@@ -1293,7 +1358,21 @@ handle('steam:get-installed-games', async () => {
     const mUri  = String(magnetUri || '').trim()
       .replace(/&#0*38;/g, '&')
       .replace(/&amp;/gi, '&');
-    const sPath = String(savePath  || '').trim() || app.getPath('downloads');
+    const requestedSavePath = String(savePath || '').trim();
+    let configuredDefaultSavePath = '';
+    if (!requestedSavePath) {
+      try {
+        const settings = await getSettingsCtrl().getSettings();
+        configuredDefaultSavePath = String(
+          settings?.downloads?.pirateTorrentsPath
+          || settings?.downloads?.path
+          || '',
+        ).trim();
+      } catch {
+        configuredDefaultSavePath = '';
+      }
+    }
+    const sPath = requestedSavePath || configuredDefaultSavePath || app.getPath('downloads');
     console.log('[torrent:start] mUri (full):', mUri);
     console.log('[torrent:start] sPath:', sPath);
     console.log('[torrent:start] tracker count:', (mUri.match(/&tr=/g) || []).length);

@@ -85,6 +85,14 @@ function App() {
   // Kijelentkezés: egyszerűen null-ra állítjuk a user állapotot
   const handleLogout = useCallback(() => {
     try {
+      window?.localStorage?.removeItem('wrecklauncher.authToken');
+      window?.localStorage?.removeItem('authToken');
+      window?.localStorage?.removeItem('token');
+      window?.localStorage?.removeItem('wreck_auth_token');
+    } catch {
+      // ignore
+    }
+    try {
       if (window?.electronAPI && typeof window.electronAPI.clearToken === 'function') {
         void window.electronAPI.clearToken();
       }

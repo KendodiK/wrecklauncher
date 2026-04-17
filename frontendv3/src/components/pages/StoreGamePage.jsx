@@ -1164,8 +1164,21 @@ const StoreGamePage = () => {
 				throw new Error('Unsupported pirate download link.');
 			}
 
+			let configuredPirateSavePath = '';
+			try {
+				if (typeof window.electronAPI.getSettings === 'function') {
+					const settings = await window.electronAPI.getSettings();
+					configuredPirateSavePath = String(
+						settings?.downloads?.pirateTorrentsPath || settings?.downloads?.path || '',
+					).trim();
+				}
+			} catch {
+				configuredPirateSavePath = '';
+			}
+
 			await startDownload({
 				magnetUri: torrentId,
+				savePath: configuredPirateSavePath || undefined,
 				artwork: {
 					imageUrl: model.heroImage || model.coverImage || '',
 					thumbnailUrl: model.coverImage || model.heroImage || '',

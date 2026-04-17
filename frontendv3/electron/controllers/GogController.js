@@ -1068,6 +1068,182 @@ async #fetchGogCoverUrl(appId) {
   }
 
   /**
+   * @param {string} rawCommand
+   * @returns {{ executablePath: string|null, hasArguments: boolean }}
+   */
+  #extractExecutableFromCommand(rawCommand) {
+    const text = String(rawCommand || '').trim();
+    if (!text) return { executablePath: null, hasArguments: false };
+
+    const quotedMatch = text.match(/^"([^"]+\.exe)"(.*)$/i);
+    if (quotedMatch) {
+      const executablePath = String(quotedMatch[1] || '').trim();
+      const rest = String(quotedMatch[2] || '').trim();
+      return {
+        executablePath: /\.exe$/i.test(executablePath) ? executablePath : null,
+        hasArguments: rest.length > 0,
+      };
+    }
+
+    const unquotedMatch = text.match(/^([a-zA-Z]:\\.*?\.exe)(?:\s+(.*))?$/i);
+    if (unquotedMatch) {
+      const executablePath = String(unquotedMatch[1] || '').trim();
+      const rest = String(unquotedMatch[2] || '').trim();
+      return {
+        executablePath: /\.exe$/i.test(executablePath) ? executablePath : null,
+        hasArguments: rest.length > 0,
+      };
+    }
+
+    return {
+      executablePath: /\.exe$/i.test(text) ? text : null,
+      hasArguments: false,
+    };
+  }
+
+  /**
+   * @param {string} command
+   * @param {string|undefined} cwd
+   * @returns {Promise<boolean>}
+   */
+  async #runDetachedCommand(command, cwd) {
+    const normalizedCommand = String(command || '').trim();
+    if (!normalizedCommand) return false;
+
+    return await new Promise((resolve) => {
+      try {
+        const child = spawn(normalizedCommand, {
+          cwd,
+          detached: true,
+          stdio: 'ignore',
+          windowsHide: true,
+          shell: true,
+        });
+        child.once('error', () => resolve(false));
+        child.unref();
+        resolve(true);
+      } catch {
+        resolve(false);
+      }
+    });
+  }
+
+  /**
+   * @param {string|number} productId
+   * @returns {Promise<boolean>}
+   */
+  async #launchInstalledGameUninstaller(productId) {
+    const id = String(productId || '').trim();
+    if (!id || !/^\d+$/.test(id)) return false;
+
+    const installedGames = await this.getInstalledGames().catch(() => []);
+    const installed = Array.isArray(installedGames)
+      ? installedGames.find((entry) => String(entry?.productId ?? '').trim() === id)
+      : null;
+    if (!installed || typeof installed !== 'object') return false;
+
+    const rawMap = new Map();
+    const raw = installed?.raw && typeof installed.raw === 'object' ? installed.raw : null;
+    if (raw) {
+      for (const [name, value] of Object.entries(raw)) {
+        const key = String(name || '').trim().toLowerCase();
+        const normalizedValue = String(value || '').trim();
+        if (!key || !normalizedValue || rawMap.has(key)) continue;
+        rawMap.set(key, normalizedValue);
+      }
+    }
+
+    const uninstallCommandCandidates = [
+      rawMap.get('uninstallcommand'),
+      rawMap.get('uninstallstring'),
+      rawMap.get('uninstaller'),
+      rawMap.get('uninstallexe'),
+      rawMap.get('uninstallpath'),
+      rawMap.get('uninstall'),
+    ].filter((value) => typeof value === 'string' && value.trim());
+
+    const cwd =
+      typeof installed?.installPath === 'string' && installed.installPath.trim()
+        ? installed.installPath.trim()
+        : undefined;
+
+    for (const candidate of uninstallCommandCandidates) {
+      const command = String(candidate || '').trim();
+      if (!command) continue;
+
+      const parsed = this.#extractExecutableFromCommand(command);
+      if (parsed.executablePath && !parsed.hasArguments) {
+        try {
+          const openError = await shell.openPath(parsed.executablePath);
+          if (!openError) return true;
+        } catch {
+          // continue to shell command fallback
+        }
+      }
+
+      const launched = await this.#runDetachedCommand(command, cwd);
+      if (launched) return true;
+    }
+
+    const installPath =
+      typeof installed?.installPath === 'string' && installed.installPath.trim()
+        ? installed.installPath.trim()
+        : '';
+    if (!installPath || !fs.existsSync(installPath)) return false;
+
+    /** @type {string[]} */
+    const uninstallExecutables = [];
+    /** @type {string[]} */
+    const queue = [installPath];
+    const visited = new Set();
+
+    while (queue.length > 0 && uninstallExecutables.length < 40) {
+      const currentDir = queue.shift();
+      if (!currentDir) continue;
+      const dirKey = String(currentDir || '').toLowerCase();
+      if (!dirKey || visited.has(dirKey)) continue;
+      visited.add(dirKey);
+
+      /** @type {import('fs').Dirent[]} */
+      let entries = [];
+      try {
+        entries = fs.readdirSync(currentDir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+
+      for (const entry of entries) {
+        const fullPath = path.join(currentDir, entry.name);
+        if (entry.isDirectory()) {
+          queue.push(fullPath);
+          continue;
+        }
+
+        if (!entry.isFile()) continue;
+        if (!/\.exe$/i.test(entry.name)) continue;
+        if (!/(unins|uninstall)/i.test(entry.name)) continue;
+        uninstallExecutables.push(fullPath);
+      }
+    }
+
+    uninstallExecutables.sort((left, right) => left.length - right.length);
+
+    for (const executablePath of uninstallExecutables) {
+      try {
+        const openError = await shell.openPath(executablePath);
+        if (!openError) return true;
+      } catch {
+        // continue to next candidate
+      }
+
+      const launched = await this.#runDetachedCommand(`"${executablePath}"`, installPath || undefined);
+      if (launched) return true;
+    }
+
+    return false;
+  }
+
+  /**
    * @param {string} title
    * @returns {string[]}
    */
@@ -1632,14 +1808,17 @@ async #fetchGogCoverUrl(appId) {
    *   goggalaxy://openStoreUrl/{url}
    *
    * @param {string|number} productId  GOG numeric product ID
-   * @param {'open'|'run'|'install'} action
+   * @param {'open'|'run'|'install'|'uninstall'} action
    * @returns {Promise<{ ok: boolean, url: string }>}
    */
   async clientGameControlUtil(productId, action) {
     const id = String(productId).trim();
     if (!id || !/^\d+$/.test(id)) throw new Error(`Invalid GOG product ID: ${String(productId)}`);
 
-    const normalizedAction = action === 'run' || action === 'install' || action === 'open' ? action : 'open';
+    const normalizedAction =
+      action === 'run' || action === 'install' || action === 'open' || action === 'uninstall'
+        ? action
+        : 'open';
 
     if (normalizedAction === 'run' || normalizedAction === 'open') {
       try {
@@ -1649,6 +1828,17 @@ async #fetchGogCoverUrl(appId) {
         }
       } catch {
         // ignore local launch failures and continue with protocol URLs
+      }
+    }
+
+    if (normalizedAction === 'uninstall') {
+      try {
+        const uninstalledLocally = await this.#launchInstalledGameUninstaller(id);
+        if (uninstalledLocally) {
+          return { ok: true, url: `local-uninstall://${encodeURIComponent(id)}` };
+        }
+      } catch {
+        // continue to protocol URL fallback
       }
     }
 
@@ -1665,6 +1855,10 @@ async #fetchGogCoverUrl(appId) {
       ],
       install: [
         `goggalaxy://installGame/${encodeURIComponent(id)}`,
+      ],
+      uninstall: [
+        `goggalaxy://uninstallGame/${encodeURIComponent(id)}`,
+        `goggalaxy://uninstallGameById/${encodeURIComponent(id)}`,
       ],
     };
 

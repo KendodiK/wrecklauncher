@@ -18,7 +18,7 @@
     "make": "electron-forge make"
   },
   "keywords": [],
-  "author": "",
+  "author": "WreckLauncher Team",
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
@@ -50,6 +50,7 @@
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "react-router-dom": "^7.13.0",
+    "request": "^2.88.2",
     "vdf": "^0.0.2",
     "webtorrent": "^2.8.5",
     "winreg": "^1.2.5"

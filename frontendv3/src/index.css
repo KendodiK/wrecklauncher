@@ -418,6 +418,30 @@ body {
   color: #e2e8f0;
 }
 
+.library-add-pirate-btn {
+  border-radius: 6px;
+  border: 1px solid rgba(251, 146, 60, 0.65);
+  background: rgba(194, 65, 12, 0.32);
+  padding: 8px 12px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: rgba(254, 215, 170, 0.95);
+  cursor: pointer;
+  transition: border-color 0.2s ease, color 0.2s ease, background-color 0.2s ease;
+}
+
+.library-add-pirate-btn:hover {
+  border-color: rgba(251, 191, 36, 0.8);
+  color: #fff7ed;
+  background: rgba(194, 65, 12, 0.45);
+}
+
+.library-add-pirate-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .library-scope-menu {
   position: absolute;
   right: 0;
@@ -627,6 +651,13 @@ body {
   text-align: right;
 }
 
+.library-status-actions {
+  margin-top: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .library-status-size {
   font-size: 12px;
   text-transform: uppercase;
@@ -662,6 +693,40 @@ body {
 
 .library-play-btn-download:hover {
   background: rgba(14, 165, 233, 1);
+}
+
+.library-secondary-btn {
+  border-radius: 6px;
+  border: 1px solid rgba(148, 163, 184, 0.55);
+  background: rgba(51, 65, 85, 0.45);
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: #e2e8f0;
+  cursor: pointer;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.library-secondary-btn:hover {
+  border-color: rgba(148, 163, 184, 0.85);
+  background: rgba(71, 85, 105, 0.62);
+}
+
+.library-remove-btn {
+  border-color: rgba(251, 113, 133, 0.6);
+  background: rgba(159, 18, 57, 0.28);
+  color: rgba(255, 228, 230, 0.95);
+}
+
+.library-remove-btn:hover {
+  border-color: rgba(251, 113, 133, 0.82);
+  background: rgba(190, 24, 93, 0.38);
+}
+
+.library-secondary-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .library-status-meta {
@@ -989,6 +1054,10 @@ body {
   .library-status-right {
     width: 100%;
     text-align: left;
+  }
+
+  .library-status-actions {
+    flex-wrap: wrap;
   }
 }
 

@@ -15,6 +15,7 @@ const FriendsController = require('../database/controllers/FriendsController.js'
 const NativeUsersController = require('../database/controllers/NativeUsersController.js');
 const ChatsController = require('../database/controllers/ChatsController.js');
 const PlatformsController = require('../database/controllers/PlatformsController.js');
+const PirateSitesController = require('../database/controllers/PirateSitesController.js');
 const PlatformUsersController = require('../database/controllers/PlatformUsersController.js');
 const ShopSpecialsController = require('../database/controllers/ShopSpecialsController.js');
 const PricesController = require('../database/controllers/PricesController.js');
@@ -245,6 +246,16 @@ module.exports.GETOwnedGamesSteam = async function (req, res) {
     }
 }
 
+module.exports.GETGameCount = async function (req, res) {
+    try {
+        const gameCtrl = new GamesController();
+        const countedGames = await gameCtrl.getGameCount();
+        return res.json({ countedGames });
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+}
+
 /**
  * GET /game/:id
  * 
@@ -459,11 +470,37 @@ module.exports.GETChatlogByFriendId = async function (req, res) {
     }
 }
 
+module.exports.GETPlatforms = async function (req, res) {
+    try {
+        const platformCtrl = new PlatformsController();
+        const result = await platformCtrl.index();
+        if (result instanceof Error) {
+            return res.status(400).json({ message: 'Iternal server error', error: result });
+        }
+        return res.json(result);
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+}
+
 module.exports.GETPlatformByPlatromName = async function (req, res) {
     try {
         const { platformName } = req.params;
         const platformCtrl = new PlatformsController();
         const result = await platformCtrl.getByPlatformName(platformName);
+        if (result instanceof Error) {
+            return res.status(400).json({ message: 'Iternal server error', error: result });
+        }
+        return res.json(result);
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+}
+
+module.exports.GETPirateSites = async function (req, res) {
+    try {
+        const pirateSitesCtrl = new PirateSitesController();
+        const result = await pirateSitesCtrl.index();
         if (result instanceof Error) {
             return res.status(400).json({ message: 'Iternal server error', error: result });
         }

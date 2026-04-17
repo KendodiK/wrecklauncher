@@ -83,10 +83,42 @@ function extractItchInstalledGameId(installed) {
 	return normalizeItchGameId(installed?.gameId ?? installed?.id);
 }
 
+function buildInlineLibraryPlaceholder(title, fallbackLabel = 'Game') {
+	const rawLabel = String(title || fallbackLabel || 'Game').trim() || fallbackLabel;
+	const normalizedLabel = rawLabel.replace(/\s+/g, ' ').slice(0, 28);
+
+	const safeLabel = normalizedLabel
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;')
+		.replace(/"/g, '&quot;')
+		.replace(/'/g, '&#39;');
+
+	const safeFallback = String(fallbackLabel || 'Game')
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;')
+		.replace(/"/g, '&quot;')
+		.replace(/'/g, '&#39;');
+
+	const svg = [
+		'<svg xmlns="http://www.w3.org/2000/svg" width="300" height="420" viewBox="0 0 300 420">',
+		'<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">',
+		'<stop offset="0%" stop-color="#0f172a"/><stop offset="100%" stop-color="#1e293b"/>',
+		'</linearGradient></defs>',
+		'<rect width="300" height="420" fill="url(#g)"/>',
+		'<rect x="18" y="18" width="264" height="384" rx="16" fill="none" stroke="#334155" stroke-width="2"/>',
+		`<text x="150" y="190" text-anchor="middle" fill="#e2e8f0" font-size="26" font-family="Segoe UI, Arial, sans-serif" font-weight="700">${safeFallback}</text>`,
+		`<text x="150" y="236" text-anchor="middle" fill="#94a3b8" font-size="16" font-family="Segoe UI, Arial, sans-serif">${safeLabel}</text>`,
+		'</svg>',
+	].join('');
+
+	return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
 function resolveLibraryCoverUrl(coverUrl, title, fallbackLabel = 'Game') {
 	if (typeof coverUrl === 'string' && coverUrl.trim()) return coverUrl.trim();
-	const label = String(title || fallbackLabel).trim() || fallbackLabel;
-	return `https://via.placeholder.com/300x420?text=${encodeURIComponent(label)}`;
+	return buildInlineLibraryPlaceholder(title, fallbackLabel);
 }
 
 function normalizeLibraryTitleForMatch(value) {
@@ -310,6 +342,63 @@ function toGogInstalledOnlyLibraryGame(installed, normalizedGogId) {
 	};
 }
 
+function normalizePirateLibraryId(value) {
+	const raw = String(value ?? '').trim();
+	if (!raw) return null;
+	return raw.toLowerCase();
+}
+
+function toPirateLibraryGame(entry) {
+	const normalizedPirateId = normalizePirateLibraryId(entry?.id ?? entry?.gameId ?? entry?.executablePath);
+	if (!normalizedPirateId) return null;
+
+	const executablePath =
+		typeof entry?.executablePath === 'string' && entry.executablePath.trim()
+			? entry.executablePath.trim()
+			: typeof entry?.path === 'string' && entry.path.trim()
+				? entry.path.trim()
+				: null;
+
+	const installLocation =
+		typeof entry?.installLocation === 'string' && entry.installLocation.trim()
+			? entry.installLocation.trim()
+			: executablePath
+				? executablePath.replace(/[\\/][^\\/]+$/, '')
+				: null;
+
+	const titleFromExecutable = executablePath
+		? executablePath.replace(/^.*[\\/]/, '').replace(/\.exe$/i, '').trim()
+		: '';
+
+	const title =
+		typeof entry?.title === 'string' && entry.title.trim()
+			? entry.title.trim()
+			: titleFromExecutable || `pirate:${normalizedPirateId}`;
+
+	const coverUrl = resolveLibraryCoverUrl(entry?.coverUrl ?? null, title, 'Pirate');
+
+	return {
+		id: `pirate:${normalizedPirateId}`,
+		appid: null,
+		title,
+		launcherId: 'pirate',
+		executablePath,
+		installLocation,
+		coverUrl,
+		heroUrl: coverUrl,
+		genres: ['Pirate'],
+		tags: ['Installed', 'Local', 'Pirate'],
+		cracked: true,
+		installedSize: installLocation ? `Installed at ${installLocation}` : 'Local executable',
+		playtime: '0m',
+		playtimeMinutes: 0,
+		progress: 100,
+		installed: true,
+		owned: true,
+		platform_name: 'pirate',
+	};
+}
+
 function getLibraryGameKey(game) {
 	if (!game || typeof game !== 'object') return null;
 	const launcherId = String(game.launcherId || '').trim().toLowerCase();
@@ -344,9 +433,9 @@ const LibraryPage = () => {
 	const [isLoading, setIsLoading] = useState(true);
 	const [errorMessage, setErrorMessage] = useState('');
 
-	const [activeLauncherId, setActiveLauncherId] = useState('steam');
+	const [activeLauncherId, setActiveLauncherId] = useState('all');
 	const [activeGameId, setActiveGameId] = useState('');
-	const [scope, setScope] = useState('launcher');
+	const [scope, setScope] = useState('all');
 	const [search, setSearch] = useState('');
 	const deferredSearch = useDeferredValue(search);
 	const [sortBy, setSortBy] = useState('title-asc');
@@ -542,16 +631,28 @@ const LibraryPage = () => {
 					}
 				}
 
+				try {
+					const pirateLibraryPayload =
+						typeof window.electronAPI.getPirateLibraryGames === 'function'
+							? await window.electronAPI.getPirateLibraryGames()
+							: await window.electronAPI.invoke('pirate-library:get-games');
+
+					const pirateLibraryEntries = Array.isArray(pirateLibraryPayload) ? pirateLibraryPayload : [];
+					const normalizedPirateGames = pirateLibraryEntries
+						.map((entry) => toPirateLibraryGame(entry))
+						.filter(Boolean);
+
+					mergedLibraryGames.push(...normalizedPirateGames);
+				} catch (error) {
+					console.warn('Failed to load local pirate library:', error);
+				}
+
 				const uniqueGames = dedupeLibraryGames(mergedLibraryGames);
-				const launcherPriority = Array.isArray(launchers) ? launchers.map((launcher) => launcher.id) : [];
-				const firstLauncherWithGames =
-					launcherPriority.find((launcherId) => uniqueGames.some((game) => game.launcherId === launcherId))
-					|| uniqueGames[0]?.launcherId
-					|| 'steam';
 
 				if (!cancelled) {
 					setLibraryGames(uniqueGames);
-					setActiveLauncherId(firstLauncherWithGames);
+					setScope('all');
+					setActiveLauncherId('all');
 					setActiveGameId(uniqueGames[0]?.id ?? '');
 					if (!uniqueGames.length && loadErrors.length) {
 						setErrorMessage(loadErrors.join(' | '));
@@ -577,11 +678,53 @@ const LibraryPage = () => {
 	}, []);
 
 	const searchPool = useMemo(() => {
+		if (scope === 'all' || String(activeLauncherId || '').trim().toLowerCase() === 'all') return ownedGames;
+		const launcherId = String(activeLauncherId || '').trim();
+		if (!launcherId) return ownedGames;
+		return ownedGames.filter((g) => g.launcherId === launcherId);
+	}, [activeLauncherId, scope, ownedGames]);
+
+	const handleLauncherTabChange = (launcherId) => {
+		const normalized = String(launcherId || '').trim().toLowerCase();
+		if (!normalized) return;
+		if (normalized === 'all') {
+			setScope('all');
+			setActiveLauncherId('all');
+			return;
+		}
+		setScope('launcher');
+		setActiveLauncherId(normalized);
+	};
+
+	const isAllLauncherSelected = scope === 'all' || String(activeLauncherId || '').trim().toLowerCase() === 'all';
+
+	const activeLauncherLabel = useMemo(() => {
+		if (isAllLauncherSelected) return 'all platforms';
+		const normalizedActiveLauncherId = String(activeLauncherId || '').trim().toLowerCase();
+		const launcher = Array.isArray(launchers)
+			? launchers.find((entry) => String(entry?.id || '').trim().toLowerCase() === normalizedActiveLauncherId)
+			: null;
+		return launcher?.name || normalizedActiveLauncherId || 'selected platform';
+	}, [activeLauncherId, isAllLauncherSelected]);
+
+	const emptyFilteredMessage = useMemo(() => {
 		const q = deferredSearch.trim();
-		if (!q) return ownedGames;
-		if (scope === 'all') return ownedGames;
-		return ownedGames.filter((g) => g.launcherId === activeLauncherId);
-	}, [activeLauncherId, deferredSearch, scope, ownedGames]);
+
+		if (isAllLauncherSelected) {
+			if (q) return `No games match "${q}".`;
+			return 'No games are available right now.';
+		}
+
+		if (searchPool.length < 1) {
+			return `No games found for ${activeLauncherLabel}.`;
+		}
+
+		if (q) {
+			return `No ${activeLauncherLabel} games match "${q}".`;
+		}
+
+		return `No games found for ${activeLauncherLabel}.`;
+	}, [activeLauncherLabel, deferredSearch, isAllLauncherSelected, searchPool.length]);
 
 	const filteredGames = useMemo(() => {
 		let result = [...searchPool];
@@ -631,23 +774,74 @@ const LibraryPage = () => {
 	const normalizedLauncherId = String(activeGame?.launcherId || '').trim().toLowerCase();
 	const activeItchGameUrl = typeof activeGame?.url === 'string' ? activeGame.url.trim() : '';
 	const activeItchInstallLocation = typeof activeGame?.installLocation === 'string' ? activeGame.installLocation.trim() : '';
+	const activePirateExecutablePath = typeof activeGame?.executablePath === 'string' ? activeGame.executablePath.trim() : '';
+	const activePirateLibraryId = String(activeGame?.id || '').replace(/^pirate:/i, '').trim();
 	const hasActiveItchGameUrl = /^https?:\/\//i.test(activeItchGameUrl);
 	const hasActiveItchInstallLocation = activeItchInstallLocation.length > 0;
+	const hasActivePirateExecutablePath = activePirateExecutablePath.length > 0;
 	const isSteamLauncher = normalizedLauncherId === 'steam';
 	const isGogLauncher = normalizedLauncherId === 'gog' || normalizedLauncherId === 'gog.com';
 	const isItchLauncher = normalizedLauncherId === 'itch' || normalizedLauncherId === 'itchio' || normalizedLauncherId === 'itch.io';
+	const isPirateLauncher = normalizedLauncherId === 'pirate';
 	const canUseSteamActions = Number.isFinite(activeGameAppId) && activeGameAppId > 0 && isSteamLauncher;
 	const canUseGogActions = Number.isFinite(activeGameAppId) && activeGameAppId > 0 && isGogLauncher;
-	const canUseItchActions = isItchLauncher;
+	const canUsePirateActions = isPirateLauncher && hasActivePirateExecutablePath;
 	const canExecuteItchAction =
 		isItchLauncher
 		&& ((Number.isFinite(activeGameAppId) && activeGameAppId > 0) || hasActiveItchGameUrl || hasActiveItchInstallLocation);
-	const canUsePrimaryAction = canUseSteamActions || canUseGogActions || canUseItchActions;
+	const canUsePrimaryAction = canUseSteamActions || canUseGogActions || canExecuteItchAction || canUsePirateActions;
 	const isActiveGameInstalled = activeGame?.installed === true;
+	const canUseRemoveAction =
+		isActiveGameInstalled
+		&& (canUseSteamActions || canUseGogActions || canExecuteItchAction || canUsePirateActions);
 	const primaryAction = isActiveGameInstalled ? 'open' : 'install';
 	const primaryActionLabel = isActiveGameInstalled ? 'OPEN' : 'INSTALL';
 	const primaryActionBusyLabel = isActiveGameInstalled ? 'OPENING' : 'INSTALLING';
 	const primaryActionUsesDownloadStyle = !isActiveGameInstalled;
+
+	const markLibraryGameAsNotInstalled = (gameId) => {
+		setLibraryGames((previous) =>
+			previous.map((game) => {
+				if (game?.id !== gameId) return game;
+
+				const launcher = String(game?.launcherId || game?.platform_name || '').trim().toLowerCase();
+				const baseTags = Array.isArray(game?.tags)
+					? game.tags.filter((tag) => {
+						const normalizedTag = String(tag || '').trim().toLowerCase();
+						return normalizedTag !== 'installed' && normalizedTag !== 'local';
+					})
+					: [];
+
+				if (launcher !== 'pirate' && !baseTags.some((tag) => String(tag || '').trim().toLowerCase() === 'ready to install')) {
+					baseTags.push('Ready to install');
+				}
+
+				const numericAppId = Number(game?.appid);
+				let installedSize = game?.installedSize;
+				if (launcher === 'steam' && Number.isFinite(numericAppId) && numericAppId > 0) {
+					installedSize = `App ID ${numericAppId}`;
+				} else if ((launcher === 'gog' || launcher === 'gog.com')) {
+					const normalizedGogId = normalizeGogProductId(
+						game?.appid ?? String(game?.id || '').replace(/^gog:/i, ''),
+					);
+					if (normalizedGogId) installedSize = `Product ID ${normalizedGogId}`;
+				} else if (launcher === 'itch' || launcher === 'itchio' || launcher === 'itch.io') {
+					const normalizedItchId = normalizeItchGameId(
+						game?.appid ?? String(game?.id || '').replace(/^itch:/i, ''),
+					);
+					if (normalizedItchId) installedSize = `Game ID ${normalizedItchId}`;
+				}
+
+				return {
+					...game,
+					installed: false,
+					progress: 0,
+					tags: baseTags,
+					installedSize,
+				};
+			}),
+		);
+	};
 
 	const refreshGogInstalledState = async ({ targetProductId = null, attempts = 1, intervalMs = 0 } = {}) => {
 		const normalizedTargetProductId = normalizeGogProductId(targetProductId);
@@ -731,7 +925,7 @@ const LibraryPage = () => {
 		if (!canUsePrimaryAction) {
 			setActionState({
 				busyAction: '',
-				text: 'Open/Install actions are available for Steam, GOG, and Itch library items.',
+				text: 'Open/Install actions are available for Steam, GOG, Itch, and local pirate items.',
 				type: 'error',
 			});
 			return;
@@ -746,6 +940,9 @@ const LibraryPage = () => {
 					if (canUseGogActions) {
 						return window.electronAPI.runGogGame(activeGameAppId);
 					}
+					if (canUsePirateActions) {
+						return window.electronAPI.runPirateLibraryGame(activePirateExecutablePath);
+					}
 					if (canExecuteItchAction) {
 						return window.electronAPI.runItchGame(
 							Number.isFinite(activeGameAppId) && activeGameAppId > 0 ? activeGameAppId : null,
@@ -753,9 +950,9 @@ const LibraryPage = () => {
 							activeItchInstallLocation || null,
 						);
 					}
-					throw new Error('This itch game has no valid game ID or URL for opening.');
+					throw new Error('No valid launch target is available for this game.');
 				},
-				success: `${activeGame?.title || 'Game'} launched via ${canUseSteamActions ? 'Steam' : (canUseGogActions ? 'GOG Galaxy' : 'Itch.io')}.`,
+				success: `${activeGame?.title || 'Game'} launched via ${canUseSteamActions ? 'Steam' : (canUseGogActions ? 'GOG Galaxy' : (canUsePirateActions ? 'local executable' : 'Itch.io'))}.`,
 			},
 			install: {
 				fn: () => {
@@ -820,6 +1017,122 @@ const LibraryPage = () => {
 		}
 	};
 
+	const handleAddPirateLibraryGame = async () => {
+		try {
+			setActionState({ busyAction: 'add-pirate', text: '', type: '' });
+
+			const piratePayload =
+				typeof window.electronAPI.addPirateLibraryGameFromDialog === 'function'
+					? await window.electronAPI.addPirateLibraryGameFromDialog()
+					: await window.electronAPI.invoke('pirate-library:add-game-from-dialog');
+
+			if (!piratePayload) {
+				setActionState({ busyAction: '', text: '', type: '' });
+				return;
+			}
+
+			const mapped = toPirateLibraryGame(piratePayload);
+			if (!mapped) throw new Error('Selected executable could not be added to pirate library.');
+
+			setLibraryGames((previous) => dedupeLibraryGames([mapped, ...previous]));
+			setActiveLauncherId('pirate');
+			setActiveGameId(mapped.id);
+			setActionState({ busyAction: '', text: `Added ${mapped.title} to local pirate library.`, type: 'success' });
+		} catch (error) {
+			console.error('Failed to add pirate library game:', error);
+			setActionState({
+				busyAction: '',
+				text: error instanceof Error ? error.message : 'Failed to add local pirate game.',
+				type: 'error',
+			});
+		}
+	};
+
+	const handleRemoveInstalledGame = async () => {
+		if (!activeGame || !canUseRemoveAction) return;
+
+		try {
+			setActionState({ busyAction: 'remove', text: '', type: '' });
+
+			if (canUsePirateActions) {
+				if (!activePirateLibraryId) throw new Error('Local pirate game id is missing.');
+				if (typeof window.electronAPI.removePirateLibraryGame === 'function') {
+					await window.electronAPI.removePirateLibraryGame(activePirateLibraryId);
+				} else {
+					await window.electronAPI.invoke('pirate-library:remove-game', activePirateLibraryId);
+				}
+
+				setLibraryGames((previous) => previous.filter((game) => game?.id !== activeGame.id));
+				setActionState({
+					busyAction: '',
+					text: `${activeGame.title || 'Game'} removed from local pirate library.`,
+					type: 'success',
+				});
+				return;
+			}
+
+			if (canUseSteamActions) {
+				await window.electronAPI.deleteSteamGame(activeGameAppId);
+				markLibraryGameAsNotInstalled(activeGame.id);
+				setActionState({
+					busyAction: '',
+					text: `Opened Steam uninstall flow for ${activeGame.title || 'game'}.`,
+					type: 'success',
+				});
+				return;
+			}
+
+			if (canUseGogActions) {
+				if (typeof window.electronAPI.deleteGogGame === 'function') {
+					await window.electronAPI.deleteGogGame(activeGameAppId);
+				} else {
+					await window.electronAPI.invoke('gog:delete-game', activeGameAppId);
+				}
+				markLibraryGameAsNotInstalled(activeGame.id);
+				setActionState({
+					busyAction: '',
+					text: `Opened GOG uninstall flow for ${activeGame.title || 'game'}.`,
+					type: 'success',
+				});
+				void refreshGogInstalledState({ attempts: 30, intervalMs: 4_000 });
+				return;
+			}
+
+			if (canExecuteItchAction) {
+				if (typeof window.electronAPI.deleteItchGame === 'function') {
+					await window.electronAPI.deleteItchGame(
+						Number.isFinite(activeGameAppId) && activeGameAppId > 0 ? activeGameAppId : null,
+						activeItchGameUrl || null,
+						activeItchInstallLocation || null,
+					);
+				} else {
+					await window.electronAPI.invoke(
+						'itch:delete-game',
+						Number.isFinite(activeGameAppId) && activeGameAppId > 0 ? activeGameAppId : null,
+						activeItchGameUrl || null,
+						activeItchInstallLocation || null,
+					);
+				}
+				markLibraryGameAsNotInstalled(activeGame.id);
+				setActionState({
+					busyAction: '',
+					text: `Opened Itch uninstall flow for ${activeGame.title || 'game'}.`,
+					type: 'success',
+				});
+				return;
+			}
+
+			throw new Error('Remove action is not available for this game.');
+		} catch (error) {
+			console.error('Failed to remove installed game:', error);
+			setActionState({
+				busyAction: '',
+				text: error instanceof Error ? error.message : 'Failed to remove installed game.',
+				type: 'error',
+			});
+		}
+	};
+
 	const handleOpenStorePage = (game) => {
 		const appId = Number(game?.appid ?? game?.id);
 		if (!Number.isFinite(appId) || appId <= 0) return;
@@ -868,7 +1181,7 @@ const LibraryPage = () => {
 				
 				<p className="text-sm text-slate-300">
 					{ownedGames.length} {ownedGames.length === 1 ? 'game' : 'games'} owned
-					{scope === 'launcher' && deferredSearch.trim() !== '' && searchPool.length > 0 && ` • ${searchPool.length} on ${activeLauncherId}`}
+					{scope === 'launcher' && String(activeLauncherId || '').trim().toLowerCase() !== 'all' && searchPool.length > 0 && ` • ${searchPool.length} on ${activeLauncherId}`}
 				</p>
 			</div>
 
@@ -881,7 +1194,7 @@ const LibraryPage = () => {
 						</svg>
 						<h2 className="text-2xl font-semibold mb-2">No games in your library</h2>
 						<p className="text-slate-400 mb-2">
-							{errorMessage || 'Connect Steam, GOG, or Itch.io on the settings page to import your games.'}
+							{errorMessage || 'Connect Steam, GOG, or Itch.io on the settings page, or add a local pirate EXE.'}
 						</p>
 						<p className="text-slate-500 mb-6">Start by connecting your gaming platforms or browse the store</p>
 						<div className="flex gap-3 justify-center">
@@ -890,6 +1203,13 @@ const LibraryPage = () => {
 								className="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg font-medium transition-colors"
 							>
 								Connect Platforms
+							</button>
+							<button
+								onClick={handleAddPirateLibraryGame}
+								className="px-6 py-2 bg-amber-600 hover:bg-amber-500 rounded-lg font-medium transition-colors"
+								disabled={actionState.busyAction !== ''}
+							>
+								{actionState.busyAction === 'add-pirate' ? 'Adding EXE...' : 'Add Pirate EXE'}
 							</button>
 							<button
 								onClick={() => window.location.hash = '/store'}
@@ -926,19 +1246,40 @@ const LibraryPage = () => {
 						</svg>
 					</button>
 
+					<button
+						type="button"
+						className="library-add-pirate-btn"
+						onClick={handleAddPirateLibraryGame}
+						disabled={actionState.busyAction !== ''}
+					>
+						{actionState.busyAction === 'add-pirate' ? 'Adding EXE...' : 'Add Pirate EXE'}
+					</button>
+
 					{showMenu ? (
 						<div className="library-scope-menu">
 							<p className="library-scope-menu-label">Search Scope</p>
 							<button
 								type="button"
-								onClick={() => { setScope('launcher'); setShowMenu(false); }}
+								onClick={() => {
+									setScope('launcher');
+									if (String(activeLauncherId || '').trim().toLowerCase() === 'all') {
+										const firstLauncherWithGames =
+											(Array.isArray(launchers)
+												? launchers.find((launcher) =>
+													ownedGames.some((game) => String(game?.launcherId || '').trim().toLowerCase() === String(launcher?.id || '').trim().toLowerCase()),
+												)
+												: null)?.id || 'steam';
+										setActiveLauncherId(firstLauncherWithGames);
+									}
+									setShowMenu(false);
+								}}
 								className={`library-scope-btn ${scope === 'launcher' ? 'library-scope-btn-active' : ''}`}
 							>
 								This Launcher
 							</button>
 							<button
 								type="button"
-								onClick={() => { setScope('all'); setShowMenu(false); }}
+								onClick={() => { setScope('all'); setActiveLauncherId('all'); setShowMenu(false); }}
 								className={`library-scope-btn ${scope === 'all' ? 'library-scope-btn-active' : ''}`}
 							>
 								All Launchers
@@ -966,7 +1307,9 @@ const LibraryPage = () => {
 				<LauncherTabs
 					launchers={launchers}
 					activeLauncherId={activeLauncherId}
-					onChange={setActiveLauncherId}
+					showAllOption
+					isAllActive={scope === 'all' || String(activeLauncherId || '').trim().toLowerCase() === 'all'}
+					onChange={handleLauncherTabChange}
 				/>
 				{actionState.text ? (
 					<p className={`library-action-notice ${actionState.type === 'error' ? 'library-action-notice-error' : ''}`}>
@@ -978,56 +1321,93 @@ const LibraryPage = () => {
 			{/* Bottom dock: game strip + status bar */}
 			<div className="library-bottom-dock">
 				<div className="library-dock-inner">
-					<div className="library-dock-strip-area group">
-						<LibraryGameStrip
-							games={filteredGames}
-							activeGameId={activeGame?.id ?? ''}
-							onSelect={(id) => setActiveGameId(id)}
-							onOpenStore={handleOpenStorePage}
-						/>
-					</div>
-
-					{/* Status bar */}
-					<div className="library-status-bar group">
-						<div className="library-status-left">
-							<h2 className="library-status-title">{activeGame?.title ?? 'No game'}</h2>
-							<p className="library-status-launcher">{activeGame?.launcherId ?? ''}</p>
-							<div className="library-status-tags">
-								{(activeGame?.tags ?? []).slice(0, 3).map((tag) => (
-									<span key={tag} className="library-status-tag">{tag}</span>
-								))}
+					{filteredGames.length > 0 ? (
+						<>
+							<div className="library-dock-strip-area group">
+								<LibraryGameStrip
+									games={filteredGames}
+									activeGameId={activeGame?.id ?? ''}
+									onSelect={setActiveGameId}
+									onOpenStore={handleOpenStorePage}
+								/>
 							</div>
-						</div>
 
-						<div className="library-status-right">
-							<p className="library-status-size">{activeGame?.installedSize ?? '0 MB'}</p>
-							<button
-								type="button"
-								className={`library-play-btn ${primaryActionUsesDownloadStyle ? 'library-play-btn-download' : ''}`}
-								onClick={() => handleLibraryAction(primaryAction)}
-								disabled={!canUsePrimaryAction || actionState.busyAction !== ''}
-							>
-								{actionState.busyAction === primaryAction ? primaryActionBusyLabel : primaryActionLabel}
-								{isActiveGameInstalled ? (
-									<svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-										<path d="m8 5 11 7-11 7V5z" />
-									</svg>
-								) : (
-									<svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
-										<path d="M12 4v10m0 0 4-4m-4 4-4-4M4 19h16" />
-									</svg>
-								)}
-							</button>
-						</div>
+							{/* Status bar */}
+							<div className="library-status-bar group">
+								<div className="library-status-left">
+									<h2 className="library-status-title">{activeGame?.title ?? 'No game'}</h2>
+									<p className="library-status-launcher">{activeGame?.launcherId ?? ''}</p>
+									<div className="library-status-tags">
+										{(activeGame?.tags ?? []).slice(0, 3).map((tag) => (
+											<span key={tag} className="library-status-tag">{tag}</span>
+										))}
+									</div>
+								</div>
 
-						<div className="library-status-meta">
-							<span>{activeGame?.playtime ?? '0h'}</span>
-							<span>{activeGame?.progress ?? 0}/100</span>
+								<div className="library-status-right">
+									<p className="library-status-size">{activeGame?.installedSize ?? '0 MB'}</p>
+									<div className="library-status-actions">
+										<button
+											type="button"
+											className={`library-play-btn ${primaryActionUsesDownloadStyle ? 'library-play-btn-download' : ''}`}
+											onClick={() => handleLibraryAction(primaryAction)}
+											disabled={!canUsePrimaryAction || actionState.busyAction !== ''}
+										>
+											{actionState.busyAction === primaryAction ? primaryActionBusyLabel : primaryActionLabel}
+											{isActiveGameInstalled ? (
+												<svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+													<path d="m8 5 11 7-11 7V5z" />
+												</svg>
+											) : (
+												<svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+													<path d="M12 4v10m0 0 4-4m-4 4-4-4M4 19h16" />
+												</svg>
+											)}
+										</button>
+
+										{isActiveGameInstalled ? (
+											<button
+												type="button"
+												className="library-secondary-btn library-remove-btn"
+												onClick={handleRemoveInstalledGame}
+												disabled={!canUseRemoveAction || actionState.busyAction !== ''}
+											>
+												{actionState.busyAction === 'remove' ? 'REMOVING' : 'REMOVE'}
+											</button>
+										) : null}
+									</div>
+								</div>
+
+								<div className="library-status-meta">
+									<span>{activeGame?.playtime ?? '0h'}</span>
+									<span>{activeGame?.progress ?? 0}/100</span>
+								</div>
+								<div className="library-progress-line">
+									<div className="library-progress-fill" style={{ width: progressWidth }} />
+								</div>
+							</div>
+						</>
+					) : (
+						<div className="library-status-bar group">
+							<div className="library-status-left">
+								<h2 className="library-status-title">No games to show</h2>
+								<p className="library-status-launcher">{emptyFilteredMessage}</p>
+							</div>
+							{!isAllLauncherSelected ? (
+								<div className="library-status-right">
+									<div className="library-status-actions">
+										<button
+											type="button"
+											className="library-secondary-btn"
+											onClick={() => handleLauncherTabChange('all')}
+										>
+											SHOW ALL
+										</button>
+									</div>
+								</div>
+							) : null}
 						</div>
-						<div className="library-progress-line">
-							<div className="library-progress-fill" style={{ width: progressWidth }} />
-						</div>
-					</div>
+					)}
 				</div>
 			</div>
 

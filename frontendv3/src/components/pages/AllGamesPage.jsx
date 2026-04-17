@@ -7,7 +7,6 @@ import {
 	resolveStorePlatformFromGame,
 	resolveStorePlatformFromGameStrict,
 } from '../../utils/storeRouting.js';
-import { isTrimmedTitleMatch } from '../../utils/gameUtils.js';
 
 function steamPoster(appid) {
 	const id = Number(appid);
@@ -221,8 +220,12 @@ const AllGamesPage = () => {
 	const filteredGames = useMemo(() => {
 		return allGames.filter(game => {
 			// Search filter
-			if (searchQuery && !isTrimmedTitleMatch(game.title || game.name || '', searchQuery)) {
-				return false;
+			if (searchQuery) {
+				const needle = String(searchQuery || '').trim().toLowerCase();
+				const title = String(game.title || game.name || '').trim().toLowerCase();
+				if (needle && title && !title.includes(needle) && !needle.includes(title)) {
+					return false;
+				}
 			}
 
 			// Tag filter: game must contain all selected tags

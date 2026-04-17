@@ -837,10 +837,59 @@ class ItchioController extends GamesController {
   }
 
   /**
+   * Resolve an uninstall executable from an itch install directory.
+   *
+   * @param {string|null|undefined} installLocation
+   * @returns {string|null}
+   */
+  #resolveUninstallExecutable(installLocation) {
+    const baseDir = String(installLocation || '').trim();
+    if (!baseDir) return null;
+    if (!fs.existsSync(baseDir)) return null;
+
+    /** @type {string[]} */
+    const exeCandidates = [];
+    const queue = [baseDir];
+    const skipDirNames = new Set(['.itch', '__macosx']);
+
+    while (queue.length > 0) {
+      const currentDir = queue.shift();
+      if (!currentDir) continue;
+
+      /** @type {import('fs').Dirent[]} */
+      let entries = [];
+      try {
+        entries = fs.readdirSync(currentDir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+
+      for (const entry of entries) {
+        const fullPath = path.join(currentDir, entry.name);
+        if (entry.isDirectory()) {
+          if (!skipDirNames.has(entry.name.toLowerCase())) {
+            queue.push(fullPath);
+          }
+          continue;
+        }
+
+        if (!entry.isFile()) continue;
+        if (!/\.exe$/i.test(entry.name)) continue;
+        if (!/(unins|uninstall|remove)/i.test(entry.name)) continue;
+        exeCandidates.push(fullPath);
+      }
+    }
+
+    if (exeCandidates.length < 1) return null;
+    exeCandidates.sort((a, b) => a.length - b.length);
+    return exeCandidates[0] || null;
+  }
+
+  /**
    * Open the itch.io client for a game action via URL scheme.
    *
-   * @param {string|number|null|undefined} gameId  itch.io game ID
-   * @param {'open'|'install'|'run'} action
+  * @param {string|number|null|undefined} gameId  itch.io game ID
+  * @param {'open'|'install'|'run'|'uninstall'} action
    * @param {string|null|undefined} [gameUrl] itch.io game page URL fallback
    * @param {string|null|undefined} [installLocation] local install path fallback for run
    * @returns {Promise<{ ok: boolean, url: string }>}
@@ -860,7 +909,12 @@ class ItchioController extends GamesController {
     /** @type {string[]} */
     const candidateUrls = [];
 
-    if (action === 'run' && hasValidInstallLocation) {
+    const normalizedAction =
+      action === 'install' || action === 'run' || action === 'uninstall'
+        ? action
+        : 'open';
+
+    if (normalizedAction === 'run' && hasValidInstallLocation) {
       const launchExecutable = this.#resolveLaunchExecutable(normalizedInstallLocation);
       if (launchExecutable) {
         try {
@@ -874,23 +928,50 @@ class ItchioController extends GamesController {
       }
     }
 
+    if (normalizedAction === 'uninstall' && hasValidInstallLocation) {
+      const uninstallExecutable = this.#resolveUninstallExecutable(normalizedInstallLocation);
+      if (uninstallExecutable) {
+        try {
+          const openError = await shell.openPath(uninstallExecutable);
+          if (!openError) {
+            return { ok: true, url: `local-uninstall://${encodeURIComponent(uninstallExecutable)}` };
+          }
+        } catch {
+          // fallback to itch:// uninstall targets
+        }
+      }
+    }
+
     // Use itch client URL scheme first for both open and install flows.
     if (hasValidId) {
-      if (action === 'run') {
+      if (normalizedAction === 'run') {
         candidateUrls.push(`itch://games/${encodeURIComponent(String(id))}/launch`);
       }
-      candidateUrls.push(`itch://games/${encodeURIComponent(String(id))}`);
+      if (normalizedAction === 'install') {
+        candidateUrls.push(`itch://games/${encodeURIComponent(String(id))}/install`);
+      }
+      if (normalizedAction === 'uninstall') {
+        candidateUrls.push(`itch://games/${encodeURIComponent(String(id))}/uninstall`);
+        candidateUrls.push(`itch://games/${encodeURIComponent(String(id))}/remove`);
+      }
+      if (normalizedAction !== 'uninstall') {
+        candidateUrls.push(`itch://games/${encodeURIComponent(String(id))}`);
+      }
     }
 
     // If client invocation fails, fall back to the actual game URL (not id-based fake path).
     if (hasValidGameUrl) {
-      if (action === 'install' || action === 'run' || !hasValidId) {
+      if (normalizedAction === 'install' || normalizedAction === 'run' || !hasValidId) {
         candidateUrls.push(normalizedGameUrl);
       }
     }
 
-    if (candidateUrls.length < 1 && hasValidGameUrl) {
+    if (normalizedAction !== 'uninstall' && candidateUrls.length < 1 && hasValidGameUrl) {
       candidateUrls.push(normalizedGameUrl);
+    }
+
+    if (normalizedAction === 'uninstall' && candidateUrls.length < 1) {
+      throw new Error('No uninstall target is available for this itch game');
     }
 
     /** @type {unknown|null} */

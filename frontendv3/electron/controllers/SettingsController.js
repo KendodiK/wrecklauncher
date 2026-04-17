@@ -49,6 +49,7 @@ class SettingsController {
   #getDefaultSettings() {
     const username = os.userInfo().username || 'user';
     const defaultDownloadPath = path.join(os.homedir(), 'Downloads', 'WreckLauncher');
+    const defaultPirateTorrentPath = path.join(defaultDownloadPath, 'Pirate Torrents');
 
     return {
       display: {
@@ -64,6 +65,7 @@ class SettingsController {
       },
       downloads: {
         path: defaultDownloadPath,
+        pirateTorrentsPath: defaultPirateTorrentPath,
         concurrent: 3,
       },
       account: {

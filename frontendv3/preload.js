@@ -1,11 +1,31 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 const AUTH_TOKEN_KEY = 'wrecklauncher.authToken';
+const LEGACY_AUTH_TOKEN_KEYS = ['authToken', 'token', 'wreck_auth_token'];
+
+function clearAuthTokenStorage() {
+  localStorage.removeItem(AUTH_TOKEN_KEY);
+  for (const key of LEGACY_AUTH_TOKEN_KEYS) {
+    localStorage.removeItem(key);
+  }
+}
 
 function getAuthToken() {
   try {
-    const t = localStorage.getItem(AUTH_TOKEN_KEY);
-    return typeof t === 'string' && t.trim() ? t.trim() : null;
+    const keys = [AUTH_TOKEN_KEY, ...LEGACY_AUTH_TOKEN_KEYS];
+    for (const key of keys) {
+      const raw = localStorage.getItem(key);
+      const t = typeof raw === 'string' ? raw.trim() : '';
+      if (!t) continue;
+      if (key !== AUTH_TOKEN_KEY) {
+        localStorage.setItem(AUTH_TOKEN_KEY, t);
+        for (const legacyKey of LEGACY_AUTH_TOKEN_KEYS) {
+          localStorage.removeItem(legacyKey);
+        }
+      }
+      return t;
+    }
+    return null;
   } catch {
     return null;
   }
@@ -15,8 +35,14 @@ function getAuthToken() {
 function setAuthToken(token) {
   try {
     const t = typeof token === 'string' ? token.trim() : '';
-    if (!t) localStorage.removeItem(AUTH_TOKEN_KEY);
-    else localStorage.setItem(AUTH_TOKEN_KEY, t);
+    if (!t) {
+      clearAuthTokenStorage();
+      return;
+    }
+    localStorage.setItem(AUTH_TOKEN_KEY, t);
+    for (const key of LEGACY_AUTH_TOKEN_KEYS) {
+      localStorage.removeItem(key);
+    }
   } catch {
     // ignore
   }
@@ -110,6 +136,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getCurrentUser: () => {
     return invokeAuthed('user:get-current-user');
   },
+  getMyFriends: (nativeUserId) => {
+    return invokeAuthed('friends:get-mine', nativeUserId);
+  },
+  searchNativeUsersByName: (name) => {
+    return invokeAuthed('native-users:search', name);
+  },
+  addFriend: (friendUserId) => {
+    return invokeAuthed('friends:add', friendUserId);
+  },
   clearToken: async () => {
     setAuthToken(null);
     try {
@@ -186,6 +221,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   runItchGame: (gameId, gameUrl, installLocation) => ipcRenderer.invoke('itch:run-game', gameId, gameUrl, installLocation),
   openItchGame: (gameId, gameUrl) => ipcRenderer.invoke('itch:open-game', gameId, gameUrl),
   installItchGame: (gameId, gameUrl) => ipcRenderer.invoke('itch:install-game', gameId, gameUrl),
+  deleteItchGame: (gameId, gameUrl, installLocation) => ipcRenderer.invoke('itch:delete-game', gameId, gameUrl, installLocation),
   // GOG
   getGogInstalledGames: () => ipcRenderer.invoke('gog:get-installed-games'),
   getGogLibrary: () => ipcRenderer.invoke('gog:get-library'),
@@ -205,6 +241,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openGogGame: (productId) => ipcRenderer.invoke('gog:open-game', productId),
   runGogGame: (productId) => ipcRenderer.invoke('gog:run-game', productId),
   installGogGame: (productId) => ipcRenderer.invoke('gog:install-game', productId),
+  deleteGogGame: (productId) => ipcRenderer.invoke('gog:delete-game', productId),
+  // Local pirate library
+  getPirateLibraryGames: () => ipcRenderer.invoke('pirate-library:get-games'),
+  addPirateLibraryGameFromDialog: () => ipcRenderer.invoke('pirate-library:add-game-from-dialog'),
+  removePirateLibraryGame: (gameId) => ipcRenderer.invoke('pirate-library:remove-game', gameId),
+  runPirateLibraryGame: (executablePath) => ipcRenderer.invoke('pirate-library:run-game', executablePath),
   //Pirate Sites
   cloudscraperFetch: (url, options) => ipcRenderer.invoke('cloudscraper:fetch', url, options),
   cloudscraperDodiRepacksHome: () => ipcRenderer.invoke('cloudscraper:dodi-repacks-home'),
@@ -249,6 +291,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   // GamesController
   getGames: (from, countryCode = 'DE') => ipcRenderer.invoke('games:get-games', from, { countryCode }),
+  searchGames: (needle, tags = []) => ipcRenderer.invoke('games:search', needle, { tags }),
   getAllDetailsByID: (id, countryCode = 'DE') => ipcRenderer.invoke('games:get-all-details-by-id', id, { countryCode }),
   getAllDetailsByAppIDAndPlatform: (appId, platform, countryCode = 'DE') =>
     ipcRenderer.invoke('games:get-all-details-by-appid-and-platform', {

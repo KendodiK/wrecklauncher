@@ -2,6 +2,8 @@
 
 const { enc, joinUrl, normalizeBaseUrl } = require('../lib/url');
 const { fetchJsonSafe } = require('../lib/http');
+const http = require('node:http');
+const https = require('node:https');
 
 class GamesController {
   /** @type {string} */
@@ -807,6 +809,91 @@ _collapseWhitespace(text) {
     }
 
     return Array.isArray(json) ? json : (json ?? []);
+  }
+
+  /**
+   * Server-side game search via backend endpoint.
+   *
+   * @param {string} needle
+   * @param {{ tags?: string[] }} [opts]
+   * @returns {Promise<any[]>}
+   */
+  async searchGames(needle, opts = {}) {
+    const normalizedNeedle = String(needle || '').trim();
+    const normalizedTags = Array.isArray(opts?.tags)
+      ? opts.tags.map((tag) => String(tag || '').trim()).filter((tag) => !!tag)
+      : [];
+
+    if (!normalizedNeedle && normalizedTags.length < 1) {
+      return [];
+    }
+
+    const url = joinUrl(this.#serverUrl, 'api', 'search');
+    const payload = JSON.stringify({
+      needle: normalizedNeedle,
+      tags: normalizedTags,
+    });
+
+    const target = new URL(url);
+    const requestClient = target.protocol === 'https:' ? https : http;
+
+    const { ok, status, json, text } = await new Promise((resolve, reject) => {
+      const req = requestClient.request(
+        {
+          protocol: target.protocol,
+          hostname: target.hostname,
+          port: target.port || undefined,
+          path: `${target.pathname}${target.search}`,
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(payload),
+          },
+        },
+        (res) => {
+          /** @type {Buffer[]} */
+          const chunks = [];
+          res.on('data', (chunk) => {
+            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+          });
+          res.on('end', () => {
+            const text = Buffer.concat(chunks).toString('utf8');
+            let json = null;
+            if (text) {
+              try {
+                json = JSON.parse(text);
+              } catch {
+                json = null;
+              }
+            }
+
+            const status = Number(res.statusCode) || 0;
+            resolve({
+              ok: status >= 200 && status < 300,
+              status,
+              json,
+              text,
+            });
+          });
+        },
+      );
+
+      req.on('error', reject);
+      req.write(payload);
+      req.end();
+    });
+
+    if (!ok) {
+      const apiError = json && typeof json === 'object' ? (json.error || json.message) : null;
+      const snippet = String(apiError ?? text ?? 'Unknown error').replace(/\s+/g, ' ').trim().slice(0, 300);
+      throw new Error(`Failed to search games (HTTP ${status}): ${snippet}`);
+    }
+
+    if (Array.isArray(json)) return json;
+    if (Array.isArray(json?.items)) return json.items;
+    if (Array.isArray(json?.data)) return json.data;
+    return [];
   }
   /**
    * 

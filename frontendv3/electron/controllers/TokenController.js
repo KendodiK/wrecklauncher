@@ -48,6 +48,17 @@ class TokenController {
   }
 
   /**
+   * Clears all in-memory auth state used by this controller.
+   * Use this for explicit user-initiated logout.
+   */
+  async clearSession() {
+    this.#token = null;
+    this.#username = '';
+    this.#password = '';
+    this.#email = '';
+  }
+
+  /**
    * @param {any} json
    * @param {string|null|undefined} text
    * @returns {AuthToken|null}

@@ -1,11 +1,37 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 
+function buildInlineSliderPlaceholder(title) {
+	const raw = String(title || 'Game').trim() || 'Game';
+	const safeLabel = raw
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;')
+		.replace(/"/g, '&quot;')
+		.replace(/'/g, '&#39;')
+		.slice(0, 24);
+
+	const svg = [
+		'<svg xmlns="http://www.w3.org/2000/svg" width="300" height="420" viewBox="0 0 300 420">',
+		'<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">',
+		'<stop offset="0%" stop-color="#0f172a"/><stop offset="100%" stop-color="#1e293b"/>',
+		'</linearGradient></defs>',
+		'<rect width="300" height="420" fill="url(#g)"/>',
+		'<rect x="18" y="18" width="264" height="384" rx="16" fill="none" stroke="#334155" stroke-width="2"/>',
+		'<text x="150" y="212" text-anchor="middle" fill="#e2e8f0" font-size="20" font-family="Segoe UI, Arial, sans-serif" font-weight="700">Game</text>',
+		`<text x="150" y="244" text-anchor="middle" fill="#94a3b8" font-size="14" font-family="Segoe UI, Arial, sans-serif">${safeLabel}</text>`,
+		'</svg>',
+	].join('');
+
+	return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
 // Base slider: structure + JavaScript behavior. Styling/animation is injected via props.
 // games: optional array of { id, image, title }
 const GameSliderBase = ({
 	mode = 'translate',
 	games,
+	showFallbackCards = true,
 	topVh = 0,
 	activeOffsetPx = 200,
 	cloneCount: cloneCountProp = 5,
@@ -46,28 +72,34 @@ const GameSliderBase = ({
 	const isDragging = useRef(false);
 
 	const baseCards = useMemo(() => {
+		const fallbackCards = showFallbackCards
+			? [1, 2, 3, 4, 5, 6, 7].map((n) => ({
+				id: n,
+				image: buildInlineSliderPlaceholder(String(n)),
+				title: `Game ${n}`,
+			}))
+			: [];
+
 		const source = (games && games.length
 			? games
-			: [1, 2, 3, 4, 5, 6, 7].map((n) => ({
-				id: n,
-				image: `https://via.placeholder.com/300x420?text=${n}`,
-				title: `Game ${n}`,
-			})))
+			: fallbackCards)
 			.map((g, index) => {
 				const card = g && typeof g === 'object' ? g : { id: g };
+				const title = card.title ?? card.name ?? `Game ${index + 1}`;
+				const image =
+					typeof (card.image ?? card.banner_img) === 'string' && String(card.image ?? card.banner_img).trim()
+						? String(card.image ?? card.banner_img).trim()
+						: buildInlineSliderPlaceholder(title);
 				return {
 					...card,
 					id: card.id ?? card.appid ?? card.app_id ?? card.game_id ?? index,
-					image:
-						card.image ??
-						card.banner_img ??
-						`https://via.placeholder.com/300x420?text=${index + 1}`,
-					title: card.title ?? card.name ?? `Game ${index + 1}`,
+					image,
+					title,
 				};
 			});
 
 		return source;
-	}, [games]);
+	}, [games, showFallbackCards]);
 
 	const cloneCount = useMemo(() => {
 		if (!loop) return 0;

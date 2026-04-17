@@ -17,6 +17,221 @@ class UserController extends TokenController {
   }
 
   /**
+   * @param {string|null|undefined} token
+   * @returns {string|null}
+   */
+  #extractNativeUserIdFromToken(token) {
+    const raw = String(token || '').trim();
+    if (!raw) return null;
+    const [nativeUserId] = raw.split('.');
+    const normalized = String(nativeUserId || '').trim();
+    return normalized || null;
+  }
+
+  /**
+   * @param {any} raw
+   * @param {string|number|null} [fallbackId]
+   * @returns {{ id: string|number|null, username: string, bio: string|null, avatarUrl: string|null }|null}
+   */
+  #normalizeNativeUser(raw, fallbackId = null) {
+    if (!raw || typeof raw !== 'object') return null;
+    const username = String(raw?.name ?? raw?.username ?? raw?.user_name ?? '').trim();
+    const id = raw?.id ?? fallbackId ?? null;
+    if (!username && (id === null || id === undefined || String(id).trim() === '')) {
+      return null;
+    }
+
+    return {
+      id,
+      username: username || `User ${String(id || '').trim() || '?'}`,
+      bio: raw?.bio ?? null,
+      avatarUrl: raw?.pfp ?? raw?.avatarUrl ?? null,
+    };
+  }
+
+  /**
+   * @param {string|number} userId
+   * @returns {Promise<{ id: string|number|null, username: string, bio: string|null, avatarUrl: string|null }|null>}
+   */
+  async getNativeUserById(userId) {
+    const normalizedUserId = String(userId ?? '').trim();
+    if (!normalizedUserId) return null;
+
+    const url = joinUrl(this.#serverUrl, 'api', 'native-users', enc(normalizedUserId));
+    const { ok, status, json, text } = await fetchJsonSafe(url, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+    });
+
+    if (!ok) {
+      const msg = httpErrorMessage(status, json, text);
+      if (status === 404 || status === 405) return null;
+      throw new Error(msg);
+    }
+
+    return this.#normalizeNativeUser(json, normalizedUserId);
+  }
+
+  /**
+   * @param {string} name
+   * @returns {Promise<Array<{ id: string|number|null, username: string, bio: string|null, avatarUrl: string|null }>>}
+   */
+  async searchNativeUsersByName(name) {
+    const needle = String(name || '').trim();
+    if (!needle) return [];
+
+    const url = joinUrl(this.#serverUrl, 'api', 'native-users', 'name', enc(needle));
+    const { ok, status, json, text } = await fetchJsonSafe(url, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+    });
+
+    if (!ok) {
+      const msg = httpErrorMessage(status, json, text);
+      if (status === 404 || status === 405) return [];
+      throw new Error(msg);
+    }
+
+    const rows = Array.isArray(json)
+      ? json
+      : (Array.isArray(json?.items) ? json.items : (Array.isArray(json?.data) ? json.data : []));
+
+    const normalizedRows = rows
+      .map((row) => this.#normalizeNativeUser(row))
+      .filter((row) => !!row);
+
+    const deduped = [];
+    const seen = new Set();
+    for (const row of normalizedRows) {
+      const key = String(row?.id ?? row?.username ?? '').trim().toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(row);
+    }
+
+    return deduped;
+  }
+
+  /**
+   * @param {string|number|null|undefined} [nativeUserIdOverride]
+   * @returns {Promise<Array<{ friendshipId: string|number|null, userId: string|number, username: string, bio: string|null, avatarUrl: string|null }>>}
+   */
+  async getFriendsWithProfiles(nativeUserIdOverride) {
+    const token = await this.getToken();
+    if (!token) throw new Error('Missing auth token');
+
+    const nativeUserId =
+      String(nativeUserIdOverride ?? '').trim() || this.#extractNativeUserIdFromToken(token);
+    if (!nativeUserId) throw new Error('Missing native user id');
+
+    const url = joinUrl(this.#serverUrl, 'api', 'friends', enc(nativeUserId));
+    const { ok, status, json, text } = await fetchJsonSafe(url, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+
+    if (!ok) {
+      const msg = httpErrorMessage(status, json, text);
+      if (status === 401) {
+        const e = new Error(msg);
+        // @ts-ignore
+        e.code = 'WRECK_INVALID_TOKEN';
+        throw e;
+      }
+      if (status === 404 || status === 405) return [];
+      throw new Error(msg);
+    }
+
+    const rows = Array.isArray(json)
+      ? json
+      : (Array.isArray(json?.items) ? json.items : (Array.isArray(json?.data) ? json.data : []));
+
+    const normalizedRows = rows
+      .map((row) => {
+        if (!row || typeof row !== 'object') return null;
+        const friendshipId = row?.id ?? row?.friendship_id ?? row?.friendshipId ?? null;
+        const friendUserId = row?.user_id ?? row?.userId ?? row?.friend_user_id ?? row?.friendUserId ?? null;
+        const normalizedFriendUserId = String(friendUserId ?? '').trim();
+        if (!normalizedFriendUserId) return null;
+        return {
+          friendshipId,
+          userId: normalizedFriendUserId,
+        };
+      })
+      .filter((row) => !!row);
+
+    const uniqueIds = Array.from(new Set(normalizedRows.map((row) => String(row.userId || '').trim()).filter(Boolean)));
+    const profileById = new Map();
+    const profiles = await Promise.all(uniqueIds.map((id) => this.getNativeUserById(id).catch(() => null)));
+    for (const profile of profiles) {
+      const id = String(profile?.id ?? '').trim();
+      if (!id) continue;
+      profileById.set(id, profile);
+    }
+
+    const friends = normalizedRows.map((row) => {
+      const profile = profileById.get(String(row.userId || '').trim()) || null;
+      const normalizedProfile = profile || {
+        id: row.userId,
+        username: `User ${row.userId}`,
+        bio: null,
+        avatarUrl: null,
+      };
+      return {
+        friendshipId: row.friendshipId,
+        userId: normalizedProfile.id ?? row.userId,
+        username: normalizedProfile.username,
+        bio: normalizedProfile.bio,
+        avatarUrl: normalizedProfile.avatarUrl,
+      };
+    });
+
+    friends.sort((left, right) => String(left.username || '').localeCompare(String(right.username || '')));
+    return friends;
+  }
+
+  /**
+   * @param {string|number} friendUserId
+   * @returns {Promise<any>}
+   */
+  async addFriend(friendUserId) {
+    const token = await this.getToken();
+    if (!token) throw new Error('Missing auth token');
+
+    const normalizedFriendUserId = Number(friendUserId);
+    if (!Number.isFinite(normalizedFriendUserId) || normalizedFriendUserId <= 0) {
+      throw new Error('Invalid friend user id');
+    }
+
+    const url = joinUrl(this.#serverUrl, 'api', 'friends');
+    const { ok, status, json, text } = await fetchJsonSafe(url, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({ friend_user_id: normalizedFriendUserId }),
+    });
+
+    if (!ok) {
+      const msg = httpErrorMessage(status, json, text);
+      if (status === 401) {
+        const e = new Error(msg);
+        // @ts-ignore
+        e.code = 'WRECK_INVALID_TOKEN';
+        throw e;
+      }
+      throw new Error(msg);
+    }
+
+    return json ?? { ok: true };
+  }
+
+  /**
    * Resolve a platform user id by (platform_id, platform_user_name) for the authenticated native user.
    * Supports mixed backend endpoint variants for platform-users listing.
    *
