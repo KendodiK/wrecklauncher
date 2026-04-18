@@ -5,6 +5,9 @@ const path = require('path');
 const isDev = process.env.NODE_ENV === 'development';
 const ITCH_OAUTH_CLIENT_ID = 'e0ee61cc2f4a3ad1a984914d3d833341';
 const GOG_OAUTH_CLIENT_ID = '46899977096215655';
+const devServerUrl = String(
+  process.env.VITE_DEV_SERVER_URL || `http://localhost:${String(process.env.VITE_DEV_PORT || '5173')}`,
+).trim();
 
 let mainWindow;
 
@@ -45,7 +48,7 @@ function createWindow() {
   });
 
   if (isDev) {
-    mainWindow.loadURL('http://localhost:5173');
+    mainWindow.loadURL(devServerUrl);
     if (process.env.OPEN_DEVTOOLS === '1') {
       mainWindow.webContents.openDevTools();
     }
