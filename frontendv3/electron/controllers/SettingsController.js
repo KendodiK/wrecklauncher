@@ -43,13 +43,51 @@ class SettingsController {
   }
 
   /**
+   * @param {any} value
+   * @returns {string|null}
+   */
+  #normalizeCountryCode(value) {
+    const raw = String(value || '').trim().toUpperCase();
+    return /^[A-Z]{2}$/.test(raw) ? raw : null;
+  }
+
+  /**
+   * @returns {string}
+   */
+  #inferCountryCodeFromLocale() {
+    const localeCandidates = [];
+
+    try {
+      const resolved = Intl?.DateTimeFormat?.().resolvedOptions?.().locale;
+      if (resolved) localeCandidates.push(resolved);
+    } catch {
+      // ignore
+    }
+
+    if (typeof process?.env?.LC_ALL === 'string' && process.env.LC_ALL.trim()) {
+      localeCandidates.push(process.env.LC_ALL);
+    }
+    if (typeof process?.env?.LANG === 'string' && process.env.LANG.trim()) {
+      localeCandidates.push(process.env.LANG);
+    }
+
+    for (const locale of localeCandidates) {
+      const match = String(locale).match(/[-_](?<cc>[A-Za-z]{2})\b/);
+      const code = this.#normalizeCountryCode(match?.groups?.cc || match?.[1]);
+      if (code) return code;
+    }
+
+    return 'DE';
+  }
+
+  /**
    * Get default settings
    * @returns {any}
    */
   #getDefaultSettings() {
-    const username = os.userInfo().username || 'user';
     const defaultDownloadPath = path.join(os.homedir(), 'Downloads', 'WreckLauncher');
     const defaultPirateTorrentPath = path.join(defaultDownloadPath, 'Pirate Torrents');
+    const defaultCountryCode = this.#inferCountryCodeFromLocale();
 
     return {
       display: {
@@ -67,6 +105,9 @@ class SettingsController {
         path: defaultDownloadPath,
         pirateTorrentsPath: defaultPirateTorrentPath,
         concurrent: 3,
+      },
+      store: {
+        countryCode: defaultCountryCode,
       },
       account: {
         profile: {
@@ -114,23 +155,47 @@ class SettingsController {
    */
   async getSettings() {
     const settingsPath = this.#getSettingsPath();
+    const defaults = this.#getDefaultSettings();
 
     try {
       if (fs.existsSync(settingsPath)) {
         const data = fs.readFileSync(settingsPath, 'utf-8');
         const parsed = JSON.parse(data);
         const sanitizedLoaded = this.#stripVolatilePlatformSettings(parsed);
-        
-        // Merge with defaults to ensure all fields exist
-        const defaults = this.#getDefaultSettings();
-        return this.#mergeSettings(defaults, sanitizedLoaded);
+
+        // Merge with defaults to ensure all fields exist.
+        const merged = this.#mergeSettings(defaults, sanitizedLoaded);
+
+        // Migrate older settings files where country code lived outside `store.countryCode`.
+        const hasStoreCountry = this.#normalizeCountryCode(parsed?.store?.countryCode);
+        if (!hasStoreCountry) {
+          const legacyCountry =
+            this.#normalizeCountryCode(parsed?.display?.countryCode)
+            || this.#normalizeCountryCode(parsed?.account?.countryCode);
+          if (legacyCountry) {
+            merged.store = {
+              ...(merged.store || {}),
+              countryCode: legacyCountry,
+            };
+          }
+        }
+
+        const normalizedStoreCountryCode =
+          this.#normalizeCountryCode(merged?.store?.countryCode)
+          || this.#inferCountryCodeFromLocale();
+        merged.store = {
+          ...(merged.store || {}),
+          countryCode: normalizedStoreCountryCode,
+        };
+
+        return merged;
       }
     } catch (err) {
       console.error('[SettingsController] Failed to load settings:', err);
     }
 
     // Return defaults if file doesn't exist or parsing fails
-    return this.#getDefaultSettings();
+    return defaults;
   }
 
   /**
@@ -201,7 +266,11 @@ class SettingsController {
       throw new Error(`Invalid settings category: ${category}`);
     }
 
-    settings[category][key] = value;
+    if (category === 'store' && key === 'countryCode') {
+      settings[category][key] = this.#normalizeCountryCode(value) || this.#inferCountryCodeFromLocale();
+    } else {
+      settings[category][key] = value;
+    }
     await this.#saveSettings(settings);
 
     return settings;
@@ -214,7 +283,39 @@ class SettingsController {
    */
   async updateSettings(newSettings) {
     const current = await this.getSettings();
-    const merged = this.#mergeSettings(current, newSettings);
+    /** @type {any} */
+    let normalizedIncoming =
+      (newSettings && typeof newSettings === 'object')
+        ? { ...newSettings }
+        : newSettings;
+
+    if (
+      normalizedIncoming
+      && typeof normalizedIncoming === 'object'
+      && normalizedIncoming.store
+      && typeof normalizedIncoming.store === 'object'
+      && Object.prototype.hasOwnProperty.call(normalizedIncoming.store, 'countryCode')
+    ) {
+      normalizedIncoming = {
+        ...normalizedIncoming,
+        store: {
+          ...normalizedIncoming.store,
+          countryCode:
+            this.#normalizeCountryCode(normalizedIncoming.store.countryCode)
+            || this.#inferCountryCodeFromLocale(),
+        },
+      };
+    }
+
+    const merged = this.#mergeSettings(current, normalizedIncoming);
+
+    const normalizedStoreCountryCode =
+      this.#normalizeCountryCode(merged?.store?.countryCode)
+      || this.#inferCountryCodeFromLocale();
+    merged.store = {
+      ...(merged.store || {}),
+      countryCode: normalizedStoreCountryCode,
+    };
     
     await this.#saveSettings(merged);
     return merged;

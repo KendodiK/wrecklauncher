@@ -235,43 +235,37 @@ class PlatformsController {
     const normalizedId = String(platformUserId ?? '').trim();
     if (!normalizedId) throw new Error('platformUserId is required');
 
-    const endpoints = [
-      joinUrl(this.#serverUrl, 'api', 'platform-users', enc(normalizedId)),
-      joinUrl(this.#serverUrl, 'api', 'platform_user', enc(normalizedId)),
-      joinUrl(this.#serverUrl, 'api', 'platform-user', enc(normalizedId)),
-    ];
+    const url = joinUrl(this.#serverUrl, 'api', 'platform-users', enc(normalizedId));
 
-    /** @type {Error|null} */
-    let lastCompatibilityError = null;
+    const { ok, status, json, text } = await fetchJsonSafe(url, {
+      method: 'DELETE',
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    });
 
-    for (const url of endpoints) {
-      const { ok, status, json, text } = await fetchJsonSafe(url, {
-        method: 'DELETE',
-        headers: {
-          'Accept': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-      });
+    if (ok) return json ?? { deleted: true };
 
-      if (ok) return json ?? { deleted: true };
-
-      const msg = httpErrorMessage(status, json, text);
-      if (status === 401) {
-        const e = new Error(msg);
-        // @ts-ignore
-        e.code = 'WRECK_INVALID_TOKEN';
-        throw e;
-      }
-
-      if (status === 404 || status === 405) {
-        lastCompatibilityError = new Error(msg);
-        continue;
-      }
-
-      throw new Error(msg);
+    const msg = httpErrorMessage(status, json, text);
+    if (status === 401) {
+      const e = new Error(msg);
+      // @ts-ignore
+      e.code = 'WRECK_INVALID_TOKEN';
+      throw e;
     }
 
-    throw lastCompatibilityError || new Error('No compatible platform-user delete endpoint found');
+    // If the row is already missing for the authenticated user, keep disconnect idempotent.
+    if (status === 404) {
+      return {
+        deleted: false,
+        missing: true,
+        id: normalizedId,
+        message: msg,
+      };
+    }
+
+    throw new Error(msg);
   }
 
   async getAllPlatformUserIds(token) {

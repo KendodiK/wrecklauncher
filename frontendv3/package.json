@@ -5,7 +5,7 @@
   "main": "electron/main.js",
   "scripts": {
     "dev": "vite",
-    "dev:electron": "concurrently -k -n VITE,ELECTRON -c green,blue \"vite\" \"cross-env NODE_ENV=development OPEN_DEVTOOLS=1 electron .\"",
+    "dev:electron": "cross-env OPEN_DEVTOOLS=1 node scripts/electron-dev.cjs",
     "build": "vite build",
     "preview": "vite preview",
     "electron:dev": "cross-env NODE_ENV=development electron .",

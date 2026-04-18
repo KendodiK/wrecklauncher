@@ -1,12 +1,29 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, shell } = require('electron');
 const fs = require('node:fs');
 const path = require('path');
 
 const isDev = process.env.NODE_ENV === 'development';
 const ITCH_OAUTH_CLIENT_ID = 'e0ee61cc2f4a3ad1a984914d3d833341';
 const GOG_OAUTH_CLIENT_ID = '46899977096215655';
+const devServerUrl = String(
+  process.env.VITE_DEV_SERVER_URL || `http://localhost:${String(process.env.VITE_DEV_PORT || '5173')}`,
+).trim();
 
 let mainWindow;
+/** @type {Tray|null} */
+let appTray = null;
+let appIsQuitting = false;
+/** @type {() => Promise<Tray|null>} */
+let ensureTray = async () => appTray;
+/** @type {() => void} */
+let showMainWindowFromTray = () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+  mainWindow.show();
+  mainWindow.focus();
+};
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -44,8 +61,19 @@ function createWindow() {
     console.log('[electron] did-finish-load:', currentUrl);
   });
 
+  mainWindow.on('close', (event) => {
+    if (appIsQuitting) return;
+    event.preventDefault();
+    mainWindow.hide();
+    void ensureTray();
+  });
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
+
   if (isDev) {
-    mainWindow.loadURL('http://localhost:5173');
+    mainWindow.loadURL(devServerUrl);
     if (process.env.OPEN_DEVTOOLS === '1') {
       mainWindow.webContents.openDevTools();
     }
@@ -57,6 +85,139 @@ function createWindow() {
 app.whenReady().then(() => {
   // Serverless controller modules (no LocalApi web server).
   const backendUrl = 'https://api.anchorlauncher.hu';
+  const persistedAuthPath = path.join(app.getPath('userData'), 'auth.json');
+
+  /**
+   * @returns {string|null}
+   */
+  function readPersistedAuthToken() {
+    try {
+      if (!fs.existsSync(persistedAuthPath)) return null;
+      const raw = String(fs.readFileSync(persistedAuthPath, 'utf8') || '').trim();
+      if (!raw) return null;
+
+      let parsed;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        const fallback = raw.replace(/^"(.*)"$/, '$1').trim();
+        return fallback || null;
+      }
+
+      if (typeof parsed === 'string' && parsed.trim()) {
+        return parsed.trim();
+      }
+
+      const token = typeof parsed?.token === 'string' ? parsed.token.trim() : '';
+      return token || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * @param {string|null|undefined} token
+   * @returns {void}
+   */
+  function writePersistedAuthToken(token) {
+    const normalized = String(token || '').trim();
+    if (!normalized) {
+      clearPersistedAuthToken();
+      return;
+    }
+
+    try {
+      fs.mkdirSync(path.dirname(persistedAuthPath), { recursive: true });
+      fs.writeFileSync(
+        persistedAuthPath,
+        JSON.stringify({ token: normalized, updatedAt: new Date().toISOString() }, null, 2),
+        'utf8'
+      );
+    } catch (err) {
+      console.warn('[auth] Failed to persist token to auth.json:', err);
+    }
+  }
+
+  /**
+   * @returns {void}
+   */
+  function clearPersistedAuthToken() {
+    try {
+      if (fs.existsSync(persistedAuthPath)) {
+        fs.unlinkSync(persistedAuthPath);
+      }
+    } catch (err) {
+      console.warn('[auth] Failed to clear persisted auth token:', err);
+    }
+  }
+
+  /**
+   * @returns {Promise<Electron.NativeImage>}
+   */
+  async function buildTrayIcon() {
+    try {
+      const icon = await app.getFileIcon(process.execPath, { size: 'small' });
+      if (icon && !icon.isEmpty()) return icon;
+    } catch {
+      // ignore and fallback
+    }
+
+    // Last-resort tiny fallback icon to avoid Tray constructor failures.
+    const fallbackPngBase64 =
+      'iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAYAAAAfSC3RAAAAqklEQVQ4T7WSsQnCQBBF3y4I2wsWkQ2khY2VhY2VlY2FhY1dY2VhYQf0kM4S8Y0hP0gkS4R8xwQ3k4hP5mB2W6xqk7v7b8kQ0xj3l0o9a0j2Q5J3q9wXkW4z0Q2GmA5F7bIYQ7M+6S8JX1GxKfQj0XlQd9mWm2VgQ5m8qk8wSx+q1A8eM7l+8CqK7x7V5r4oNw2L8vJHkU2Nf6k0f0x5+3q1mYf7wNf0kN7uL6w8nQ3m9w7F2g6r5S3N8oW7wH7JfQfG9u4S0AAAAASUVORK5CYII=';
+    return nativeImage.createFromDataURL(`data:image/png;base64,${fallbackPngBase64}`);
+  }
+
+  showMainWindowFromTray = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      createWindow();
+      return;
+    }
+
+    if (mainWindow.isMinimized()) {
+      mainWindow.restore();
+    }
+    mainWindow.show();
+    mainWindow.focus();
+  };
+
+  ensureTray = async () => {
+    if (appTray) return appTray;
+
+    const icon = await buildTrayIcon();
+    appTray = new Tray(icon);
+    appTray.setToolTip('WreckLauncher');
+
+    const contextMenu = Menu.buildFromTemplate([
+      {
+        label: 'Open WreckLauncher',
+        click: () => {
+          showMainWindowFromTray();
+        },
+      },
+      {
+        label: 'Quit WreckLauncher',
+        click: () => {
+          appIsQuitting = true;
+          if (appTray) {
+            try { appTray.destroy(); } catch { /* ignore */ }
+            appTray = null;
+          }
+          app.quit();
+        },
+      },
+    ]);
+
+    appTray.setContextMenu(contextMenu);
+    appTray.on('click', () => {
+      showMainWindowFromTray();
+    });
+    appTray.on('double-click', () => {
+      showMainWindowFromTray();
+    });
+
+    return appTray;
+  };
 
   
   /** @type {import('./controllers/UserController')|null} */
@@ -137,7 +298,7 @@ app.whenReady().then(() => {
   function getPcGamesTorrentCtrl() {
     if (!pcGamesTorrentCtrl) {
       const PcGamesTorrentController = require('./controllers/PcGamesTorrentController');
-      pcGamesTorrentCtrl = new PcGamesTorrentController({ timeoutMs: 20_000 });
+      pcGamesTorrentCtrl = new PcGamesTorrentController({ timeoutMs: 20_000, redirectTimeoutMs: 25_000 });
     }
     return pcGamesTorrentCtrl;
   }
@@ -188,6 +349,16 @@ function getShopSpecialsCtrl() {
     }
     return pirateLibraryCtrl;
   }
+
+  const bootToken = readPersistedAuthToken();
+  if (bootToken) {
+    try {
+      getUserCtrl().setToken(bootToken);
+    } catch {
+      // ignore
+    }
+  }
+
   /**
    * Registers an IPC handler with consistent error logging.
    * @param {string} channel
@@ -236,6 +407,7 @@ function getShopSpecialsCtrl() {
       // Keep main-side controller token in sync for retry/login flows.
       try {
         getUserCtrl().setToken(tokenStr);
+        writePersistedAuthToken(tokenStr);
       } catch {
         // ignore
       }
@@ -244,6 +416,24 @@ function getShopSpecialsCtrl() {
         return await fn({ event, token: tokenStr }, ...args);
       } catch (err) {
         if (err && typeof err === 'object' && /** @type {any} */ (err).code === 'WRECK_INVALID_TOKEN') {
+          // Verify once before invalidating session to avoid false logouts from transient errors.
+          let tokenDefinitelyInvalid = true;
+          try {
+            await getUserCtrl().getCurrentUserInfo(tokenStr);
+            tokenDefinitelyInvalid = false;
+          } catch (verifyErr) {
+            const verifyCode = verifyErr && typeof verifyErr === 'object'
+              ? String((/** @type {any} */ (verifyErr)).code || '').trim()
+              : '';
+            if (verifyCode !== 'WRECK_INVALID_TOKEN') {
+              tokenDefinitelyInvalid = false;
+            }
+          }
+
+          if (!tokenDefinitelyInvalid) {
+            throw err;
+          }
+
           // Token rotated/expired: clear cached token, re-login once (if creds are known), retry.
           await getUserCtrl()._invalidateToken();
           let token2 = null;
@@ -254,6 +444,7 @@ function getShopSpecialsCtrl() {
           }
 
           if (!token2) {
+            clearPersistedAuthToken();
             try {
               event.sender.send('auth:token-cleared');
             } catch {
@@ -269,6 +460,13 @@ function getShopSpecialsCtrl() {
             // ignore
           }
 
+          try {
+            getUserCtrl().setToken(token2);
+            writePersistedAuthToken(token2);
+          } catch {
+            // ignore
+          }
+
           return await fn({ event, token: token2 }, ...args);
         }
         throw err;
@@ -277,7 +475,32 @@ function getShopSpecialsCtrl() {
   }
 
   // Compatibility: still expose token fetch endpoint for legacy client-side flows.
-  handle('user:get-token', async () => await getUserCtrl().getToken());
+  handle('user:get-token', async () => {
+    let token = null;
+    try {
+      token = await getUserCtrl().getToken();
+    } catch {
+      token = null;
+    }
+
+    const normalizedRuntimeToken = typeof token === 'string' ? token.trim() : '';
+    if (normalizedRuntimeToken) {
+      writePersistedAuthToken(normalizedRuntimeToken);
+      return normalizedRuntimeToken;
+    }
+
+    const persisted = readPersistedAuthToken();
+    if (persisted) {
+      try {
+        getUserCtrl().setToken(persisted);
+      } catch {
+        // ignore
+      }
+      return persisted;
+    }
+
+    return null;
+  });
 
   handle('user:clear-token', async () => {
     const ctrl = getUserCtrl();
@@ -286,37 +509,35 @@ function getShopSpecialsCtrl() {
     } else {
       await ctrl._invalidateToken();
     }
+    clearPersistedAuthToken();
     return true;
   });
 
   handle('user:login', async (_event, username, password) => {
-    return await getUserCtrl().login(String(username), String(password));
+    const token = await getUserCtrl().login(String(username), String(password));
+    const normalized = typeof token === 'string' ? token.trim() : '';
+    if (normalized) {
+      try {
+        getUserCtrl().setToken(normalized);
+      } catch {
+        // ignore
+      }
+      writePersistedAuthToken(normalized);
+    }
+    return token;
   });
 
-  handle('user:register', async (_event, username, password, email, profile) => {
-    const token = await getUserCtrl().register(String(username), String(password), String(email), profile);
-
-    const normalizedProfile = profile && typeof profile === 'object' ? profile : {};
-    const avatarUrl = String(
-      normalizedProfile?.avatarUrl || normalizedProfile?.pfp || normalizedProfile?.profilePicture || ''
-    ).trim();
-    const bio = String(normalizedProfile?.bio || '').trim();
-
-    if (avatarUrl || bio) {
+  handle('user:register', async (_event, username, password, email) => {
+    const token = await getUserCtrl().register(String(username), String(password), String(email));
+    const normalized = typeof token === 'string' ? token.trim() : '';
+    if (normalized) {
       try {
-        await getSettingsCtrl().updateSettings({
-          account: {
-            profile: {
-              ...(avatarUrl ? { avatarUrl } : {}),
-              ...(bio ? { bio } : {}),
-            },
-          },
-        });
-      } catch (err) {
-        console.warn('[auth.debug] Failed to persist registration profile to settings:', err);
+        getUserCtrl().setToken(normalized);
+      } catch {
+        // ignore
       }
+      writePersistedAuthToken(normalized);
     }
-
     return token;
   });
 
@@ -343,51 +564,7 @@ function getShopSpecialsCtrl() {
 
   handleAuthed('user:get-current-user', async ({ token }) => {
     getUserCtrl().setToken(token);
-    const currentUser = await getUserCtrl().getCurrentUserInfo(token);
-    const settings = await getSettingsCtrl().getSettings();
-
-    const settingsProfile = settings?.account?.profile || {};
-    const settingsAvatarUrl = String(settingsProfile?.avatarUrl || '').trim() || null;
-    const settingsBio = String(settingsProfile?.bio || '').trim() || null;
-
-    console.log('[auth.debug] user:get-current-user source values', {
-      tokenUserId: String(token || '').split('.')[0] || null,
-      apiAvatarUrl: currentUser?.avatarUrl ?? null,
-      apiPfp: currentUser?.pfp ?? null,
-      settingsAvatarUrl,
-      settingsBioPresent: Boolean(settingsBio),
-    });
-
-    if (!currentUser) {
-      const payload = {
-        id: null,
-        username: 'Player',
-        bio: settingsBio,
-        avatarUrl: settingsAvatarUrl,
-        pfp: settingsAvatarUrl,
-      };
-      console.log('[auth.debug] user:get-current-user resolved payload (fallback)', payload);
-      return {
-        id: null,
-        username: 'Player',
-        bio: settingsBio,
-        avatarUrl: settingsAvatarUrl,
-        pfp: settingsAvatarUrl,
-      };
-    }
-
-    const resolvedAvatar = String(currentUser.avatarUrl || '').trim() || settingsAvatarUrl;
-    const resolvedBio = String(currentUser.bio || '').trim() || settingsBio;
-
-    const resolvedPayload = {
-      ...currentUser,
-      bio: resolvedBio,
-      avatarUrl: resolvedAvatar,
-      pfp: resolvedAvatar,
-    };
-    console.log('[auth.debug] user:get-current-user resolved payload', resolvedPayload);
-
-    return resolvedPayload;
+    return await getUserCtrl().getCurrentUserInfo(token);
   });
 
   handleAuthed('user:update-profile', async ({ token }, profilePatch) => {
@@ -420,6 +597,57 @@ function getShopSpecialsCtrl() {
     getUserCtrl().setToken(token);
     return await getUserCtrl().deleteFriend(friendshipId);
   });
+
+  function normalizeCountryCode(value) {
+    const raw = String(value || '').trim().toUpperCase();
+    return /^[A-Z]{2}$/.test(raw) ? raw : null;
+  }
+
+  function inferCountryCodeFromLocale() {
+    const localeCandidates = [];
+    try {
+      const resolved = Intl?.DateTimeFormat?.().resolvedOptions?.().locale;
+      if (resolved) localeCandidates.push(resolved);
+    } catch {
+      // ignore
+    }
+    if (typeof process?.env?.LC_ALL === 'string' && process.env.LC_ALL.trim()) {
+      localeCandidates.push(process.env.LC_ALL);
+    }
+    if (typeof process?.env?.LANG === 'string' && process.env.LANG.trim()) {
+      localeCandidates.push(process.env.LANG);
+    }
+
+    for (const locale of localeCandidates) {
+      const match = String(locale).match(/[-_](?<cc>[A-Za-z]{2})\b/);
+      const code = normalizeCountryCode(match?.groups?.cc || match?.[1]);
+      if (code) return code;
+    }
+
+    return 'DE';
+  }
+
+  async function resolvePreferredCountryCode(candidate) {
+    const direct = normalizeCountryCode(candidate);
+    if (direct) return direct;
+
+    try {
+      const settings = await getSettingsCtrl().getSettings();
+      const candidates = [
+        settings?.store?.countryCode,
+        settings?.display?.countryCode,
+        settings?.account?.countryCode,
+      ];
+      for (const entry of candidates) {
+        const normalized = normalizeCountryCode(entry);
+        if (normalized) return normalized;
+      }
+    } catch {
+      // ignore and use locale fallback
+    }
+
+    return inferCountryCodeFromLocale();
+  }
 
   // Settings (global app settings)
   handle('settings:get', async () => {
@@ -524,7 +752,8 @@ handle('steam:get-installed-games', async () => {
       }
     }
 
-    return await getSteamCtrl().getGameDetails(token || '', Number(appID), cc ? String(cc) : undefined);
+    const countryCode = await resolvePreferredCountryCode(cc);
+    return await getSteamCtrl().getGameDetails(token || '', Number(appID), countryCode.toLowerCase());
   });
 
   // Steam title-based details.
@@ -565,7 +794,8 @@ handle('steam:get-installed-games', async () => {
       }
     }
 
-    return await getSteamCtrl().getGameDetailsByTitle(token || '', titleText, cc ? String(cc) : undefined);
+    const countryCode = await resolvePreferredCountryCode(cc);
+    return await getSteamCtrl().getGameDetailsByTitle(token || '', titleText, countryCode.toLowerCase());
   });
 
   // Open Steam client install prompt for a Steam AppID.
@@ -590,11 +820,12 @@ handle('steam:get-installed-games', async () => {
 
   // Game DB details (requires backend support)
   handle('games:get-games', async (_event, from, opts) => {
-    const countryCode =
+    const rawCountryCode =
       opts && typeof opts === 'object' && typeof opts.countryCode === 'string'
         ? opts.countryCode
         : 'DE';
-    return await getGamesCtrl().getGames(Number(from), countryCode || 'DE');
+    const countryCode = await resolvePreferredCountryCode(rawCountryCode);
+    return await getGamesCtrl().getGames(Number(from), countryCode);
   });
 
   handle('games:search', async (_event, needle, opts) => {
@@ -604,29 +835,137 @@ handle('steam:get-installed-games', async () => {
       : [];
     return await getGamesCtrl().searchGames(normalizedNeedle, { tags });
   });
-  async function makeNameSlug(name) {
-    return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
+  function makeNameSlug(name) {
+    return String(name || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)+/g, '');
   }
+
+  const PIRATE_SCRAPE_TIMEOUT_MS = 5_000;
+  const PIRATE_SCRAPE_CACHE_TTL_MS = 8 * 60_000;
+  const PIRATE_SCRAPE_EMPTY_CACHE_TTL_MS = 2 * 60_000;
+  /** @type {Map<string, { expiresAt: number, sites: Array<{ name: string, url: string }> }>} */
+  const pirateScrapeCache = new Map();
+  /** @type {Map<string, Promise<Array<{ name: string, url: string }>>>} */
+  const pirateScrapeInFlight = new Map();
+
+  /**
+   * @template T
+   * @param {Promise<T>} promise
+   * @param {number} timeoutMs
+   * @returns {Promise<{ timedOut: boolean, value: T|null, error?: unknown }>}
+   */
+  function withSoftTimeout(promise, timeoutMs) {
+    return new Promise((resolve) => {
+      let done = false;
+      const timer = setTimeout(() => {
+        if (done) return;
+        done = true;
+        resolve({ timedOut: true, value: null });
+      }, Math.max(0, Number(timeoutMs) || 0));
+
+      Promise.resolve(promise)
+        .then((value) => {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          resolve({ timedOut: false, value });
+        })
+        .catch((error) => {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          resolve({ timedOut: false, value: null, error });
+        });
+    });
+  }
+
+  /**
+   * @param {string} slug
+   * @returns {Array<{ name: string, url: string }>|null}
+   */
+  function readPirateScrapeCache(slug) {
+    const entry = pirateScrapeCache.get(slug);
+    if (!entry) return null;
+    if (entry.expiresAt <= Date.now()) {
+      pirateScrapeCache.delete(slug);
+      return null;
+    }
+    return Array.isArray(entry.sites) ? entry.sites : null;
+  }
+
+  /**
+   * @param {string} slug
+   * @param {Array<{ name: string, url: string }>} sites
+   */
+  function writePirateScrapeCache(slug, sites) {
+    const normalizedSites = Array.isArray(sites)
+      ? sites
+        .map((site) => {
+          const name = String(site?.name || '').trim();
+          const url = String(site?.url || '').trim();
+          if (!url) return null;
+          return { name, url };
+        })
+        .filter(Boolean)
+      : [];
+
+    pirateScrapeCache.set(slug, {
+      expiresAt: Date.now() + (normalizedSites.length > 0 ? PIRATE_SCRAPE_CACHE_TTL_MS : PIRATE_SCRAPE_EMPTY_CACHE_TTL_MS),
+      sites: normalizedSites,
+    });
+  }
+
   async function getPirateSitesForGame(name) {
-    let sites = [];
-    try {
-      const fitGirlLink = await getFitGirlCtrl().fitGirlMagnetLink(await makeNameSlug(name));
-      if (fitGirlLink) {        
-        sites.push({ name: 'FitGirl Repacks', url: fitGirlLink });
-      }
-    } catch (e) {
-      console.warn('Failed to fetch FitGirl link:', e);
+    const slug = makeNameSlug(name);
+    if (!slug) return [];
+
+    const cachedSites = readPirateScrapeCache(slug);
+    if (cachedSites) return cachedSites;
+
+    const inFlight = pirateScrapeInFlight.get(slug);
+    if (inFlight) {
+      return await inFlight;
     }
-    console.log('Attempting to fetch PCGamesTorrent link for game:', await makeNameSlug(name));
+
+    const scrapePromise = (async () => {
+      const fitGirlTask = (async () => {
+        try {
+          const fitGirlLink = await getFitGirlCtrl().fitGirlMagnetLink(slug);
+          return fitGirlLink ? { name: 'FitGirl Repacks', url: fitGirlLink } : null;
+        } catch (error) {
+          console.warn('Failed to fetch FitGirl link:', error);
+          return null;
+        }
+      })();
+
+      const pcGamesTask = (async () => {
+        try {
+          console.log('Attempting to fetch PCGamesTorrent link for game:', slug);
+          const pcGamesTorrentLink = await getPcGamesTorrentCtrl().pcGamesTorrentMagnetLink(slug);
+          return pcGamesTorrentLink ? { name: 'PCGamesTorrent', url: pcGamesTorrentLink } : null;
+        } catch (error) {
+          console.warn('Failed to fetch PCGamesTorrent link:', error);
+          return null;
+        }
+      })();
+
+      const settled = await Promise.allSettled([fitGirlTask, pcGamesTask]);
+      const sites = settled
+        .filter((result) => result.status === 'fulfilled' && result.value)
+        .map((result) => result.value);
+
+      writePirateScrapeCache(slug, sites);
+      return sites;
+    })();
+
+    pirateScrapeInFlight.set(slug, scrapePromise);
     try {
-      const pcGamesTorrentLink = await getPcGamesTorrentCtrl().pcGamesTorrentMagnetLink(await makeNameSlug(name));
-      if (pcGamesTorrentLink) {
-        sites.push({ name: 'PCGamesTorrent', url: pcGamesTorrentLink });
-      }
-    } catch (e) {
-      console.warn('Failed to fetch PCGamesTorrent link:', e);
+      return await scrapePromise;
+    } finally {
+      pirateScrapeInFlight.delete(slug);
     }
-    return sites;
   }
 
   /**
@@ -742,6 +1081,54 @@ handle('steam:get-installed-games', async () => {
     };
   }
 
+  /**
+   * @param {{
+   *   token: string,
+   *   appId: number,
+   *   platform: string,
+   *   countryCode: string,
+   *   syncPlan: { sitesToSync: Array<{ name: string, url: string }> },
+   *   logPrefix?: string,
+   *   rethrowInvalidToken?: boolean,
+   * }} params
+   */
+  async function uploadPirateSiteSyncPlan(params) {
+    const {
+      token,
+      appId,
+      platform,
+      countryCode,
+      syncPlan,
+      logPrefix = '',
+      rethrowInvalidToken = true,
+    } = params;
+
+    if (!token || !syncPlan || !Array.isArray(syncPlan.sitesToSync) || syncPlan.sitesToSync.length < 1) {
+      return null;
+    }
+
+    try {
+      const uploadSummary = await getGamesCtrl().uploadPirateSites(
+        token,
+        appId,
+        platform,
+        syncPlan.sitesToSync,
+        countryCode,
+      );
+      console.log(`${logPrefix}Uploaded scraped pirate site changes:`, {
+        attempted: syncPlan.sitesToSync.length,
+        ...uploadSummary,
+      });
+      return uploadSummary;
+    } catch (error) {
+      if (rethrowInvalidToken && error && typeof error === 'object' && error.code === 'WRECK_INVALID_TOKEN') {
+        throw error;
+      }
+      console.warn(`${logPrefix}Failed to upload scraped pirate site changes:`, error);
+      return null;
+    }
+  }
+
   function getSenderUrl(event) {
     return (
       event?.senderFrame?.url ||
@@ -801,11 +1188,12 @@ handle('steam:get-installed-games', async () => {
 
     const appId = Number(incoming.appId ?? routeCtx?.appId);
     const platform = String(incoming.platform ?? routeCtx?.platform ?? '').trim();
-    const countryCode =
+    const rawCountryCode =
       typeof incoming.countryCode === 'string' && incoming.countryCode.trim()
         ? incoming.countryCode.trim()
         : 'DE';
-    const token = typeof incoming.token === 'string' ? incoming.token.trim() : '';
+    const countryCode = await resolvePreferredCountryCode(rawCountryCode);
+    let token = typeof incoming.token === 'string' ? incoming.token.trim() : '';
     const allowPlatformFallback = incoming.allowPlatformFallback === true;
 
     if (!Number.isFinite(appId) || appId <= 0) throw new Error('App ID is required');
@@ -814,6 +1202,23 @@ handle('steam:get-installed-games', async () => {
     console.log(
       `[IPC] games:get-all-details-by-appid-and-platform appId=${appId} platform=${platform} fallback=${allowPlatformFallback ? 'on' : 'off'} from=${senderUrl}`
     );
+
+    if (!token) {
+      try {
+        const persistedToken = await getUserCtrl().getToken();
+        token = typeof persistedToken === 'string' ? persistedToken.trim() : '';
+      } catch {
+        token = '';
+      }
+    }
+
+    if (token) {
+      try {
+        getUserCtrl().setToken(token);
+      } catch {
+        // ignore
+      }
+    }
 
     let gameDetails = null;
     if (allowPlatformFallback) {
@@ -831,42 +1236,63 @@ handle('steam:get-installed-games', async () => {
     const backendPirateSites = Array.isArray(gameDetails.pirate_sites) ? gameDetails.pirate_sites : [];
     console.log('Pirate sites from backend:', backendPirateSites);
 
-    const scrapedPirateSites = await getPirateSitesForGame(gameDetails.name || '');
+    const scrapedPiratePromise = getPirateSitesForGame(gameDetails.name || '');
+    const scrapeResult = await withSoftTimeout(scrapedPiratePromise, PIRATE_SCRAPE_TIMEOUT_MS);
+    if (scrapeResult.timedOut) {
+      console.log(`Pirate scrape timed out after ${PIRATE_SCRAPE_TIMEOUT_MS}ms; returning DB details immediately.`);
+      gameDetails.pirate_sites = backendPirateSites;
+
+      void scrapedPiratePromise
+        .then(async (scrapedPirateSites) => {
+          const syncPlan = buildPirateSiteSyncPlan(backendPirateSites, scrapedPirateSites);
+          await uploadPirateSiteSyncPlan({
+            token,
+            appId: gameDetails.app_id ?? appId,
+            platform: gameDetails.platform_name ?? platform,
+            countryCode,
+            syncPlan,
+            logPrefix: '[background] ',
+            rethrowInvalidToken: false,
+          });
+        })
+        .catch((error) => {
+          console.warn('Background pirate scrape failed:', error);
+        });
+
+      return gameDetails;
+    }
+
+    if (scrapeResult.error) {
+      console.warn('Pirate scrape failed; returning backend pirate links only:', scrapeResult.error);
+      gameDetails.pirate_sites = backendPirateSites;
+      return gameDetails;
+    }
+
+    const scrapedPirateSites = Array.isArray(scrapeResult.value) ? scrapeResult.value : [];
     const syncPlan = buildPirateSiteSyncPlan(backendPirateSites, scrapedPirateSites);
 
     // Always expose the freshest scrape output while preserving DB-only entries.
     gameDetails.pirate_sites = syncPlan.mergedSites;
     console.log('Fetched pirate sites:', scrapedPirateSites);
 
-    if (token && syncPlan.sitesToSync.length > 0) {
-      try {
-        const uploadSummary = await getGamesCtrl().uploadPirateSites(
-          token,
-          gameDetails.app_id ?? appId,
-          gameDetails.platform_name ?? platform,
-          syncPlan.sitesToSync
-        );
-        console.log('Uploaded scraped pirate site changes:', {
-          attempted: syncPlan.sitesToSync.length,
-          ...uploadSummary,
-        });
-      } catch (e) {
-        if (e && typeof e === 'object' && e.code === 'WRECK_INVALID_TOKEN') {
-          throw e;
-        }
-        console.warn('Failed to upload scraped pirate site changes:', e);
-      }
-    }
+    await uploadPirateSiteSyncPlan({
+      token,
+      appId: gameDetails.app_id ?? appId,
+      platform: gameDetails.platform_name ?? platform,
+      countryCode,
+      syncPlan,
+    });
 
     return gameDetails;
   });
   handle('games:get-all-details-by-id', async (event, id, opts) => {
     const senderUrl = getSenderUrl(event);
     const routeCtx = parseStoreRouteContext(senderUrl);
-    const countryCode =
+    const rawCountryCode =
       opts && typeof opts === 'object' && typeof opts.countryCode === 'string' && opts.countryCode.trim()
         ? opts.countryCode.trim()
         : 'DE';
+    const countryCode = await resolvePreferredCountryCode(rawCountryCode);
     const numericId = Number(id);
 
     console.log(`[IPC] games:get-all-details-by-id id=${String(id)} from=${senderUrl}`);
@@ -886,6 +1312,90 @@ handle('steam:get-installed-games', async () => {
       if (isNotFoundLikeError(err)) return null;
       throw err;
     }
+  });
+
+  handle('games:sync-price', async (_event, payload) => {
+    const incoming = payload && typeof payload === 'object' ? payload : {};
+    const appId = Number(incoming.appId);
+    const platform = String(incoming.platform || '').trim();
+    const requestedPrice = Number(incoming.price);
+    const countryCode = await resolvePreferredCountryCode(incoming.countryCode);
+
+    if (!Number.isFinite(appId) || appId <= 0) {
+      return { ok: false, updated: false, reason: 'invalid-app-id' };
+    }
+    if (!platform) {
+      return { ok: false, updated: false, reason: 'invalid-platform' };
+    }
+    if (!Number.isFinite(requestedPrice) || requestedPrice <= 0) {
+      return { ok: false, updated: false, reason: 'invalid-price' };
+    }
+
+    let token = typeof incoming.token === 'string' ? incoming.token.trim() : '';
+    if (!token) {
+      try {
+        const persistedToken = await getUserCtrl().getToken();
+        token = typeof persistedToken === 'string' ? persistedToken.trim() : '';
+      } catch {
+        token = '';
+      }
+    }
+
+    if (!token) {
+      return { ok: false, updated: false, reason: 'missing-token', countryCode };
+    }
+
+    try {
+      getUserCtrl().setToken(token);
+    } catch {
+      // ignore
+    }
+
+    let details = null;
+    try {
+      details = await getGamesCtrl().getAllDetailsByAppIDAndPlatform(appId, platform, countryCode);
+    } catch (err) {
+      if (isNotFoundLikeError(err)) {
+        return { ok: false, updated: false, reason: 'not-found', countryCode };
+      }
+      throw err;
+    }
+
+    const gameId = Number(details?.id);
+    if (!Number.isFinite(gameId) || gameId <= 0) {
+      return { ok: false, updated: false, reason: 'missing-game-id', countryCode };
+    }
+
+    const existingCost = Number(details?.cost);
+    const isEquivalent = Number.isFinite(existingCost)
+      && (
+        Math.abs(existingCost - requestedPrice) <= 0.009
+        || Math.abs((existingCost * 100) - requestedPrice) <= 0.9
+        || Math.abs((requestedPrice * 100) - existingCost) <= 0.9
+      );
+
+    if (isEquivalent) {
+      return {
+        ok: true,
+        updated: false,
+        gameId,
+        cost: existingCost,
+        countryCode,
+      };
+    }
+
+    await getGamesCtrl().updateGame(token, gameId, {
+      cost: requestedPrice,
+      country_code: countryCode,
+    });
+
+    return {
+      ok: true,
+      updated: true,
+      gameId,
+      cost: requestedPrice,
+      countryCode,
+    };
   });
 
   handle('games:scrape', async (_event, gameUrl) => {
@@ -1156,8 +1666,14 @@ handle('steam:get-installed-games', async () => {
     return loginResult;
   });
 
-  handleAuthed('gog:oauth-login-and-upload', async ({ token }, clientId) => {
-    const id = String(clientId || GOG_OAUTH_CLIENT_ID || '').trim();
+  handleAuthed('gog:oauth-login-and-upload', async ({ token }, clientIdOrOptions) => {
+    const hasOptions = !!clientIdOrOptions && typeof clientIdOrOptions === 'object' && !Array.isArray(clientIdOrOptions);
+    const requestedClientId = hasOptions ? clientIdOrOptions.clientId : clientIdOrOptions;
+    const forceInteractiveLogin = hasOptions
+      ? clientIdOrOptions.forceInteractiveLogin !== false
+      : true;
+
+    const id = String(requestedClientId || GOG_OAUTH_CLIENT_ID || '').trim();
     if (!id) {
       throw new Error('GOG OAuth client ID is required. Provide it as argument or set GOG_OAUTH_CLIENT_ID in main.js.');
     }
@@ -1166,7 +1682,7 @@ handle('steam:get-installed-games', async () => {
     let profile = null;
     let loginResult = null;
 
-    if (ctrl.isLoggedIn()) {
+    if (!forceInteractiveLogin && ctrl.isLoggedIn()) {
       try {
         profile = await ctrl.getProfile();
       } catch {
@@ -1346,17 +1862,26 @@ handle('steam:get-installed-games', async () => {
       }
     }
 
+    const rawCountryCode =
+      opts && typeof opts === 'object'
+        ? opts.countryCode
+        : (typeof opts === 'string' ? opts : undefined);
+    const countryCode = await resolvePreferredCountryCode(rawCountryCode);
+    const normalizedOpts = opts && typeof opts === 'object'
+      ? { ...opts, countryCode }
+      : { countryCode };
+
     return await getGogCtrl().getGameDetails(
       productIdText,
       token,
-      opts && typeof opts === 'object' ? opts : undefined
+      normalizedOpts
     );
   });
 
   // Supports both call styles:
-  // 1) invoke('gog:get-game-details-by-title', token, title)
-  // 2) invoke('gog:get-game-details-by-title', title)
-  handle('gog:get-game-details-by-title', async (_event, arg1, arg2) => {
+  // 1) invoke('gog:get-game-details-by-title', token, title, countryCode?)
+  // 2) invoke('gog:get-game-details-by-title', title, countryCode?)
+  handle('gog:get-game-details-by-title', async (_event, arg1, arg2, arg3) => {
     const looksLikeToken =
       typeof arg1 === 'string' &&
       arg1.includes('.') &&
@@ -1365,11 +1890,14 @@ handle('steam:get-installed-games', async () => {
 
     let token = '';
     let title = '';
+    let countryArg = undefined;
     if (looksLikeToken) {
       token = String(arg1).trim();
       title = String(arg2).trim();
+      countryArg = arg3;
     } else {
       title = String(arg1 || '').trim();
+      countryArg = arg2;
     }
 
     if (!title) throw new Error('title is required');
@@ -1382,11 +1910,27 @@ handle('steam:get-installed-games', async () => {
       }
     }
 
-    return await getGogCtrl().getGameDetailsByTitle(title, token);
+    const rawCountryCode =
+      countryArg && typeof countryArg === 'object'
+        ? countryArg.countryCode
+        : countryArg;
+    const countryCode = await resolvePreferredCountryCode(rawCountryCode);
+    return await getGogCtrl().getGameDetailsByTitle(title, token, countryCode);
   });
 
   handle('gog:open-game', async (_event, productId) => {
     return await getGogCtrl().clientGameControlUtil(productId, 'open');
+  });
+
+  handle('gog:open-game-view', async (_event, productId) => {
+    const id = String(productId || '').trim();
+    if (!id || !/^\d+$/.test(id)) {
+      throw new Error(`Invalid GOG product ID: ${String(productId)}`);
+    }
+
+    const url = `goggalaxy://openGameView/${encodeURIComponent(id)}`;
+    await shell.openExternal(url);
+    return { ok: true, url };
   });
 
   handle('gog:run-game', async (_event, productId) => {
@@ -1441,12 +1985,23 @@ handle('steam:get-installed-games', async () => {
   // progress events are pushed to the renderer via webContents.send so the
   // renderer only needs ipcRenderer.on('torrent:progress', cb).
 
-  handle('torrent:start', async (event, magnetUri, savePath) => {
+  handle('torrent:start', async (event, magnetUri, savePath, displayName) => {
     // Decode all HTML-encoded ampersands that scrapers may leave in the magnet URI.
     const mUri  = String(magnetUri || '').trim()
       .replace(/&#0*38;/g, '&')
       .replace(/&amp;/gi, '&');
     const requestedSavePath = String(savePath || '').trim();
+    const requestedDisplayName = String(displayName || '').trim();
+
+    /** @param {string} value */
+    const sanitizeFolderName = (value) => {
+      return String(value || '')
+        .replace(/[<>:"/\\|?*\u0000-\u001f]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 120);
+    };
+
     let configuredDefaultSavePath = '';
     if (!requestedSavePath) {
       try {
@@ -1460,14 +2015,40 @@ handle('steam:get-installed-games', async () => {
         configuredDefaultSavePath = '';
       }
     }
-    const sPath = requestedSavePath || configuredDefaultSavePath || app.getPath('downloads');
+
+    const baseSavePath = requestedSavePath || configuredDefaultSavePath || app.getPath('downloads');
+    const safeDisplayName = sanitizeFolderName(requestedDisplayName);
+    let sPath = baseSavePath;
+
+    if (safeDisplayName) {
+      const currentFolder = String(path.basename(baseSavePath || '') || '').trim().toLowerCase();
+      const targetFolder = safeDisplayName.toLowerCase();
+      if (currentFolder !== targetFolder) {
+        sPath = path.join(baseSavePath, safeDisplayName);
+      }
+    }
+
+    try {
+      fs.mkdirSync(sPath, { recursive: true });
+    } catch (mkdirError) {
+      console.warn('[torrent:start] failed to prepare save path, falling back to downloads:', mkdirError);
+      const fallbackRoot = app.getPath('downloads');
+      sPath = safeDisplayName ? path.join(fallbackRoot, safeDisplayName) : fallbackRoot;
+      try {
+        fs.mkdirSync(sPath, { recursive: true });
+      } catch {
+        // keep existing sPath if fallback mkdir also fails
+      }
+    }
+
     console.log('[torrent:start] mUri (full):', mUri);
     console.log('[torrent:start] sPath:', sPath);
+    if (requestedDisplayName) console.log('[torrent:start] displayName:', requestedDisplayName);
     console.log('[torrent:start] tracker count:', (mUri.match(/&tr=/g) || []).length);
     if (!mUri) throw new Error('magnetUri is required');
     const snapshot = await getTorrentCtrl().start(mUri, sPath, (progress) => {
       try { event.sender.send('torrent:progress', progress); } catch { /* window closed */ }
-    });
+    }, requestedDisplayName || '');
     console.log('[torrent:start] initial snapshot:', snapshot);
     return snapshot;
   });
@@ -1481,7 +2062,48 @@ handle('steam:get-installed-games', async () => {
   });
 
   handle('torrent:remove', async (_event, infoHash, deleteFiles) => {
-    await getTorrentCtrl().remove(String(infoHash), Boolean(deleteFiles));
+    const shouldDeleteFiles = (typeof deleteFiles === 'undefined') ? true : Boolean(deleteFiles);
+    /** @param {unknown} err */
+    const isLockLikeFsError = (err) => {
+      const code = String((/** @type {any} */ (err))?.code || '').toUpperCase();
+      if (code === 'EPERM' || code === 'EBUSY' || code === 'EACCES' || code === 'ENOTEMPTY') {
+        return true;
+      }
+      const message = String((/** @type {any} */ (err))?.message || err || '').toLowerCase();
+      return (
+        message.includes('operation not permitted')
+        || message.includes('resource busy')
+        || message.includes('in use')
+        || message.includes('being used')
+      );
+    };
+
+    let result;
+    try {
+      result = await getTorrentCtrl().remove(String(infoHash), shouldDeleteFiles);
+    } catch (err) {
+      if (!isLockLikeFsError(err)) {
+        throw err;
+      }
+
+      const lockMessage = String((/** @type {any} */ (err))?.message || err || 'Locked file');
+      console.warn('[torrent:remove] lock-like error treated as non-fatal:', lockMessage);
+      result = {
+        removedFromClient: true,
+        deleteRequested: shouldDeleteFiles,
+        deletedTargetCount: 0,
+        lockedTargets: [],
+        failedTargets: [lockMessage],
+      };
+    }
+
+    if (Array.isArray(result?.lockedTargets) && result.lockedTargets.length > 0) {
+      console.warn('[torrent:remove] locked targets not removed:', result.lockedTargets);
+    }
+    if (Array.isArray(result?.failedTargets) && result.failedTargets.length > 0) {
+      console.warn('[torrent:remove] failed targets not removed:', result.failedTargets);
+    }
+    return result;
   });
 
   handle('torrent:get-status', () => {
@@ -1553,10 +2175,59 @@ handle('shop-specials:discounted', async (event, from) => {
 
   createWindow();
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
+  let beforeQuitCleanupInProgress = false;
+  /** @type {NodeJS.Timeout|null} */
+  let forceQuitTimer = null;
+  app.on('before-quit', (event) => {
+    appIsQuitting = true;
+
+    if (appTray) {
+      try { appTray.destroy(); } catch { /* ignore */ }
+      appTray = null;
     }
+
+    if (beforeQuitCleanupInProgress) return;
+    event.preventDefault();
+    beforeQuitCleanupInProgress = true;
+
+    const finishQuit = (forced = false) => {
+      if (forceQuitTimer) {
+        clearTimeout(forceQuitTimer);
+        forceQuitTimer = null;
+      }
+
+      if (forced) {
+        console.warn('[app] Forcing process exit after quit timeout.');
+      }
+
+      app.exit(0);
+    };
+
+    forceQuitTimer = setTimeout(() => {
+      finishQuit(true);
+    }, 6_000);
+
+    Promise.resolve()
+      .then(async () => {
+        if (torrentCtrl && typeof torrentCtrl.destroy === 'function') {
+          await torrentCtrl.destroy();
+        }
+      })
+      .catch((err) => {
+        console.warn('[torrent] Failed to destroy torrent client during quit:', err);
+      })
+      .finally(() => {
+        torrentCtrl = null;
+        finishQuit(false);
+      });
+  });
+
+  app.on('activate', () => {
+    if (!mainWindow || mainWindow.isDestroyed() || BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
+      return;
+    }
+    showMainWindowFromTray();
   });
 });
 
@@ -1566,13 +2237,13 @@ handle('shop-specials:discounted', async (event, from) => {
 // window.electronAPI.* and window.api.* from preload.
 
 ipcMain.on('window:minimize', () => {
-  if (mainWindow) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.minimize();
   }
 });
 
 ipcMain.on('window:maximize', () => {
-  if (!mainWindow) return;
+  if (!mainWindow || mainWindow.isDestroyed()) return;
   if (mainWindow.isMaximized()) {
     mainWindow.restore();
   } else {
@@ -1581,7 +2252,7 @@ ipcMain.on('window:maximize', () => {
 });
 
 ipcMain.on('window:close', () => {
-  if (mainWindow) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.close();
   }
 });
@@ -1590,14 +2261,4 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
-});
-
-// Gracefully destroy the torrent client on quit to flush any in-progress state.
-app.on('before-quit', async () => {
-  // torrentCtrl is module-scoped via the closure; access via the lazy getter just
-  // reads the already-created instance without instantiating a new one.
-  try {
-    // The variable leaks out of the whenReady closure via module scope
-    // so we guard with a try/catch in case it was never initialised.
-  } catch { /* not initialised */ }
 });

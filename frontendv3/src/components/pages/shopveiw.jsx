@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Storeslider from '../store/Storeslider.jsx';
 import GameGrid from '../store/GameGrid.jsx';
 import FilteredGamesSection from '../store/FilteredGamesSection.jsx';
@@ -205,14 +205,21 @@ function mapGameCard(game, fallbackTag = '') {
 	const normalizedTags = normalizeNamedList(game.tag_names ?? game.tagNames ?? game.tags);
 	const baseTags = normalizedTags.length > 0 ? normalizedTags : normalizedGenres;
 	const tagSet = new Set(baseTags.map((tag) => String(tag).toLowerCase()));
+	const dbGameId = Number(game?.id);
+	const resolvedDbId = Number.isFinite(dbGameId) && dbGameId > 0 ? dbGameId : null;
+	const appIdCandidate = Number(game?.app_id ?? game?.appid ?? game?.id);
+	const resolvedAppId = Number.isFinite(appIdCandidate) && appIdCandidate > 0
+		? appIdCandidate
+		: resolvedDbId;
 	if (fallbackTag && !tagSet.has(String(fallbackTag).toLowerCase())) {
 		baseTags.push(fallbackTag);
 	}
 
 	return {
-		id: game.app_id || game.appid || game.id,
-		app_id: game.app_id || game.appid || game.id,
-		appid: game.app_id || game.appid || game.id,
+		id: resolvedDbId ?? resolvedAppId,
+		db_id: resolvedDbId,
+		app_id: resolvedAppId,
+		appid: resolvedAppId,
 		name: game.name,
 		title: game.name || game.title,
 		image: resolvedImage,
@@ -411,6 +418,13 @@ const ensureFullBrowsePages = async () => {
 			setIsLoadingMoreBrowse(false);
 		}
 	};
+
+	const handleRemoteResultsUpdate = useCallback((rows) => {
+		if (!Array.isArray(rows) || rows.length < 1) return;
+		const mapped = rows.map((row) => mapGameCard(row)).filter(Boolean);
+		if (mapped.length < 1) return;
+		setAllGames((prev) => appendUniqueGames(prev, mapped));
+	}, []);
 
 	const loadMoreFeatured = async () => {
 		if (isLoadingFeaturedMore || !hasMoreFeatured) return;
@@ -694,6 +708,7 @@ const ensureFullBrowsePages = async () => {
 					onRequestNextPage={loadNextBrowsePage}
 					canLoadMore={hasMoreBrowse}
 					isLoadingMore={isLoadingMoreBrowse}
+					onRemoteResultsUpdate={handleRemoteResultsUpdate}
 				/>
 			</section>
 		</div>

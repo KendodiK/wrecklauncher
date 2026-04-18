@@ -51,7 +51,7 @@ const SteamScraperTest = () => {
 			}
 
 			console.log(`\n========== TESTING HARDCODED APP ID: ${hardcodedAppId} ==========`);
-			const data = await api.getSteamGameDetails(hardcodedAppId, 'us');
+			const data = await api.getSteamGameDetails(hardcodedAppId);
 			
 			console.log('Received Data:', data);
 			setHardcodedData(data);
@@ -96,7 +96,7 @@ const SteamScraperTest = () => {
 				throw new Error('Steam API not available');
 			}
 
-			const steamData = await api.getSteamGameDetails(Number(selectedDbAppId), 'us');
+			const steamData = await api.getSteamGameDetails(Number(selectedDbAppId));
 			console.log('Steam Data:', steamData);
 
 			setDbSourcedData({

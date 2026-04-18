@@ -77,16 +77,19 @@ async function invokeAuthed(channel, ...args) {
   try {
     return await ipcRenderer.invoke(channel, token, ...args);
   } catch (err) {
-    const msg = String(err?.message || '').toLowerCase();
-    if (
-      msg.includes('missing auth token') ||
-      msg.includes('invalid token') ||
-      msg.includes('unauthorized')
-    ) {
-      notifyAuthExpired();
-    }
+    // Do not auto-expire on generic error text (e.g. transient backend/network issues).
+    // Explicit auth expiration is signaled by the main process via 'auth:token-cleared'.
     throw err;
   }
+}
+
+// Invokes a channel with token-first args when available, but does not require auth.
+function invokeWithOptionalAuth(channel, ...args) {
+  const token = getAuthToken();
+  if (typeof token === 'string' && token.trim()) {
+    return ipcRenderer.invoke(channel, token.trim(), ...args);
+  }
+  return ipcRenderer.invoke(channel, ...args);
 }
 
 async function invokeWithTokenSync(channel, ...args) {
@@ -114,6 +117,74 @@ async function resolveAuthToken() {
 
   const fetched = await invokeWithTokenSync('user:get-token');
   return typeof fetched === 'string' && fetched.trim() ? fetched.trim() : null;
+}
+
+function normalizeCountryCode(value) {
+  const raw = String(value || '').trim().toUpperCase();
+  return /^[A-Z]{2}$/.test(raw) ? raw : null;
+}
+
+function inferCountryCodeFromLocale() {
+  const localeCandidates = [];
+  try {
+    const resolved = Intl?.DateTimeFormat?.().resolvedOptions?.().locale;
+    if (resolved) localeCandidates.push(resolved);
+  } catch {
+    // ignore
+  }
+  if (typeof navigator !== 'undefined' && typeof navigator?.language === 'string' && navigator.language.trim()) {
+    localeCandidates.push(navigator.language);
+  }
+
+  for (const locale of localeCandidates) {
+    const match = String(locale).match(/[-_](?<cc>[A-Za-z]{2})\b/);
+    const code = normalizeCountryCode(match?.groups?.cc || match?.[1]);
+    if (code) return code;
+  }
+
+  return 'DE';
+}
+
+const COUNTRY_CACHE_TTL_MS = 30_000;
+let cachedCountryCode = null;
+let cachedCountryCodeExpiresAt = 0;
+
+function invalidateCountryCodeCache() {
+  cachedCountryCode = null;
+  cachedCountryCodeExpiresAt = 0;
+}
+
+async function resolvePreferredCountryCode(preferred) {
+  const direct = normalizeCountryCode(preferred);
+  if (direct) return direct;
+
+  const now = Date.now();
+  if (cachedCountryCode && now < cachedCountryCodeExpiresAt) {
+    return cachedCountryCode;
+  }
+
+  try {
+    const settings = await ipcRenderer.invoke('settings:get');
+    const candidates = [
+      settings?.store?.countryCode,
+      settings?.display?.countryCode,
+      settings?.account?.countryCode,
+    ];
+    for (const candidate of candidates) {
+      const normalized = normalizeCountryCode(candidate);
+      if (!normalized) continue;
+      cachedCountryCode = normalized;
+      cachedCountryCodeExpiresAt = now + COUNTRY_CACHE_TTL_MS;
+      return normalized;
+    }
+  } catch {
+    // ignore and use locale fallback
+  }
+
+  const fallback = inferCountryCodeFromLocale();
+  cachedCountryCode = fallback;
+  cachedCountryCodeExpiresAt = now + COUNTRY_CACHE_TTL_MS;
+  return fallback;
 }
 
 // Expose a focused, safe API for the renderer. This mirrors
@@ -203,13 +274,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return invokeAuthed('user:get-owned-games-from-steam-by-native-userid', nativeUserId);
   },
   getSteamInstalledGames: () => ipcRenderer.invoke('steam:get-installed-games'),
-  getSteamGameDetails: (appID, cc) => {
-    return invokeAuthed('steam:get-game-details', appID, cc);
+  getSteamGameDetails: async (appID, cc) => {
+    const resolvedCountryCode = await resolvePreferredCountryCode(cc);
+    return invokeWithOptionalAuth('steam:get-game-details', appID, resolvedCountryCode.toLowerCase());
   },
-  getSteamGameDetailsByTitle: (title, cc) => {
-    return invokeAuthed('steam:get-game-details-by-title', title, cc);
+  getSteamGameDetailsByTitle: async (title, cc) => {
+    const resolvedCountryCode = await resolvePreferredCountryCode(cc);
+    return invokeWithOptionalAuth('steam:get-game-details-by-title', title, resolvedCountryCode.toLowerCase());
   },
-  getSteamGameDetailsAndUpload: (appID, cc) => ipcRenderer.invoke('steam:get-game-details-and-upload', appID, cc),
+  getSteamGameDetailsAndUpload: async (appID, cc) => {
+    const resolvedCountryCode = await resolvePreferredCountryCode(cc);
+    return ipcRenderer.invoke('steam:get-game-details-and-upload', appID, resolvedCountryCode.toLowerCase());
+  },
   installSteamGame: (appID) => ipcRenderer.invoke('steam:install-game', appID),
   deleteSteamGame: (appID) => ipcRenderer.invoke('steam:delete-game', appID),
   storePageSteam: (appID) => ipcRenderer.invoke('steam:store-page', appID),
@@ -225,10 +301,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getItchOAuthStatus: () => ipcRenderer.invoke('itch:oauth-status'),
   getItchProfile: () => ipcRenderer.invoke('itch:get-profile'),
   getItchGameDetails: (gameId) => {
-    return invokeAuthed('itch:get-game-details', gameId);
+    return invokeWithOptionalAuth('itch:get-game-details', gameId);
   },
   getItchGameDetailsByTitle: (title) => {
-    return invokeAuthed('itch:get-game-details-by-title', title);
+    return invokeWithOptionalAuth('itch:get-game-details-by-title', title);
   },
   runItchGame: (gameId, gameUrl, installLocation) => ipcRenderer.invoke('itch:run-game', gameId, gameUrl, installLocation),
   openItchGame: (gameId, gameUrl) => ipcRenderer.invoke('itch:open-game', gameId, gameUrl),
@@ -244,11 +320,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   logoutGogOAuth: () => ipcRenderer.invoke('gog:oauth-logout'),
   getGogOAuthStatus: () => ipcRenderer.invoke('gog:oauth-status'),
   getGogProfile: () => ipcRenderer.invoke('gog:get-profile'),
-  getGogGameDetails: (productId) => {
-    return invokeAuthed('gog:get-game-details', productId);
+  getGogGameDetails: async (productId, cc) => {
+    const resolvedCountryCode = await resolvePreferredCountryCode(cc);
+    return invokeWithOptionalAuth('gog:get-game-details', productId, { countryCode: resolvedCountryCode });
   },
-  getGogGameDetailsByTitle: (title) => {
-    return invokeAuthed('gog:get-game-details-by-title', title);
+  getGogGameDetailsByTitle: async (title, cc) => {
+    const resolvedCountryCode = await resolvePreferredCountryCode(cc);
+    return invokeWithOptionalAuth('gog:get-game-details-by-title', title, resolvedCountryCode);
   },
   openGogGame: (productId) => ipcRenderer.invoke('gog:open-game', productId),
   runGogGame: (productId) => ipcRenderer.invoke('gog:run-game', productId),
@@ -276,16 +354,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
    * Progress events are pushed automatically; subscribe with `onTorrentProgress`.
    * @param {string} magnetUri  Magnet URI returned by fetchFitGirlGameDirectDownloadLink (or any source).
    * @param {string} [savePath] Absolute directory path. Defaults to the OS Downloads folder.
+    * @param {string} [displayName] Optional game title override shown in the downloads list.
    * @returns {Promise<import('./electron/models').TorrentProgress>} Initial snapshot.
    */
-  torrentStart: (magnetUri, savePath) => ipcRenderer.invoke('torrent:start', magnetUri, savePath),
+    torrentStart: (magnetUri, savePath, displayName) => ipcRenderer.invoke('torrent:start', magnetUri, savePath, displayName),
   /** @param {string} infoHash */
   torrentPause: (infoHash) => ipcRenderer.invoke('torrent:pause', infoHash),
   /** @param {string} infoHash */
   torrentResume: (infoHash) => ipcRenderer.invoke('torrent:resume', infoHash),
   /**
    * @param {string} infoHash
-   * @param {boolean} [deleteFiles] Pass true to remove downloaded files from disk.
+    * @param {boolean} [deleteFiles] Defaults to true; pass false to only detach torrent state.
+    * @returns {Promise<{ removedFromClient?: boolean, deleteRequested?: boolean, deletedTargetCount?: number, lockedTargets?: string[], failedTargets?: string[] }>} 
    */
   torrentRemove: (infoHash, deleteFiles) => ipcRenderer.invoke('torrent:remove', infoHash, deleteFiles),
   /** @returns {Promise<import('./electron/models').TorrentProgress[]>} */
@@ -308,21 +388,69 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('torrent:progress', listener);
   },
   // GamesController
-  getGames: (from, countryCode = 'DE') => ipcRenderer.invoke('games:get-games', from, { countryCode }),
+  getGames: async (from, countryCode) => {
+    const resolvedCountryCode = await resolvePreferredCountryCode(countryCode);
+    return ipcRenderer.invoke('games:get-games', from, { countryCode: resolvedCountryCode });
+  },
   searchGames: (needle, tags = []) => ipcRenderer.invoke('games:search', needle, { tags }),
-  getAllDetailsByID: (id, countryCode = 'DE') => ipcRenderer.invoke('games:get-all-details-by-id', id, { countryCode }),
-  getAllDetailsByAppIDAndPlatform: (appId, platform, countryCode = 'DE') =>
-    ipcRenderer.invoke('games:get-all-details-by-appid-and-platform', {
+  getAllDetailsByID: async (id, countryCode) => {
+    const resolvedCountryCode = await resolvePreferredCountryCode(countryCode);
+    return ipcRenderer.invoke('games:get-all-details-by-id', id, { countryCode: resolvedCountryCode });
+  },
+  getAllDetailsByAppIDAndPlatform: async (appId, platform, countryCode) => {
+    const resolvedCountryCode = await resolvePreferredCountryCode(countryCode);
+    let token = getAuthToken();
+    if (!token) {
+      try {
+        token = await resolveAuthToken();
+      } catch {
+        token = null;
+      }
+    }
+
+    return ipcRenderer.invoke('games:get-all-details-by-appid-and-platform', {
       appId,
       platform,
-      countryCode,
-      token: getAuthToken() || undefined,
-    }),
+      countryCode: resolvedCountryCode,
+      token: token || undefined,
+    });
+  },
+  syncGamePriceByAppIdAndPlatform: async (appId, platform, price, countryCode) => {
+    const resolvedCountryCode = await resolvePreferredCountryCode(countryCode);
+    let token = getAuthToken();
+    if (!token) {
+      try {
+        token = await resolveAuthToken();
+      } catch {
+        token = null;
+      }
+    }
+
+    return ipcRenderer.invoke('games:sync-price', {
+      appId,
+      platform,
+      price,
+      countryCode: resolvedCountryCode,
+      token: token || undefined,
+    });
+  },
   // SettingsController
   getSettings: () => ipcRenderer.invoke('settings:get'),
-  updateSetting: (category, key, value) => ipcRenderer.invoke('settings:update', category, key, value),
-  updateSettings: (newSettings) => ipcRenderer.invoke('settings:update-bulk', newSettings),
-  resetSettings: () => ipcRenderer.invoke('settings:reset'),
+  updateSetting: async (category, key, value) => {
+    const updated = await ipcRenderer.invoke('settings:update', category, key, value);
+    invalidateCountryCodeCache();
+    return updated;
+  },
+  updateSettings: async (newSettings) => {
+    const updated = await ipcRenderer.invoke('settings:update-bulk', newSettings);
+    invalidateCountryCodeCache();
+    return updated;
+  },
+  resetSettings: async () => {
+    const defaults = await ipcRenderer.invoke('settings:reset');
+    invalidateCountryCodeCache();
+    return defaults;
+  },
   clearCache: () => ipcRenderer.invoke('settings:clear-cache'),
   updatePlatformConnection: (platform, connected, username) => 
     ipcRenderer.invoke('settings:update-platform', platform, connected, username),

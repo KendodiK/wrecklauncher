@@ -3,7 +3,8 @@ import GameSliderBase from '../shared/GameSliderBase.jsx';
 
 // Library game strip — wrapper around GameSliderBase in translate mode.
 // Renders game cover cards with active card highlight.
-const LibraryGameStrip = ({ games, activeGameId, onSelect, onOpenStore }) => {
+const LibraryGameStrip = React.memo(({ games, onSelect, onOpenStore }) => {
+
   // Map LibraryGame data to the format GameSliderBase expects.
   // Keep this memoized to avoid rebuilding slider data on every parent render.
   const sliderGames = useMemo(
@@ -20,19 +21,19 @@ const LibraryGameStrip = ({ games, activeGameId, onSelect, onOpenStore }) => {
   const handleCurrentCardChange = useCallback(
     (card) => {
       if (typeof onSelect !== 'function') return;
-      if (String(activeGameId) === String(card?.id)) return;
+      if (card?.id == null) return;
       onSelect(card.id);
     },
-    [activeGameId, onSelect],
+    [onSelect],
   );
 
   const handleCardClick = useCallback(
     (card) => {
       if (typeof onSelect !== 'function') return;
-      if (String(activeGameId) === String(card?.id)) return;
+      if (card?.id == null) return;
       onSelect(card.id);
     },
-    [activeGameId, onSelect],
+    [onSelect],
   );
 
   return (
@@ -55,7 +56,6 @@ const LibraryGameStrip = ({ games, activeGameId, onSelect, onOpenStore }) => {
       renderCard={({ card, index, currentIndex }) => {
         const isActive = index === currentIndex;
         const game = card._origGame;
-        const isSelected = String(activeGameId) === String(card.id);
         return (
           <>
             <img
@@ -67,7 +67,7 @@ const LibraryGameStrip = ({ games, activeGameId, onSelect, onOpenStore }) => {
               fetchPriority={isActive ? 'high' : 'auto'}
             />
             <div className="lib-strip-card-overlay" />
-            {isActive && isSelected ? (
+            {isActive ? (
               <div className="lib-strip-card-popover">
                 <button
                   type="button"
@@ -95,6 +95,6 @@ const LibraryGameStrip = ({ games, activeGameId, onSelect, onOpenStore }) => {
       }}
     />
   );
-};
+});
 
 export default LibraryGameStrip;

@@ -10,7 +10,7 @@ function normalizeProgress(progress) {
 	if (!infoHash) return null;
 	const normalized = {
 		infoHash,
-		name: String(progress.name || infoHash),
+		name: String(progress.name || progress.title || infoHash || 'Pending...').trim() || 'Pending...',
 		progress: typeof progress.progress === 'number' ? progress.progress : 0,
 		downloadSpeed: typeof progress.downloadSpeed === 'number' ? progress.downloadSpeed : 0,
 		uploadSpeed: typeof progress.uploadSpeed === 'number' ? progress.uploadSpeed : 0,
@@ -200,9 +200,15 @@ export function DownloadManagerProvider({ children }) {
 
 		for (const entry of resumable) {
 			try {
-				const snapshot = await api.torrentStart(entry.magnetURI, entry.savePath || undefined);
+				const preferredName = String(entry.name || '').trim();
+				const snapshot = await api.torrentStart(
+					entry.magnetURI,
+					entry.savePath || undefined,
+					preferredName || undefined,
+				);
 				upsertDownload({
 					...snapshot,
+					name: preferredName || snapshot?.name,
 					magnetURI: entry.magnetURI,
 					savePath: entry.savePath || snapshot?.savePath || snapshot?.path || '',
 					imageUrl: entry.imageUrl,
@@ -281,17 +287,23 @@ export function DownloadManagerProvider({ children }) {
 		writeResumableEntries(nextEntries);
 	}, [downloads, resumeBootstrapped]);
 
-	const startDownload = useCallback(async ({ magnetUri, savePath, artwork } = {}) => {
+	const startDownload = useCallback(async ({ magnetUri, savePath, artwork, title } = {}) => {
 		const api = typeof window !== 'undefined' ? window.electronAPI : null;
 		if (!api || typeof api.torrentStart !== 'function') throw new Error('torrentStart API is not available');
 		if (!magnetUri || !String(magnetUri).trim()) throw new Error('Download URI is required');
 		const cleanMagnetUri = String(magnetUri).trim();
 		const cleanSavePath = String(savePath || '').trim();
+		const cleanTitle = String(title || '').trim();
 		setError('');
-		const snapshot = await api.torrentStart(cleanMagnetUri, cleanSavePath || undefined);
+		const snapshot = await api.torrentStart(cleanMagnetUri, cleanSavePath || undefined, cleanTitle || undefined);
 		const art = artwork && typeof artwork === 'object' ? artwork : {};
 		const withArtwork = {
 			...snapshot,
+			name:
+				cleanTitle ||
+				(typeof snapshot?.name === 'string' && snapshot.name.trim()
+					? snapshot.name.trim()
+					: String(snapshot?.infoHash || cleanMagnetUri).trim()),
 			magnetURI:
 				typeof snapshot?.magnetURI === 'string' && snapshot.magnetURI.trim()
 					? snapshot.magnetURI.trim()
@@ -311,7 +323,7 @@ export function DownloadManagerProvider({ children }) {
 		return withArtwork;
 	}, [upsertDownload]);
 
-	const startFromPcGamesSlug = useCallback(async ({ slug, savePath } = {}) => {
+	const startFromPcGamesSlug = useCallback(async ({ slug, savePath, title } = {}) => {
 		const api = typeof window !== 'undefined' ? window.electronAPI : null;
 		if (!api || typeof api.PcGamesTorrentMagnetLink !== 'function') throw new Error('PcGamesTorrentMagnetLink API is not available');
 		const cleanSlug = String(slug || '').trim();
@@ -319,7 +331,7 @@ export function DownloadManagerProvider({ children }) {
 		setError('');
 		const magnet = await api.PcGamesTorrentMagnetLink(cleanSlug);
 		if (!magnet || !String(magnet).trim()) throw new Error('No magnet link found for this slug');
-		return startDownload({ magnetUri: String(magnet), savePath });
+		return startDownload({ magnetUri: String(magnet), savePath, title });
 	}, [startDownload]);
 
 	const pauseDownload = useCallback(async (infoHash) => {
@@ -336,11 +348,26 @@ export function DownloadManagerProvider({ children }) {
 		setDownloads((prev) => prev.map((item) => (item.infoHash === infoHash ? { ...item, paused: false } : item)));
 	}, []);
 
-	const removeDownload = useCallback(async (infoHash, deleteFiles = false) => {
+	const removeDownload = useCallback(async (infoHash, deleteFiles = true) => {
 		const api = typeof window !== 'undefined' ? window.electronAPI : null;
 		if (!api || typeof api.torrentRemove !== 'function') throw new Error('torrentRemove API is not available');
-		await api.torrentRemove(String(infoHash), Boolean(deleteFiles));
+		const result = await api.torrentRemove(String(infoHash), Boolean(deleteFiles));
 		setDownloads((prev) => prev.filter((item) => item.infoHash !== infoHash));
+
+		const lockedTargets = Array.isArray(result?.lockedTargets)
+			? result.lockedTargets.filter((entry) => typeof entry === 'string' && entry.trim())
+			: [];
+		const failedTargets = Array.isArray(result?.failedTargets)
+			? result.failedTargets.filter((entry) => typeof entry === 'string' && entry.trim())
+			: [];
+
+		if (lockedTargets.length > 0 || failedTargets.length > 0) {
+			const firstPath = lockedTargets[0] || failedTargets[0] || '';
+			const prefix = lockedTargets.length > 0
+				? 'Torrent removed, but some files are still in use and could not be deleted.'
+				: 'Torrent removed, but some files could not be deleted.';
+			setError(firstPath ? `${prefix} Close apps using the file, then remove leftover manually if needed. First path: ${firstPath}` : prefix);
+		}
 	}, []);
 
 	const openDownload = useCallback(async (infoHash, savePath = '') => {
@@ -349,15 +376,15 @@ export function DownloadManagerProvider({ children }) {
 		return await api.torrentOpen(String(infoHash || ''), String(savePath || '').trim() || undefined);
 	}, []);
 
-	const start = useCallback(async ({ magnetUri, savePath } = {}) => {
-		return await startDownload({ magnetUri, savePath });
+	const start = useCallback(async ({ magnetUri, savePath, title } = {}) => {
+		return await startDownload({ magnetUri, savePath, title });
 	}, [startDownload]);
 
 	const pause = useCallback(async (infoHash) => {
 		await pauseDownload(infoHash);
 	}, [pauseDownload]);
 
-	const remove = useCallback(async (infoHash, deleteFiles = false) => {
+	const remove = useCallback(async (infoHash, deleteFiles = true) => {
 		await removeDownload(infoHash, deleteFiles);
 	}, [removeDownload]);
 

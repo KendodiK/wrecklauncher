@@ -211,7 +211,7 @@ class ItchioController extends GamesController {
    * @param {number} [limit]
    * @returns {Promise<Array<{ gameId: number, title: string, url: string, score: number }>>}
    */
-  async searchGameByTitle(title, limit = 12) {
+  async searchGameByTitle(title, limit = 30) {
     const needle = String(title || '').trim();
     if (!needle) return [];
 
@@ -255,7 +255,7 @@ class ItchioController extends GamesController {
     }
 
     candidates.sort((a, b) => b.score - a.score);
-    return candidates.slice(0, Math.max(1, Number(limit) || 12));
+    return candidates.slice(0, Math.max(1, Number(limit) || 30));
   }
 
   /**
@@ -274,10 +274,13 @@ class ItchioController extends GamesController {
     const title = hasExplicitToken ? String(maybeTitle || '').trim() : String(tokenOrTitle || '').trim();
     if (!title) return null;
 
-    const matches = await this.searchGameByTitle(title, 12);
+    const matches = await this.searchGameByTitle(title, 30);
     if (matches.length < 1) return null;
 
-    for (const match of matches.slice(0, 5)) {
+    let bestDetails = null;
+    let bestScore = 0;
+
+    for (const match of matches.slice(0, 10)) {
       try {
         const details = hasExplicitToken
           ? await this.getGameDetails(token, match.gameId)
@@ -285,14 +288,30 @@ class ItchioController extends GamesController {
 
         if (!details || typeof details !== 'object') continue;
 
-        return {
+        const candidateTitle = String(details.title || match.title || '').trim();
+        const detailScore = this._titleMatchScore(title, candidateTitle);
+        const mergedScore = Math.max(match.score, detailScore);
+
+        const enrichedDetails = {
           ...details,
           url: details.url || match.url,
           raw: {
             ...(details.raw || {}),
-            search_match: match,
+            search_match: {
+              ...match,
+              score: mergedScore,
+            },
           },
         };
+
+        if (!bestDetails || mergedScore > bestScore) {
+          bestDetails = enrichedDetails;
+          bestScore = mergedScore;
+        }
+
+        if (mergedScore >= 0.98) {
+          return enrichedDetails;
+        }
       } catch (err) {
         if (err && typeof err === 'object' && /** @type {any} */ (err).code === 'WRECK_INVALID_TOKEN') {
           throw err;
@@ -300,7 +319,7 @@ class ItchioController extends GamesController {
       }
     }
 
-    return null;
+    return bestDetails;
   }
 
   /**

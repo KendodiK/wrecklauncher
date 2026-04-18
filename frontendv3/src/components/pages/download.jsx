@@ -154,7 +154,14 @@ const DownloadsPage = () => {
 											) : null}
 											<button
 												type="button"
-												onClick={() => remove(item.infoHash, true)}
+												onClick={async () => {
+													setLocalError('');
+													try {
+														await remove(item.infoHash, true);
+													} catch (e) {
+														setLocalError(e instanceof Error ? e.message : String(e));
+													}
+												}}
 												className="ml-auto rounded-lg border border-rose-700/70 bg-rose-900/20 px-3 py-1.5 text-xs text-rose-100 hover:bg-rose-900/40"
 											>
 												Remove
