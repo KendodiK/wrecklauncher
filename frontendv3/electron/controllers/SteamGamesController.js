@@ -44,7 +44,7 @@ class SteamGamesController extends GamesController {
    * @param {number} [limit]
    * @returns {Promise<Array<{ appid: number, title: string, score: number, url: string|null }>>}
    */
-  async searchGameByTitle(title, cc = 'us', limit = 12) {
+  async searchGameByTitle(title, cc = 'us', limit = 40) {
     const needle = String(title || '').trim();
     if (!needle) return [];
 
@@ -84,7 +84,7 @@ class SteamGamesController extends GamesController {
       })
       .filter((/** @type {any} */ item) => !!item)
       .sort((/** @type {any} */ a, /** @type {any} */ b) => b.score - a.score)
-      .slice(0, Math.max(1, Number(limit) || 12));
+      .slice(0, Math.max(1, Number(limit) || 40));
 
     return matches;
   }
@@ -98,23 +98,42 @@ class SteamGamesController extends GamesController {
    * @returns {Promise<import('../models').SteamGameDetails|null>}
    */
   async getGameDetailsByTitle(token, title, cc = 'de') {
-    const matches = await this.searchGameByTitle(title, cc, 12);
+    const matches = await this.searchGameByTitle(title, cc, 40);
     if (matches.length < 1) return null;
 
-    for (const match of matches.slice(0, 5)) {
+    let bestDetails = null;
+    let bestScore = 0;
+
+    for (const match of matches.slice(0, 12)) {
       const details = await this.getGameDetails(token, match.appid, cc);
       if (!details) continue;
 
-      return {
+      const candidateTitle = String(details.name || match.title || '').trim();
+      const detailScore = this._titleMatchScore(title, candidateTitle);
+      const mergedScore = Math.max(match.score, detailScore);
+
+      const enrichedDetails = {
         ...details,
         raw: {
           ...(details.raw || {}),
-          search_match: match,
+          search_match: {
+            ...match,
+            score: mergedScore,
+          },
         },
       };
+
+      if (!bestDetails || mergedScore > bestScore) {
+        bestDetails = enrichedDetails;
+        bestScore = mergedScore;
+      }
+
+      if (mergedScore >= 0.98) {
+        return enrichedDetails;
+      }
     }
 
-    return null;
+    return bestDetails;
   }
   /**
    * @param {string} url

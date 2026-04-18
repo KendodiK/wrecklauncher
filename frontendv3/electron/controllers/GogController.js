@@ -1254,13 +1254,32 @@ async #fetchGogCoverUrl(appId) {
     const words = normalized.split(' ').filter(Boolean);
     if (words.length < 1) return [];
 
-    const dropTail = new Set(['edition', 'ultimate', 'complete', 'game', 'year', 'deluxe']);
+    const dropTail = new Set([
+      'edition',
+      'definitive',
+      'remastered',
+      'enhanced',
+      'ultimate',
+      'complete',
+      'game',
+      'year',
+      'deluxe',
+      'gold',
+      'goty',
+      'director',
+      'directors',
+      'cut',
+    ]);
     const trimmedWords = [...words];
     while (trimmedWords.length > 2 && dropTail.has(trimmedWords[trimmedWords.length - 1])) {
       trimmedWords.pop();
     }
 
     const noLeadingThe = words[0] === 'the' && words.length > 1 ? words.slice(1) : words;
+    const progressive = [];
+    for (let length = words.length; length >= 2; length -= 1) {
+      progressive.push(words.slice(0, length).join(' '));
+    }
 
     const variants = new Set([
       words.join('_'),
@@ -1269,9 +1288,11 @@ async #fetchGogCoverUrl(appId) {
       trimmedWords.join('-'),
       noLeadingThe.join('_'),
       noLeadingThe.join('-'),
+      ...progressive.map((value) => value.replace(/\s+/g, '_')),
+      ...progressive.map((value) => value.replace(/\s+/g, '-')),
     ]);
 
-    return Array.from(variants).filter((slug) => typeof slug === 'string' && slug.trim()).slice(0, 8);
+    return Array.from(variants).filter((slug) => typeof slug === 'string' && slug.trim()).slice(0, 16);
   }
 
   /**
@@ -1322,22 +1343,41 @@ async #fetchGogCoverUrl(appId) {
     const matches = await this.searchGameByTitle(title);
     if (matches.length < 1) return null;
 
-    for (const match of matches.slice(0, 4)) {
+    let bestDetails = null;
+    let bestScore = 0;
+
+    for (const match of matches.slice(0, 8)) {
       const details = token
         ? await this.getGameDetails(match.slug, token, { includeRaw: true })
         : await this.getGameDetails(match.slug, { includeRaw: true });
       if (!details || typeof details !== 'object') continue;
 
-      return {
+      const candidateTitle = String(details.title || match.title || '').trim();
+      const detailScore = this._titleMatchScore(title, candidateTitle);
+      const mergedScore = Math.max(match.score, detailScore);
+
+      const enrichedDetails = {
         ...details,
         raw: {
           ...(details.raw || {}),
-          search_match: match,
+          search_match: {
+            ...match,
+            score: mergedScore,
+          },
         },
       };
+
+      if (!bestDetails || mergedScore > bestScore) {
+        bestDetails = enrichedDetails;
+        bestScore = mergedScore;
+      }
+
+      if (mergedScore >= 0.98) {
+        return enrichedDetails;
+      }
     }
 
-    return null;
+    return bestDetails;
   }
 
   /**

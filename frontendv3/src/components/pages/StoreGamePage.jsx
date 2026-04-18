@@ -201,11 +201,108 @@ function normalizeTrimmedTitle(value) {
 		.toLowerCase();
 }
 
+const TITLE_NOISE_WORDS = new Set([
+	'the',
+	'a',
+	'an',
+	'edition',
+	'definitive',
+	'remastered',
+	'remake',
+	'enhanced',
+	'game',
+	'of',
+	'year',
+	'goty',
+	'ultimate',
+	'complete',
+	'deluxe',
+	'gold',
+	'collection',
+	'bundle',
+	'pack',
+	'director',
+	'directors',
+	'cut',
+	'vr',
+	'hd',
+	'dx',
+	'ii',
+	'iii',
+	'iv',
+	'v',
+	'vi',
+	'vii',
+	'viii',
+	'ix',
+	'x',
+]);
+
+function splitTitleTokens(value, options = {}) {
+	const normalized = normalizeTitleForCompare(value);
+	if (!normalized) return [];
+
+	const source = normalized.split(' ').filter(Boolean);
+	if (options?.dropNoiseWords !== true) return source;
+
+	return source.filter((token) => token.length > 1 && !TITLE_NOISE_WORDS.has(token));
+}
+
+function normalizeTitleCore(value) {
+	return splitTitleTokens(value, { dropNoiseWords: true }).join(' ');
+}
+
+function getPairTitleMatchScore(left, right) {
+	const leftNormalized = normalizeTitleForCompare(left);
+	const rightNormalized = normalizeTitleForCompare(right);
+	if (!leftNormalized || !rightNormalized) return 0;
+	if (leftNormalized === rightNormalized) return 1;
+
+	const leftCore = normalizeTitleCore(leftNormalized);
+	const rightCore = normalizeTitleCore(rightNormalized);
+	if (leftCore && rightCore && leftCore === rightCore) return 0.95;
+
+	const shortText = leftNormalized.length <= rightNormalized.length ? leftNormalized : rightNormalized;
+	const longText = shortText === leftNormalized ? rightNormalized : leftNormalized;
+	if (shortText.length >= 3 && longText.includes(shortText)) {
+		const ratio = shortText.length / Math.max(1, longText.length);
+		if (ratio >= 0.62) return 0.9;
+		return 0.76;
+	}
+
+	const leftTokens = new Set(splitTitleTokens(left, { dropNoiseWords: false }).filter((token) => token.length > 1));
+	const rightTokens = new Set(splitTitleTokens(right, { dropNoiseWords: false }).filter((token) => token.length > 1));
+	if (leftTokens.size < 1 || rightTokens.size < 1) return 0;
+
+	let overlap = 0;
+	for (const token of leftTokens) {
+		if (rightTokens.has(token)) overlap += 1;
+	}
+
+	if (overlap < 1) {
+		const leftPrefix = leftNormalized.slice(0, 12);
+		const rightPrefix = rightNormalized.slice(0, 12);
+		if (leftPrefix && rightPrefix && (leftPrefix.startsWith(rightPrefix) || rightPrefix.startsWith(leftPrefix))) {
+			return 0.26;
+		}
+		return 0;
+	}
+
+	const union = leftTokens.size + rightTokens.size - overlap;
+	const jaccard = union > 0 ? overlap / union : 0;
+	const coverage = overlap / Math.min(leftTokens.size, rightTokens.size);
+	const lengthBalance = Math.min(leftNormalized.length, rightNormalized.length) / Math.max(leftNormalized.length, rightNormalized.length);
+
+	const score = Math.max(
+		(jaccard * 0.78) + (coverage * 0.2) + (lengthBalance * 0.02),
+		coverage * 0.88,
+	);
+
+	return Number(score.toFixed(4));
+}
+
 function titlesMatchWhenTrimmed(left, right) {
-	const leftNormalized = normalizeTrimmedTitle(left);
-	const rightNormalized = normalizeTrimmedTitle(right);
-	if (!leftNormalized || !rightNormalized) return false;
-	return leftNormalized === rightNormalized;
+	return getPairTitleMatchScore(left, right) >= 0.78;
 }
 
 function normalizeTitleForCompare(value) {
@@ -252,7 +349,7 @@ function getBestTitleMatchScore(title, expectedTitles) {
 	if (!Array.isArray(expectedTitles) || expectedTitles.length < 1) return 1;
 	let best = 0;
 	for (const expectedTitle of expectedTitles) {
-		const score = titlesMatchWhenTrimmed(title, expectedTitle) ? 1 : 0;
+		const score = getPairTitleMatchScore(title, expectedTitle);
 		if (score > best) best = score;
 	}
 	return best;
@@ -293,12 +390,14 @@ function selectBestScrapeCandidate(candidates, expectedTitles) {
 
 	const titleHints = Array.isArray(expectedTitles) ? expectedTitles : [];
 	const requireTitleMatch = titleHints.length > 0;
+	const strictTitleThreshold = 0.28;
+	const softTitleThreshold = 0.18;
 
 	const evaluated = list.map((candidate) => {
 		const parsed = candidate?.parsed && typeof candidate.parsed === 'object' ? candidate.parsed : null;
 		const title = parsed?.title || candidate?.details?.title || candidate?.details?.name || '';
 		const titleScore = getBestTitleMatchScore(title, titleHints);
-		const titleMatched = requireTitleMatch ? titleScore >= 0.52 : true;
+		const titleMatched = requireTitleMatch ? titleScore >= strictTitleThreshold : true;
 		const completeness = evaluateParsedCompleteness(parsed);
 
 		return {
@@ -310,11 +409,22 @@ function selectBestScrapeCandidate(candidates, expectedTitles) {
 	});
 
 	const matched = evaluated.filter((candidate) => candidate.titleMatched);
-	if (requireTitleMatch && matched.length < 1) {
-		return { best: null, accepted: [], hasTitleMatch: false };
+	let accepted = matched.length > 0 ? matched : [];
+	let hasTitleMatch = matched.length > 0 || !requireTitleMatch;
+
+	if (requireTitleMatch && accepted.length < 1) {
+		const softMatched = evaluated.filter((candidate) => candidate.titleScore >= softTitleThreshold);
+		if (softMatched.length > 0) {
+			accepted = softMatched;
+			hasTitleMatch = true;
+		} else {
+			accepted = evaluated;
+			hasTitleMatch = false;
+		}
+	} else if (!requireTitleMatch) {
+		accepted = evaluated;
 	}
 
-	const accepted = matched.length > 0 ? matched : evaluated;
 	accepted.sort((left, right) => {
 		if (left.missingRequired !== right.missingRequired) {
 			return left.missingRequired - right.missingRequired;
@@ -334,7 +444,7 @@ function selectBestScrapeCandidate(candidates, expectedTitles) {
 	return {
 		best: accepted[0] || null,
 		accepted,
-		hasTitleMatch: matched.length > 0 || !requireTitleMatch,
+		hasTitleMatch,
 	};
 }
 
@@ -369,13 +479,33 @@ function buildGogTitleSlugs(title) {
 	const words = normalized.split(' ').filter(Boolean);
 	if (words.length < 1) return [];
 
-	const dropTail = new Set(['edition', 'ultimate', 'complete', 'game', 'year', 'deluxe']);
+	const dropTail = new Set([
+		'edition',
+		'ultimate',
+		'complete',
+		'game',
+		'year',
+		'deluxe',
+		'definitive',
+		'remastered',
+		'enhanced',
+		'gold',
+		'goty',
+		'director',
+		'directors',
+		'cut',
+	]);
 	const trimmedWords = [...words];
 	while (trimmedWords.length > 2 && dropTail.has(trimmedWords[trimmedWords.length - 1])) {
 		trimmedWords.pop();
 	}
 
 	const noLeadingThe = words[0] === 'the' && words.length > 1 ? words.slice(1) : words;
+	const progressive = [];
+	for (let length = words.length; length >= 2; length -= 1) {
+		progressive.push(words.slice(0, length).join(' '));
+	}
+
 	const variants = new Set([
 		slugFromTitle(words.join(' '), '_'),
 		slugFromTitle(words.join(' '), '-'),
@@ -383,16 +513,27 @@ function buildGogTitleSlugs(title) {
 		slugFromTitle(trimmedWords.join(' '), '-'),
 		slugFromTitle(noLeadingThe.join(' '), '_'),
 		slugFromTitle(noLeadingThe.join(' '), '-'),
+		...progressive.map((value) => slugFromTitle(value, '_')),
+		...progressive.map((value) => slugFromTitle(value, '-')),
 	]);
 
-	return Array.from(variants).filter(Boolean).slice(0, 8);
+	return Array.from(variants).filter(Boolean).slice(0, 16);
 }
 
 async function fetchDetailsByTitleHints(api, platform, titleHints, countryCode) {
 	if (!api || !Array.isArray(titleHints) || titleHints.length < 1) return null;
 	const cc = String(countryCode || 'US').trim().toLowerCase() || 'us';
-	const matchesTitleHints = (candidateTitle) =>
-		titleHints.some((hint) => titlesMatchWhenTrimmed(candidateTitle, hint));
+	const minAcceptableScore = 0.18;
+	let best = null;
+
+	const maybeTrackBest = (details, candidateTitle) => {
+		if (!details || typeof details !== 'object') return false;
+		const score = getBestTitleMatchScore(candidateTitle, titleHints);
+		if (!best || score > best.score) {
+			best = { details, score };
+		}
+		return score >= 0.95;
+	};
 
 	if (platform === 'steam') {
 		for (const title of titleHints) {
@@ -400,10 +541,10 @@ async function fetchDetailsByTitleHints(api, platform, titleHints, countryCode) 
 			if (typeof api.getSteamGameDetailsByTitle !== 'function') continue;
 			const details = await api.getSteamGameDetailsByTitle(title, cc);
 			if (!details || typeof details !== 'object') continue;
-			const candidateTitle = details?.name || details?.title || details?.raw?.name || '';
-			if (matchesTitleHints(candidateTitle)) return details;
+			const candidateTitle = details?.name || details?.title || details?.raw?.name || details?.raw?.search_match?.title || '';
+			if (maybeTrackBest(details, candidateTitle)) return details;
 		}
-		return null;
+		return best && best.score >= minAcceptableScore ? best.details : null;
 	}
 
 	if (platform === 'gog') {
@@ -411,7 +552,7 @@ async function fetchDetailsByTitleHints(api, platform, titleHints, countryCode) 
 			if (!hasFilledText(title)) continue;
 			if (typeof api.getGogGameDetailsByTitle === 'function') {
 				const details = await api.getGogGameDetailsByTitle(title);
-				if (details && typeof details === 'object' && matchesTitleHints(details?.title || details?.name || '')) {
+				if (details && typeof details === 'object' && maybeTrackBest(details, details?.title || details?.name || '')) {
 					return details;
 				}
 			}
@@ -419,12 +560,12 @@ async function fetchDetailsByTitleHints(api, platform, titleHints, countryCode) 
 			const slugCandidates = buildGogTitleSlugs(title);
 			for (const slug of slugCandidates) {
 				const details = await api.getGogGameDetails(slug);
-				if (details && typeof details === 'object' && matchesTitleHints(details?.title || details?.name || '')) {
+				if (details && typeof details === 'object' && maybeTrackBest(details, details?.title || details?.name || '')) {
 					return details;
 				}
 			}
 		}
-		return null;
+		return best && best.score >= minAcceptableScore ? best.details : null;
 	}
 
 	if (platform === 'itchio') {
@@ -433,9 +574,9 @@ async function fetchDetailsByTitleHints(api, platform, titleHints, countryCode) 
 			if (typeof api.getItchGameDetailsByTitle !== 'function') continue;
 			const details = await api.getItchGameDetailsByTitle(title);
 			if (!details || typeof details !== 'object') continue;
-			if (matchesTitleHints(details?.title || details?.name || '')) return details;
+			if (maybeTrackBest(details, details?.title || details?.name || '')) return details;
 		}
-		return null;
+		return best && best.score >= minAcceptableScore ? best.details : null;
 	}
 
 	return null;

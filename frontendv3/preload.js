@@ -89,6 +89,15 @@ async function invokeAuthed(channel, ...args) {
   }
 }
 
+// Invokes a channel with token-first args when available, but does not require auth.
+function invokeWithOptionalAuth(channel, ...args) {
+  const token = getAuthToken();
+  if (typeof token === 'string' && token.trim()) {
+    return ipcRenderer.invoke(channel, token.trim(), ...args);
+  }
+  return ipcRenderer.invoke(channel, ...args);
+}
+
 async function invokeWithTokenSync(channel, ...args) {
   const ch = String(channel || '');
 
@@ -204,10 +213,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   getSteamInstalledGames: () => ipcRenderer.invoke('steam:get-installed-games'),
   getSteamGameDetails: (appID, cc) => {
-    return invokeAuthed('steam:get-game-details', appID, cc);
+    return invokeWithOptionalAuth('steam:get-game-details', appID, cc);
   },
   getSteamGameDetailsByTitle: (title, cc) => {
-    return invokeAuthed('steam:get-game-details-by-title', title, cc);
+    return invokeWithOptionalAuth('steam:get-game-details-by-title', title, cc);
   },
   getSteamGameDetailsAndUpload: (appID, cc) => ipcRenderer.invoke('steam:get-game-details-and-upload', appID, cc),
   installSteamGame: (appID) => ipcRenderer.invoke('steam:install-game', appID),
@@ -225,10 +234,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getItchOAuthStatus: () => ipcRenderer.invoke('itch:oauth-status'),
   getItchProfile: () => ipcRenderer.invoke('itch:get-profile'),
   getItchGameDetails: (gameId) => {
-    return invokeAuthed('itch:get-game-details', gameId);
+    return invokeWithOptionalAuth('itch:get-game-details', gameId);
   },
   getItchGameDetailsByTitle: (title) => {
-    return invokeAuthed('itch:get-game-details-by-title', title);
+    return invokeWithOptionalAuth('itch:get-game-details-by-title', title);
   },
   runItchGame: (gameId, gameUrl, installLocation) => ipcRenderer.invoke('itch:run-game', gameId, gameUrl, installLocation),
   openItchGame: (gameId, gameUrl) => ipcRenderer.invoke('itch:open-game', gameId, gameUrl),
@@ -245,10 +254,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getGogOAuthStatus: () => ipcRenderer.invoke('gog:oauth-status'),
   getGogProfile: () => ipcRenderer.invoke('gog:get-profile'),
   getGogGameDetails: (productId) => {
-    return invokeAuthed('gog:get-game-details', productId);
+    return invokeWithOptionalAuth('gog:get-game-details', productId);
   },
   getGogGameDetailsByTitle: (title) => {
-    return invokeAuthed('gog:get-game-details-by-title', title);
+    return invokeWithOptionalAuth('gog:get-game-details-by-title', title);
   },
   openGogGame: (productId) => ipcRenderer.invoke('gog:open-game', productId),
   runGogGame: (productId) => ipcRenderer.invoke('gog:run-game', productId),
