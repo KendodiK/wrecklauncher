@@ -419,6 +419,23 @@ function defaultSiteForPlatform(platform, appId) {
 	return [{ id: 'steam', label: 'Steam Store', href: `https://store.steampowered.com/app/${appId}` }];
 }
 
+function mergeUniqueSites(...groups) {
+	const out = [];
+	const seen = new Set();
+	for (const group of groups) {
+		const items = normalizeSiteLinksFromAny(group);
+		for (const item of items) {
+			const href = String(item?.href || '').trim();
+			if (!href) continue;
+			const key = href.toLowerCase();
+			if (seen.has(key)) continue;
+			seen.add(key);
+			out.push(item);
+		}
+	}
+	return out;
+}
+
 function inferPlatformFromSite(site) {
 	const label = String(site?.label || '').toLowerCase();
 	const href = String(site?.href || '').toLowerCase();
@@ -770,6 +787,7 @@ const StoreGamePage = () => {
 						: null,
 				platform_name: normalizePlatformName(dbDetails.platform_name || routePlatform),
 				sites: dbSites,
+				pirate_sites: Array.isArray(dbDetails.pirate_sites) ? dbDetails.pirate_sites : [],
 			}
 			: null;
 
@@ -803,13 +821,14 @@ const StoreGamePage = () => {
 			parsedPlatform?.screenshots,
 			routeState?.screenshots
 		);
-		const siteCandidates = pickFirstNonEmptyArray(
+		const links = mergeUniqueSites(
 			parsedPlatform?.sites,
 			parsedDb?.sites,
-			routeState?.sites
+			routeState?.sites,
+			parsedDb?.pirate_sites
 		);
-		const links = siteCandidates.length > 0
-			? normalizeSiteLinksFromAny(siteCandidates)
+		const resolvedLinks = links.length > 0
+			? links
 			: defaultSiteForPlatform(routePlatform, resolvedAppId || appId);
 		const coverImage = pickFirstFilledText(
 			parsedPlatform?.coverImage,
@@ -867,7 +886,7 @@ const StoreGamePage = () => {
 			screenshots,
 			price,
 			priceLabel: priceLabel || null,
-			sites: links,
+			sites: resolvedLinks,
 		};
 	}, [appId, dbDetails, platformDetails, requestedPlatform, routeState]);
 

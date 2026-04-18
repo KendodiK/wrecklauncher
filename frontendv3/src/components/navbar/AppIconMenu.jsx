@@ -1,5 +1,6 @@
 // Bal felső app ikon és lenyíló menü (Home, Settings, Exit, stb.)
 import React from 'react';
+import logoImage from '../../assets/logo.svg';
 
 // dropdownOpen: nyitva van-e a menü
 // openDropdown / scheduleCloseDropdown / closeDropdown: egér eseményekhez tartozó vezérlő függvények
@@ -14,8 +15,8 @@ const AppIconMenu = ({ dropdownOpen, openDropdown, scheduleCloseDropdown, closeD
       onFocus={openDropdown}
       onBlur={closeDropdown}
     >
-      <span className="app-icon w-6 h-6 bg-slate-700 rounded flex items-center justify-center text-[10px] text-slate-200">
-        IMG
+      <span className="app-icon w-6 h-6 bg-slate-700 rounded flex items-center justify-center overflow-hidden">
+        <img src={logoImage} alt="WreckLauncher logo" className="w-full h-full object-cover" draggable="false" />
       </span>
       <span className="app-title text-sm">WreckLauncher</span>
 
@@ -31,17 +32,6 @@ const AppIconMenu = ({ dropdownOpen, openDropdown, scheduleCloseDropdown, closeD
             }}
           >
             Home
-          </button>
-          <button
-            type="button"
-            className="menu-item w-full text-left px-3 py-2 hover:bg-neutral-700"
-            onClick={(e) => {
-              e.stopPropagation();
-              closeDropdown();
-              navigateTo('/settings');
-            }}
-          >
-            Settings
           </button>
           <button
             type="button"

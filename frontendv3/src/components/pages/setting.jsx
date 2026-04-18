@@ -52,6 +52,17 @@ function normalizeSettings(data) {
 	return mergeWithDefaults(DEFAULT_SETTINGS, data);
 }
 
+function isValidHttpUrl(value) {
+	const raw = String(value || '').trim();
+	if (!raw) return false;
+	try {
+		const parsed = new URL(raw);
+		return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+	} catch {
+		return false;
+	}
+}
+
 function sleep(ms) {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -425,13 +436,24 @@ const SettingsPage = () => {
 	};
 
 	const handleSaveProfile = async () => {
+		const trimmedAvatarUrl = profileForm.avatarUrl.trim();
+		if (!trimmedAvatarUrl) {
+			setMessage({ type: 'error', text: 'Profile picture URL is required' });
+			return;
+		}
+
+		if (!isValidHttpUrl(trimmedAvatarUrl)) {
+			setMessage({ type: 'error', text: 'Invalid profile picture URL format. Use a full http/https link.' });
+			return;
+		}
+
 		try {
 			setSaving(true);
 			const updated = await window.electronAPI.updateSettings({
 				account: {
 					profile: {
 						bio: profileForm.bio.trim(),
-						avatarUrl: profileForm.avatarUrl.trim(),
+						avatarUrl: trimmedAvatarUrl,
 					},
 				},
 			});
@@ -452,7 +474,7 @@ const SettingsPage = () => {
 						...(settings?.account || {}),
 						profile: {
 							bio: profileForm.bio.trim(),
-							avatarUrl: profileForm.avatarUrl.trim(),
+							avatarUrl: trimmedAvatarUrl,
 						},
 					},
 				});

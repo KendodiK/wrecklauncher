@@ -276,8 +276,31 @@ function getShopSpecialsCtrl() {
     return await getUserCtrl().login(String(username), String(password));
   });
 
-  handle('user:register', async (_event, username, password, email) => {
-    return await getUserCtrl().register(String(username), String(password), String(email));
+  handle('user:register', async (_event, username, password, email, profile) => {
+    const token = await getUserCtrl().register(String(username), String(password), String(email), profile);
+
+    const normalizedProfile = profile && typeof profile === 'object' ? profile : {};
+    const avatarUrl = String(
+      normalizedProfile?.avatarUrl || normalizedProfile?.pfp || normalizedProfile?.profilePicture || ''
+    ).trim();
+    const bio = String(normalizedProfile?.bio || '').trim();
+
+    if (avatarUrl || bio) {
+      try {
+        await getSettingsCtrl().updateSettings({
+          account: {
+            profile: {
+              ...(avatarUrl ? { avatarUrl } : {}),
+              ...(bio ? { bio } : {}),
+            },
+          },
+        });
+      } catch (err) {
+        console.warn('[auth.debug] Failed to persist registration profile to settings:', err);
+      }
+    }
+
+    return token;
   });
 
   handleAuthed('user:get-platform-userid', async ({ token }, platformName, platformUsername) => {
@@ -294,7 +317,51 @@ function getShopSpecialsCtrl() {
 
   handleAuthed('user:get-current-user', async ({ token }) => {
     getUserCtrl().setToken(token);
-    return await getUserCtrl().getCurrentUserInfo(token);
+    const currentUser = await getUserCtrl().getCurrentUserInfo(token);
+    const settings = await getSettingsCtrl().getSettings();
+
+    const settingsProfile = settings?.account?.profile || {};
+    const settingsAvatarUrl = String(settingsProfile?.avatarUrl || '').trim() || null;
+    const settingsBio = String(settingsProfile?.bio || '').trim() || null;
+
+    console.log('[auth.debug] user:get-current-user source values', {
+      tokenUserId: String(token || '').split('.')[0] || null,
+      apiAvatarUrl: currentUser?.avatarUrl ?? null,
+      apiPfp: currentUser?.pfp ?? null,
+      settingsAvatarUrl,
+      settingsBioPresent: Boolean(settingsBio),
+    });
+
+    if (!currentUser) {
+      const payload = {
+        id: null,
+        username: 'Player',
+        bio: settingsBio,
+        avatarUrl: settingsAvatarUrl,
+        pfp: settingsAvatarUrl,
+      };
+      console.log('[auth.debug] user:get-current-user resolved payload (fallback)', payload);
+      return {
+        id: null,
+        username: 'Player',
+        bio: settingsBio,
+        avatarUrl: settingsAvatarUrl,
+        pfp: settingsAvatarUrl,
+      };
+    }
+
+    const resolvedAvatar = String(currentUser.avatarUrl || '').trim() || settingsAvatarUrl;
+    const resolvedBio = String(currentUser.bio || '').trim() || settingsBio;
+
+    const resolvedPayload = {
+      ...currentUser,
+      bio: resolvedBio,
+      avatarUrl: resolvedAvatar,
+      pfp: resolvedAvatar,
+    };
+    console.log('[auth.debug] user:get-current-user resolved payload', resolvedPayload);
+
+    return resolvedPayload;
   });
 
   // Settings (global app settings)

@@ -137,7 +137,7 @@ class UserController extends TokenController {
    * Returns a normalized user object for renderer bootstrap.
    *
    * @param {string|null|undefined} tokenOverride
-   * @returns {Promise<{ id: string|number|null, username: string, bio: string|null, avatarUrl: string|null }|null>}
+    * @returns {Promise<{ id: string|number|null, username: string, bio: string|null, avatarUrl: string|null, pfp?: string|null }|null>}
    */
   async getCurrentUserInfo(tokenOverride) {
     const token =
@@ -194,6 +194,7 @@ class UserController extends TokenController {
       }
     }
 
+    /** @type {{ url: string, method: 'GET', headers: Record<string, string> }[]} */
     const attempts = [
       {
         url: joinUrl(this.#serverUrl, 'api', 'native-users', enc(userId)),
@@ -217,13 +218,30 @@ class UserController extends TokenController {
       });
 
       if (ok) {
-        const raw = json && typeof json === 'object' ? json : {};
+        const root = json && typeof json === 'object' ? json : {};
+        const raw =
+          (root?.nativeUser && typeof root.nativeUser === 'object' ? root.nativeUser : null) ||
+          (root?.user && typeof root.user === 'object' ? root.user : null) ||
+          (root?.data && typeof root.data === 'object' ? root.data : null) ||
+          root;
         const username = String(raw?.name ?? raw?.username ?? raw?.user_name ?? '').trim() || `User ${userId}`;
+        const avatarUrl = String(
+          raw?.pfp ??
+          raw?.pfp_url ??
+          raw?.avatarUrl ??
+          raw?.avatar_url ??
+          raw?.avatar ??
+          raw?.picture ??
+          raw?.profilePicture ??
+          raw?.profile_picture ??
+          ''
+        ).trim() || null;
         return {
           id: raw?.id ?? userId,
           username,
           bio: raw?.bio ?? null,
-          avatarUrl: raw?.pfp ?? raw?.avatarUrl ?? null,
+          avatarUrl,
+          pfp: avatarUrl,
         };
       }
 

@@ -137,9 +137,37 @@ function normalizePriceValue(raw) {
 	return numeric;
 }
 
+function normalizeTextList(value) {
+	if (Array.isArray(value)) {
+		return value
+			.map((entry) => String(
+				typeof entry === 'object' && entry !== null
+					? entry.name ?? entry.genre ?? entry.description ?? entry.label ?? ''
+					: entry ?? '',
+			).trim())
+			.filter(Boolean);
+	}
+
+	if (typeof value === 'string') {
+		return value
+			.split(',')
+			.map((part) => part.trim())
+			.filter(Boolean);
+	}
+
+	return [];
+}
+
 function mapGameCard(game, fallbackTag = '') {
 	const normalizedPrice = normalizePriceValue(game.cost ?? game.price);
 	const normalizedPlatform = resolveStorePlatformFromGame(game, 'steam');
+	const normalizedGenres = normalizeTextList(
+		game.genres ?? game.genre_names ?? game.genreNames ?? game.genre ?? game.categories,
+	);
+	const normalizedTags = normalizeTextList(
+		game.tags ?? game.tag_names ?? game.tagNames,
+	);
+	const mergedTags = [...normalizedTags, ...normalizedGenres];
 	return {
 		id: game.app_id || game.appid || game.id,
 		app_id: game.app_id || game.appid || game.id,
@@ -154,9 +182,9 @@ function mapGameCard(game, fallbackTag = '') {
 		description: game.description || '',
 		platform_name: normalizedPlatform,
 		minimum_requirements: game.minimum_requirements || '',
-		genres: Array.isArray(game.genres) ? game.genres : [],
+		genres: normalizedGenres,
 		tags: [
-			...(Array.isArray(game.tags) ? game.tags : []),
+			...mergedTags,
 			...(fallbackTag ? [fallbackTag] : []),
 		],
 	};
@@ -458,6 +486,14 @@ const ensureFullBrowsePages = async () => {
 				// component will use window.electronAPI.getSteamGameDetails(appID) or 
 				// window.electronAPI.getAllDetailsByID(id) to fetch full scraped data
 				const transformedGames = (gamesData || []).map((game) => mapGameCard(game));
+				console.log('[tags-debug] first mapped game:', transformedGames[0]
+					? {
+						id: transformedGames[0].id,
+						title: transformedGames[0].title,
+						genres: transformedGames[0].genres,
+						tags: transformedGames[0].tags,
+					}
+					: null);
 
 				let featuredCards = appendUniqueGames(
 					[],

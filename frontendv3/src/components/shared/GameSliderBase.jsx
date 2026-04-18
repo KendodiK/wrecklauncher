@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
+import logoImage from '../../assets/logo.svg';
 
 // Base slider: structure + JavaScript behavior. Styling/animation is injected via props.
 // games: optional array of { id, image, title }
@@ -50,7 +51,7 @@ const GameSliderBase = ({
 			? games
 			: [1, 2, 3, 4, 5, 6, 7].map((n) => ({
 				id: n,
-				image: `https://via.placeholder.com/300x420?text=${n}`,
+				image: logoImage,
 				title: `Game ${n}`,
 			})))
 			.map((g, index) => {
@@ -61,7 +62,7 @@ const GameSliderBase = ({
 					image:
 						card.image ??
 						card.banner_img ??
-						`https://via.placeholder.com/300x420?text=${index + 1}`,
+						logoImage,
 					title: card.title ?? card.name ?? `Game ${index + 1}`,
 				};
 			});

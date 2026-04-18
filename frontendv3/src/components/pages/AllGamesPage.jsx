@@ -9,6 +9,28 @@ import {
 } from '../../utils/storeRouting.js';
 import { isTrimmedTitleMatch } from '../../utils/gameUtils.js';
 
+function getGameTagLabels(game, limit = Infinity) {
+	const labels = [];
+	const seen = new Set();
+	const push = (value) => {
+		const label = String(
+			typeof value === 'object' && value !== null
+				? value.name ?? value.genre ?? value.description ?? value.label ?? ''
+				: value ?? '',
+		)
+			.trim();
+		if (!label || /^\d+$/.test(label)) return;
+		const key = label.toLowerCase();
+		if (seen.has(key)) return;
+		seen.add(key);
+		labels.push(label);
+	};
+
+	(Array.isArray(game?.tags) ? game.tags : []).forEach(push);
+	(Array.isArray(game?.genres) ? game.genres : []).forEach(push);
+	return labels.slice(0, limit);
+}
+
 function steamPoster(appid) {
 	const id = Number(appid);
 	if (!Number.isFinite(id) || id <= 0) return null;
@@ -65,6 +87,27 @@ function normalizePriceValue(raw) {
 	return numeric;
 }
 
+function normalizeTextList(value) {
+	if (Array.isArray(value)) {
+		return value
+			.map((entry) => String(
+				typeof entry === 'object' && entry !== null
+					? entry.name ?? entry.genre ?? entry.description ?? entry.label ?? ''
+					: entry ?? '',
+			).trim())
+			.filter(Boolean);
+	}
+
+	if (typeof value === 'string') {
+		return value
+			.split(',')
+			.map((part) => part.trim())
+			.filter(Boolean);
+	}
+
+	return [];
+}
+
 async function fetchAllGamesInBatches(api, batchSize = 20) {
 	const all = [];
 	let from = 0;
@@ -113,7 +156,7 @@ const AllGamesPage = () => {
 		const counts = new Map();
 		const labels = new Map();
 		for (const game of allGames) {
-			const tags = Array.isArray(game?.tags) ? game.tags : [];
+			const tags = getGameTagLabels(game);
 			for (const rawTag of tags) {
 				const label = String(rawTag || '').trim();
 				if (!label) continue;
@@ -174,6 +217,12 @@ const AllGamesPage = () => {
 						resolveStorePlatformFromGameStrict(game) ||
 						resolveStorePlatformFromGame(game, 'steam');
 					const normalizedPrice = normalizePriceValue(game.cost ?? game.price);
+					const normalizedGenres = normalizeTextList(
+						game.genres ?? game.genre_names ?? game.genreNames ?? game.genre ?? game.categories,
+					);
+					const normalizedTags = normalizeTextList(
+						game.tags ?? game.tag_names ?? game.tagNames,
+					);
 					return {
 					id: game.id,
 					app_id: game.app_id,
@@ -187,8 +236,8 @@ const AllGamesPage = () => {
 					description: game.description || '',
 					platform: normalizedPlatform,
 					platform_name: normalizedPlatform,
-					genres: Array.isArray(game.genres) ? game.genres : [],
-					tags: Array.isArray(game.tags) ? game.tags : [],
+					genres: normalizedGenres,
+					tags: [...normalizedTags, ...normalizedGenres],
 					discountPercent: parseDiscountPercent(game),
 					};
 				});
@@ -228,7 +277,7 @@ const AllGamesPage = () => {
 			// Tag filter: game must contain all selected tags
 			if (selectedTags.length > 0) {
 				const gameTags = new Set(
-					(Array.isArray(game.tags) ? game.tags : [])
+					getGameTagLabels(game)
 						.map((tag) => String(tag || '').trim().toLowerCase())
 						.filter(Boolean),
 				);
@@ -360,16 +409,19 @@ const AllGamesPage = () => {
 										</h4>
 										
 										{/* Tags/Genres */}
-										<div className="flex flex-wrap gap-1">
-											{game.tags && game.tags.slice(0, 3).map((tag, idx) => (
-												<span
-													key={idx}
-													className="text-xs px-2 py-0.5 bg-slate-900/50 text-slate-400 rounded"
-												>
-													{tag}
-												</span>
-											))}
-										</div>
+										{(() => {
+											const visibleTags = getGameTagLabels(game, 3);
+											if (!visibleTags.length) return null;
+											return (
+												<div className="flex flex-wrap gap-1">
+													{visibleTags.map((tag, idx) => (
+														<span key={idx} className="text-xs px-2 py-0.5 bg-slate-900/50 text-slate-400 rounded">
+															{tag}
+														</span>
+													))}
+												</div>
+											);
+										})()}
 									</div>
 
 									{/* Price section */}
@@ -495,7 +547,7 @@ const AllGamesPage = () => {
 
 							{/* Tags (max 5) */}
 							<div className="flex flex-wrap gap-1">
-								{displayGame.tags && displayGame.tags.slice(0, 5).map((tag, idx) => (
+								{getGameTagLabels(displayGame, 5).map((tag, idx) => (
 									<span
 										key={idx}
 										className="text-xs px-2 py-1 bg-slate-700/50 text-slate-300 rounded"

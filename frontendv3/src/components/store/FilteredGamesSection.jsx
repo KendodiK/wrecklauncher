@@ -6,6 +6,28 @@ import {
 	resolveStorePlatformFromGameStrict,
 } from '../../utils/storeRouting.js';
 
+function getGameTagLabels(game, limit = Infinity) {
+	const labels = [];
+	const seen = new Set();
+	const push = (value) => {
+		const label = String(
+			typeof value === 'object' && value !== null
+				? value.name ?? value.genre ?? value.description ?? value.label ?? ''
+				: value ?? '',
+		)
+			.trim();
+		if (!label || /^\d+$/.test(label)) return;
+		const key = label.toLowerCase();
+		if (seen.has(key)) return;
+		seen.add(key);
+		labels.push(label);
+	};
+
+	(Array.isArray(game?.tags) ? game.tags : []).forEach(push);
+	(Array.isArray(game?.genres) ? game.genres : []).forEach(push);
+	return labels.slice(0, limit);
+}
+
 const FilteredGamesSection = ({
 	games = [],
 	title = "Browse Games",
@@ -26,7 +48,7 @@ const FilteredGamesSection = ({
 		const counts = new Map();
 		const labels = new Map();
 		for (const game of games) {
-			const rawTags = Array.isArray(game?.tags) ? game.tags : [];
+			const rawTags = getGameTagLabels(game);
 			for (const rawTag of rawTags) {
 				const label = String(rawTag || '').trim();
 				if (!label) continue;
@@ -57,7 +79,7 @@ const FilteredGamesSection = ({
 
 			if (selectedTags.length > 0) {
 				const gameTags = new Set(
-					(Array.isArray(game.tags) ? game.tags : [])
+					getGameTagLabels(game)
 						.map((tag) => String(tag || '').trim().toLowerCase())
 						.filter(Boolean),
 				);
@@ -189,11 +211,17 @@ useEffect(() => {
 								</div>
 								<div className="flex-1 min-w-0">
 									<h4 className="text-sm font-medium text-slate-100 truncate mb-1">{game.title || game.name}</h4>
-									<div className="flex flex-wrap gap-1">
-										{game.tags?.slice(0, 3).map((tag, idx) => (
-											<span key={idx} className="text-xs px-2 py-0.5 bg-slate-900/50 text-slate-400 rounded">{tag}</span>
-										))}
-									</div>
+									{(() => {
+										const visibleTags = getGameTagLabels(game, 3);
+										if (!visibleTags.length) return null;
+										return (
+											<div className="flex flex-wrap gap-1">
+												{visibleTags.map((tag, idx) => (
+													<span key={idx} className="text-xs px-2 py-0.5 bg-slate-900/50 text-slate-400 rounded">{tag}</span>
+												))}
+											</div>
+										);
+									})()}
 								</div>
 							</div>
 						);

@@ -67,6 +67,10 @@ class SettingsController {
         concurrent: 3,
       },
       account: {
+        profile: {
+          bio: '',
+          avatarUrl: '',
+        },
         platforms: {
           steam: { connected: false, username: '', profileLink: '' },
           gog: { connected: false, username: '' },

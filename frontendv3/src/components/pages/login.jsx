@@ -2,6 +2,17 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+function isValidHttpUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return false;
+  try {
+    const parsed = new URL(raw);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 // onLogin: szülőből érkező callback, ami elmenti a user adatokat globálisan (App-ben)
 const Login = ({ onLogin }) => {
   // Form mezők lokális állapota
@@ -26,6 +37,16 @@ const Login = ({ onLogin }) => {
 
     if (isRegisterMode && !email) {
       setStatus('Please enter your email');
+      return;
+    }
+
+    if (isRegisterMode && !avatarUrl.trim()) {
+      setStatus('Please enter a profile picture URL');
+      return;
+    }
+
+    if (isRegisterMode && !isValidHttpUrl(avatarUrl)) {
+      setStatus('Invalid profile picture URL format. Use a full http/https link.');
       return;
     }
 
@@ -57,9 +78,20 @@ const Login = ({ onLogin }) => {
         
         // Validate token is a non-empty string
         if (token && typeof token === 'string' && token.trim().length > 0) {
+          let profile = null;
+          try {
+            if (typeof window?.electronAPI?.getCurrentUser === 'function') {
+              profile = await window.electronAPI.getCurrentUser();
+            }
+          } catch {
+            profile = null;
+          }
+
           const userData = {
-            username: username,
-            avatarUrl: null,
+            id: profile?.id ?? null,
+            username: profile?.username || username,
+            bio: profile?.bio ?? null,
+            avatarUrl: profile?.avatarUrl ?? null,
             token: token,
           };
 
@@ -132,7 +164,7 @@ const Login = ({ onLogin }) => {
 
               <div>
                 <label className="block text-xs mb-1" htmlFor="avatarUrl">
-                  Profile picture URL (optional)
+                  Profile picture URL
                 </label>
                 <input
                   id="avatarUrl"

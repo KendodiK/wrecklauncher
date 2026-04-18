@@ -174,8 +174,8 @@ body {
   margin-top: calc(var(--shop-card-h) / -2);
   border-radius: 0;
   overflow: hidden;
-  background: #d8d8d8;
-  border: 5px solid #000;
+  background: transparent;
+  border: 1px solid rgba(148, 163, 184, 0.24);
  
   cursor: pointer;
 }
@@ -229,7 +229,7 @@ body {
 
 /* Active shop card highlight */
 .carousel .shop-card.shop-card-active {
-  border-color: #000;
+  border-color: rgba(148, 163, 184, 0.44);
 }
 
 /* ============================================

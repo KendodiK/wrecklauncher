@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { getBestAvatarUrl } from '../../utils/avatarUtils.js';
 
 const MOCK_FRIENDS = [
 	{
@@ -103,8 +104,9 @@ const ProfilePage = ({ user }) => {
 		? (user?.username || 'Player')
 		: (viewedProfile?.name || 'Player');
 	const avatarUrl = isOwnProfile
-		? (settingsProfile.avatarUrl || user?.avatarUrl || '')
+		? (user?.avatarUrl || user?.pfp || settingsProfile.avatarUrl || '')
 		: (viewedProfile?.avatarUrl || '');
+	const avatarSrc = getBestAvatarUrl(avatarUrl);
 	const bio = isOwnProfile
 		? (settingsProfile.bio || user?.bio || 'No bio yet.')
 		: (viewedProfile?.bio || 'No bio yet.');
@@ -138,9 +140,16 @@ const ProfilePage = ({ user }) => {
 			<div className="max-w-[1300px] mx-auto">
 				<div className="mb-4 border border-slate-700 rounded-lg bg-slate-900/70 p-4">
 					<div className="flex items-start gap-4">
-						<div className="w-28 h-28 rounded-md border-2 border-slate-600 bg-slate-800 overflow-hidden shrink-0">
-							{avatarUrl ? (
-								<img src={avatarUrl} alt={username} className="w-full h-full object-cover" />
+						<div className="w-28 h-28 rounded-md bg-slate-800/40 overflow-hidden shrink-0">
+							{avatarSrc ? (
+								<img
+									src={avatarSrc}
+									alt={username}
+									className="w-full h-full object-cover"
+									decoding="async"
+									loading="eager"
+									referrerPolicy="no-referrer"
+								/>
 							) : (
 								<div className="w-full h-full grid place-items-center text-3xl font-semibold">{avatarLetter}</div>
 							)}
@@ -176,7 +185,7 @@ const ProfilePage = ({ user }) => {
 															<img
 																src={friend.avatarUrl}
 																alt={friend.name}
-																className="h-8 w-8 rounded-full border border-slate-600/60 object-cover"
+																className="h-8 w-8 rounded-full object-cover"
 															/>
 														) : (
 															<div className="h-8 w-8 rounded-full bg-slate-700/70 border border-slate-600/60 grid place-items-center text-[11px] font-semibold">
