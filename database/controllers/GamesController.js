@@ -336,6 +336,68 @@ class GamesController extends Controller {
             }
         }
 
+        return await this.#attachGenreNamesToGames(games);
+    }
+
+    /**
+     * Attach minimal genre/tag arrays to a game row list.
+     * Adds `genre_names` and `tag_names` (string arrays) by `games.id`.
+     *
+     * @param {Array<any>} games
+     * @returns {Promise<Array<any>>}
+     */
+    async #attachGenreNamesToGames(games) {
+        await this.ready;
+
+        if (!Array.isArray(games) || games.length < 1) {
+            return Array.isArray(games) ? games : [];
+        }
+
+        const gameIds = Array.from(
+            new Set(
+                games
+                    .map((game) => Number(game?.id))
+                    .filter((id) => Number.isFinite(id) && id > 0)
+            )
+        );
+
+        if (gameIds.length < 1) {
+            return games;
+        }
+
+        const placeholders = gameIds.map(() => '?').join(', ');
+        const query = `SELECT
+                            ggc.game_id,
+                            genres.genre
+                       FROM games_genres_connections AS ggc
+                       JOIN genres ON genres.id = ggc.genre_id
+                      WHERE ggc.game_id IN (${placeholders});`;
+
+        const [rows] = await this.dbConnection.execute(query, gameIds);
+        const namesByGameId = new Map();
+
+        for (const row of rows) {
+            const gameId = Number(row?.game_id);
+            const label = String(row?.genre ?? '').trim();
+            if (!Number.isFinite(gameId) || gameId <= 0 || !label) continue;
+
+            const existing = namesByGameId.get(gameId) ?? [];
+            if (!existing.some((entry) => entry.toLowerCase() === label.toLowerCase())) {
+                existing.push(label);
+                namesByGameId.set(gameId, existing);
+            }
+        }
+
+        for (const game of games) {
+            const gameId = Number(game?.id);
+            const names = Number.isFinite(gameId) && gameId > 0
+                ? (namesByGameId.get(gameId) ?? [])
+                : [];
+
+            game.genre_names = [...names];
+            game.tag_names = [...names];
+        }
+
         return games;
     }
 
@@ -367,7 +429,7 @@ class GamesController extends Controller {
             }
         }
 
-        return games;
+        return await this.#attachGenreNamesToGames(games);
     }
 
     async searchByTags (tags) {
@@ -376,15 +438,14 @@ class GamesController extends Controller {
         try {
             let game_ids = new Set();
             let full_tags = Array.isArray(tags) ? tags : [];
-            if (tags.length > 0) { 
+            if (full_tags.length > 0) {
                 for (const tag of full_tags) {
-                    const query = `SELECT games.id FROM games 
+                    const query = `SELECT games.id FROM games
                                         JOIN games_genres_connections AS ggc ON games.id = ggc.game_id
                                         JOIN genres ON genres.id = ggc.genre_id
-                                        WHERE genres.genre LIKE "${tag}";`
-                    const rows = await this.dbConnection.execute(query, []);
-                    console.log(`Found ${rows.length} games for tag ${tag}, ${rows}`);
-                    for (const row of rows[0]) {     
+                                        WHERE genres.genre LIKE ?;`;
+                    const [rows] = await this.dbConnection.execute(query, [`%${String(tag || '').trim()}%`]);
+                    for (const row of rows) {
                         if (row && row.id != null) {
                             game_ids.add(row.id);
                         }
@@ -403,7 +464,7 @@ class GamesController extends Controller {
                 }
             }
 
-            return games;
+            return await this.#attachGenreNamesToGames(games);
         } catch (err) {
             console.error(`Error while fetching game ids by tag from table ${this.tableName}: ${err}`);
             throw err;
@@ -440,7 +501,7 @@ class GamesController extends Controller {
                 console.warn(`Game with id ${game_id} not found in table ${this.tableName}`);
             }
         }
-        return games;
+        return await this.#attachGenreNamesToGames(games);
     }
 
     async getGameCount() {

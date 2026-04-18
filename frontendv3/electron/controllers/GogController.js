@@ -494,12 +494,18 @@ class GogController extends GamesController {
               const dbBanner = productId ? dbBannerByProductId.get(productId) : null;
               if (!dbBanner) return product;
 
+              const localImageRaw = String(product?.image ?? '').trim();
+              const localImage = localImageRaw
+                ? (this.#normalizeImageUrl(localImageRaw) || localImageRaw)
+                : null;
+
               return {
                 ...product,
-                image: dbBanner,
+                image: localImage || dbBanner,
                 raw: {
                   ...(product?.raw && typeof product.raw === 'object' ? product.raw : {}),
                   db_banner_img: dbBanner,
+                  local_banner_img: localImage,
                 },
               };
             });
@@ -666,9 +672,10 @@ class GogController extends GamesController {
    * @param {string} token
    * @param {any} details
    * @param {string|number} appIdHint
+   * @param {string} [countryCode]
    * @returns {Promise<void>}
    */
-  async #syncGogDetailsToServer(token, details, appIdHint) {
+  async #syncGogDetailsToServer(token, details, appIdHint, countryCode = 'DE') {
     const tokenStr = typeof token === 'string' ? token.trim() : '';
     if (!tokenStr || !details || typeof details !== 'object') return;
 
@@ -686,6 +693,7 @@ class GogController extends GamesController {
       : [];
 
     try {
+      const normalizedCountryCode = String(countryCode || details?.country_code || 'DE').trim().toUpperCase() || 'DE';
       await super.syncScrapedGameWithServer(tokenStr, {
         app_id: String(numericAppId),
         platform_name: 'gog',
@@ -695,7 +703,7 @@ class GogController extends GamesController {
         minimum_requirements: details.minimum_requirements ?? '',
         cost: typeof details.min_price === 'number' ? details.min_price : null,
         genre_names: genreNames,
-        country_code: 'DE',
+        country_code: normalizedCountryCode,
       });
     } catch (err) {
       if (err && typeof err === 'object' && /** @type {any} */ (err).code === 'WRECK_INVALID_TOKEN') {
@@ -914,106 +922,34 @@ class GogController extends GamesController {
  * @returns {Promise<string|null>} The URL of the cover image or null if not found.
  */
 async #fetchGogCoverUrl(appId) {
-  try {
-    const productsResponse = await fetch(`https://api.gog.com/products/${appId}`, {
+    const response = await fetch(`https://api.gog.com/v2/games/${appId}?locale=en-US`, {
       method: 'GET',
       headers: {
         'Accept': 'application/json',
         'User-Agent': 'WreckLauncher/1.0 (+gog scraper)',
       },
     });
-
-    if (productsResponse.ok) {
-      const productPayload = await productsResponse.json();
-      const fromProductsEndpoint = this._getFirstStringByPaths(productPayload, [
-        ['images', 'background'],
-        ['images', 'logo'],
-        ['image'],
-      ]);
-
-      const normalizedProductImage = this.#normalizeImageUrl(fromProductsEndpoint);
-      if (normalizedProductImage) {
-        try {
-          const productHead = await fetch(normalizedProductImage, { method: 'HEAD' });
-          if (productHead.ok) return normalizedProductImage;
-        } catch {
-          // continue to v2 fallback
-        }
-      }
+    if (!response.ok) {
+      console.warn('Failed to fetch GOG cover URL:', { appId: appId, status: response.status });
+      return null;
     }
-  } catch {
-    // continue to v2 fallback
-  }
-
-  const response = await fetch(`https://api.gog.com/v2/games/${appId}?locale=en-US`, {
-    method: 'GET',
-    headers: {
-      'Accept': 'application/json',
-      'User-Agent': 'WreckLauncher/1.0 (+gog scraper)',
-    },
-  });
-  if (!response.ok) {
-    console.warn('Failed to fetch GOG cover URL:', { appId: appId, status: response.status });
-    return null;
-  }
-
-  const data = await response.json();
-  const rawTemplate = String(data?._embedded?.product?._links?.image?.href ?? '').trim();
-  if (!rawTemplate) return null;
-
-  let template = rawTemplate
-    .replace(/%7Bformatter%7D/gi, '{formatter}')
-    .replace(/%7Bext%7D/gi, '{ext}');
-
-  if (template.startsWith('//')) {
-    template = `https:${template}`;
-  } else if (!/^https?:\/\//i.test(template)) {
-    if (template.startsWith('/')) {
-      template = `https://images.gog-statics.com${template}`;
-    } else {
-      template = `https://images.gog-statics.com/${template.replace(/^\/+/, '')}`;
+    const data = await response.json();
+    const galaxyBackgroundImageUrl = String(data?._links?.galaxyBackgroundImage?.href ?? '').trim();
+    const isGalaxyBackgroundImageValid = await fetch(galaxyBackgroundImageUrl, { method: 'HEAD' })
+      .then(res => res.ok && res.status === 200)
+      .catch(() => false);
+    if (isGalaxyBackgroundImageValid) {
+      return this.#normalizeImageUrl(galaxyBackgroundImageUrl);
     }
-  }
-
-  const hasFormatter = /\{formatter\}/i.test(template);
-  const hasExt = /\{ext\}/i.test(template);
-  /**
-   * @param {string} formatter
-   * @param {string} ext
-   * @returns {string}
-   */
-  const expand = (formatter, ext) => {
-    return template
-      .replace(/\{formatter\}/gi, formatter)
-      .replace(/\{ext\}/gi, ext);
-  };
-
-  /** @type {string[]} */
-  const candidates = [];
-  if (hasFormatter || hasExt) {
-    candidates.push(expand('glx_vertical_cover', 'webp'));
-    candidates.push(expand('product_card_v2_mobile_slider_639', 'webp'));
-    candidates.push(expand('product_card_v2_mobile_slider_639', 'jpg'));
-    candidates.push(expand('1600', 'png'));
-  } else {
-    candidates.push(template);
-  }
-
-  const uniqueCandidates = Array.from(new Set(candidates.filter((url) => {
-    const candidate = String(url || '').trim();
-    return !!candidate && !/\{formatter\}|\{ext\}/i.test(candidate);
-  })));
-
-  for (const candidate of uniqueCandidates) {
-    try {
-      const headResponse = await fetch(candidate, { method: 'HEAD' });
-      if (headResponse.ok) return candidate;
-    } catch {
-      // ignore and continue trying other candidates
+    const imageFormatterUrl = String(String(data?._embedded?.product?._links?.image?.href).split('_{formatter}.png')[0] ?? '');
+    const imageUrl = `${imageFormatterUrl}.jpg`;
+    const isValidImage = await fetch(imageUrl, { method: 'HEAD' })
+      .then(res => res.ok && res.status === 200)
+      .catch(() => false);
+    if (isValidImage) {
+      return this.#normalizeImageUrl(imageUrl);
     }
-  }
-
-  return this.#normalizeImageUrl(template);
+    return this.#normalizeImageUrl(`${imageFormatterUrl}_1600.png`);
 }
 
   /**
@@ -1299,9 +1235,10 @@ async #fetchGogCoverUrl(appId) {
    * Search GOG game candidates by title (slug probing).
    *
    * @param {string} title
+   * @param {string} [countryCode]
    * @returns {Promise<Array<{ slug: string, appId: string|number|null, title: string, score: number, url: string|null }>>}
    */
-  async searchGameByTitle(title) {
+  async searchGameByTitle(title, countryCode = 'DE') {
     const needle = String(title || '').trim();
     if (!needle) return [];
 
@@ -1313,7 +1250,7 @@ async #fetchGogCoverUrl(appId) {
       if (!slug || seen.has(slug)) continue;
       seen.add(slug);
 
-      const details = await this.getGameDetails(slug, { includeRaw: false });
+      const details = await this.getGameDetails(slug, { includeRaw: false, countryCode });
       if (!details || typeof details !== 'object') continue;
 
       const matchedTitle = String(details.title || '').trim();
@@ -1337,10 +1274,12 @@ async #fetchGogCoverUrl(appId) {
    *
    * @param {string} title
    * @param {string} [token]
+   * @param {string} [countryCode]
    * @returns {Promise<import('../models').GogGameDetails|null>}
    */
-  async getGameDetailsByTitle(title, token = '') {
-    const matches = await this.searchGameByTitle(title);
+  async getGameDetailsByTitle(title, token = '', countryCode = 'DE') {
+    const normalizedCountryCode = String(countryCode || 'DE').trim().toUpperCase() || 'DE';
+    const matches = await this.searchGameByTitle(title, normalizedCountryCode);
     if (matches.length < 1) return null;
 
     let bestDetails = null;
@@ -1348,8 +1287,8 @@ async #fetchGogCoverUrl(appId) {
 
     for (const match of matches.slice(0, 8)) {
       const details = token
-        ? await this.getGameDetails(match.slug, token, { includeRaw: true })
-        : await this.getGameDetails(match.slug, { includeRaw: true });
+        ? await this.getGameDetails(match.slug, token, { includeRaw: true, countryCode: normalizedCountryCode })
+        : await this.getGameDetails(match.slug, { includeRaw: true, countryCode: normalizedCountryCode });
       if (!details || typeof details !== 'object') continue;
 
       const candidateTitle = String(details.title || match.title || '').trim();
@@ -1385,13 +1324,13 @@ async #fetchGogCoverUrl(appId) {
    * Endpoint: https://api.gog.com/products/{productId}?expand=description,screenshots,videos,related_products,changelog
    *
    * @param {string|number} appId  GOG product ID.
-   * @param {string|{includeRaw?: boolean}} [tokenOrOptions]
-   * @param {{includeRaw?: boolean}} [maybeOptions]
+   * @param {string|{includeRaw?: boolean, countryCode?: string}} [tokenOrOptions]
+   * @param {{includeRaw?: boolean, countryCode?: string}} [maybeOptions]
    * @returns {Promise<import('../models').GogGameDetails|null>}
    */
   async getGameDetails(appId, tokenOrOptions = '', maybeOptions = {}) {
     let token = '';
-    /** @type {{ includeRaw?: boolean }} */
+    /** @type {{ includeRaw?: boolean, countryCode?: string }} */
     let options = {};
 
     if (tokenOrOptions && typeof tokenOrOptions === 'object' && !Array.isArray(tokenOrOptions)) {
@@ -1402,6 +1341,9 @@ async #fetchGogCoverUrl(appId) {
     }
 
     const includeRaw = options.includeRaw !== false;
+    const normalizedCountryCode = /^[A-Z]{2}$/.test(String(options.countryCode || '').trim().toUpperCase())
+      ? String(options.countryCode || '').trim().toUpperCase()
+      : 'DE';
     const numericAppId = Number(appId);
     // If caller passed a numeric GOG product id, prefer the products endpoint which
     // returns richer data for numeric ids. Otherwise fall back to slug-based v2/games.
@@ -1424,14 +1366,21 @@ async #fetchGogCoverUrl(appId) {
           ['images', 'logo'],
           ['image'],
         ]);
-        const bannerImg = typeof bannerCandidate === 'string' && bannerCandidate.startsWith('//')
-          ? `https:${bannerCandidate}`
-          : (bannerCandidate ?? null);
+        const normalizedBannerCandidate = this.#normalizeImageUrl(bannerCandidate);
+        let bannerImg = normalizedBannerCandidate;
+        try {
+          const localCover = await this.#fetchGogCoverUrl(numericAppId);
+          if (typeof localCover === 'string' && localCover.trim()) {
+          bannerImg = localCover.trim();
+          }
+        } catch {
+          // keep normalized products endpoint image as fallback
+        }
   
         const leadDesc = typeof payload?.description?.lead === 'string' ? payload.description.lead : null;
         const fullDesc = typeof payload?.description?.full === 'string' ? payload.description.full : null;
         const description = leadDesc || fullDesc || null;
-        const priceUrl = `https://api.gog.com/products/${numericAppId}/prices?countryCode=DE`;    
+        const priceUrl = `https://api.gog.com/products/${numericAppId}/prices?countryCode=${encodeURIComponent(normalizedCountryCode)}`;
         try {
           const priceRes = await fetch(priceUrl, {
             headers: {
@@ -1577,6 +1526,7 @@ async #fetchGogCoverUrl(appId) {
           min_price: cost,
           price: payload?.price?.initial ?? null,
           discount: payload?.price?.discount ?? null,
+          country_code: normalizedCountryCode,
           //@ts-ignore
           is_free: Number.isFinite(cost) ? cost <= 0 : false,
           genres,
@@ -1584,7 +1534,7 @@ async #fetchGogCoverUrl(appId) {
         };
         //@ts-ignore
         if (includeRaw) details.raw = payload;
-        await this.#syncGogDetailsToServer(token, details, numericAppId);
+        await this.#syncGogDetailsToServer(token, details, numericAppId, normalizedCountryCode);
         //@ts-ignore
         return details;
       } catch (err) {
@@ -1612,7 +1562,7 @@ async #fetchGogCoverUrl(appId) {
   
       const description = typeof payload?.description === 'string' ? payload.description : null;
   
-      const priceUrl = `https://api.gog.com/products/${appId}/prices?countryCode=DE`;
+      const priceUrl = `https://api.gog.com/products/${appId}/prices?countryCode=${encodeURIComponent(normalizedCountryCode)}`;
       try {
         const priceRes = await fetch(priceUrl, {
           headers: {
@@ -1751,6 +1701,7 @@ async #fetchGogCoverUrl(appId) {
         min_price: cost,
         price: payload?.price?.initial ?? null,
         discount: payload?.price?.discount ?? null,
+        country_code: normalizedCountryCode,
         //@ts-ignore
         is_free: Number.isFinite(cost) ? cost <= 0 : false,
         genres,
@@ -1758,7 +1709,7 @@ async #fetchGogCoverUrl(appId) {
       };
       //@ts-ignore
       if (includeRaw) details.raw = payload;
-      await this.#syncGogDetailsToServer(token, details, appId);
+      await this.#syncGogDetailsToServer(token, details, appId, normalizedCountryCode);
       //@ts-ignore
       return details;
     } catch (err) {

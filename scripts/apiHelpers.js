@@ -287,28 +287,34 @@ async function getSteamHeaderImageUrl(appId) {
 async function fetchGogCoverUrl(appId) {
   // if (!Number.isFinite(numericAppId) || numericAppId <= 0) return null;
 
-  const response = await fetch(`https://api.gog.com/v2/games/${appId}?locale=en-US`, {
-    method: 'GET',
-    headers: {
-      'Accept': 'application/json',
-      'User-Agent': 'WreckLauncher/1.0 (+gog scraper)',
-    },
-  });
-  if (!response.ok) {
-    console.warn('Failed to fetch GOG cover URL:', { appId: appId, status: response.status });
-    return null;
-  }
-  const data = await response.json();
-  const imageFormatterUrl = String(String(data?._embedded?.product?._links?.image?.href).split('{formatter}.png')[0] ?? '');
-  const imageUrl = `${String(data?._embedded?.product?._links?.image?.href).split('{formatter}.png')[0] ?? ''}1600.png`;
-  const isValidImage = await fetch(imageUrl, { method: 'HEAD' })
-    .then(res => res.ok && res.status === 200)
-    .catch(() => false);
-  if (isValidImage) {
-    return imageUrl;
-  }
-  const fallback = `${imageFormatterUrl}product_630.png`;
-  return fallback;
+    const response = await fetch(`https://api.gog.com/v2/games/${appId}?locale=en-US`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'WreckLauncher/1.0 (+gog scraper)',
+      },
+    });
+    if (!response.ok) {
+      console.warn('Failed to fetch GOG cover URL:', { appId: appId, status: response.status });
+      return null;
+    }
+    const data = await response.json();
+    const galaxyBackgroundImageUrl = String(data?._links?.galaxyBackgroundImage?.href ?? '').trim();
+    const isGalaxyBackgroundImageValid = await fetch(galaxyBackgroundImageUrl, { method: 'HEAD' })
+      .then(res => res.ok && res.status === 200)
+      .catch(() => false);
+    if (isGalaxyBackgroundImageValid) {
+      return galaxyBackgroundImageUrl;
+    }
+    const imageFormatterUrl = String(String(data?._embedded?.product?._links?.image?.href).split('_{formatter}.png')[0] ?? '');
+    const imageUrl = `${imageFormatterUrl}.jpg`;
+    const isValidImage = await fetch(imageUrl, { method: 'HEAD' })
+      .then(res => res.ok && res.status === 200)
+      .catch(() => false);
+    if (isValidImage) {
+      return imageUrl;
+    }
+    return `${imageFormatterUrl}_1600.png`;
 }
 /**
  * Fetches the URL of the cover image for an Itch game.

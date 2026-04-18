@@ -50,7 +50,12 @@ function normalizeMetadataList(input) {
 }
 
 function getGameIdKey(game) {
-	return String(game?.appid ?? game?.app_id ?? game?.id ?? '').trim();
+	const rawId = String(game?.appid ?? game?.app_id ?? game?.id ?? '').trim();
+	if (!rawId) return '';
+	const platform = String(
+		resolveStorePlatformFromGameStrict(game) || game?.platform_name || game?.platform || 'unknown'
+	).trim().toLowerCase() || 'unknown';
+	return `${platform}:${rawId}`;
 }
 
 function uniqueNonEmptyStrings(values) {
@@ -71,10 +76,10 @@ function uniqueNonEmptyStrings(values) {
 
 async function resolveGenresForGame(api, game, idKey) {
 	const idCandidates = uniqueNonEmptyStrings([
-		idKey,
+		game?.db_id,
+		game?.native_id,
+		game?.nativeId,
 		game?.id,
-		game?.appid,
-		game?.app_id,
 	]);
 
 	for (const idCandidate of idCandidates) {
@@ -91,7 +96,6 @@ async function resolveGenresForGame(api, game, idKey) {
 		const appIdCandidates = uniqueNonEmptyStrings([
 			game?.app_id,
 			game?.appid,
-			idKey,
 		]);
 		const platformCandidates = uniqueNonEmptyStrings([
 			resolveStorePlatformFromGameStrict(game),

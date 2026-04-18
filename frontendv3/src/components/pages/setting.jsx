@@ -8,6 +8,9 @@ const DEFAULT_SETTINGS = {
 		uiScale: 100,
 		animations: true,
 	},
+	store: {
+		countryCode: 'DE',
+	},
 	library: {
 		autoRefreshHours: 24,
 		viewMode: 'carousel',
@@ -31,6 +34,55 @@ const DEFAULT_SETTINGS = {
 		syncFrequencyHours: 6,
 	},
 };
+
+const STORE_COUNTRY_OPTIONS = [
+	{ code: 'DE', name: 'Germany' },
+	{ code: 'US', name: 'United States' },
+	{ code: 'GB', name: 'United Kingdom' },
+	{ code: 'HU', name: 'Hungary' },
+	{ code: 'PL', name: 'Poland' },
+	{ code: 'FR', name: 'France' },
+	{ code: 'ES', name: 'Spain' },
+	{ code: 'IT', name: 'Italy' },
+	{ code: 'NL', name: 'Netherlands' },
+	{ code: 'SE', name: 'Sweden' },
+	{ code: 'NO', name: 'Norway' },
+	{ code: 'DK', name: 'Denmark' },
+	{ code: 'FI', name: 'Finland' },
+	{ code: 'CZ', name: 'Czech Republic' },
+	{ code: 'RO', name: 'Romania' },
+	{ code: 'SK', name: 'Slovakia' },
+	{ code: 'AT', name: 'Austria' },
+	{ code: 'CH', name: 'Switzerland' },
+	{ code: 'PT', name: 'Portugal' },
+	{ code: 'IE', name: 'Ireland' },
+	{ code: 'CA', name: 'Canada' },
+	{ code: 'AU', name: 'Australia' },
+	{ code: 'NZ', name: 'New Zealand' },
+	{ code: 'JP', name: 'Japan' },
+	{ code: 'KR', name: 'South Korea' },
+	{ code: 'CN', name: 'China' },
+	{ code: 'IN', name: 'India' },
+	{ code: 'BR', name: 'Brazil' },
+	{ code: 'MX', name: 'Mexico' },
+	{ code: 'AR', name: 'Argentina' },
+	{ code: 'ZA', name: 'South Africa' },
+	{ code: 'TR', name: 'Turkey' },
+	{ code: 'UA', name: 'Ukraine' },
+	{ code: 'RU', name: 'Russia' },
+	{ code: 'SG', name: 'Singapore' },
+	{ code: 'TH', name: 'Thailand' },
+	{ code: 'MY', name: 'Malaysia' },
+	{ code: 'ID', name: 'Indonesia' },
+	{ code: 'PH', name: 'Philippines' },
+	{ code: 'AE', name: 'United Arab Emirates' },
+	{ code: 'IL', name: 'Israel' },
+].sort((left, right) => left.name.localeCompare(right.name, 'en', { sensitivity: 'base' }));
+
+function normalizeCountryCode(value) {
+	const raw = String(value || '').trim().toUpperCase();
+	return /^[A-Z]{2}$/.test(raw) ? raw : null;
+}
 
 function createEmptyPlatformRuntimeState() {
 	return {
@@ -282,9 +334,14 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 
 
 	const updateSetting = async (category, key, value) => {
+		const normalizedValue =
+			category === 'store' && key === 'countryCode'
+				? (normalizeCountryCode(value) || DEFAULT_SETTINGS.store.countryCode)
+				: value;
+
 		try {
 			setSaving(true);
-			const updated = await window.electronAPI.updateSetting(category, key, value);
+			const updated = await window.electronAPI.updateSetting(category, key, normalizedValue);
 			setSettings(normalizeSettings(updated));
 			setMessage({ type: 'success', text: 'Setting saved' });
 			setTimeout(() => setMessage({ type: '', text: '' }), 2000);
@@ -297,7 +354,7 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 						...base,
 						[category]: {
 							...base[category],
-							[key]: value,
+							[key]: normalizedValue,
 						},
 					};
 				});
@@ -557,7 +614,7 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 
 			if (typeof window.electronAPI.loginGogOAuthAndUpload === 'function') {
 				try {
-					uploadResult = await window.electronAPI.loginGogOAuthAndUpload();
+					uploadResult = await window.electronAPI.loginGogOAuthAndUpload({ forceInteractiveLogin: true });
 				} catch (error) {
 					if (!isMissingSettingsHandlerError(error, 'gog:oauth-login-and-upload')) {
 						throw error;
@@ -837,6 +894,11 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 	const steamSettings = platformRuntime.steam;
 	const gogSettings = platformRuntime.gog;
 	const itchSettings = platformRuntime.itch;
+	const selectedStoreCountryCode =
+		normalizeCountryCode(settings?.store?.countryCode)
+		|| DEFAULT_SETTINGS.store.countryCode;
+	const hasSelectedStoreCountryOption = STORE_COUNTRY_OPTIONS
+		.some((country) => country.code === selectedStoreCountryCode);
 	const canSaveDownloadPaths =
 		downloadPathsForm.path.trim().length > 0
 		&& downloadPathsForm.pirateTorrentsPath.trim().length > 0;
@@ -925,6 +987,28 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 							>
 								<option value="en">English</option>
 								<option value="hu">Hungarian</option>
+							</select>
+						</div>
+
+						<div className="flex items-center justify-between">
+							<div>
+								<label className="text-sm font-medium">Store country</label>
+								<p className="text-xs text-slate-400">Used for regional prices and availability lookups</p>
+							</div>
+							<select
+								value={selectedStoreCountryCode}
+								onChange={(e) => updateSetting('store', 'countryCode', e.target.value)}
+								disabled={saving}
+								className="bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
+							>
+								{!hasSelectedStoreCountryOption ? (
+									<option value={selectedStoreCountryCode}>{`Custom - ${selectedStoreCountryCode}`}</option>
+								) : null}
+								{STORE_COUNTRY_OPTIONS.map((country) => (
+									<option key={country.code} value={country.code}>
+										{`${country.name} - ${country.code}`}
+									</option>
+								))}
 							</select>
 						</div>
 
@@ -1041,6 +1125,40 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 
 				{!showingMovedSection && (
 				<>
+				{/* Store Settings */}
+				<section className="mb-8 bg-slate-800/50 rounded-lg p-6 border border-slate-700">
+					<h2 className="text-xl font-semibold mb-4 flex items-center">
+						<svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7h18M6 7V5a2 2 0 012-2h8a2 2 0 012 2v2m-9 4h6m-7 4h8" />
+						</svg>
+						Store
+					</h2>
+
+					<div className="space-y-4">
+						<div className="flex items-center justify-between">
+							<div>
+								<label className="text-sm font-medium">Store country</label>
+								<p className="text-xs text-slate-400">Used for regional prices and availability lookups</p>
+							</div>
+							<select
+								value={selectedStoreCountryCode}
+								onChange={(e) => updateSetting('store', 'countryCode', e.target.value)}
+								disabled={saving}
+								className="bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
+							>
+								{!hasSelectedStoreCountryOption ? (
+									<option value={selectedStoreCountryCode}>{`Custom - ${selectedStoreCountryCode}`}</option>
+								) : null}
+								{STORE_COUNTRY_OPTIONS.map((country) => (
+									<option key={country.code} value={country.code}>
+										{`${country.name} - ${country.code}`}
+									</option>
+								))}
+							</select>
+						</div>
+					</div>
+				</section>
+
 				{/* Downloads Settings */}
 				<section className="mb-8 bg-slate-800/50 rounded-lg p-6 border border-slate-700">
 					<h2 className="text-xl font-semibold mb-4 flex items-center">

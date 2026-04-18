@@ -901,8 +901,9 @@ _collapseWhitespace(text) {
    * @param {string} appId 
    * @param {string} platform 
    * @param {Array<string|{name?: string, site_name?: string, url?: string, link?: string}>} pirateSites 
+    * @param {string} [countryCode]
    */
-  async uploadPirateSites(token, appId, platform, pirateSites){
+    async uploadPirateSites(token, appId, platform, pirateSites, countryCode = 'DE'){
     const tokenStr = String(token || '').trim();
     if (!tokenStr) throw new Error('Token is required');
     if (appId == null || String(appId).trim() === '') throw new Error('App ID is required');
@@ -1006,7 +1007,8 @@ _collapseWhitespace(text) {
     }
 
     // Resolve DB game id from (platform, app_id) before attaching pirate links.
-    const details = await this.getAllDetailsByAppIDAndPlatform(String(appId), String(platform), 'DE');
+    const normalizedCountryCode = String(countryCode || 'DE').trim() || 'DE';
+    const details = await this.getAllDetailsByAppIDAndPlatform(String(appId), String(platform), normalizedCountryCode);
     const gameId = Number(details?.id);
     if (!Number.isFinite(gameId) || gameId <= 0) {
       throw new Error(`Failed to resolve game id for appId=${String(appId)} platform=${String(platform)}`);

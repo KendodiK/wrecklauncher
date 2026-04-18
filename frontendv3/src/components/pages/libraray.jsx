@@ -1,9 +1,26 @@
-import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { launchers } from '../../data/mockLibraryData.js';
 import LauncherTabs from '../library/LauncherTabs.jsx';
 import LibraryGameStrip from '../library/LibraryGameStrip.jsx';
 import AllGamesDrawer from '../library/AllGamesDrawer.jsx';
+
+const LIBRARY_SORT_MODES = ['alphabetical', 'appid', 'platform', 'playtime'];
+const MAX_LIBRARY_STRIP_GAMES = 180;
+const STRIP_WINDOW_EDGE_BUFFER = 40;
+
+function getLibrarySortLabel(sortMode) {
+	if (sortMode === 'appid') return 'App ID';
+	if (sortMode === 'platform') return 'Platform';
+	if (sortMode === 'playtime') return 'Playtime';
+	return 'Alphabetical';
+}
+
+function getNextLibrarySortMode(currentMode) {
+	const index = LIBRARY_SORT_MODES.indexOf(currentMode);
+	if (index < 0) return LIBRARY_SORT_MODES[0];
+	return LIBRARY_SORT_MODES[(index + 1) % LIBRARY_SORT_MODES.length];
+}
 
 function formatPlaytime(minutes) {
 	const totalMinutes = Number(minutes) || 0;
@@ -503,11 +520,23 @@ const LibraryPage = () => {
 	const [scope, setScope] = useState('all');
 	const [search, setSearch] = useState('');
 	const deferredSearch = useDeferredValue(search);
-	const [sortBy, setSortBy] = useState('title-asc');
+	const [sortBy, setSortBy] = useState('alphabetical');
+	const [sortDirection, setSortDirection] = useState('asc');
 	const [hideZeroPlaytime, setHideZeroPlaytime] = useState(false);
 	const [showAllGames, setShowAllGames] = useState(false);
-	const [showMenu, setShowMenu] = useState(false);
+	const [stripWindowStart, setStripWindowStart] = useState(0);
 	const [actionState, setActionState] = useState({ busyAction: '', text: '', type: '' });
+
+	const sortLabel = useMemo(() => getLibrarySortLabel(sortBy), [sortBy]);
+	const sortDirectionLabel = sortDirection === 'asc' ? 'Ascending' : 'Descending';
+
+	const cycleSortMode = useCallback(() => {
+		setSortBy((previous) => getNextLibrarySortMode(previous));
+	}, []);
+
+	const toggleSortDirection = useCallback(() => {
+		setSortDirection((previous) => (previous === 'asc' ? 'desc' : 'asc'));
+	}, []);
 
 	const ownedGames = useMemo(() => {
 		return dedupeLibraryGames(libraryGames.filter((g) => g.owned === true));
@@ -841,34 +870,107 @@ const LibraryPage = () => {
 		}
 
 		result.sort((left, right) => {
-			if (sortBy === 'playtime-desc') {
-				return Number(right.playtimeMinutes || 0) - Number(left.playtimeMinutes || 0);
+			const titleCompare = String(left.title || '').localeCompare(String(right.title || ''));
+			let comparison = titleCompare;
+
+			if (sortBy === 'playtime') {
+				comparison = Number(left.playtimeMinutes || 0) - Number(right.playtimeMinutes || 0);
+				if (comparison === 0) comparison = titleCompare;
 			}
-			if (sortBy === 'playtime-asc') {
-				return Number(left.playtimeMinutes || 0) - Number(right.playtimeMinutes || 0);
+
+			if (sortBy === 'appid') {
+				const leftAppId = Number(left.appid);
+				const rightAppId = Number(right.appid);
+				const leftHasAppId = Number.isFinite(leftAppId) && leftAppId > 0;
+				const rightHasAppId = Number.isFinite(rightAppId) && rightAppId > 0;
+
+				if (leftHasAppId && rightHasAppId && leftAppId !== rightAppId) {
+					comparison = leftAppId - rightAppId;
+				} else if (leftHasAppId !== rightHasAppId) {
+					comparison = leftHasAppId ? -1 : 1;
+				} else {
+					comparison = titleCompare;
+				}
 			}
-			return left.title.localeCompare(right.title);
+
+			if (sortBy === 'platform') {
+				const leftPlatform = String(left.launcherId || left.platform_name || '').trim().toLowerCase();
+				const rightPlatform = String(right.launcherId || right.platform_name || '').trim().toLowerCase();
+				comparison = leftPlatform.localeCompare(rightPlatform);
+				if (comparison === 0) comparison = titleCompare;
+			}
+
+			return sortDirection === 'asc' ? comparison : -comparison;
 		});
 
 		return dedupeLibraryGames(result);
-	}, [deferredSearch, hideZeroPlaytime, searchPool, sortBy]);
+	}, [deferredSearch, hideZeroPlaytime, searchPool, sortBy, sortDirection]);
+
+	const filteredGamesById = useMemo(
+		() => new Map(filteredGames.map((game) => [game.id, game])),
+		[filteredGames],
+	);
 
 	const activeGame = useMemo(() => {
 		if (!filteredGames.length) return null;
-		return filteredGames.find((g) => g.id === activeGameId) ?? filteredGames[0] ?? null;
-	}, [activeGameId, filteredGames]);
+		return filteredGamesById.get(activeGameId) ?? filteredGames[0] ?? null;
+	}, [activeGameId, filteredGames, filteredGamesById]);
 
 	useEffect(() => {
 		if (!filteredGames.length) {
 			if (activeGameId !== '') setActiveGameId('');
 			return;
 		}
-		if (!filteredGames.some((g) => g.id === activeGameId)) {
+		if (!filteredGamesById.has(activeGameId)) {
 			setActiveGameId(filteredGames[0].id);
 		}
-	}, [activeGameId, filteredGames]);
+	}, [activeGameId, filteredGames, filteredGamesById]);
 
-	const progressWidth = activeGame ? `${Math.max(3, Math.min(activeGame.progress, 100))}%` : '0%';
+	useEffect(() => {
+		if (filteredGames.length <= MAX_LIBRARY_STRIP_GAMES) {
+			if (stripWindowStart !== 0) setStripWindowStart(0);
+			return;
+		}
+
+		const activeIndex = filteredGames.findIndex((game) => game.id === activeGameId);
+		if (activeIndex < 0) {
+			if (stripWindowStart !== 0) setStripWindowStart(0);
+			return;
+		}
+
+		const maxStart = Math.max(0, filteredGames.length - MAX_LIBRARY_STRIP_GAMES);
+		const clampedStart = Math.min(Math.max(stripWindowStart, 0), maxStart);
+		if (clampedStart !== stripWindowStart) {
+			setStripWindowStart(clampedStart);
+			return;
+		}
+
+		const windowEnd = clampedStart + MAX_LIBRARY_STRIP_GAMES;
+		const isOutsideWindow = activeIndex < clampedStart || activeIndex >= windowEnd;
+		const nearWindowStart = activeIndex < clampedStart + STRIP_WINDOW_EDGE_BUFFER;
+		const nearWindowEnd = activeIndex >= windowEnd - STRIP_WINDOW_EDGE_BUFFER;
+
+		if (isOutsideWindow || nearWindowStart || nearWindowEnd) {
+			let nextStart = Math.max(0, activeIndex - Math.floor(MAX_LIBRARY_STRIP_GAMES / 2));
+			nextStart = Math.min(nextStart, maxStart);
+			if (nextStart !== stripWindowStart) {
+				setStripWindowStart(nextStart);
+			}
+		}
+	}, [activeGameId, filteredGames, stripWindowStart]);
+
+	const stripGames = useMemo(() => {
+		if (filteredGames.length <= MAX_LIBRARY_STRIP_GAMES) return filteredGames;
+
+		const activeIndex = filteredGames.findIndex((game) => game.id === activeGameId);
+		const maxStart = Math.max(0, filteredGames.length - MAX_LIBRARY_STRIP_GAMES);
+		let start = Math.min(Math.max(stripWindowStart, 0), maxStart);
+		if (activeIndex >= 0 && (activeIndex < start || activeIndex >= start + MAX_LIBRARY_STRIP_GAMES)) {
+			start = Math.max(0, Math.min(maxStart, activeIndex - Math.floor(MAX_LIBRARY_STRIP_GAMES / 2)));
+		}
+		return filteredGames.slice(start, start + MAX_LIBRARY_STRIP_GAMES);
+	}, [activeGameId, filteredGames, stripWindowStart]);
+
 	const activeGameAppId = Number(activeGame?.appid);
 	const normalizedLauncherId = String(activeGame?.launcherId || '').trim().toLowerCase();
 	const activeItchGameUrl = typeof activeGame?.url === 'string' ? activeGame.url.trim() : '';
@@ -1460,7 +1562,7 @@ const LibraryPage = () => {
 		}
 	};
 
-	const handleOpenStorePage = (game) => {
+	const handleOpenStorePage = useCallback((game) => {
 		const appId = Number(game?.appid ?? game?.id);
 		if (!Number.isFinite(appId) || appId <= 0) return;
 		const numericPlatformId = Number(game?.platform_id ?? game?.platformId);
@@ -1481,7 +1583,7 @@ const LibraryPage = () => {
 				game,
 			},
 		});
-	};
+	}, [navigate]);
 
 	if (isLoading) {
 		return (
@@ -1565,12 +1667,20 @@ const LibraryPage = () => {
 					<button
 						type="button"
 						className="library-menu-btn"
-						onClick={() => setShowMenu((v) => !v)}
-						aria-label="Open library menu"
+						onClick={toggleSortDirection}
+						title={`Sort direction: ${sortDirectionLabel}`}
+						aria-label={`Toggle sort direction (${sortDirectionLabel})`}
 					>
-						<svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
-							<path d="M5 7h14M5 12h14M5 17h14" />
-						</svg>
+						{sortDirection === 'asc' ? '↑' : '↓'}
+					</button>
+
+					<button
+						type="button"
+						className="library-menu-btn"
+						onClick={cycleSortMode}
+						title="Cycle sort mode"
+					>
+						{`Sort: ${sortLabel}`}
 					</button>
 
 					<button
@@ -1582,53 +1692,6 @@ const LibraryPage = () => {
 						{actionState.busyAction === 'add-pirate' ? 'Adding EXE...' : 'Add Pirate EXE'}
 					</button>
 
-					{showMenu ? (
-						<div className="library-scope-menu">
-							<p className="library-scope-menu-label">Search Scope</p>
-							<button
-								type="button"
-								onClick={() => {
-									setScope('launcher');
-									if (String(activeLauncherId || '').trim().toLowerCase() === 'all') {
-										const firstLauncherWithGames =
-											(Array.isArray(launchers)
-												? launchers.find((launcher) =>
-													ownedGames.some((game) => String(game?.launcherId || '').trim().toLowerCase() === String(launcher?.id || '').trim().toLowerCase()),
-												)
-												: null)?.id || 'steam';
-										setActiveLauncherId(firstLauncherWithGames);
-									}
-									setShowMenu(false);
-								}}
-								className={`library-scope-btn ${scope === 'launcher' ? 'library-scope-btn-active' : ''}`}
-							>
-								This Launcher
-							</button>
-							<button
-								type="button"
-								onClick={() => { setScope('all'); setActiveLauncherId('all'); setShowMenu(false); }}
-								className={`library-scope-btn ${scope === 'all' ? 'library-scope-btn-active' : ''}`}
-							>
-								All Launchers
-							</button>
-							<div className="library-scope-divider" />
-							<p className="library-scope-menu-label">Filters</p>
-							<button
-								type="button"
-								onClick={() => setSortBy('title-asc')}
-								className={`library-scope-btn ${sortBy === 'title-asc' ? 'library-scope-btn-active' : ''}`}
-							>
-								Sort: Title A-Z
-							</button>
-							<button
-								type="button"
-								onClick={() => setSortBy('playtime-desc')}
-								className={`library-scope-btn ${sortBy === 'playtime-desc' ? 'library-scope-btn-active' : ''}`}
-							>
-								Sort: Most Played
-							</button>
-						</div>
-					) : null}
 				</header>
 
 				<LauncherTabs
@@ -1652,8 +1715,7 @@ const LibraryPage = () => {
 						<>
 							<div className="library-dock-strip-area group">
 								<LibraryGameStrip
-									games={filteredGames}
-									activeGameId={activeGame?.id ?? ''}
+									games={stripGames}
 									onSelect={setActiveGameId}
 									onOpenStore={handleOpenStorePage}
 								/>
@@ -1707,10 +1769,6 @@ const LibraryPage = () => {
 
 								<div className="library-status-meta">
 									<span>{activeGame?.playtime ?? '0h'}</span>
-									<span>{activeGame?.progress ?? 0}/100</span>
-								</div>
-								<div className="library-progress-line">
-									<div className="library-progress-fill" style={{ width: progressWidth }} />
 								</div>
 							</div>
 						</>

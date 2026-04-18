@@ -127,21 +127,26 @@ const GamePage = () => {
 				return;
 			}
 
-			try {
-				const dbData = await api.getAllDetailsByID(appId);
-				if (!cancelled && dbData) setDbDetails(dbData);
-			} catch (error) {
-				console.warn('[GamePage] DB details unavailable:', error);
-			}
+			const dbTask = (async () => {
+				try {
+					const dbData = await api.getAllDetailsByID(appId);
+					if (!cancelled && dbData) setDbDetails(dbData);
+				} catch (error) {
+					console.warn('[GamePage] DB details unavailable:', error);
+				}
+			})();
 
-			try {
-				const details = await api.getSteamGameDetails(appId, 'us');
-				if (!cancelled) setSteamDetails(details);
-			} catch (error) {
-				if (!cancelled) setSteamError(error instanceof Error ? error.message : String(error));
-			} finally {
-				if (!cancelled) setLoading(false);
-			}
+			const steamTask = (async () => {
+				try {
+					const details = await api.getSteamGameDetails(appId);
+					if (!cancelled) setSteamDetails(details);
+				} catch (error) {
+					if (!cancelled) setSteamError(error instanceof Error ? error.message : String(error));
+				}
+			})();
+
+			await Promise.allSettled([dbTask, steamTask]);
+			if (!cancelled) setLoading(false);
 		})();
 
 		return () => {

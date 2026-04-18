@@ -1,6 +1,9 @@
 // @ts-check
 'use strict';
 
+const fs = require('node:fs');
+const path = require('node:path');
+
 /**
  * @typedef {import('../models').TorrentProgress} TorrentProgress
  */
@@ -25,11 +28,20 @@ class TorrentController {
   /** @type {Promise<import('webtorrent').default> | null} */
   #clientPromise = null;
 
+  /** @type {any | null} */
+  #windowsNonLockingStoreClass = null;
+
+  /** @type {Promise<any> | null} */
+  #windowsNonLockingStoreClassPromise = null;
+
   /** @type {Map<string, Promise<any>> | null} */
   static #pending = null;
 
   /** @type {Set<string>} */
   #forcedPaused = new Set();
+
+  /** @type {Map<string, string>} */
+  #preferredDisplayNames = new Map();
 
   /**
    * Lazily initialise the WebTorrent client (ESM dynamic import).
@@ -58,7 +70,8 @@ class TorrentController {
           const code = /** @type {any} */ (err)?.code;
           if (code === 'EACCES' || code === 'EADDRINUSE') {
             // UTP/TCP socket binding failed — non-fatal, other transport still works.
-            console.warn('[TorrentController] socket bind warning (non-fatal):', err.message);
+            const message = String((/** @type {any} */ (err))?.message || err || 'Unknown error');
+            console.warn('[TorrentController] socket bind warning (non-fatal):', message);
           } else {
             console.error('[TorrentController] WebTorrent client error:', err);
           }
@@ -77,6 +90,121 @@ class TorrentController {
     return this.#client;
   }
 
+  /**
+   * Windows-only chunk store wrapper that closes file handles after each read/write.
+   * This reduces long-lived locks on in-progress download files.
+   *
+   * @returns {Promise<any|null>}
+   */
+  async #getWindowsNonLockingStoreClass() {
+    if (process.platform !== 'win32') return null;
+    if (this.#windowsNonLockingStoreClass) return this.#windowsNonLockingStoreClass;
+
+    if (!this.#windowsNonLockingStoreClassPromise) {
+      this.#windowsNonLockingStoreClassPromise = (async () => {
+        try {
+          const fsChunkStoreMod = await import('fs-chunk-store');
+          const rafMod = await import('random-access-file');
+          const FSChunkStore = fsChunkStoreMod.default ?? fsChunkStoreMod;
+          const RandomAccessFile = rafMod.default ?? rafMod;
+
+          if (typeof FSChunkStore !== 'function' || typeof RandomAccessFile !== 'function') {
+            return null;
+          }
+
+          class NonLockingFsChunkStore extends FSChunkStore {
+            constructor(/** @type {number} */ chunkLength, /** @type {any} */ opts = {}) {
+              super(chunkLength, opts);
+
+              for (const file of this.files || []) {
+                const targetPath = String(file?.path || '').trim();
+                if (!targetPath) continue;
+
+                file.open = (/** @type {any} */ cb) => {
+                  if (this.closed) return cb(new Error('Storage is closed'));
+
+                  fs.mkdir(path.dirname(targetPath), { recursive: true }, (mkdirErr) => {
+                    if (mkdirErr) return cb(mkdirErr);
+                    if (this.closed) return cb(new Error('Storage is closed'));
+
+                    const raf = new RandomAccessFile(targetPath);
+
+                    /** @param {(err: Error|null) => void} done */
+                    const closeQuietly = (done) => {
+                      raf.close((closeErr) => {
+                        const msg = String((/** @type {any} */ (closeErr))?.message || closeErr || '').toLowerCase();
+                        if (closeErr && msg && !msg.includes('closed')) {
+                          return done(/** @type {Error} */ (closeErr));
+                        }
+                        return done(null);
+                      });
+                    };
+
+                    cb(null, {
+                      write: (
+                        /** @type {number} */ offset,
+                        /** @type {Buffer} */ buffer,
+                        /** @type {(err: Error|null) => void} */ done
+                      ) => {
+                        raf.write(offset, buffer, (writeErr) => {
+                          closeQuietly((closeErr) => done(writeErr || closeErr || null));
+                        });
+                      },
+                      read: (
+                        /** @type {number} */ offset,
+                        /** @type {number} */ length,
+                        /** @type {(err: Error|null, data?: Uint8Array|Buffer) => void} */ done
+                      ) => {
+                        raf.read(offset, length, (readErr, data) => {
+                          closeQuietly((closeErr) => done(readErr || closeErr || null, data));
+                        });
+                      },
+                      close: (/** @type {(err: Error|null) => void} */ done) => {
+                        closeQuietly((closeErr) => done(closeErr || null));
+                      },
+                    });
+                  });
+                };
+              }
+            }
+          }
+
+          this.#windowsNonLockingStoreClass = NonLockingFsChunkStore;
+          return NonLockingFsChunkStore;
+        } catch (err) {
+          console.warn('[TorrentController] Failed to enable non-locking chunk store; using default fs store:', err);
+          return null;
+        }
+      })();
+    }
+
+    const resolved = await this.#windowsNonLockingStoreClassPromise;
+    if (resolved) {
+      this.#windowsNonLockingStoreClass = resolved;
+    }
+    return resolved;
+  }
+
+  /**
+   * Wait briefly for a newly added torrent to expose its infoHash.
+   * URL-based torrent sources may resolve metadata asynchronously.
+   *
+   * @param {import('webtorrent').Torrent} torrent
+   * @param {number} [timeoutMs]
+   * @returns {Promise<void>}
+   */
+  async #waitForTorrentIdentity(torrent, timeoutMs = 12_000) {
+    const startedAt = Date.now();
+    while (true) {
+      const torrentAny = /** @type {any} */ (torrent);
+      if (!torrentAny || torrentAny.destroyed) return;
+      const hash = String(torrentAny.infoHash || '').trim();
+      if (hash) return;
+      if ((Date.now() - startedAt) >= timeoutMs) return;
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    }
+  }
+
   // ─── Helpers ─────────────────────────────────────────────────────────────────
 
   /**
@@ -88,9 +216,12 @@ class TorrentController {
     const tr = t.timeRemaining;
     const hash = String(t.infoHash ?? '').trim().toLowerCase();
     const forcedPaused = !!hash && this.#forcedPaused.has(hash);
+    const preferredName = hash ? String(this.#preferredDisplayNames.get(hash) || '').trim() : '';
+    const rawMagnetURI = (typeof t.magnetURI === 'string' ? t.magnetURI.trim() : '');
+    const derivedMagnetURI = hash ? `magnet:?xt=urn:btih:${hash}` : '';
     return {
       infoHash:      t.infoHash      ?? '',
-      name:          t.name          ?? t.infoHash ?? 'Pending…',
+      name:          preferredName || t.name || t.infoHash || 'Pending…',
       progress:      t.progress      ?? 0,
       downloadSpeed: t.downloadSpeed ?? 0,
       uploadSpeed:   t.uploadSpeed   ?? 0,
@@ -103,7 +234,7 @@ class TorrentController {
       timeRemaining: (tr == null || !Number.isFinite(tr)) ? -1 : tr,
       paused:        forcedPaused || (t.paused ?? false),
       done:          t.done          ?? false,
-      magnetURI:     (typeof t.magnetURI === 'string' ? t.magnetURI : ''),
+      magnetURI:     rawMagnetURI || derivedMagnetURI,
       savePath:      t.path          || fallbackPath,
       path:          t.path          || fallbackPath,
     };
@@ -137,6 +268,236 @@ class TorrentController {
     return /** @type {import('webtorrent').Torrent} */ (fromGet);
   }
 
+  /**
+   * @param {import('webtorrent').Torrent | null | undefined} torrent
+   * @param {string} displayName
+   */
+  #applyPreferredDisplayName(torrent, displayName) {
+    if (!torrent) return;
+    const normalizedDisplayName = String(displayName || '').trim();
+    if (!normalizedDisplayName) return;
+    const hash = String(torrent.infoHash || '').trim().toLowerCase();
+    if (!hash) return;
+    this.#preferredDisplayNames.set(hash, normalizedDisplayName);
+  }
+
+  /**
+   * @param {unknown} err
+   * @returns {boolean}
+   */
+  #isNoTorrentError(err) {
+    const message = String((/** @type {any} */ (err))?.message || err || '');
+    return /No torrent with id/i.test(message);
+  }
+
+  /**
+   * @param {unknown} err
+   * @returns {boolean}
+   */
+  #isLockLikeFsError(err) {
+    const code = String((/** @type {any} */ (err))?.code || '').toUpperCase();
+    if (code === 'EPERM' || code === 'EBUSY' || code === 'EACCES' || code === 'ENOTEMPTY') {
+      return true;
+    }
+    const message = String((/** @type {any} */ (err))?.message || err || '').toLowerCase();
+    return (
+      message.includes('operation not permitted')
+      || message.includes('resource busy')
+      || message.includes('in use')
+      || message.includes('being used')
+    );
+  }
+
+  /**
+   * @param {unknown} value
+   * @returns {string}
+   */
+  #normalizePathToken(value) {
+    return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  }
+
+  /**
+   * @param {string} target
+   * @returns {void}
+   */
+  #tryMakeWritableRecursive(target) {
+    const normalized = String(target || '').trim();
+    if (!normalized) return;
+
+    let stats;
+    try {
+      stats = fs.lstatSync(normalized);
+    } catch {
+      return;
+    }
+
+    if (stats.isDirectory()) {
+      try {
+        const entries = fs.readdirSync(normalized);
+        for (const entry of entries) {
+          this.#tryMakeWritableRecursive(path.join(normalized, entry));
+        }
+      } catch {
+        // ignore traversal errors
+      }
+      try {
+        fs.chmodSync(normalized, 0o777);
+      } catch {
+        // ignore chmod errors
+      }
+      return;
+    }
+
+    try {
+      fs.chmodSync(normalized, 0o666);
+    } catch {
+      // ignore chmod errors
+    }
+  }
+
+  /**
+   * @param {import('webtorrent').Torrent} torrent
+   * @param {string} preferredName
+   * @returns {string[]}
+   */
+  #collectDownloadedTargets(torrent, preferredName = '') {
+    /** @type {Set<string>} */
+    const targets = new Set();
+
+    const basePath = String(torrent?.path || '').trim();
+    const torrentName = String(torrent?.name || '').trim();
+    const normalizedBasePath = basePath ? path.normalize(basePath) : '';
+
+    const torrentAny = /** @type {any} */ (torrent);
+    const files = Array.isArray(torrentAny?.files) ? torrentAny.files : [];
+
+    for (const file of files) {
+      const rawCandidates = [
+        String(file?.path || '').trim(),
+        String(file?._path || '').trim(),
+        String(file?.name || '').trim(),
+      ];
+
+      for (const raw of rawCandidates) {
+        if (!raw) continue;
+        const absolute = path.isAbsolute(raw)
+          ? path.normalize(raw)
+          : (normalizedBasePath ? path.normalize(path.join(normalizedBasePath, raw)) : '');
+        if (!absolute) continue;
+        targets.add(absolute);
+        break;
+      }
+    }
+
+    if (normalizedBasePath && torrentName) {
+      targets.add(path.normalize(path.join(normalizedBasePath, torrentName)));
+    }
+
+    // If save path itself is a dedicated per-title folder, remove the folder as well.
+    if (normalizedBasePath) {
+      const baseNameToken = this.#normalizePathToken(path.basename(normalizedBasePath));
+      const torrentNameToken = this.#normalizePathToken(torrentName);
+      const preferredNameToken = this.#normalizePathToken(preferredName);
+      const isDedicatedFolder =
+        !!baseNameToken
+        && (
+          (!!preferredNameToken && baseNameToken === preferredNameToken)
+          || (!!torrentNameToken && baseNameToken === torrentNameToken)
+        );
+      if (isDedicatedFolder) {
+        targets.add(normalizedBasePath);
+      }
+    }
+
+    return Array.from(targets);
+  }
+
+  /**
+   * @param {string[]} targets
+    * @returns {{ deletedTargets: string[], lockedTargets: string[], failedTargets: string[] }}
+   */
+  #removeDownloadedTargets(targets) {
+    const normalizedTargets = Array.from(
+      new Set(
+        (Array.isArray(targets) ? targets : [])
+          .map((value) => String(value || '').trim())
+          .filter(Boolean)
+          .map((value) => path.normalize(value))
+      )
+    ).sort((a, b) => b.length - a.length);
+
+    /** @type {string[]} */
+    const deletedTargets = [];
+    /** @type {string[]} */
+    const lockedTargets = [];
+    /** @type {string[]} */
+    const failedTargets = [];
+
+    for (const target of normalizedTargets) {
+      if (!target) continue;
+
+      let exists = false;
+      try {
+        exists = fs.existsSync(target);
+      } catch (err) {
+        if (this.#isLockLikeFsError(err)) {
+          lockedTargets.push(target);
+          continue;
+        }
+        const message = String((/** @type {any} */ (err))?.message || err || 'Unknown exists error');
+        failedTargets.push(`${target}: ${message}`);
+        continue;
+      }
+      if (!exists) continue;
+
+      let removed = false;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          fs.rmSync(target, {
+            recursive: true,
+            force: true,
+            maxRetries: 4,
+            retryDelay: 120,
+          });
+          removed = true;
+          break;
+        } catch (err) {
+          const code = String((/** @type {any} */ (err))?.code || '').toUpperCase();
+          if (code === 'ENOENT') {
+            removed = true;
+            break;
+          }
+
+          // Windows lock/read-only fallbacks.
+          if ((code === 'EPERM' || code === 'EACCES') && attempt === 0) {
+            this.#tryMakeWritableRecursive(target);
+            continue;
+          }
+
+          if (this.#isLockLikeFsError(err)) {
+            continue;
+          }
+
+          const message = String((/** @type {any} */ (err))?.message || err || 'Unknown remove error');
+          failedTargets.push(`${target}: ${message}`);
+          break;
+        }
+      }
+
+      if (removed) {
+        deletedTargets.push(target);
+        continue;
+      }
+
+      const alreadyFailed = failedTargets.some((entry) => entry.startsWith(`${target}:`));
+      if (!alreadyFailed) {
+        lockedTargets.push(target);
+      }
+    }
+
+    return { deletedTargets, lockedTargets, failedTargets };
+  }
+
   // ─── Public API ──────────────────────────────────────────────────────────────
 
   /**
@@ -149,9 +510,10 @@ class TorrentController {
    * @param {string} magnetOrUri     Magnet URI (`magnet:?xt=…`) or HTTPS URL to a .torrent file.
    * @param {string} savePath        Absolute directory path where files will be saved.
    * @param {(progress: TorrentProgress) => void} onProgress  Called every ~1 s with the current state.
+   * @param {string} [displayName] Optional renderer-provided name to show in the downloads list.
    * @returns {Promise<TorrentProgress>}  Initial snapshot (metadata may not yet be resolved).
    */
-  async start(magnetOrUri, savePath, onProgress) {
+  async start(magnetOrUri, savePath, onProgress, displayName = '') {
     if (!magnetOrUri || !String(magnetOrUri).trim()) throw new Error('magnetOrUri is required');
     if (!savePath   || !String(savePath  ).trim()) throw new Error('savePath is required');
 
@@ -163,6 +525,7 @@ class TorrentController {
     if (pending.has(magnetOrUri)) {
       console.log('[TorrentController] concurrent add in progress, waiting…');
       const torrent = await pending.get(magnetOrUri);
+      this.#applyPreferredDisplayName(torrent, displayName);
       return this.#snapshot(torrent, savePath);
     }
 
@@ -170,9 +533,21 @@ class TorrentController {
     // for magnet URIs even on a fresh client.  client.add() handles deduplication
     // internally: if the infoHash was already added it returns the existing torrent.
     const addResultPromise = (async () => {
-      const raw = client.add(magnetOrUri, { path: savePath });
+      /** @type {any} */
+      const addOptions = { path: savePath };
+
+      if (process.platform === 'win32') {
+        const nonLockingStore = await this.#getWindowsNonLockingStoreClass();
+        if (nonLockingStore) {
+          addOptions.store = nonLockingStore;
+          addOptions.storeCacheSlots = 0;
+        }
+      }
+
+      const raw = client.add(magnetOrUri, addOptions);
       console.log('[TorrentController] client.add() raw type:', typeof raw, ' isPromise:', raw instanceof Promise);
       const torrent = (raw instanceof Promise) ? await raw : raw;
+      await this.#waitForTorrentIdentity(torrent);
       console.log('[TorrentController] torrent ready — infoHash:', torrent.infoHash, ' name:', torrent.name, ' path:', torrent.path);
       return torrent;
     })();
@@ -188,6 +563,8 @@ class TorrentController {
       console.error('[TorrentController] client.add() threw:', err);
       throw err;
     }
+
+    this.#applyPreferredDisplayName(torrent, displayName);
 
     /** @type {ReturnType<typeof setInterval> | null} */
     let ticker = null;
@@ -286,31 +663,170 @@ class TorrentController {
    * Remove a torrent from the client.
    * @param {string} infoHash
    * @param {boolean} [destroyStore]  If true, delete downloaded files from disk as well.
-   * @returns {Promise<void>}
+   * @returns {Promise<{ removedFromClient: boolean, deleteRequested: boolean, deletedTargetCount: number, lockedTargets: string[], failedTargets: string[] }>}
    */
-  remove(infoHash, destroyStore = false) {
-    if (!this.#client) return Promise.resolve();
-    const t = this.#findTorrentByInfoHash(infoHash);
-    const hash = String(t?.infoHash || infoHash || '').trim().toLowerCase();
-    if (hash) this.#forcedPaused.delete(hash);
-    if (!t) return Promise.resolve();
-    const client = this.#client;
-    const torrentId = String(t.infoHash || infoHash || '').trim();
-    if (client && typeof client.remove === 'function') {
-      return new Promise((resolve, reject) => {
-        //@ts-ignore
-        client.remove(torrentId, { destroyStore: Boolean(destroyStore) }, (err) => {
-          if (err) reject(err);
-          else resolve();
-        });
+  remove(infoHash, destroyStore = true) {
+    if (!this.#client) {
+      return Promise.resolve({
+        removedFromClient: true,
+        deleteRequested: Boolean(destroyStore),
+        deletedTargetCount: 0,
+        lockedTargets: [],
+        failedTargets: [],
       });
     }
-    return new Promise((resolve, reject) => {
-      t.destroy({ destroyStore: Boolean(destroyStore) }, (err) => {
-        if (err) reject(err);
-        else resolve();
+    const t = this.#findTorrentByInfoHash(infoHash);
+    const hash = String(t?.infoHash || infoHash || '').trim().toLowerCase();
+    const preferredName = hash ? String(this.#preferredDisplayNames.get(hash) || '').trim() : '';
+    const downloadedTargets = (destroyStore && t)
+      ? this.#collectDownloadedTargets(t, preferredName)
+      : [];
+    if (hash) this.#forcedPaused.delete(hash);
+    if (!t) {
+      return Promise.resolve({
+        removedFromClient: true,
+        deleteRequested: Boolean(destroyStore),
+        deletedTargetCount: 0,
+        lockedTargets: [],
+        failedTargets: [],
       });
-    });
+    }
+    const client = this.#client;
+    const torrentId = String(t.infoHash || infoHash || '').trim();
+    /** @type {Promise<void>} */
+    let removePromise;
+    if (client && typeof client.remove === 'function') {
+      removePromise = new Promise((resolve, reject) => {
+        let settled = false;
+        /** @param {unknown} err */
+        const finish = (err) => {
+          if (settled) return;
+          settled = true;
+          if (!err || this.#isNoTorrentError(err) || this.#isLockLikeFsError(err)) {
+            resolve();
+            return;
+          }
+          reject(err);
+        };
+
+        try {
+          //@ts-ignore
+          // Detach first without store deletion; we do our own lock-tolerant cleanup below.
+          const maybePromise = /** @type {any} */ (client.remove(torrentId, { destroyStore: false }, finish));
+          if (maybePromise && typeof maybePromise.then === 'function' && typeof maybePromise.catch === 'function') {
+            maybePromise.then(() => finish(null)).catch((/** @type {unknown} */ err) => finish(err));
+          }
+        } catch (err) {
+          finish(err);
+        }
+      });
+    } else {
+      removePromise = new Promise((resolve, reject) => {
+        let settled = false;
+        /** @param {unknown} err */
+        const finish = (err) => {
+          if (settled) return;
+          settled = true;
+          if (!err || this.#isNoTorrentError(err) || this.#isLockLikeFsError(err)) {
+            resolve();
+            return;
+          }
+          reject(err);
+        };
+
+        try {
+          t.destroy({ destroyStore: false }, finish);
+        } catch (err) {
+          finish(err);
+        }
+      });
+    }
+
+    return removePromise
+      .then(async () => {
+        if (!(destroyStore && downloadedTargets.length > 0)) {
+          return {
+            removedFromClient: true,
+            deleteRequested: Boolean(destroyStore),
+            deletedTargetCount: 0,
+            lockedTargets: [],
+            failedTargets: [],
+          };
+        }
+
+        /** @param {number} ms */
+        const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+        /**
+         * @typedef {{ deletedTargets: string[], lockedTargets: string[], failedTargets: string[] }} CleanupResult
+         */
+
+        /**
+         * @param {CleanupResult} left
+         * @param {CleanupResult} right
+         * @returns {CleanupResult}
+         */
+        const mergeCleanup = (left, right) => ({
+          deletedTargets: Array.from(new Set([...(left?.deletedTargets || []), ...(right?.deletedTargets || [])])),
+          lockedTargets: Array.from(new Set([...(left?.lockedTargets || []), ...(right?.lockedTargets || [])])),
+          failedTargets: Array.from(new Set([...(left?.failedTargets || []), ...(right?.failedTargets || [])])),
+        });
+
+        // Give WebTorrent/OS a brief moment to release file handles,
+        // then start filesystem cleanup.
+        await wait(300);
+
+        // First pass after detach grace period.
+        let cleanup = this.#removeDownloadedTargets(downloadedTargets);
+
+        // Follow-up passes for Windows locks that clear shortly after handle close.
+        const retryDelays = [900, 1800, 3200, 5000];
+        for (const delayMs of retryDelays) {
+          if (!Array.isArray(cleanup.lockedTargets) || cleanup.lockedTargets.length === 0) break;
+          await wait(delayMs);
+          const retryCleanup = this.#removeDownloadedTargets(cleanup.lockedTargets);
+          cleanup = mergeCleanup(cleanup, retryCleanup);
+        }
+
+        const uniqueFailed = Array.from(new Set(cleanup.failedTargets || []));
+        const uniqueLocked = Array.from(new Set(cleanup.lockedTargets || []))
+          .filter((target) => !cleanup.deletedTargets.includes(target));
+
+        return {
+          removedFromClient: true,
+          deleteRequested: Boolean(destroyStore),
+          deletedTargetCount: cleanup.deletedTargets.length,
+          lockedTargets: uniqueLocked,
+          failedTargets: uniqueFailed,
+        };
+      })
+      .catch((err) => {
+        if (this.#isNoTorrentError(err) || this.#isLockLikeFsError(err)) {
+          return {
+            removedFromClient: true,
+            deleteRequested: Boolean(destroyStore),
+            deletedTargetCount: 0,
+            lockedTargets: [],
+            failedTargets: [],
+          };
+        }
+        throw err;
+      })
+      .then((result) => {
+        if (destroyStore && downloadedTargets.length > 0) {
+          if (Array.isArray(result?.lockedTargets) && result.lockedTargets.length > 0) {
+            console.warn('[TorrentController] Some downloaded targets are locked and could not be removed:', result.lockedTargets);
+          }
+          if (Array.isArray(result?.failedTargets) && result.failedTargets.length > 0) {
+            console.warn('[TorrentController] Some downloaded targets failed to remove:', result.failedTargets);
+          }
+        }
+        return result;
+      })
+      .finally(() => {
+        if (hash) this.#preferredDisplayNames.delete(hash);
+      }
+    );
   }
 
   /**
@@ -330,6 +846,8 @@ class TorrentController {
     const client = this.#client;
     this.#client = null;
     this.#clientPromise = null;
+    this.#forcedPaused.clear();
+    this.#preferredDisplayNames.clear();
     if (!client) return Promise.resolve();
     return new Promise((resolve) => client.destroy(resolve));
   }

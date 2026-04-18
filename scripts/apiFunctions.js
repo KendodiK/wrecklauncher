@@ -405,28 +405,47 @@ module.exports.GETGamesInList = async function (req, res) {
 
 module.exports.GETSearch = async function (req, res) {
     try {
-        const { needle } = req.body;
-        /**
-         * @type {Array<string>}
-         */
-        let { tags } = req.body;
+        const payload = req.body && typeof req.body === 'object' ? req.body : {};
+        const normalizedNeedle = String(payload.needle ?? '').trim();
+        const tags = Array.isArray(payload.tags)
+            ? payload.tags.map((tag) => String(tag ?? '').trim()).filter((tag) => !!tag)
+            : [];
+
+        if (!normalizedNeedle && tags.length < 1) {
+            return res.json([]);
+        }
+
         const gameCtrl = new GamesController();
         let resultNeedle = [];
-        if (needle || needle.trim() !== "") {
-            resultNeedle = await gameCtrl.search(needle, tags);
+        if (normalizedNeedle) {
+            resultNeedle = await gameCtrl.search(normalizedNeedle);
         }
         let resultTags = [];
-        if (Array.isArray(tags) && tags.length > 0) {
+        if (tags.length > 0) {
             resultTags = await gameCtrl.searchByTags(tags);
         }
-        if (resultTags instanceof Error) {
-            console.error('Error searching by tags:', gatsResult);
-            return res.status(400).json({ error: `Error searching by tags: ${gatsResult.error}` });
+
+        if (!Array.isArray(resultNeedle) || !Array.isArray(resultTags)) {
+            return res.status(400).json({ error: 'Search failed: invalid controller response' });
         }
-        if (resultNeedle instanceof Error) {
-            return res.status(400).json({ error: `Error searching by needle: ${resultNeedle.error}` });
+
+        const result = [];
+        const seen = new Set();
+        const merged = [...resultNeedle, ...resultTags];
+
+        for (const row of merged) {
+            if (!row || typeof row !== 'object') continue;
+
+            const platform = String(row.platform_name ?? row.platform ?? '').trim().toLowerCase() || 'unknown';
+            const appId = String(row.app_id ?? '').trim();
+            const gameId = String(row.id ?? '').trim();
+            const key = appId ? `${platform}:${appId}` : (gameId ? `id:${gameId}` : '');
+
+            if (key && seen.has(key)) continue;
+            if (key) seen.add(key);
+            result.push(row);
         }
-        const result = [...new Set([...resultNeedle, ...resultTags])];
+
         return res.json(result);
     } catch (err) {
         return res.status(500).json({ error: err.message });
