@@ -8,7 +8,15 @@
 
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: "Funnel Display", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+
+.funnel-display {
+  font-family: "Funnel Display", sans-serif;
+  font-optical-sizing: auto;
+  font-weight: 400;
+  font-style: normal;
 }
 
 /* ============================================
@@ -730,6 +738,156 @@ body {
   cursor: not-allowed;
 }
 
+/* ---- Steam-like list mode ---- */
+.library-list-middle {
+  position: relative;
+  z-index: 25;
+  margin: 14px 16px 0;
+  padding-bottom: 196px;
+}
+
+.library-list-pane {
+  border-radius: 8px;
+  border: 1px solid rgba(51, 65, 85, 0.5);
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(10px);
+  overflow: auto;
+  max-height: calc(100vh - 320px);
+}
+
+.library-list-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: minmax(220px, 1.8fr) minmax(80px, 0.8fr) minmax(80px, 0.8fr);
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+  background: rgba(2, 6, 23, 0.92);
+  color: rgba(148, 163, 184, 0.75);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.library-list-rows {
+  padding: 6px 8px 12px;
+}
+
+.library-list-section {
+  margin-top: 8px;
+}
+
+.library-list-section:first-child {
+  margin-top: 0;
+}
+
+.library-list-section-toggle {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  border-top: 1px solid rgba(51, 65, 85, 0.5);
+  border-bottom: 1px solid rgba(51, 65, 85, 0.3);
+  background: rgba(2, 6, 23, 0.55);
+  color: rgba(148, 163, 184, 0.88);
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.library-list-section-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+}
+
+.library-list-section-count {
+  margin-left: auto;
+  font-size: 11px;
+  color: rgba(148, 163, 184, 0.78);
+}
+
+.library-list-section-chevron {
+  width: 14px;
+  height: 14px;
+  color: rgba(148, 163, 184, 0.85);
+  transition: transform 0.16s ease;
+}
+
+.library-list-section-chevron-collapsed {
+  transform: rotate(-90deg);
+}
+
+.library-list-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(220px, 1.8fr) minmax(80px, 0.8fr) minmax(80px, 0.8fr);
+  gap: 8px;
+  align-items: center;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #e2e8f0;
+  text-align: left;
+  padding: 7px 8px;
+  cursor: pointer;
+  transition: border-color 0.14s ease, background-color 0.14s ease;
+}
+
+.library-list-row:hover {
+  border-color: rgba(148, 163, 184, 0.28);
+  background: rgba(30, 41, 59, 0.5);
+}
+
+.library-list-row-active {
+  border-color: rgba(52, 211, 153, 0.7);
+  background: rgba(16, 185, 129, 0.14);
+}
+
+.library-list-game-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.library-list-thumb {
+  width: 42px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 5px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+.library-list-title {
+  min-width: 0;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.library-list-playtime,
+.library-list-status {
+  color: rgba(148, 163, 184, 0.9);
+  font-size: 12px;
+  text-transform: capitalize;
+}
+
+.library-list-status {
+  color: rgba(167, 243, 208, 0.92);
+}
+
+.library-list-empty-note {
+  border-radius: 8px;
+  border: 1px solid rgba(51, 65, 85, 0.45);
+  background: rgba(15, 23, 42, 0.42);
+  color: rgba(148, 163, 184, 0.9);
+  padding: 12px;
+}
+
 .library-status-meta {
   width: 100%;
   display: flex;
@@ -1059,6 +1217,20 @@ body {
 
   .library-status-actions {
     flex-wrap: wrap;
+  }
+
+  .library-list-middle {
+    margin: 10px 8px 12px;
+    padding-bottom: 210px;
+  }
+
+  .library-list-pane {
+    max-height: calc(100vh - 330px);
+  }
+
+  .library-list-head,
+  .library-list-row {
+    grid-template-columns: minmax(160px, 1.7fr) minmax(56px, 0.75fr) minmax(56px, 0.75fr);
   }
 }
 

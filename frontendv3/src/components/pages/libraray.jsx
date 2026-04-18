@@ -497,6 +497,7 @@ const LibraryPage = () => {
 	const [libraryGames, setLibraryGames] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [errorMessage, setErrorMessage] = useState('');
+	const [libraryViewMode, setLibraryViewMode] = useState('carousel');
 
 	const [activeLauncherId, setActiveLauncherId] = useState('all');
 	const [activeGameId, setActiveGameId] = useState('');
@@ -508,6 +509,12 @@ const LibraryPage = () => {
 	const [showAllGames, setShowAllGames] = useState(false);
 	const [showMenu, setShowMenu] = useState(false);
 	const [actionState, setActionState] = useState({ busyAction: '', text: '', type: '' });
+	const [collapsedLaunchers, setCollapsedLaunchers] = useState({});
+
+	const normalizeLibraryViewMode = (value) => {
+		const normalized = String(value || '').trim().toLowerCase();
+		return normalized === 'list' ? 'list' : 'carousel';
+	};
 
 	const ownedGames = useMemo(() => {
 		return dedupeLibraryGames(libraryGames.filter((g) => g.owned === true));
@@ -521,8 +528,13 @@ const LibraryPage = () => {
 			setErrorMessage('');
 
 			try {
+				let resolvedViewMode = 'carousel';
 				if (typeof window?.electronAPI?.getSettings === 'function') {
-					await window.electronAPI.getSettings();
+					const settings = await window.electronAPI.getSettings();
+					resolvedViewMode = normalizeLibraryViewMode(settings?.library?.viewMode);
+					if (!cancelled) {
+						setLibraryViewMode(resolvedViewMode);
+					}
 				}
 				const runtimePlatforms = await fetchRuntimePlatformConnections(window.electronAPI).catch((error) => {
 					console.warn('Failed to load runtime platform connections for library:', error);
@@ -753,6 +765,7 @@ const LibraryPage = () => {
 					setScope('all');
 					setActiveLauncherId('all');
 					setActiveGameId(uniqueGames[0]?.id ?? '');
+					setLibraryViewMode(resolvedViewMode);
 					if (!uniqueGames.length && loadErrors.length) {
 						setErrorMessage(loadErrors.join(' | '));
 					}
@@ -762,6 +775,7 @@ const LibraryPage = () => {
 				if (!cancelled) {
 					setLibraryGames([]);
 					setActiveGameId('');
+					setLibraryViewMode('carousel');
 					setErrorMessage(error instanceof Error ? error.message : 'Failed to load library');
 				}
 			} finally {
@@ -796,6 +810,26 @@ const LibraryPage = () => {
 	};
 
 	const isAllLauncherSelected = scope === 'all' || String(activeLauncherId || '').trim().toLowerCase() === 'all';
+
+	const launcherNameMap = useMemo(() => {
+		const map = new Map();
+		for (const launcher of Array.isArray(launchers) ? launchers : []) {
+			const id = String(launcher?.id || '').trim().toLowerCase();
+			if (!id) continue;
+			map.set(id, String(launcher?.name || id).trim());
+		}
+		if (!map.has('gog.com')) map.set('gog.com', 'GOG');
+		if (!map.has('itch.io')) map.set('itch.io', 'Itch.io');
+		if (!map.has('itchio')) map.set('itchio', 'Itch.io');
+		if (!map.has('pirate')) map.set('pirate', 'Pirate Library');
+		return map;
+	}, []);
+
+	const getLauncherDisplayName = (launcherId) => {
+		const normalized = String(launcherId || '').trim().toLowerCase();
+		if (!normalized) return 'Other';
+		return launcherNameMap.get(normalized) || normalized;
+	};
 
 	const activeLauncherLabel = useMemo(() => {
 		if (isAllLauncherSelected) return 'all platforms';
@@ -853,6 +887,42 @@ const LibraryPage = () => {
 		return dedupeLibraryGames(result);
 	}, [deferredSearch, hideZeroPlaytime, searchPool, sortBy]);
 
+	const listSections = useMemo(() => {
+		const grouped = new Map();
+
+		for (const game of filteredGames) {
+			const launcherId = String(game?.launcherId || game?.platform_name || 'other').trim().toLowerCase() || 'other';
+			if (!grouped.has(launcherId)) {
+				grouped.set(launcherId, {
+					launcherId,
+					label: getLauncherDisplayName(launcherId),
+					games: [],
+				});
+			}
+			grouped.get(launcherId).games.push(game);
+		}
+
+		return Array.from(grouped.values()).sort((left, right) => left.label.localeCompare(right.label));
+	}, [filteredGames]);
+
+	useEffect(() => {
+		setCollapsedLaunchers((previous) => {
+			const availableLauncherIds = new Set(listSections.map((section) => section.launcherId));
+			const next = {};
+			let changed = false;
+
+			for (const [launcherId, isCollapsed] of Object.entries(previous)) {
+				if (availableLauncherIds.has(launcherId)) {
+					next[launcherId] = isCollapsed;
+				} else {
+					changed = true;
+				}
+			}
+
+			return changed ? next : previous;
+		});
+	}, [listSections]);
+
 	const activeGame = useMemo(() => {
 		if (!filteredGames.length) return null;
 		return filteredGames.find((g) => g.id === activeGameId) ?? filteredGames[0] ?? null;
@@ -897,6 +967,16 @@ const LibraryPage = () => {
 	const primaryActionLabel = isActiveGameInstalled ? 'OPEN' : 'INSTALL';
 	const primaryActionBusyLabel = isActiveGameInstalled ? 'OPENING' : 'INSTALLING';
 	const primaryActionUsesDownloadStyle = !isActiveGameInstalled;
+	const isListView = libraryViewMode === 'list';
+
+	const toggleLauncherCollapse = (launcherId) => {
+		const normalized = String(launcherId || '').trim().toLowerCase();
+		if (!normalized) return;
+		setCollapsedLaunchers((previous) => ({
+			...previous,
+			[normalized]: !previous[normalized],
+		}));
+	};
 
 	const markLibraryGameAsNotInstalled = (gameId) => {
 		setLibraryGames((previous) =>
@@ -1645,21 +1725,86 @@ const LibraryPage = () => {
 				) : null}
 			</section>
 
-			{/* Bottom dock: game strip + status bar */}
+			{/* Middle area: list mode content */}
+			{isListView ? (
+				<section className="library-list-middle">
+					{filteredGames.length > 0 ? (
+						<div className="library-list-pane scrollbar-thin">
+							<div className="library-list-head">
+								<span>Game</span>
+								<span>Playtime</span>
+								<span>Status</span>
+							</div>
+							<div className="library-list-rows">
+								{listSections.map((section) => {
+									const isCollapsed = collapsedLaunchers[section.launcherId] === true;
+									return (
+										<div key={section.launcherId} className="library-list-section">
+											<button
+												type="button"
+												className="library-list-section-toggle"
+												onClick={() => toggleLauncherCollapse(section.launcherId)}
+											>
+												<span className="library-list-section-title">{section.label}</span>
+												<span className="library-list-section-count">{section.games.length}</span>
+												<svg
+													viewBox="0 0 24 24"
+													className={`library-list-section-chevron ${isCollapsed ? 'library-list-section-chevron-collapsed' : ''}`}
+													fill="none"
+													stroke="currentColor"
+													strokeWidth="1.8"
+												>
+													<path d="m6 9 6 6 6-6" />
+												</svg>
+											</button>
+
+											{!isCollapsed ? (
+												section.games.map((game) => {
+													const isActive = game.id === (activeGame?.id ?? '');
+													return (
+														<button
+															key={game.id}
+															type="button"
+															className={`library-list-row ${isActive ? 'library-list-row-active' : ''}`}
+															onClick={() => setActiveGameId(game.id)}
+														>
+															<span className="library-list-game-cell">
+																<img src={game.coverUrl} alt={game.title} className="library-list-thumb" loading="lazy" />
+																<span className="library-list-title">{game.title}</span>
+															</span>
+															<span className="library-list-playtime">{game.playtime || '0m'}</span>
+															<span className="library-list-status">{game.installed ? 'Installed' : 'Ready'}</span>
+														</button>
+													);
+												})
+											) : null}
+										</div>
+									);
+								})}
+							</div>
+						</div>
+					) : (
+						<div className="library-list-empty-note">{emptyFilteredMessage}</div>
+					)}
+				</section>
+			) : null}
+
+			{/* Bottom dock: always pinned to bottom */}
 			<div className="library-bottom-dock">
 				<div className="library-dock-inner">
 					{filteredGames.length > 0 ? (
 						<>
-							<div className="library-dock-strip-area group">
-								<LibraryGameStrip
-									games={filteredGames}
-									activeGameId={activeGame?.id ?? ''}
-									onSelect={setActiveGameId}
-									onOpenStore={handleOpenStorePage}
-								/>
-							</div>
+							{!isListView ? (
+								<div className="library-dock-strip-area group">
+									<LibraryGameStrip
+										games={filteredGames}
+										activeGameId={activeGame?.id ?? ''}
+										onSelect={setActiveGameId}
+										onOpenStore={handleOpenStorePage}
+									/>
+								</div>
+							) : null}
 
-							{/* Status bar */}
 							<div className="library-status-bar group">
 								<div className="library-status-left">
 									<h2 className="library-status-title">{activeGame?.title ?? 'No game'}</h2>

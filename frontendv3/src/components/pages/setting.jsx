@@ -971,7 +971,7 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 				)}
 
 				{/* Library Settings */}
-				{selectedSection === 'library' && (
+				{(selectedSection === 'library' || !showingMovedSection) && (
 				<section className="mb-8 bg-slate-800/50 rounded-lg p-6 border border-slate-700">
 					<h2 className="text-xl font-semibold mb-4 flex items-center">
 						<svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1003,8 +1003,8 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 						{/* View Mode */}
 						<div className="flex items-center justify-between">
 							<div>
-								<label className="text-sm font-medium">Default view mode</label>
-								<p className="text-xs text-slate-400">How games are displayed</p>
+								<label className="text-sm font-medium">Library view panel</label>
+								<p className="text-xs text-slate-400">Choose between Carousel (current layout) and Steam-style List</p>
 							</div>
 							<select
 								value={settings.library.viewMode}
@@ -1013,7 +1013,6 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 								className="bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
 							>
 								<option value="carousel">Carousel</option>
-								<option value="grid">Grid</option>
 								<option value="list">List</option>
 							</select>
 						</div>
