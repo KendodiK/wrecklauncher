@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import GameSliderBase from '../shared/GameSliderBase.jsx';
+import { buildStoreGameRoute, resolveStoreGameRouteId, resolveStorePlatformFromGame } from '../../utils/storeRouting.js';
 
 // Store slider wrapper (same pattern as GameSlider):
 // - Structure + behavior comes from GameSliderBase
@@ -10,12 +11,17 @@ const Storeslider = ({ items, onCardClick, onNearEnd, nearEndThreshold = 5 }) =>
     const cards = useMemo(() => (Array.isArray(items) ? items : []), [items]);
     const navigate = useNavigate();
     const [viewportW, setViewportW] = useState(() => (typeof window !== 'undefined' ? window.innerWidth : 1200));
+    const previousRemainingRef = useRef(null);
 
     useEffect(() => {
         const onResize = () => setViewportW(window.innerWidth);
         window.addEventListener('resize', onResize);
         return () => window.removeEventListener('resize', onResize);
     }, []);
+
+    useEffect(() => {
+        previousRemainingRef.current = null;
+    }, [cards.length]);
 
     const spread = useMemo(() => {
         // Fixed spacing values for consistent animations
@@ -27,14 +33,13 @@ const Storeslider = ({ items, onCardClick, onNearEnd, nearEndThreshold = 5 }) =>
 
     const openGame = (card) => {
         if (!card) return;
-        const appid = Number(card.appid);
-        const routeId = Number.isFinite(appid) && appid > 0 ? String(appid) : (card.id != null ? String(card.id) : 'unknown');
-        const normalizedPlatform = String(card.platform_name || card.platform || 'steam').trim().toLowerCase();
-        const platform = normalizedPlatform === 'itch' || normalizedPlatform === 'itch.io' || normalizedPlatform === 'itchio'
-            ? 'itchio'
-            : (normalizedPlatform === 'epic games' || normalizedPlatform === 'epic_games' ? 'steam' : (normalizedPlatform || 'steam'));
+        const target = buildStoreGameRoute(card, 'steam');
+        const routeId = resolveStoreGameRouteId(card);
+        if (!target || !routeId) return;
+        const normalizedPlatform = resolveStorePlatformFromGame(card, 'steam');
 
-        navigate(`/store/game/${encodeURIComponent(platform)}/${encodeURIComponent(routeId)}`, {
+        const appid = Number(card.appid ?? card.app_id ?? card.id);
+        navigate(target, {
             state: {
                 game: {
                     id: routeId,
@@ -42,6 +47,7 @@ const Storeslider = ({ items, onCardClick, onNearEnd, nearEndThreshold = 5 }) =>
                     title: card.title ?? 'Game Title',
                     heroImage: card.heroImage ?? card.image,
                     coverImage: card.coverImage ?? card.image,
+                    platform_name: normalizedPlatform,
                     description:
                         card.description ??
                         'Short description goes here. Replace this with real store data when available.',
@@ -66,7 +72,14 @@ const Storeslider = ({ items, onCardClick, onNearEnd, nearEndThreshold = 5 }) =>
 
         if (currentPos < 0) return;
         const remaining = cards.length - 1 - currentPos;
-        if (remaining <= nearEndThreshold) {
+        const previousRemaining = previousRemainingRef.current;
+        previousRemainingRef.current = remaining;
+
+        const crossedIntoNearEnd = previousRemaining == null
+            ? remaining <= nearEndThreshold
+            : (previousRemaining > nearEndThreshold && remaining <= nearEndThreshold);
+
+        if (crossedIntoNearEnd) {
             onNearEnd();
         }
     };
@@ -74,6 +87,7 @@ const Storeslider = ({ items, onCardClick, onNearEnd, nearEndThreshold = 5 }) =>
     return (
         <GameSliderBase
             mode="stack"
+            loop={false}
             games={cards}
             onActivateCard={(card) => openGame(card)}
             onCardClick={onCardClick}
@@ -108,7 +122,7 @@ const Storeslider = ({ items, onCardClick, onNearEnd, nearEndThreshold = 5 }) =>
                         visible,
                         style: { zIndex: 8 },
                         animate: {
-                            x: dir * 220 * spread,
+                            x: dir * 320 * spread,
                             y: 10,
                             scale: 0.92,
                             opacity: 0.75,
@@ -122,7 +136,7 @@ const Storeslider = ({ items, onCardClick, onNearEnd, nearEndThreshold = 5 }) =>
                         visible,
                         style: { zIndex: 6 },
                         animate: {
-                            x: dir * 380 * spread,
+                            x: dir * 520 * spread,
                             y: 18,
                             scale: 0.84,
                             opacity: 0.38,
@@ -136,7 +150,7 @@ const Storeslider = ({ items, onCardClick, onNearEnd, nearEndThreshold = 5 }) =>
                         visible,
                         style: { zIndex: 4 },
                         animate: {
-                            x: dir * 520 * spread,
+                            x: dir * 700 * spread,
                             y: 24,
                             scale: 0.78,
                             opacity: 0.2,
@@ -150,7 +164,7 @@ const Storeslider = ({ items, onCardClick, onNearEnd, nearEndThreshold = 5 }) =>
                     visible,
                     style: { zIndex: 2 },
                     animate: {
-                        x: dir * 640 * spread,
+                        x: dir * 860 * spread,
                         y: 28,
                         scale: 0.72,
                         opacity: 0,
@@ -161,7 +175,12 @@ const Storeslider = ({ items, onCardClick, onNearEnd, nearEndThreshold = 5 }) =>
             transitionMs={300}
             renderCard={({ card, abs }) => (
                 <>
-                    <img src={card.image} alt={card.title} loading={abs <= 1 ? 'eager' : 'lazy'} />
+                    <img
+                        src={card.image}
+                        alt={card.title}
+                        loading={abs <= 1 ? 'eager' : 'lazy'}
+                        style={{ objectFit: card.preferContainImage ? 'contain' : 'cover' }}
+                    />
                     {Number(card.discountPercent) > 0 ? (
                         <div className="absolute left-3 top-3 rounded-md bg-emerald-500/95 px-2 py-1 text-xs font-bold text-white shadow-lg">
                             -{Math.round(Number(card.discountPercent))}%

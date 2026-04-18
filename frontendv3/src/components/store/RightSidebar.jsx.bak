@@ -38,7 +38,6 @@ const RightSidebar = ({
 	// Mock platforms if none provided
 	const displayPlatforms = platforms.length > 0 ? platforms : [
 		{ id: 'steam', name: 'Steam' },
-		{ id: 'epic', name: 'Epic Games' },
 		{ id: 'itch', name: 'itch.io' },
 		{ id: 'gog', name: 'GOG' },
 		{ id: 'origin', name: 'Origin' },

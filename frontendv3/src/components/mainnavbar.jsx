@@ -1,7 +1,6 @@
 // Fő felső navigációs sáv (Electron ablak címsor + app navigáció)
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import AppIconMenu from './navbar/AppIconMenu.jsx';
 import UserArea from './navbar/UserArea.jsx';
 import WindowControls from './navbar/WindowControls.jsx';
 import NavArrows from './navbar/NavArrows.jsx';
@@ -36,30 +35,7 @@ async function genericInvoke(channel) {
 
 // Fő navbar komponens, kapja a bejelentkezett user-t és a kijelentkezés callback-et
 const MainNavbar = ({ user, onLogout }) => {
-	// App ikon lenyíló menü állapota
-	const [dropdownOpen, setDropdownOpen] = useState(false);
-	const hideDropdownTimeoutRef = useRef(null);
 	const navigate = useNavigate();
-
-	// App ikon menü megnyitása (azonnali nyitás, ha már időzítő fut, töröljük)
-	const openDropdown = () => {
-		if (hideDropdownTimeoutRef.current) {
-			clearTimeout(hideDropdownTimeoutRef.current);
-			hideDropdownTimeoutRef.current = null;
-		}
-		setDropdownOpen(true);
-	};
-
-	// Menüt kicsit késleltetve csukjuk be, amikor az egér elhagyja
-	const scheduleCloseDropdown = () => {
-		if (hideDropdownTimeoutRef.current) {
-			clearTimeout(hideDropdownTimeoutRef.current);
-		}
-		hideDropdownTimeoutRef.current = setTimeout(() => {
-			setDropdownOpen(false);
-			hideDropdownTimeoutRef.current = null;
-		}, 200); // small delay before hiding when cursor leaves
-	};
 
 	// Ablak minimalizálása Electron API-n vagy fallback IPC-n keresztül
 	const minimize = useCallback(() => {
@@ -124,40 +100,15 @@ const MainNavbar = ({ user, onLogout }) => {
 		};
 	}, [closeWindow]);
 
-	// App ikon menü külső kattintás érzékelése – ha nem a menüben kattintunk, bezárjuk
-	useEffect(() => {
-		if (!dropdownOpen) return;
-
-		const onDocumentClick = (e) => {
-			const target = e.target;
-			if (!(target instanceof Element)) return;
-			if (!target.closest('.app-icon-link') && !target.closest('.app-icon-dropdown')) {
-				setDropdownOpen(false);
-			}
-		};
-
-		document.addEventListener('click', onDocumentClick);
-		return () => {
-			document.removeEventListener('click', onDocumentClick);
-		};
-	}, [dropdownOpen]);
-
 	return (
 		<header className="main-navbar flex flex-col select-none">
-			{/* Top strip: icon, user area, window controls */}
+			{/* Top strip: app title, user area, window controls */}
 			<div className="flex items-center justify-between h-6 text-xs px-1">
-				<div className="flex items-center gap-2 no-drag">
-					<AppIconMenu
-						dropdownOpen={dropdownOpen}
-						openDropdown={openDropdown}
-						scheduleCloseDropdown={scheduleCloseDropdown}
-						closeDropdown={() => setDropdownOpen(false)}
-						navigateTo={navigateTo}
-						closeWindow={closeWindow}
-					/>
+				<div className="flex items-center gap-2 pl-1 no-drag">
+					<span className="text-[11px] uppercase tracking-[0.2em] text-slate-400">WreckLauncher</span>
 				</div>
 
-				<div className="flex items-center gap-1">
+				<div className="flex items-center gap-1 no-drag">
 					<UserArea user={user} onLogout={onLogout} />
 					<WindowControls
 						minimize={minimize}

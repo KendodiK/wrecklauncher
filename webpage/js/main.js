@@ -61,7 +61,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     await fetch(`${url}/games/gamecount`).then(response => response.json())
         .then(data => {
             const gameCountElement = document.getElementById("game-count");
-            gameCountElement.textContent = `${data.count}`;
+            gameCountElement.textContent = `${data.countedGames}`;
         }).catch(error => {
             console.error("Error fetching game count from API:", error);
         }

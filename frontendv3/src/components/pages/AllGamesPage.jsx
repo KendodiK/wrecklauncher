@@ -1,6 +1,12 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import CompactFiltersSidebar from '../store/CompactFiltersSidebar.jsx';
+import {
+	buildStoreGameRoute,
+	normalizeStorePlatformStrict,
+	resolveStorePlatformFromGame,
+	resolveStorePlatformFromGameStrict,
+} from '../../utils/storeRouting.js';
 
 function steamPoster(appid) {
 	const id = Number(appid);
@@ -9,11 +15,7 @@ function steamPoster(appid) {
 }
 
 function normalizePlatformId(value) {
-	const normalized = String(value || '').trim().toLowerCase();
-	if (!normalized) return '';
-	if (normalized === 'itch' || normalized === 'itch.io' || normalized === 'itchio') return 'itchio';
-	if (normalized === 'epic games' || normalized === 'epic_games') return '';
-	return normalized;
+	return normalizeStorePlatformStrict(value);
 }
 
 function pickSpecialsArray(payload) {
@@ -50,6 +52,26 @@ function parseDiscountPercent(game) {
 	return 0;
 }
 
+function normalizePriceValue(raw, platformHint = '') {
+	const numeric = Number(raw);
+	if (!Number.isFinite(numeric) || numeric <= 0) return 0;
+
+	const normalizedPlatform = String(platformHint || '').trim().toLowerCase();
+	const looksLikeMinorUnits = Number.isInteger(numeric)
+		&& (
+			(normalizedPlatform === 'gog' || normalizedPlatform === 'gog.com')
+				? numeric >= 100
+				: numeric >= 1000
+		);
+
+	// Some backends store cents; normalize to major currency unit for UI filters.
+	if (looksLikeMinorUnits) {
+		return Number((numeric / 100).toFixed(2));
+	}
+
+	return Number(numeric.toFixed(2));
+}
+
 async function fetchAllGamesInBatches(api, batchSize = 20) {
 	const all = [];
 	let from = 0;
@@ -74,7 +96,7 @@ const AllGamesPage = () => {
 	const [allGames, setAllGames] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [searchQuery, setSearchQuery] = useState('');
-	const [selectedGenres, setSelectedGenres] = useState([]);
+	const [selectedTags, setSelectedTags] = useState([]);
 	const [selectedPlatforms, setSelectedPlatforms] = useState([]);
 	const [priceRange, setPriceRange] = useState({ min: 0, max: 100 });
 	const [currentPage, setCurrentPage] = useState(1);
@@ -91,26 +113,40 @@ const AllGamesPage = () => {
 		} else {
 			setSelectedPlatforms([]);
 		}
+		setCurrentPage(1);
 	}, [platform]);
 
-	const genres = useMemo(() => {
-		const names = new Set();
+	const { quickTags, advancedTags } = useMemo(() => {
+		const counts = new Map();
+		const labels = new Map();
 		for (const game of allGames) {
-			for (const g of Array.isArray(game.genres) ? game.genres : []) {
-				if (typeof g === 'string' && g.trim()) names.add(g.trim());
-				if (g && typeof g === 'object') {
-					const v = g.genre || g.name || g.description;
-					if (typeof v === 'string' && v.trim()) names.add(v.trim());
-				}
+			const tags = Array.isArray(game?.tags) ? game.tags : [];
+			for (const rawTag of tags) {
+				const label = String(rawTag || '').trim();
+				if (!label) continue;
+				const key = label.toLowerCase();
+				counts.set(key, (counts.get(key) || 0) + 1);
+				if (!labels.has(key)) labels.set(key, label);
 			}
 		}
-		return Array.from(names).sort((a, b) => a.localeCompare(b)).map((name, idx) => ({ id: idx + 1, name }));
+
+		const ordered = [...counts.entries()]
+			.sort((a, b) => {
+				if (b[1] !== a[1]) return b[1] - a[1];
+				return (labels.get(a[0]) || a[0]).localeCompare(labels.get(b[0]) || b[0]);
+			})
+			.map(([key]) => labels.get(key) || key);
+
+		return {
+			quickTags: ordered.slice(0, 4),
+			advancedTags: ordered.slice(4),
+		};
 	}, [allGames]);
 
 	const platforms = useMemo(() => {
 		const names = new Set();
 		for (const game of allGames) {
-			const p = normalizePlatformId(game.platform || game.platform_name);
+			const p = resolveStorePlatformFromGameStrict(game);
 			if (p) names.add(p);
 		}
 		return Array.from(names).sort((a, b) => a.localeCompare(b)).map((id) => ({
@@ -140,7 +176,12 @@ const AllGamesPage = () => {
 				const discountedSpecials = discountedResult.status === 'fulfilled' ? pickSpecialsArray(discountedResult.value) : [];
 				const upcomingSpecials = upcomingResult.status === 'fulfilled' ? pickSpecialsArray(upcomingResult.value) : [];
 
-				const normalized = (gamesData || []).map((game) => ({
+				const normalized = (gamesData || []).map((game) => {
+					const normalizedPlatform =
+						resolveStorePlatformFromGameStrict(game) ||
+						resolveStorePlatformFromGame(game, 'steam');
+					const normalizedPrice = normalizePriceValue(game.cost ?? game.price, normalizedPlatform);
+					return {
 					id: game.id,
 					app_id: game.app_id,
 					appid: game.app_id,
@@ -148,14 +189,16 @@ const AllGamesPage = () => {
 					name: game.name,
 					image: game.banner_img || steamPoster(game.app_id || game.id),
 					banner_img: game.banner_img,
-					price: Number(game.cost) || 0,
-					cost: Number(game.cost) || 0,
+					price: normalizedPrice,
+					cost: normalizedPrice,
 					description: game.description || '',
-					platform: normalizePlatformId(game.platform_name || game.platform || 'steam') || 'steam',
+					platform: normalizedPlatform,
+					platform_name: normalizedPlatform,
 					genres: Array.isArray(game.genres) ? game.genres : [],
 					tags: Array.isArray(game.tags) ? game.tags : [],
 					discountPercent: parseDiscountPercent(game),
-				}));
+					};
+				});
 
 				const prioritized = [...normalized].sort((a, b) => {
 					const aId = Number(a?.app_id ?? a?.appid ?? a?.id);
@@ -165,35 +208,9 @@ const AllGamesPage = () => {
 					return 0;
 				});
 
-				let featuredIds = featuredSpecials.map(extractGameId).filter(Boolean);
-				let discountedIds = discountedSpecials.map(extractGameId).filter(Boolean);
-				let upcomingIds = upcomingSpecials.map(extractGameId).filter(Boolean);
-
-				if (!featuredIds.length) {
-					featuredIds = prioritized.slice(0, 5).map(extractGameId).filter(Boolean);
-				}
-				if (!discountedIds.length) {
-					discountedIds = prioritized
-						.filter((game) => Number(game.discountPercent) > 0)
-						.slice(0, 12)
-						.map(extractGameId)
-						.filter(Boolean);
-				}
-				if (!discountedIds.length) {
-					discountedIds = prioritized.slice(5, 10).map(extractGameId).filter(Boolean);
-				}
-				if (!upcomingIds.length) {
-					upcomingIds = prioritized.slice(10, 15).map(extractGameId).filter(Boolean);
-				}
-
-				const excludedIds = new Set([...featuredIds, ...discountedIds, ...upcomingIds]);
-				const withoutCarouselGames = prioritized.filter((game) => {
-					const id = extractGameId(game);
-					if (!id) return true;
-					return !excludedIds.has(id);
-				});
-
-				if (!cancelled) setAllGames(withoutCarouselGames);
+				// Keep the complete catalog on this page.
+				// Excluding "carousel" IDs can empty platform pages when specials overlap heavily.
+				if (!cancelled) setAllGames(prioritized);
 			} catch (err) {
 				console.error('Failed to load all games page data:', err);
 				if (!cancelled) setAllGames([]);
@@ -211,55 +228,67 @@ const AllGamesPage = () => {
 	const filteredGames = useMemo(() => {
 		return allGames.filter(game => {
 			// Search filter
-			if (searchQuery && !(game.title || game.name || '').toLowerCase().includes(searchQuery.toLowerCase())) {
-				return false;
+			if (searchQuery) {
+				const needle = String(searchQuery || '').trim().toLowerCase();
+				const title = String(game.title || game.name || '').trim().toLowerCase();
+				if (needle && title && !title.includes(needle) && !needle.includes(title)) {
+					return false;
+				}
 			}
 
-			// Genre filter
-			if (selectedGenres.length > 0) {
-				const gameGenres = Array.isArray(game.genres) ? game.genres : [];
-				const hasMatchingGenre = selectedGenres.some(genreId => 
-					gameGenres.includes(genreId) || 
-					gameGenres.some(g => typeof g === 'object' && g.id === genreId)
+			// Tag filter: game must contain all selected tags
+			if (selectedTags.length > 0) {
+				const gameTags = new Set(
+					(Array.isArray(game.tags) ? game.tags : [])
+						.map((tag) => String(tag || '').trim().toLowerCase())
+						.filter(Boolean),
 				);
-				if (!hasMatchingGenre) return false;
+				const hasAllSelectedTags = selectedTags.every((selectedTag) =>
+					gameTags.has(String(selectedTag || '').trim().toLowerCase()),
+				);
+				if (!hasAllSelectedTags) return false;
 			}
 
 			// Platform filter
-			if (selectedPlatforms.length > 0 && !selectedPlatforms.includes(normalizePlatformId(game.platform))) {
+			const gamePlatform = resolveStorePlatformFromGameStrict(game);
+			if (selectedPlatforms.length > 0 && !selectedPlatforms.includes(gamePlatform)) {
 				return false;
 			}
 
 			// Price filter
-			const price = game.price ?? 0;
+			const rawPrice = Number(game.price ?? game.cost ?? 0);
+			const price = Number.isFinite(rawPrice) && rawPrice > 0 ? rawPrice : 0;
 			if (price < priceRange.min || price > priceRange.max) {
 				return false;
 			}
 
 			return true;
 		});
-	}, [allGames, searchQuery, selectedGenres, selectedPlatforms, priceRange]);
+	}, [allGames, searchQuery, selectedTags, selectedPlatforms, priceRange]);
 
 	// Pagination calculations
-	const totalPages = Math.ceil(filteredGames.length / gamesPerPage);
+	const totalPages = Math.max(1, Math.ceil(filteredGames.length / gamesPerPage));
 	const startIndex = (currentPage - 1) * gamesPerPage;
 	const endIndex = startIndex + gamesPerPage;
 	const currentGames = filteredGames.slice(startIndex, endIndex);
+
+	useEffect(() => {
+		if (currentPage > totalPages) {
+			setCurrentPage(totalPages);
+		}
+	}, [currentPage, totalPages]);
 
 	const handleGameClick = (game) => {
 		setSelectedGame(game);
 	};
 
 	const toStoreGameUrl = (game) => {
-		const gameId = game?.appid || game?.app_id || game?.id;
-		if (!gameId) return '';
-		const platformId = normalizePlatformId(game?.platform_name || game?.platform) || 'steam';
-		return `/store/game/${encodeURIComponent(platformId)}/${encodeURIComponent(gameId)}`;
+		return buildStoreGameRoute(game, 'steam');
 	};
 
 	const handleResetFilters = () => {
 		setSearchQuery('');
-		setSelectedGenres([]);
+		setSelectedTags([]);
 		const normalized = normalizePlatformId(platform);
 		setSelectedPlatforms(normalized ? [normalized] : []);
 		setPriceRange({ min: 0, max: 100 });
@@ -496,11 +525,13 @@ const AllGamesPage = () => {
 					setSearchQuery(value);
 					setCurrentPage(1);
 				}}
-				selectedGenres={selectedGenres}
-				onGenresChange={(genres) => {
-					setSelectedGenres(genres);
+				selectedTags={selectedTags}
+				onTagsChange={(tags) => {
+					setSelectedTags(tags);
 					setCurrentPage(1);
 				}}
+				quickTags={quickTags}
+				advancedTags={advancedTags}
 				selectedPlatforms={selectedPlatforms}
 				onPlatformsChange={(platforms) => {
 					setSelectedPlatforms(platforms);

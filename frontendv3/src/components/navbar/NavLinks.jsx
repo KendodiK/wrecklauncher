@@ -34,6 +34,13 @@ const NavLinks = ({ handleNavClick }) => {
 			>
 				Friends
 			</a>
+			<a
+				href="/profile"
+				className="nav-item text-xs px-2 py-0.5 hover:bg-neutral-800 rounded no-drag"
+				onClick={(e) => handleNavClick(e, '/profile')}
+			>
+				Profile
+			</a>
 		</nav>
 	);
 };

@@ -16,7 +16,156 @@ class PcGamesTorrentController {
   constructor(cfg) {
     this.#scraper = new CloudscraperController(cfg);
     const rto = Number(cfg?.redirectTimeoutMs);
-    this.#redirectTimeoutMs = rto > 0 ? rto : 15_000;
+    this.#redirectTimeoutMs = rto > 0 ? rto : 25_000;
+  }
+
+  /**
+   * @param {string} value
+   * @returns {string}
+   */
+  #decodeHtmlAmpersands(value) {
+    return String(value || '')
+      .replace(/&#0*38;/g, '&')
+      .replace(/&amp;/gi, '&')
+      .trim();
+  }
+
+  /**
+   * @param {string} href
+   * @returns {boolean}
+   */
+  #isLikelyDownloadUrl(href) {
+    const clean = String(href || '').trim();
+    if (!clean) return false;
+    if (/^magnet:\?/i.test(clean)) return true;
+    if (/^https?:\/\//i.test(clean) && /\.torrent(?:[?#]|$)/i.test(clean)) return true;
+    return false;
+  }
+
+  /**
+   * @param {string} body
+   * @returns {string[]}
+   */
+  #extractPcGamesArticleLinks(body) {
+    const html = String(body || '');
+    const seen = new Set();
+    const out = [];
+    const re = /href=["'](https?:\/\/(?:www\.)?pcgamestorrents?\.com\/[^"'<>\s]*)["']/gi;
+
+    for (const match of html.matchAll(re)) {
+      const raw = this.#decodeHtmlAmpersands(match[1]);
+      if (!raw) continue;
+
+      let parsed;
+      try {
+        parsed = new URL(raw);
+      } catch {
+        continue;
+      }
+
+      const path = String(parsed.pathname || '').trim();
+      if (!path || path === '/') continue;
+
+      const key = parsed.toString().toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(parsed.toString());
+    }
+
+    return out;
+  }
+
+  /**
+   * @param {string} body
+   * @param {string} baseUrl
+   * @returns {string[]}
+   */
+  #extractUrlGeneratorLinks(body, baseUrl) {
+    const html = String(body || '');
+    const seen = new Set();
+    /** @type {string[]} */
+    const out = [];
+
+    /** @type {(candidate: string) => void} */
+    const add = (candidate) => {
+      const decoded = this.#decodeHtmlAmpersands(candidate);
+      if (!decoded) return;
+
+      let resolved;
+      try {
+        resolved = new URL(decoded, baseUrl).toString();
+      } catch {
+        return;
+      }
+
+      if (!/\/url-generator\.php\?url=/i.test(resolved)) return;
+
+      const key = resolved.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push(resolved);
+    };
+
+    const hrefRe = /href=["']([^"']*url-generator\.php\?url=[^"']+)["']/gi;
+    for (const match of html.matchAll(hrefRe)) {
+      add(match[1]);
+    }
+
+    if (out.length === 0) {
+      // Fallback only when no href-based candidates were found.
+      const jsRe = /["'](https?:\/\/[^"']*url-generator\.php\?url=[^"']+)["']/gi;
+      for (const match of html.matchAll(jsRe)) {
+        add(match[1]);
+      }
+    }
+
+    return out;
+  }
+
+  /**
+   * @param {string} body
+   * @param {string} baseUrl
+   * @returns {string[]}
+   */
+  #extractDirectDownloadLinks(body, baseUrl) {
+    const html = String(body || '');
+    const seen = new Set();
+    /** @type {string[]} */
+    const out = [];
+
+    /** @type {(candidate: string) => void} */
+    const add = (candidate) => {
+      const decoded = this.#decodeHtmlAmpersands(candidate);
+      if (!decoded) return;
+
+      let resolved = decoded;
+      if (!/^magnet:\?/i.test(resolved)) {
+        try {
+          resolved = new URL(decoded, baseUrl).toString();
+        } catch {
+          return;
+        }
+      }
+
+      if (!this.#isLikelyDownloadUrl(resolved)) return;
+
+      const key = resolved.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push(resolved);
+    };
+
+    const hrefRe = /href=["']([^"']+)["']/gi;
+    for (const match of html.matchAll(hrefRe)) {
+      add(match[1]);
+    }
+
+    const jsMagnetRe = /["'](magnet:\?[^"']+)["']/gi;
+    for (const match of html.matchAll(jsMagnetRe)) {
+      add(match[1]);
+    }
+
+    return out;
   }
 
   /**
@@ -40,46 +189,168 @@ class PcGamesTorrentController {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        clearInterval(pollTimer);
         try { win.destroy(); } catch { /* already destroyed */ }
         resolve(val);
       };
 
-      const timer = setTimeout(async () => {
-        // Timeout fallback: try reading the magnet from the DOM via JS.
+      // @ts-ignore
+      const settleIfDownloadLike = (candidate) => {
+        const cleaned = this.#decodeHtmlAmpersands(candidate);
+        if (!this.#isLikelyDownloadUrl(cleaned)) return false;
+        settle(cleaned);
+        return true;
+      };
+
+      // @ts-ignore
+      const extractFromDom = async () => {
         try {
-          const href = await win.webContents.executeJavaScript(
-            'document.getElementById("btnDownload") ? document.getElementById("btnDownload").href : null'
-          );
-          if (typeof href === 'string' && href.startsWith('magnet:')) {
-            settle(href);
+          const candidate = await win.webContents.executeJavaScript(`(() => {
+            const readHref = (el) => {
+              if (!el) return '';
+              const attrHref = typeof el.getAttribute === 'function' ? String(el.getAttribute('href') || '').trim() : '';
+              const propHref = typeof el.href === 'string' ? String(el.href).trim() : '';
+              return propHref || attrHref || '';
+            };
+
+            const selectors = [
+              '#btnDownload',
+              '#btn-download',
+              '.btn-download',
+              'a[href^="magnet:"]',
+              'a[href*=".torrent"]',
+            ];
+
+            for (const selector of selectors) {
+              const node = document.querySelector(selector);
+              const href = readHref(node);
+              if (/^magnet:\?/i.test(href) || /\.torrent(?:[?#]|$)/i.test(href)) {
+                return href;
+              }
+            }
+
+            const downloadButton = document.querySelector('#btnDownload, #btn-download, .btn-download');
+            if (downloadButton) {
+              const cls = String(downloadButton.className || '').toLowerCase();
+              const disabled = downloadButton.hasAttribute('disabled') || cls.includes('disabled');
+              if (!disabled) {
+                if (!window.__wreckLauncherDownloadClicked) {
+                  window.__wreckLauncherDownloadClicked = true;
+                  try { downloadButton.click(); } catch { /* ignore click errors */ }
+                }
+              }
+
+              const href = readHref(downloadButton);
+              if (/^magnet:\?/i.test(href) || /\.torrent(?:[?#]|$)/i.test(href)) {
+                return href;
+              }
+
+              const onclick = typeof downloadButton.getAttribute === 'function'
+                ? String(downloadButton.getAttribute('onclick') || '').trim()
+                : '';
+              const magnetFromOnclick = onclick.match(/(magnet:\?[^"'\s]+)/i);
+              if (magnetFromOnclick && magnetFromOnclick[1]) {
+                return magnetFromOnclick[1];
+              }
+            }
+
+            return '';
+          })()`, true);
+
+          if (typeof candidate === 'string' && candidate.trim()) {
+            settleIfDownloadLike(candidate);
+          }
+        } catch {
+          // Ignore transient DOM-read errors while scripts are still loading.
+        }
+      };
+
+      const timer = setTimeout(async () => {
+        try {
+          await extractFromDom();
+          if (settled) {
             return;
           }
         } catch { /* ignore */ }
+        clearInterval(pollTimer);
         try { win.destroy(); } catch { /* already destroyed */ }
         reject(new Error(`Could not extract magnet from "${url}" within ${this.#redirectTimeoutMs}ms`));
       }, this.#redirectTimeoutMs);
 
-      // window.location.replace('magnet:...') fires will-navigate before navigating.
+      const pollTimer = setInterval(() => {
+        if (settled) return;
+        void extractFromDom();
+      }, 500);
+
       win.webContents.on('will-navigate', (_event, newUrl) => {
-        if (typeof newUrl === 'string' && newUrl.startsWith('magnet:')) {
-          settle(newUrl);
+        if (settled) return;
+        if (settleIfDownloadLike(newUrl)) {
+          try { _event.preventDefault(); } catch { /* ignore */ }
+          return;
+        }
+
+        try {
+          const parsed = new URL(String(newUrl || ''));
+          if (parsed.hostname === 'undefined') {
+            _event.preventDefault();
+          }
+        } catch {
+          // ignore malformed URLs
         }
       });
 
-      // Also catch via did-finish-load: JS has run, read btnDownload directly.
-      win.webContents.on('did-finish-load', async () => {
+      win.webContents.on('will-redirect', (_event, newUrl) => {
+        if (settled) return;
+        if (settleIfDownloadLike(newUrl)) {
+          try { _event.preventDefault(); } catch { /* ignore */ }
+          return;
+        }
+
         try {
-          const href = await win.webContents.executeJavaScript(
-            'document.getElementById("btnDownload") ? document.getElementById("btnDownload").href : null'
-          );
-          if (typeof href === 'string' && href.startsWith('magnet:')) {
-            settle(href);
+          const parsed = new URL(String(newUrl || ''));
+          if (parsed.hostname === 'undefined') {
+            _event.preventDefault();
           }
-        } catch { /* ignore, will-navigate or timeout will handle it */ }
+        } catch {
+          // ignore malformed URLs
+        }
+      });
+
+      win.webContents.on('did-start-navigation', (_event, navigationUrl, _isInPlace, isMainFrame) => {
+        if (!isMainFrame || settled) return;
+        settleIfDownloadLike(navigationUrl);
+      });
+
+      // Some templates open the final magnet in a new window/tab.
+      if (typeof win.webContents.setWindowOpenHandler === 'function') {
+        win.webContents.setWindowOpenHandler(({ url: targetUrl }) => {
+          if (!settled) {
+            settleIfDownloadLike(targetUrl);
+          }
+          return { action: 'deny' };
+        });
+      }
+
+      win.webContents.on('did-create-window', (childWindow) => {
+        try {
+          const targetUrl = typeof childWindow?.webContents?.getURL === 'function'
+            ? childWindow.webContents.getURL()
+            : '';
+          if (!settled) {
+            settleIfDownloadLike(targetUrl);
+          }
+        } catch {
+          // Ignore and continue polling.
+        }
+      });
+
+      win.webContents.on('did-finish-load', async () => {
+        await extractFromDom();
       });
 
       win.loadURL(url).catch((err) => {
         clearTimeout(timer);
+        clearInterval(pollTimer);
         try { win.destroy(); } catch { /* already destroyed */ }
         reject(err);
       });
@@ -92,7 +363,7 @@ class PcGamesTorrentController {
    * @param {string} gameName
    * @returns {Promise<string | null>}
    */
-  async PcGamesTorrentMagnetLink(gameName) {
+  async pcGamesTorrentMagnetLink(gameName) {
     if (!gameName || !String(gameName).trim()) throw new Error('Game name is required');
     const slug = String(gameName).trim();
     const url = `https://igg-games.com/${encodeURIComponent(slug)}.html`;
@@ -101,45 +372,126 @@ class PcGamesTorrentController {
       throw new Error(`Failed to fetch IggGames game page for "${gameName}": HTTP ${response.statusCode}`);
     }
     const body = response.body;
-    // Log a snippet around any magnet link found so we can see the raw encoding.
-    const rawpcgamestorrentlink = body.indexOf('pcgamestorrents.com');
-    // Match a pcgamestorrents.com link that has a path beyond just the root slash (not homepage nav links).
-    const allPcMatches = [...body.matchAll(/href=["'](https?:\/\/pcgamestorrents\.com\/[^"'/][^"']*)["']/gi)];
-    const match = allPcMatches[0];
-    if (!match) {
-      console.warn('[PcGamesTorrent] no pcgamestorrents.com href found in page body');
-      return null;
-    }
-    const pcgamestorrentBody = await this.#scraper.fetch(match[1]);
-    if (!pcgamestorrentBody.ok) {
-      throw new Error(`Failed to fetch PcGamesTorrent page for "${gameName}": HTTP ${pcgamestorrentBody.statusCode}`);
-    }
-    const magnetMatch = pcgamestorrentBody.body.match(/href=["'](https?:\/\/[^"']*gamedownloadurl\.autos\/url-generator\.php\?url=[^"']+)["']/i);
-    if (!magnetMatch) {
-      console.warn('[PcGamesTorrent] no gamedownloadurl.autos href found in PcGamesTorrent page body');
+
+    const pcArticleLinks = this.#extractPcGamesArticleLinks(body);
+    const directUrlGeneratorLinks = this.#extractUrlGeneratorLinks(body, url);
+    if (pcArticleLinks.length === 0 && directUrlGeneratorLinks.length === 0) {
+      console.warn('[PcGamesTorrent] no pcgamestorrents/url-generator links found in page body');
       return null;
     }
 
-    const magnetLinkWebSite = magnetMatch[1]
-      .replace(/&#0*38;/g, '&')
-      .replace(/&amp;/gi, '&');
+    /** @type {string[]} */
+    const downloadPageCandidates = [];
 
-    // The gamedownloadurl.autos page requires JS execution to set the magnet link.
-    // Use a hidden BrowserWindow so JS runs, then intercept will-navigate or read btnDownload.href.
-    try {
-      const magnet = await this.#extractMagnetFromPage(magnetLinkWebSite);
-      if (!magnet) {
-        console.warn('[PcGamesTorrent] no magnet extracted from download page');
-        return null;
+    /** @type {(link: string) => void} */
+    const pushUniqueCandidate = (link) => {
+      if (!downloadPageCandidates.some((existing) => existing.toLowerCase() === link.toLowerCase())) {
+        downloadPageCandidates.push(link);
       }
-      console.log('[PcGamesTorrent] extracted magnet:', magnet.slice(0, 120));
-      return magnet
-        .replace(/&#0*38;/g, '&')
-        .replace(/&amp;/gi, '&');
-    } catch (e) {
-      console.warn('[PcGamesTorrent] failed to extract magnet from download page:', e);
+    };
+
+    const directDownloadCandidates = this.#extractDirectDownloadLinks(body, url);
+
+    for (const articleUrl of pcArticleLinks) {
+      try {
+        const articleResponse = await this.#scraper.fetch(articleUrl);
+        if (!articleResponse.ok) {
+          console.warn(
+            '[PcGamesTorrent] failed to fetch candidate article page:',
+            articleUrl,
+            'HTTP',
+            articleResponse.statusCode
+          );
+          continue;
+        }
+
+        const generatorLinks = this.#extractUrlGeneratorLinks(articleResponse.body, articleUrl);
+        for (const link of generatorLinks) {
+          pushUniqueCandidate(link);
+        }
+
+        const articleDirectLinks = this.#extractDirectDownloadLinks(articleResponse.body, articleUrl);
+        for (const link of articleDirectLinks) {
+          if (!directDownloadCandidates.some((existing) => existing.toLowerCase() === link.toLowerCase())) {
+            directDownloadCandidates.push(link);
+          }
+        }
+      } catch (e) {
+        console.warn('[PcGamesTorrent] failed to inspect candidate article page:', articleUrl, e);
+      }
+    }
+
+    // Keep IGG-page direct candidates as fallback after article-derived links.
+    for (const link of directUrlGeneratorLinks) {
+      pushUniqueCandidate(link);
+    }
+
+    /** @type {string} */
+    let fallbackTorrentUrl = '';
+
+    for (const directLink of directDownloadCandidates) {
+      const cleanedDirect = this.#decodeHtmlAmpersands(directLink);
+      if (!this.#isLikelyDownloadUrl(cleanedDirect)) {
+        continue;
+      }
+
+      // Prefer magnet links when available to avoid metadata delays and unstable URL downloads.
+      if (/^magnet:\?/i.test(cleanedDirect)) {
+        return cleanedDirect;
+      }
+
+      if (!fallbackTorrentUrl) {
+        fallbackTorrentUrl = cleanedDirect;
+      }
+    }
+
+    if (downloadPageCandidates.length === 0) {
+      if (fallbackTorrentUrl) {
+        return fallbackTorrentUrl;
+      }
+      console.warn('[PcGamesTorrent] no url-generator links found in IGG/PCGames candidate pages');
       return null;
     }
+
+    const limitedCandidates = downloadPageCandidates.slice(0, 4);
+    for (const downloadPage of limitedCandidates) {
+      for (let attempt = 1; attempt <= 2; attempt += 1) {
+        try {
+          const magnet = await this.#extractMagnetFromPage(downloadPage);
+          if (!magnet) {
+            continue;
+          }
+
+          const cleaned = this.#decodeHtmlAmpersands(magnet);
+          if (cleaned) {
+            if (/^magnet:\?/i.test(cleaned)) {
+              return cleaned;
+            }
+            if (!fallbackTorrentUrl && this.#isLikelyDownloadUrl(cleaned)) {
+              fallbackTorrentUrl = cleaned;
+            }
+          }
+        } catch (e) {
+          console.warn('[PcGamesTorrent] failed to extract magnet from download page:', downloadPage, `(attempt ${attempt}/2)`, e);
+        }
+      }
+    }
+
+    if (fallbackTorrentUrl) {
+      return fallbackTorrentUrl;
+    }
+
+    console.warn('[PcGamesTorrent] no magnet extracted from any candidate download page');
+    return null;
+  }
+
+  /**
+   * Backward-compatible alias for legacy PascalCase method name.
+   * @param {string} gameName
+   * @returns {Promise<string | null>}
+   */
+  async PcGamesTorrentMagnetLink(gameName) {
+    return this.pcGamesTorrentMagnetLink(gameName);
   }
 }
 

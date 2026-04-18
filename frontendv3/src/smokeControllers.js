@@ -193,7 +193,7 @@ export async function runSmokeControllers() {
   try{
     console.log('Testing getAllDetailsByAppIDAndPlatform with appId=271590 (GTA V) and platform=steam');
     console.log(token)
-    const details = await api.getAllDetailsByAppIDAndPlatform('271590', 'steam', token);
+    const details = await api.getAllDetailsByAppIDAndPlatform('271590', 'steam', 'DE');
     log('getAllDetailsByAppIDAndPlatform', details);
     
   } catch (e) {
@@ -392,15 +392,6 @@ export async function runSmokeControllers() {
   // } catch (e) {
   //   warn('runSteamGame 2193490', e);
   // }
-
-
-  // try {
-  //   const epic = await api.getEpicInstalledGames();
-  //   log('epicInstalledGames (first 5)', Array.isArray(epic) ? epic.slice(0, 5) : epic);
-  // } catch (e) {
-  //   warn('getEpicInstalledGames', e);
-  // }
-
   // Steam details (safe sample)
   // const appIds = [730, 570, 440];
   // for (const appId of appIds) {

@@ -32,6 +32,11 @@ class GamesPirateSitesConncectionController extends Controller {
     async create(data) {
         await super.create();
 
+        data.link = this.#normalizeLinkForStorage(data?.link);
+        if (!data.link) {
+            throw new Error('link is required');
+        }
+
         let foreignKeyCheck = await this.#checkForeignKeys(data);
         if (foreignKeyCheck instanceof Error) {
             throw foreignKeyCheck;
@@ -42,7 +47,7 @@ class GamesPirateSitesConncectionController extends Controller {
             throw duplicateCheck;
         }
 
-        const query = 'INSERT INTO `game_pirates_sites_connections` (game_id, pirate_site_id, link) VALUES (?, ?, ?)';
+        const query = 'INSERT INTO `game_pirates_sites_connections` (game_id, site_id, link) VALUES (?, ?, ?)';
         const values = [data.game_id, data.site_id, data.link];
         try {
             const [result] = await this.dbConnection.execute(query, values);
@@ -60,6 +65,11 @@ class GamesPirateSitesConncectionController extends Controller {
      */
     async update(data) {
         await super.update();
+
+        data.link = this.#normalizeLinkForStorage(data?.link);
+        if (!data.link) {
+            throw new Error('link is required');
+        }
 
         let old = await this.show(data.game_id, data.site_id);
 
@@ -112,10 +122,10 @@ class GamesPirateSitesConncectionController extends Controller {
     async deleteBySiteId(siteId) {
         await this.ready;
 
-        const query = `DELETE FROM ${this.tableName} WHERE  pirate_site_id = ?;`;
+        const query = `DELETE FROM ${this.tableName} WHERE  site_id = ?;`;
         try {
             await this.dbConnection.execute(query, [siteId]);
-            return { message: `Elements deleted successfully from ${this.tableName} for pirate_site_id ${siteId}` };
+            return { message: `Elements deleted successfully from ${this.tableName} for site_id ${siteId}` };
         } catch (err) {
             console.error(`Error while deleting from table ${this.tableName}: ${err}`);
             throw err;
@@ -141,13 +151,70 @@ class GamesPirateSitesConncectionController extends Controller {
     async createWithAll(data) {
         await super.create();
 
-        if (!data.game_id || !data.site_id) {
+        const gameId = Number(data?.game_id ?? data?.gameId ?? null);
+        const siteName = typeof data?.site_name === 'string' ? data.site_name.trim() : '';
+
+        let resolvedSiteId = Number(
+            data?.site_id ?? data?.pirate_site_id ?? data?.siteId ?? data?.pirateSiteId ?? null
+        );
+        if (!Number.isFinite(resolvedSiteId) || resolvedSiteId <= 0) {
+            resolvedSiteId = null;
+        }
+
+        if (!Number.isFinite(gameId) || gameId <= 0) {
             throw new Error("game_id and pirate_site_id are required");
         }
 
-        if (!data.site_id && data.site_name) {
+        if (!resolvedSiteId && siteName) {
             const pirateSitesController = new PirateSitesController();
-            data.site_id = pirateSitesController.create({"name": data.site_name,}).id;
+            let site = await pirateSitesController.getByName(siteName);
+            if (!site || site instanceof Error) {
+                site = await pirateSitesController.create({ "name": siteName });
+            }
+
+            const createdId = Number(site?.id ?? null);
+            if (Number.isFinite(createdId) && createdId > 0) {
+                resolvedSiteId = createdId;
+            }
+        }
+
+        if (!resolvedSiteId) {
+            throw new Error("game_id and pirate_site_id are required");
+        }
+
+        const normalizedLink = this.#normalizeLinkForStorage(data?.link);
+        if (!normalizedLink) {
+            throw new Error('link is required');
+        }
+
+        data.game_id = gameId;
+        data.site_id = resolvedSiteId;
+        data.pirate_site_id = resolvedSiteId;
+        data.link = normalizedLink;
+
+        // If the connection already exists for this game+site pair, keep one row
+        // and refresh its link instead of returning a duplicate error.
+        const existingConnection = await this.show(gameId, resolvedSiteId);
+        if (existingConnection) {
+            const existingNormalizedLink = this.#normalizeLinkForStorage(existingConnection?.link);
+            if (existingNormalizedLink === normalizedLink) {
+                return {
+                    message: `Element already exists in table ${this.tableName}`,
+                    updated: false,
+                    unchanged: true,
+                };
+            }
+
+            const updateResult = await this.update({
+                game_id: gameId,
+                site_id: resolvedSiteId,
+                link: normalizedLink,
+            });
+
+            return {
+                ...updateResult,
+                updated: true,
+            };
         }
 
         let duplicateCheck = await this.#checkUniqueConstraint(data);
@@ -156,7 +223,7 @@ class GamesPirateSitesConncectionController extends Controller {
         }
 
         const query = 'INSERT INTO `game_pirates_sites_connections` (game_id, site_id, link) VALUES (?, ?, ?)';
-        const values = [data.game_id, data.site_id, data.link];
+        const values = [gameId, resolvedSiteId, data.link];
         try {
             const [result] = await this.dbConnection.execute(query, values);
             return { message: `${result.insertId} Element created in table ${this.tableName}`, id: result.insertId };
@@ -206,6 +273,47 @@ class GamesPirateSitesConncectionController extends Controller {
         }
 
         return true;
+    }
+
+    /**
+        * Keep links within DB limits while preserving full magnet links in normal cases.
+     * @param {unknown} rawLink
+     * @param {number} [maxLength]
+     * @returns {string}
+     */
+        #normalizeLinkForStorage(rawLink, maxLength = 16000) {
+        const link = String(rawLink ?? '').trim();
+        if (!link) return '';
+        if (link.length <= maxLength) return link;
+
+        if (/^magnet:\?/i.test(link)) {
+            try {
+                const query = link.slice((link.indexOf('?') + 1) || 0);
+                const params = new URLSearchParams(query);
+                const xt = params.get('xt');
+                const dn = params.get('dn');
+                const ws = params.get('ws');
+
+                const compact = new URLSearchParams();
+                if (xt) compact.set('xt', xt);
+                if (dn) compact.set('dn', dn);
+                if (ws) compact.set('ws', ws);
+
+                const compactMagnet = `magnet:?${compact.toString()}`;
+                if ((xt || dn) && compactMagnet.length <= maxLength) {
+                    return compactMagnet;
+                }
+
+                if (xt) {
+                    const xtOnly = `magnet:?xt=${encodeURIComponent(xt)}`;
+                    if (xtOnly.length <= maxLength) return xtOnly;
+                }
+            } catch {
+                // fall through to hard cut
+            }
+        }
+
+        return link.slice(0, Math.max(32, maxLength));
     }
 }
 

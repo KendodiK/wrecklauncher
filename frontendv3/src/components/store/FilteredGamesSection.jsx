@@ -1,13 +1,75 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import CompactFiltersSidebar from './CompactFiltersSidebar.jsx';
+import { mergeUniqueGames, searchGamesFromSources } from '../../utils/remoteGameSearch.js';
+import {
+	buildStoreGameRoute,
+	resolveStorePlatformFromGameStrict,
+} from '../../utils/storeRouting.js';
 
-function normalizePlatformId(value) {
-	const normalized = String(value || '').trim().toLowerCase();
-	if (!normalized) return '';
-	if (['itch', 'itchio', 'itch.io'].includes(normalized)) return 'itchio';
-	if (['epic games', 'epic_games'].includes(normalized)) return '';
-	return normalized;
+function extractMetadataLabel(value) {
+	if (value == null) return '';
+
+	if (typeof value === 'object') {
+		const fields = [
+			value.name,
+			value.genre,
+			value.description,
+			value.tag,
+			value.title,
+			value.label,
+		];
+		for (const field of fields) {
+			if (typeof field === 'string' && field.trim()) {
+				return field.trim();
+			}
+		}
+		return '';
+	}
+
+	if (typeof value === 'string') return value.trim();
+	return '';
+}
+
+function normalizeMetadataList(input) {
+	const source = Array.isArray(input) ? input : [input];
+	const out = [];
+	const seen = new Set();
+
+	for (const entry of source) {
+		const label = extractMetadataLabel(entry);
+		if (!label) continue;
+
+		const parts = label.includes(',')
+			? label.split(',').map((part) => part.trim()).filter(Boolean)
+			: [label];
+
+		for (const part of parts) {
+			if (!part || /^\d+$/.test(part)) continue;
+			const key = part.toLowerCase();
+			if (seen.has(key)) continue;
+			seen.add(key);
+			out.push(part);
+		}
+	}
+
+	return out;
+}
+
+function getGameMetadata(game) {
+	const genres = normalizeMetadataList(game?.genre_names ?? game?.genreNames ?? game?.genres);
+	const rawTags = normalizeMetadataList(game?.tag_names ?? game?.tagNames ?? game?.tags);
+	const tags = rawTags.length > 0 ? rawTags : genres;
+	return { tags, genres };
+}
+
+function getGameIdKey(game) {
+	const rawId = String(game?.appid ?? game?.app_id ?? game?.id ?? '').trim();
+	if (!rawId) return '';
+	const platform = String(
+		resolveStorePlatformFromGameStrict(game) || game?.platform_name || game?.platform || 'unknown'
+	).trim().toLowerCase() || 'unknown';
+	return `${platform}:${rawId}`;
 }
 
 const FilteredGamesSection = ({
@@ -16,40 +78,142 @@ const FilteredGamesSection = ({
 	onRequestNextPage,
 	canLoadMore = false,
 	isLoadingMore = false,
+	onRemoteResultsUpdate,
 }) => {
 	const navigate = useNavigate();
 	const [searchQuery, setSearchQuery] = useState('');
-	const [selectedGenres, setSelectedGenres] = useState([]);
+	const [selectedTags, setSelectedTags] = useState([]);
 	const [selectedPlatforms, setSelectedPlatforms] = useState([]);
 	const [priceRange, setPriceRange] = useState({ min: 0, max: 100 });
 	const [selectedGame, setSelectedGame] = useState(null);
+	const [resolvedGenresByGameId, setResolvedGenresByGameId] = useState({});
+	const [remoteSearchGames, setRemoteSearchGames] = useState([]);
+	const [isRemoteSearchLoading, setIsRemoteSearchLoading] = useState(false);
 	const [currentPage, setCurrentPage] = useState(1);
 	const gamesPerPage = 20;
+	const normalizedSearchQuery = String(searchQuery || '').trim();
+	const hasSearchFilters = normalizedSearchQuery.length > 0 || selectedTags.length > 0;
+
+	useEffect(() => {
+		let cancelled = false;
+		const api = typeof window !== 'undefined' ? window.electronAPI : null;
+
+		if (!hasSearchFilters) {
+			setRemoteSearchGames([]);
+			setIsRemoteSearchLoading(false);
+			return;
+		}
+
+		if (!api) {
+			setRemoteSearchGames([]);
+			setIsRemoteSearchLoading(false);
+			return;
+		}
+
+		setIsRemoteSearchLoading(true);
+		const debounceId = setTimeout(() => {
+			void (async () => {
+				try {
+					const rows = await searchGamesFromSources(api, normalizedSearchQuery, selectedPlatforms, selectedTags);
+					if (cancelled) return;
+					const normalizedRows = Array.isArray(rows) ? rows : [];
+					setRemoteSearchGames(normalizedRows);
+					if (normalizedRows.length > 0 && typeof onRemoteResultsUpdate === 'function') {
+						onRemoteResultsUpdate(normalizedRows);
+					}
+				} catch (error) {
+					if (cancelled) return;
+					console.warn('Remote browse search failed:', error);
+					setRemoteSearchGames([]);
+				} finally {
+					if (!cancelled) {
+						setIsRemoteSearchLoading(false);
+					}
+				}
+			})();
+		}, 240);
+
+		return () => {
+			cancelled = true;
+			clearTimeout(debounceId);
+		};
+	}, [hasSearchFilters, normalizedSearchQuery, onRemoteResultsUpdate, selectedPlatforms, selectedTags]);
+
+	const searchableGames = useMemo(() => {
+		if (!hasSearchFilters) return games;
+		return mergeUniqueGames(remoteSearchGames, games);
+	}, [games, hasSearchFilters, remoteSearchGames]);
+
+	const getMetadataForGame = (game) => {
+		const local = getGameMetadata(game);
+		if (local.genres.length > 0) return local;
+
+		const idKey = getGameIdKey(game);
+		const cachedGenres = idKey ? resolvedGenresByGameId[idKey] : null;
+		if (!Array.isArray(cachedGenres) || cachedGenres.length < 1) return local;
+
+		return {
+			tags: local.tags.length > 0 ? local.tags : cachedGenres,
+			genres: cachedGenres,
+		};
+	};
+
+	const { quickTags, advancedTags } = useMemo(() => {
+		const counts = new Map();
+		const labels = new Map();
+		for (const game of searchableGames) {
+			const { tags } = getMetadataForGame(game);
+			for (const rawTag of tags) {
+				const label = String(rawTag || '').trim();
+				if (!label) continue;
+				const key = label.toLowerCase();
+				counts.set(key, (counts.get(key) || 0) + 1);
+				if (!labels.has(key)) labels.set(key, label);
+			}
+		}
+
+		const ordered = [...counts.entries()]
+			.sort((a, b) => {
+				if (b[1] !== a[1]) return b[1] - a[1];
+				return (labels.get(a[0]) || a[0]).localeCompare(labels.get(b[0]) || b[0]);
+			})
+			.map(([key]) => labels.get(key) || key);
+
+		return {
+			quickTags: ordered.slice(0, 4),
+			advancedTags: ordered.slice(4),
+		};
+	}, [searchableGames, resolvedGenresByGameId]);
 
 	// Filtered games based on filters
 	const filteredGames = useMemo(() => {
-		return games.filter(game => {
+		return searchableGames.filter(game => {
 			if (searchQuery && !(game.title || game.name || '').toLowerCase().includes(searchQuery.toLowerCase()))
 				return false;
 
-			if (selectedGenres.length > 0) {
-				const gameGenres = Array.isArray(game.genres) ? game.genres : [];
-				const hasMatch = selectedGenres.some(gId =>
-					gameGenres.includes(gId) ||
-					gameGenres.some(g => typeof g === 'object' && g.id === gId)
+			if (selectedTags.length > 0) {
+				const metadata = getMetadataForGame(game);
+				const gameTags = new Set(
+					metadata.tags
+						.map((tag) => String(tag || '').trim().toLowerCase())
+						.filter(Boolean),
 				);
-				if (!hasMatch) return false;
+				const hasAllSelectedTags = selectedTags.every((selectedTag) =>
+					gameTags.has(String(selectedTag || '').trim().toLowerCase()),
+				);
+				if (!hasAllSelectedTags) return false;
 			}
 
-			const gamePlatform = normalizePlatformId(game.platform || game.platform_name);
+			const gamePlatform = resolveStorePlatformFromGameStrict(game);
 			if (selectedPlatforms.length > 0 && !selectedPlatforms.includes(gamePlatform)) return false;
 
-			const price = game.price ?? 0;
+			const rawPrice = Number(game.price ?? game.cost ?? 0);
+			const price = Number.isFinite(rawPrice) && rawPrice > 0 ? rawPrice : 0;
 			if (price < priceRange.min || price > priceRange.max) return false;
 
 			return true;
 		});
-	}, [games, searchQuery, selectedGenres, selectedPlatforms, priceRange]);
+	}, [searchableGames, searchQuery, selectedTags, selectedPlatforms, priceRange, resolvedGenresByGameId]);
 
 	const totalPages = Math.max(1, Math.ceil(filteredGames.length / gamesPerPage));
 
@@ -59,11 +223,112 @@ const FilteredGamesSection = ({
 	}, [filteredGames, currentPage]);
 
 	const displayGame = selectedGame || pagedGames[0] || null;
+	const displayGameMetadata = useMemo(() => {
+		return displayGame ? getMetadataForGame(displayGame) : { tags: [], genres: [] };
+	}, [displayGame, resolvedGenresByGameId]);
+
+	useEffect(() => {
+		let cancelled = false;
+		const api = typeof window !== 'undefined' ? window.electronAPI : null;
+		if (!api || typeof api.getAllDetailsByID !== 'function') return;
+
+		const unresolved = [];
+		for (const game of pagedGames) {
+			const idKey = getGameIdKey(game);
+			if (!idKey) continue;
+
+			const localGenres = normalizeMetadataList(game?.genre_names ?? game?.genreNames ?? game?.genres);
+			if (localGenres.length > 0) continue;
+
+			if (Object.prototype.hasOwnProperty.call(resolvedGenresByGameId, idKey)) continue;
+			unresolved.push({ idKey, game });
+		}
+
+		if (unresolved.length < 1) return;
+
+		void (async () => {
+			const updates = {};
+			const chunkSize = 3;
+
+			for (let i = 0; i < unresolved.length && !cancelled; i += chunkSize) {
+				const chunk = unresolved.slice(i, i + chunkSize);
+				const results = await Promise.all(
+					chunk.map(async ({ idKey, game }) => {
+						const rawCandidates = [
+							game?.db_id,
+							game?.native_id,
+							game?.nativeId,
+							game?.id,
+						];
+						const idCandidates = [];
+						for (const candidate of rawCandidates) {
+							const numeric = Number(candidate);
+							if (!Number.isFinite(numeric) || numeric <= 0) continue;
+							const asInt = Math.trunc(numeric);
+							if (idCandidates.includes(asInt)) continue;
+							idCandidates.push(asInt);
+						}
+
+						if (idCandidates.length < 1) {
+							return [idKey, []];
+						}
+
+						try {
+							for (const detailsId of idCandidates) {
+								const details = await api.getAllDetailsByID(detailsId);
+								const genres = normalizeMetadataList(details?.genre_names ?? details?.genres);
+								if (genres.length > 0) return [idKey, genres];
+							}
+							return [idKey, []];
+						} catch {
+							return [idKey, []];
+						}
+					})
+				);
+
+				for (const [idKey, genres] of results) {
+					updates[idKey] = Array.isArray(genres) ? genres : [];
+				}
+			}
+
+			if (cancelled) return;
+
+			setResolvedGenresByGameId((prev) => {
+				let changed = false;
+				const next = { ...prev };
+
+				for (const [idKey, genres] of Object.entries(updates)) {
+					const normalized = normalizeMetadataList(genres);
+					const previous = Array.isArray(next[idKey]) ? next[idKey] : null;
+					const same =
+						Array.isArray(previous)
+						&& previous.length === normalized.length
+						&& previous.every((value, index) => value === normalized[index]);
+
+					if (same) continue;
+					next[idKey] = normalized;
+					changed = true;
+				}
+
+				return changed ? next : prev;
+			});
+		})();
+
+		return () => {
+			cancelled = true;
+		};
+	}, [pagedGames, resolvedGenresByGameId]);
 
 	// Reset page when filters change
 	useEffect(() => {
 		setCurrentPage(1);
-	}, [searchQuery, selectedGenres, selectedPlatforms, priceRange]);
+	}, [searchQuery, selectedTags, selectedPlatforms, priceRange]);
+
+	useEffect(() => {
+		if (currentPage > totalPages) {
+			setCurrentPage(totalPages);
+		}
+	}, [currentPage, totalPages]);
 
 	// Reset selected game if not in current page
 	useEffect(() => {
@@ -78,28 +343,30 @@ const FilteredGamesSection = ({
 	}, [pagedGames, selectedGame]);
 
 const handleNextPage = async () => {
-	// If there are already pages left, just move to next page
-	console.log('Handling next page. Current page:', currentPage, 'Total pages:', totalPages, 'Filtered games:', filteredGames.length, 'Games per page:', gamesPerPage, 'Can load more:', canLoadMore, 'Is loading more:', isLoadingMore, 'Offset:', (currentPage * gamesPerPage));
-	console.log(filteredGames.length, currentPage, gamesPerPage, totalPages);
 	if (currentPage < totalPages) {
-		setCurrentPage(p => p + 1);
+		setCurrentPage((p) => Math.min(totalPages, p + 1));
 		return;
 	}
 
-	// If on last page, the next batch should already be prefetched by useEffect below
-	// Only increment page if new games were added (already handled by prefetch)
-	if (filteredGames.length > currentPage * gamesPerPage) {
-		setCurrentPage(p => p + 1);
-	} else {
-		// No more games fetched, do not increment page
-		console.log('No more games to load or reached the end.');
+	if (!canLoadMore || typeof onRequestNextPage !== 'function' || isLoadingMore) {
+		return;
+	}
+
+	try {
+		const loaded = await onRequestNextPage();
+		const didLoad = typeof loaded === 'number' ? loaded > 0 : Boolean(loaded);
+		if (didLoad) {
+			setCurrentPage((p) => p + 1);
+		}
+	} catch (error) {
+		console.error('Failed to load next browse page:', error);
 	}
 };
 
 // Prefetch next page when on last page
 useEffect(() => {
 	if (
-		currentPage === totalPages &&
+		currentPage >= Math.max(1, totalPages - 1) &&
 		canLoadMore &&
 		typeof onRequestNextPage === 'function' &&
 		!isLoadingMore
@@ -112,17 +379,14 @@ useEffect(() => {
 
 	const handleResetFilters = () => {
 		setSearchQuery('');
-		setSelectedGenres([]);
+		setSelectedTags([]);
 		setSelectedPlatforms([]);
 		setPriceRange({ min: 0, max: 100 });
 		setCurrentPage(1);
 	};
 
 	const toStoreGameUrl = (game) => {
-		const gameId = game?.appid || game?.app_id || game?.id;
-		if (!gameId) return '';
-		const platform = normalizePlatformId(game?.platform_name || game?.platform) || 'steam';
-		return `/store/game/${encodeURIComponent(platform)}/${encodeURIComponent(gameId)}`;
+		return buildStoreGameRoute(game, 'steam');
 	};
 
 	return (
@@ -132,7 +396,10 @@ useEffect(() => {
 				<div className="px-4 py-3 border-b border-slate-700/50 flex items-center justify-between">
 					<div>
 						<h3 className="text-lg font-semibold text-slate-100">{title}</h3>
-						<p className="text-sm text-slate-400 mt-0.5">{filteredGames.length} games found</p>
+						<p className="text-sm text-slate-400 mt-0.5">
+							{filteredGames.length} games found
+							{isRemoteSearchLoading ? ' • searching...' : ''}
+						</p>
 					</div>
 					<button
 						onClick={() => navigate('/shop/all-games')}
@@ -146,6 +413,11 @@ useEffect(() => {
 					{pagedGames.length > 0 ? pagedGames.map(game => {
 						const gameId = game.appid || game.app_id || game.id;
 						const isSelected = displayGame && (displayGame.appid || displayGame.app_id || displayGame.id) === gameId;
+						const metadata = getMetadataForGame(game);
+						const visibleTags = metadata.tags.slice(0, 2);
+						const visibleGenres = metadata.genres
+							.filter((genre) => !visibleTags.some((tag) => tag.toLowerCase() === String(genre || '').toLowerCase()))
+							.slice(0, 2);
 
 						return (
 							<div
@@ -166,9 +438,15 @@ useEffect(() => {
 								<div className="flex-1 min-w-0">
 									<h4 className="text-sm font-medium text-slate-100 truncate mb-1">{game.title || game.name}</h4>
 									<div className="flex flex-wrap gap-1">
-										{game.tags?.slice(0, 3).map((tag, idx) => (
-											<span key={idx} className="text-xs px-2 py-0.5 bg-slate-900/50 text-slate-400 rounded">{tag}</span>
+										{visibleTags.map((tag) => (
+											<span key={`tag-${tag}`} className="text-xs px-2 py-0.5 bg-slate-900/50 text-slate-300 rounded">{tag}</span>
 										))}
+										{visibleGenres.map((genre) => (
+											<span key={`genre-${genre}`} className="text-xs px-2 py-0.5 bg-sky-900/30 text-sky-200 rounded">{genre}</span>
+										))}
+										{visibleTags.length === 0 && visibleGenres.length === 0 ? (
+											<span className="text-xs px-2 py-0.5 bg-slate-900/50 text-slate-500 rounded">No tags</span>
+										) : null}
 									</div>
 								</div>
 							</div>
@@ -211,6 +489,17 @@ useEffect(() => {
 							<div className="w-full aspect-[16/9] rounded overflow-hidden bg-slate-900/50 mb-3">
 								<img src={displayGame.image || displayGame.banner_img} alt={displayGame.title || displayGame.name} className="w-full h-full object-cover" onError={e => e.target.style.display = 'none'} />
 							</div>
+							<div className="mb-3 flex flex-wrap gap-1">
+								{displayGameMetadata.tags.slice(0, 4).map((tag) => (
+									<span key={`preview-tag-${tag}`} className="text-xs px-2 py-0.5 bg-slate-900/50 text-slate-300 rounded">{tag}</span>
+								))}
+								{displayGameMetadata.genres
+									.filter((genre) => !displayGameMetadata.tags.some((tag) => tag.toLowerCase() === String(genre || '').toLowerCase()))
+									.slice(0, 4)
+									.map((genre) => (
+										<span key={`preview-genre-${genre}`} className="text-xs px-2 py-0.5 bg-sky-900/30 text-sky-200 rounded">{genre}</span>
+									))}
+							</div>
 							<p className="text-xs text-slate-300 leading-relaxed mb-3">{displayGame.description || 'No description available.'}</p>
 							<button onClick={() => navigate(toStoreGameUrl(displayGame), { state: { game: displayGame } })}
 								className="w-full rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-sm font-semibold py-2 transition-colors">
@@ -229,8 +518,10 @@ useEffect(() => {
 			<CompactFiltersSidebar
 				searchQuery={searchQuery}
 				onSearchChange={setSearchQuery}
-				selectedGenres={selectedGenres}
-				onGenresChange={setSelectedGenres}
+				selectedTags={selectedTags}
+				onTagsChange={setSelectedTags}
+				quickTags={quickTags}
+				advancedTags={advancedTags}
 				selectedPlatforms={selectedPlatforms}
 				onPlatformsChange={setSelectedPlatforms}
 				priceRange={priceRange}
@@ -252,7 +543,6 @@ export default FilteredGamesSection;
 // 	const normalized = String(value || '').trim().toLowerCase();
 // 	if (!normalized) return '';
 // 	if (normalized === 'itch' || normalized === 'itchio' || normalized === 'itch.io') return 'itchio';
-// 	if (normalized === 'epic games' || normalized === 'epic_games') return '';
 // 	return normalized;
 // }
 

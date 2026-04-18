@@ -8,6 +8,8 @@ const Login = ({ onLogin }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [email, setEmail] = useState('');
+  const [bio, setBio] = useState('');
+  const [avatarUrl, setAvatarUrl] = useState('');
   const [isRegisterMode, setIsRegisterMode] = useState(false);
   const [status, setStatus] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -33,7 +35,10 @@ const Login = ({ onLogin }) => {
     try {
       if (isRegisterMode) {
         // Registration logic via TokenController
-        const token = await window.electronAPI.register(username, password, email);
+        const token = await window.electronAPI.register(username, password, email, {
+          bio: bio.trim(),
+          avatarUrl: avatarUrl.trim(),
+        });
         
         // Validate token is a non-empty string
         if (token && typeof token === 'string' && token.trim().length > 0) {
@@ -41,6 +46,8 @@ const Login = ({ onLogin }) => {
           setIsRegisterMode(false);
           setPassword('');
           setEmail('');
+          setBio('');
+          setAvatarUrl('');
         } else {
           setStatus('Registration failed. Username may already exist.');
         }
@@ -50,10 +57,37 @@ const Login = ({ onLogin }) => {
         
         // Validate token is a non-empty string
         if (token && typeof token === 'string' && token.trim().length > 0) {
+          let profile = null;
+          if (typeof window?.electronAPI?.getCurrentUser === 'function') {
+            try {
+              profile = await window.electronAPI.getCurrentUser();
+            } catch {
+              profile = null;
+            }
+          }
+
+          const avatarCandidate =
+            profile?.avatarUrl ||
+            profile?.avatar_url ||
+            profile?.avatarURL ||
+            profile?.profilePicture ||
+            profile?.pfp ||
+            null;
+          const resolvedAvatarUrl =
+            typeof avatarCandidate === 'string' && avatarCandidate.trim()
+              ? avatarCandidate.trim()
+              : null;
+          const resolvedUsername =
+            typeof profile?.username === 'string' && profile.username.trim()
+              ? profile.username.trim()
+              : username;
+
           const userData = {
-            username: username,
-            avatarUrl: null,
-            token: token,
+            id: profile?.id ?? null,
+            username: resolvedUsername,
+            bio: profile?.bio ?? null,
+            avatarUrl: resolvedAvatarUrl,
+            token: token.trim(),
           };
 
           // Sikeres belépésnél frissítjük a globális user állapotot
@@ -62,7 +96,7 @@ const Login = ({ onLogin }) => {
           }
 
           // Visszajelzés a felhasználónak, majd átirányítás a Store oldalra
-          setStatus(`Logged in as ${username}`);
+          setStatus(`Logged in as ${resolvedUsername}`);
           setTimeout(() => navigate('/store'), 500);
         } else {
           setStatus('Login failed. Username or password might be invalid.');
@@ -107,20 +141,52 @@ const Login = ({ onLogin }) => {
           </div>
 
           {isRegisterMode && (
-            <div>
-              <label className="block text-xs mb-1" htmlFor="email">
-                Email
-              </label>
-              <input
-                id="email"
-                type="email"
-                autoComplete="email"
-                disabled={isLoading}
-                className="w-full rounded bg-slate-800 border border-slate-700 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-sky-500 disabled:opacity-50"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </div>
+            <>
+              <div>
+                <label className="block text-xs mb-1" htmlFor="email">
+                  Email
+                </label>
+                <input
+                  id="email"
+                  type="email"
+                  autoComplete="email"
+                  disabled={isLoading}
+                  className="w-full rounded bg-slate-800 border border-slate-700 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-sky-500 disabled:opacity-50"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs mb-1" htmlFor="avatarUrl">
+                  Profile picture URL (optional)
+                </label>
+                <input
+                  id="avatarUrl"
+                  type="url"
+                  disabled={isLoading}
+                  placeholder="https://example.com/avatar.png"
+                  className="w-full rounded bg-slate-800 border border-slate-700 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-sky-500 disabled:opacity-50"
+                  value={avatarUrl}
+                  onChange={(e) => setAvatarUrl(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs mb-1" htmlFor="bio">
+                  Bio (optional)
+                </label>
+                <textarea
+                  id="bio"
+                  rows={3}
+                  disabled={isLoading}
+                  placeholder="Tell people a little about yourself"
+                  className="w-full rounded bg-slate-800 border border-slate-700 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-sky-500 disabled:opacity-50 resize-none"
+                  value={bio}
+                  onChange={(e) => setBio(e.target.value)}
+                />
+              </div>
+            </>
           )}
 
           <div>
@@ -158,6 +224,8 @@ const Login = ({ onLogin }) => {
               setStatus('');
               setPassword('');
               setEmail('');
+              setBio('');
+              setAvatarUrl('');
             }}
             className="text-xs text-slate-400 hover:text-sky-400 transition-colors disabled:opacity-50"
           >

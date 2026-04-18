@@ -57,6 +57,7 @@
 /**
  * Normalized game details shape used by the renderer (derived from `GameDetailsResponse`).
  * @typedef {object} GameDetails
+ * @property {number|null|undefined} [id]
  * @property {string|null} app_id
  * @property {string|null} platform_name
  * @property {string|null} name
@@ -64,6 +65,10 @@
  * @property {string|null} description
  * @property {string|null} minimum_requirements
  * @property {number|null} cost
+ * @property {number|null|undefined} [price]
+ * @property {string|null|undefined} [currency]
+ * @property {string|null|undefined} [formated_price]
+ * @property {string|null|undefined} [country_code]
  * @property {string[]|null} genre_names
  */
 
@@ -103,6 +108,8 @@
  * @property {number}  timeRemaining  - Estimated milliseconds remaining (Infinity when unknown).
  * @property {boolean} paused         - Whether the torrent is currently paused.
  * @property {boolean} done           - Whether the torrent has finished downloading.
+ * @property {string}  magnetURI      - Magnet URI used to add the torrent (when available).
+ * @property {string}  savePath       - Absolute path to the download directory.
  * @property {string}  path           - Absolute path to the directory where files are saved.
  */
 
@@ -164,21 +171,6 @@
  * @property {string|null} description
  * @property {number|null} cost      - Price in USD.
  * @property {string[]} genreNames
- * @property {any} raw
- */
-
-/**
- * @typedef {object} EpicInstalledGame
- * @property {string} manifestPath
- * @property {string|null} appName
- * @property {string|null} displayName
- * @property {string|null} installLocation
- * @property {string|null} namespace
- * @property {string|null} catalogItemId
- * @property {string|null} artifactId
- * @property {string|null} itemId
- * @property {string|null} appVersionString
- * @property {number|null} installSize
  * @property {any} raw
  */
 

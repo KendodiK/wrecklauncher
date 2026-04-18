@@ -3,6 +3,33 @@
  */
 
 /**
+ * Normalize a title or query for strict trimmed comparison.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function normalizeTrimmedTitle(value) {
+	return String(value ?? '')
+		.trim()
+		.replace(/\s+/g, ' ')
+		.toLowerCase();
+}
+
+/**
+ * Compare two titles with strict trimmed matching.
+ *
+ * @param {unknown} left
+ * @param {unknown} right
+ * @returns {boolean}
+ */
+export function isTrimmedTitleMatch(left, right) {
+	const a = normalizeTrimmedTitle(left);
+	const b = normalizeTrimmedTitle(right);
+	if (!a || !b) return false;
+	return a === b;
+}
+
+/**
  * Transform backend game object to card format
  * @param {Object} game - Backend game object
  * @returns {Object} Formatted game object {id, appid, title, image, price, genres}
@@ -19,18 +46,17 @@ export function gameToCardFormat(game) {
 }
 
 /**
- * Filter games by search query (case-insensitive title match)
+ * Filter games by search query (strict trimmed title equality)
  * @param {Array} games - Array of game objects
  * @param {String} query - Search query string
  * @returns {Array} Filtered games
  */
 export function filterGamesBySearch(games, query) {
 	if (!query || query.trim() === '') return games;
-	
-	const lowerQuery = query.toLowerCase().trim();
+
 	return games.filter(game => {
-		const title = (game.title || game.name || '').toLowerCase();
-		return title.includes(lowerQuery);
+		const title = game.title || game.name || '';
+		return isTrimmedTitleMatch(title, query);
 	});
 }
 
