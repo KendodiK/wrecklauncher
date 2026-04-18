@@ -101,46 +101,165 @@ const GameSliderBase = ({
 		return source;
 	}, [games, showFallbackCards]);
 
-	const cloneCount = useMemo(() => {
-		if (!loop) return 0;
-		if (!baseCards.length) return 0;
-		return Math.max(0, Math.min(cloneCountProp, baseCards.length));
-	}, [baseCards.length, cloneCountProp, loop]);
+	const hasLoopClones = loop && baseCards.length > 1;
+	const useProceduralLoop = mode === 'translate' && hasLoopClones;
+	const [effectiveLoopCloneCount, setEffectiveLoopCloneCount] = useState(() => Math.max(1, cloneCountProp));
+
+	useEffect(() => {
+		const minimumCloneCount = Math.max(1, cloneCountProp);
+		if (!hasLoopClones || mode !== 'translate') {
+			setEffectiveLoopCloneCount((prev) => (prev === minimumCloneCount ? prev : minimumCloneCount));
+			return;
+		}
+
+		const carousel = carouselRef.current;
+		if (!carousel) return;
+
+		const computeCloneCount = () => {
+			const viewportWidth = carousel.offsetWidth || window.innerWidth || 1280;
+			let estimatedCardSpan = 194;
+
+			const container = containerRef.current;
+			if (container) {
+				const style = window.getComputedStyle(container);
+				const gap = Number.parseFloat(style.columnGap || style.gap || '10') || 10;
+				const firstCard = container.children?.[0];
+				const cardWidth = firstCard ? firstCard.getBoundingClientRect().width : 184;
+				estimatedCardSpan = Math.max(120, cardWidth + gap);
+			}
+
+			const sideCountFromViewport = Math.ceil(viewportWidth / estimatedCardSpan) + 2;
+			const boundedCloneCount = Math.min(30, Math.max(minimumCloneCount, sideCountFromViewport));
+
+			setEffectiveLoopCloneCount((prev) => (prev === boundedCloneCount ? prev : boundedCloneCount));
+		};
+
+		computeCloneCount();
+		const ro = new ResizeObserver(() => {
+			computeCloneCount();
+		});
+		ro.observe(carousel);
+
+		return () => {
+			ro.disconnect();
+		};
+	}, [cloneCountProp, hasLoopClones, mode]);
+
+	const createProceduralEntry = useCallback(
+		(ordinal) => {
+			const baseLen = baseCards.length;
+			if (!baseLen) return null;
+			const baseIndex = ((ordinal % baseLen) + baseLen) % baseLen;
+			const card = baseCards[baseIndex];
+			return {
+				...card,
+				_key: `stream-${ordinal}`,
+				_baseIndex: baseIndex,
+				_streamOrdinal: ordinal,
+			};
+		},
+		[baseCards],
+	);
 
 	const initialIndex = useMemo(() => {
-		if (!baseCards.length) return 0;
-		return cloneCount + Math.floor(baseCards.length / 2);
-	}, [baseCards.length, cloneCount]);
+		const baseLen = baseCards.length;
+		if (!baseLen) return 0;
+		if (useProceduralLoop) return Math.max(1, effectiveLoopCloneCount) + Math.floor(baseLen / 2);
+		if (!hasLoopClones) return Math.floor(baseLen / 2);
+		return Math.max(1, effectiveLoopCloneCount) + Math.floor(baseLen / 2);
+	}, [baseCards.length, effectiveLoopCloneCount, hasLoopClones, useProceduralLoop]);
 
+	const [streamCards, setStreamCards] = useState([]);
 	const [currentIndex, setCurrentIndex] = useState(initialIndex);
+
+	useLayoutEffect(() => {
+		if (!useProceduralLoop) {
+			setStreamCards((prev) => (prev.length ? [] : prev));
+			return;
+		}
+
+		const baseLen = baseCards.length;
+		if (!baseLen) {
+			setStreamCards([]);
+			return;
+		}
+
+		const side = Math.max(1, effectiveLoopCloneCount);
+		const startOrdinal = -side;
+		const count = baseLen + (side * 2);
+		const nextStreamCards = Array.from({ length: count }, (_, offset) => createProceduralEntry(startOrdinal + offset)).filter(Boolean);
+
+		skipAnimationRef.current = true;
+		setStreamCards(nextStreamCards);
+		setCurrentIndex(side + Math.floor(baseLen / 2));
+	}, [baseCards.length, createProceduralEntry, effectiveLoopCloneCount, useProceduralLoop]);
 
 	const cards = useMemo(() => {
 		if (!baseCards.length) return [];
-		if (!cloneCount) {
+
+		if (useProceduralLoop) {
+			if (streamCards.length > 0) return streamCards;
+
+			const side = Math.max(1, effectiveLoopCloneCount);
+			const startOrdinal = -side;
+			const count = baseCards.length + (side * 2);
+			return Array.from({ length: count }, (_, offset) => createProceduralEntry(startOrdinal + offset)).filter(Boolean);
+		}
+
+		if (!hasLoopClones) {
 			return baseCards.map((c, i) => ({ ...c, _key: `base-${c.id ?? i}` }));
 		}
 
-		const head = baseCards.slice(0, cloneCount).map((c, i) => ({
-			...c,
-			_key: `clone-post-${c.id ?? i}-${i}`,
-		}));
-		const tail = baseCards.slice(-cloneCount).map((c, i) => ({
-			...c,
-			_key: `clone-pre-${c.id ?? i}-${i}`,
-		}));
+		const baseLen = baseCards.length;
+		const cloneCount = Math.max(1, effectiveLoopCloneCount);
+		const tailStartIndex = ((baseLen - (cloneCount % baseLen)) + baseLen) % baseLen;
+
+		const tail = Array.from({ length: cloneCount }, (_, cloneIndex) => {
+			const baseIndex = (tailStartIndex + cloneIndex) % baseLen;
+			const card = baseCards[baseIndex];
+			return {
+				...card,
+				_key: `clone-pre-${cloneIndex}-${card.id ?? baseIndex}`,
+				_isClone: true,
+				_baseIndex: baseIndex,
+			};
+		});
+
+		const head = Array.from({ length: cloneCount }, (_, cloneIndex) => {
+			const baseIndex = cloneIndex % baseLen;
+			const card = baseCards[baseIndex];
+			return {
+				...card,
+				_key: `clone-post-${cloneIndex}-${card.id ?? baseIndex}`,
+				_isClone: true,
+				_baseIndex: baseIndex,
+			};
+		});
 
 		return [
 			...tail,
-			...baseCards.map((c, i) => ({ ...c, _key: `base-${c.id ?? i}` })),
+			...baseCards.map((card, index) => ({
+				...card,
+				_key: `base-${card.id ?? index}`,
+				_baseIndex: index,
+			})),
 			...head,
 		];
-	}, [baseCards, cloneCount]);
+	}, [baseCards, createProceduralEntry, effectiveLoopCloneCount, hasLoopClones, streamCards, useProceduralLoop]);
 
 	if (!cards.length) return null;
 
 	const move = (dir) => {
 		if (isMoving) return;
-		if (!loop) {
+		if (cards.length < 2) return;
+		if (useProceduralLoop) {
+			const next = Math.max(0, Math.min(cards.length - 1, currentIndex + dir));
+			if (next === currentIndex) return;
+			setIsMoving(true);
+			setCurrentIndex(next);
+			return;
+		}
+		if (!hasLoopClones) {
 			const next = Math.max(0, Math.min(cards.length - 1, currentIndex + dir));
 			if (next === currentIndex) return;
 			setIsMoving(true);
@@ -213,30 +332,91 @@ const GameSliderBase = ({
 		skipAnimationRef.current = false;
 	}, [currentIndex, cards.length, recenter, mode]);
 
-	// After the move animation finishes, reset edge positions for seamless looping.
+	// Unlock the movement guard after the current animation frame finishes.
 	useEffect(() => {
 		if (!isMoving) return;
-		const baseLen = baseCards.length;
-		if (!baseLen) return;
 
 		const timer = setTimeout(() => {
-			setIsMoving(false);
-			if (!loop) return;
+			if (useProceduralLoop) {
+				const baseLen = baseCards.length;
+				if (!baseLen || !cards.length) {
+					setIsMoving(false);
+					return;
+				}
 
-			let next = currentIndex;
-			const start = cloneCount;
-			const end = cloneCount + baseLen;
-			if (next >= end) next = next - baseLen;
-			if (next < start) next = next + baseLen;
+				const side = Math.max(1, effectiveLoopCloneCount);
+				const extendThreshold = Math.max(2, side);
+				let nextCards = cards;
+				let nextIndex = currentIndex;
+				let changed = false;
 
-			if (next !== currentIndex) {
-				skipAnimationRef.current = true;
-				setCurrentIndex(next);
+				if (nextIndex <= extendThreshold) {
+					const firstOrdinal = Number(nextCards[0]?._streamOrdinal ?? 0);
+					const prepend = Array.from({ length: baseLen }, (_, offset) => createProceduralEntry(firstOrdinal - baseLen + offset)).filter(Boolean);
+					if (prepend.length > 0) {
+						nextCards = [...prepend, ...nextCards];
+						nextIndex += prepend.length;
+						changed = true;
+					}
+				}
+
+				if ((nextCards.length - 1 - nextIndex) <= extendThreshold) {
+					const lastOrdinal = Number(nextCards[nextCards.length - 1]?._streamOrdinal ?? 0);
+					const append = Array.from({ length: baseLen }, (_, offset) => createProceduralEntry(lastOrdinal + 1 + offset)).filter(Boolean);
+					if (append.length > 0) {
+						nextCards = [...nextCards, ...append];
+						changed = true;
+					}
+				}
+
+				const pruneBuffer = Math.max(side * 3, baseLen * 2);
+				const minKeepIndex = Math.max(0, nextIndex - pruneBuffer);
+				const maxKeepIndex = Math.min(nextCards.length - 1, nextIndex + pruneBuffer);
+
+				let sliceStart = Math.floor(minKeepIndex / baseLen) * baseLen;
+				let sliceEnd = Math.ceil((maxKeepIndex + 1) / baseLen) * baseLen;
+				sliceStart = Math.max(0, Math.min(sliceStart, nextCards.length - 1));
+				sliceEnd = Math.max(sliceStart + 1, Math.min(sliceEnd, nextCards.length));
+
+				if (sliceStart > 0 || sliceEnd < nextCards.length) {
+					nextCards = nextCards.slice(sliceStart, sliceEnd);
+					nextIndex -= sliceStart;
+					changed = true;
+				}
+
+				if (changed) {
+					skipAnimationRef.current = true;
+					setStreamCards(nextCards);
+					if (nextIndex !== currentIndex) {
+						setCurrentIndex(nextIndex);
+					}
+				}
+
+				setIsMoving(false);
+				return;
 			}
+
+			if (hasLoopClones && !useProceduralLoop) {
+				const baseLen = baseCards.length;
+				const loopStart = effectiveLoopCloneCount;
+				const loopEnd = loopStart + baseLen;
+
+				let nextIndex = currentIndex;
+				if (nextIndex >= loopEnd) nextIndex -= baseLen;
+				if (nextIndex < loopStart) nextIndex += baseLen;
+
+				if (nextIndex !== currentIndex) {
+					skipAnimationRef.current = true;
+					setCurrentIndex(nextIndex);
+					requestAnimationFrame(() => setIsMoving(false));
+					return;
+				}
+			}
+			setIsMoving(false);
 		}, Math.max(0, transitionMs + 10));
 
 		return () => clearTimeout(timer);
-	}, [isMoving, currentIndex, cloneCount, baseCards.length, transitionMs, loop]);
+	}, [baseCards.length, cards, createProceduralEntry, currentIndex, effectiveLoopCloneCount, hasLoopClones, isMoving, transitionMs, useProceduralLoop]);
 
 	// Recenter when the carousel area changes size (e.g., dropdown opens, window resizes).
 	useEffect(() => {
@@ -265,18 +445,30 @@ const GameSliderBase = ({
 	useEffect(() => {
 		if (!cards.length) return;
 		setCurrentIndex((prev) => {
+			const maxIndex = cards.length - 1;
+
 			if (prev < 0) {
 				skipAnimationRef.current = true;
 				return 0;
 			}
-			const maxIndex = cards.length - 1;
 			if (prev > maxIndex) {
 				skipAnimationRef.current = true;
 				return maxIndex;
 			}
+
+			if (hasLoopClones && baseCards.length > 0 && !useProceduralLoop) {
+				const baseLen = baseCards.length;
+				const normalizedBaseIndex = ((prev - effectiveLoopCloneCount) % baseLen + baseLen) % baseLen;
+				const anchoredIndex = effectiveLoopCloneCount + normalizedBaseIndex;
+				if (anchoredIndex !== prev) {
+					skipAnimationRef.current = true;
+					return anchoredIndex;
+				}
+			}
+
 			return prev;
 		});
-	}, [cards.length]);
+	}, [baseCards.length, cards.length, effectiveLoopCloneCount, hasLoopClones, isMoving, useProceduralLoop]);
 
 	useEffect(() => {
 		if (typeof onCurrentCardChange !== 'function') return;

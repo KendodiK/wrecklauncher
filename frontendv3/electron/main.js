@@ -1,4 +1,5 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const fs = require('node:fs');
 const path = require('path');
 
 const isDev = process.env.NODE_ENV === 'development';
@@ -312,9 +313,19 @@ function getShopSpecialsCtrl() {
     return await getUserCtrl().getOwnedGamesFromSteam();
   });
 
+  handleAuthed('user:get-owned-games-from-steam-by-native-userid', async ({ token }, nativeUserId) => {
+    getUserCtrl().setToken(token);
+    return await getUserCtrl().getOwnedGamesFromSteamByNativeUserId(nativeUserId);
+  });
+
   handleAuthed('user:get-current-user', async ({ token }) => {
     getUserCtrl().setToken(token);
     return await getUserCtrl().getCurrentUserInfo(token);
+  });
+
+  handleAuthed('user:update-profile', async ({ token }, profilePatch) => {
+    getUserCtrl().setToken(token);
+    return await getUserCtrl().updateCurrentUserProfile(profilePatch, token);
   });
 
   handleAuthed('friends:get-mine', async ({ token }, nativeUserId) => {
@@ -328,9 +339,19 @@ function getShopSpecialsCtrl() {
     return await getUserCtrl().searchNativeUsersByName(String(name || '').trim());
   });
 
+  handleAuthed('native-users:get-by-id', async ({ token }, nativeUserId) => {
+    getUserCtrl().setToken(token);
+    return await getUserCtrl().getNativeUserById(String(nativeUserId || '').trim());
+  });
+
   handleAuthed('friends:add', async ({ token }, friendUserId) => {
     getUserCtrl().setToken(token);
     return await getUserCtrl().addFriend(friendUserId);
+  });
+
+  handleAuthed('friends:delete', async ({ token }, friendshipId) => {
+    getUserCtrl().setToken(token);
+    return await getUserCtrl().deleteFriend(friendshipId);
   });
 
   // Settings (global app settings)
@@ -1398,6 +1419,58 @@ handle('steam:get-installed-games', async () => {
 
   handle('torrent:get-status', () => {
     return getTorrentCtrl().getStatus();
+  });
+
+  handle('torrent:open', async (_event, infoHash, savePath) => {
+    const normalizedSavePath = String(savePath || '').trim();
+    const normalizedInfoHash = String(infoHash || '').trim().toLowerCase();
+
+    let targetPath = normalizedSavePath;
+    let torrentName = '';
+    if (!targetPath && normalizedInfoHash) {
+      const current = getTorrentCtrl().getStatus();
+      const match = current.find((item) => String(item?.infoHash || '').trim().toLowerCase() === normalizedInfoHash);
+      targetPath = String(match?.savePath || match?.path || '').trim();
+      torrentName = String(match?.name || '').trim();
+    }
+
+    if (targetPath && normalizedInfoHash && !torrentName) {
+      const current = getTorrentCtrl().getStatus();
+      const match = current.find((item) => String(item?.infoHash || '').trim().toLowerCase() === normalizedInfoHash);
+      torrentName = String(match?.name || '').trim();
+    }
+
+    if (!targetPath) {
+      throw new Error('Download path is unavailable for this torrent.');
+    }
+
+    let folderToOpen = targetPath;
+    try {
+      if (fs.existsSync(folderToOpen)) {
+        const stats = fs.statSync(folderToOpen);
+        if (stats.isFile()) {
+          folderToOpen = path.dirname(folderToOpen);
+        }
+      }
+
+      // If a subfolder with the torrent name exists, open that exact folder.
+      if (torrentName) {
+        const namedFolderCandidate = path.join(folderToOpen, torrentName);
+        if (fs.existsSync(namedFolderCandidate) && fs.statSync(namedFolderCandidate).isDirectory()) {
+          folderToOpen = namedFolderCandidate;
+        }
+      }
+    } catch {
+      // Fall back to opening the original path if fs checks fail.
+      folderToOpen = targetPath;
+    }
+
+    const openError = await shell.openPath(folderToOpen);
+    if (openError) {
+      throw new Error(`Failed to open download path: ${openError}`);
+    }
+
+    return { ok: true, path: folderToOpen };
   });
 //----------------Shop Specials Controller────────────────────────────────────────
 

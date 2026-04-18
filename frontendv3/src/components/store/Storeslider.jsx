@@ -175,7 +175,12 @@ const Storeslider = ({ items, onCardClick, onNearEnd, nearEndThreshold = 5 }) =>
             transitionMs={300}
             renderCard={({ card, abs }) => (
                 <>
-                    <img src={card.image} alt={card.title} loading={abs <= 1 ? 'eager' : 'lazy'} />
+                    <img
+                        src={card.image}
+                        alt={card.title}
+                        loading={abs <= 1 ? 'eager' : 'lazy'}
+                        style={{ objectFit: card.preferContainImage ? 'contain' : 'cover' }}
+                    />
                     {Number(card.discountPercent) > 0 ? (
                         <div className="absolute left-3 top-3 rounded-md bg-emerald-500/95 px-2 py-1 text-xs font-bold text-white shadow-lg">
                             -{Math.round(Number(card.discountPercent))}%

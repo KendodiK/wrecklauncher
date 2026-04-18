@@ -343,6 +343,12 @@ export function DownloadManagerProvider({ children }) {
 		setDownloads((prev) => prev.filter((item) => item.infoHash !== infoHash));
 	}, []);
 
+	const openDownload = useCallback(async (infoHash, savePath = '') => {
+		const api = typeof window !== 'undefined' ? window.electronAPI : null;
+		if (!api || typeof api.torrentOpen !== 'function') throw new Error('torrentOpen API is not available');
+		return await api.torrentOpen(String(infoHash || ''), String(savePath || '').trim() || undefined);
+	}, []);
+
 	const start = useCallback(async ({ magnetUri, savePath } = {}) => {
 		return await startDownload({ magnetUri, savePath });
 	}, [startDownload]);
@@ -368,6 +374,7 @@ export function DownloadManagerProvider({ children }) {
 		pauseDownload,
 		resumeDownload,
 		removeDownload,
+		openDownload,
 		clearError: () => setError(''),
 	}), [
 		downloads,
@@ -382,6 +389,7 @@ export function DownloadManagerProvider({ children }) {
 		pauseDownload,
 		resumeDownload,
 		removeDownload,
+		openDownload,
 	]);
 
 	return <DownloadManagerContext.Provider value={value}>{children}</DownloadManagerContext.Provider>;

@@ -6,6 +6,128 @@ import {
 	resolveStorePlatformFromGameStrict,
 } from '../../utils/storeRouting.js';
 
+function extractMetadataLabel(value) {
+	if (value == null) return '';
+
+	if (typeof value === 'object') {
+		const fields = [
+			value.name,
+			value.genre,
+			value.description,
+			value.tag,
+			value.title,
+			value.label,
+		];
+		for (const field of fields) {
+			if (typeof field === 'string' && field.trim()) {
+				return field.trim();
+			}
+		}
+		return '';
+	}
+
+	if (typeof value === 'string') return value.trim();
+	return '';
+}
+
+function normalizeMetadataList(input) {
+	const source = Array.isArray(input) ? input : [input];
+	const out = [];
+	const seen = new Set();
+
+	for (const entry of source) {
+		const label = extractMetadataLabel(entry);
+		if (!label) continue;
+
+		const parts = label.includes(',')
+			? label.split(',').map((part) => part.trim()).filter(Boolean)
+			: [label];
+
+		for (const part of parts) {
+			if (!part || /^\d+$/.test(part)) continue;
+			const key = part.toLowerCase();
+			if (seen.has(key)) continue;
+			seen.add(key);
+			out.push(part);
+		}
+	}
+
+	return out;
+}
+
+function getGameMetadata(game) {
+	const genres = normalizeMetadataList(game?.genre_names ?? game?.genreNames ?? game?.genres);
+	const rawTags = normalizeMetadataList(game?.tag_names ?? game?.tagNames ?? game?.tags);
+	const tags = rawTags.length > 0 ? rawTags : genres;
+	return { tags, genres };
+}
+
+function getGameIdKey(game) {
+	return String(game?.appid ?? game?.app_id ?? game?.id ?? '').trim();
+}
+
+function uniqueNonEmptyStrings(values) {
+	const out = [];
+	const seen = new Set();
+
+	for (const raw of values) {
+		const value = String(raw ?? '').trim();
+		if (!value) continue;
+		const key = value.toLowerCase();
+		if (seen.has(key)) continue;
+		seen.add(key);
+		out.push(value);
+	}
+
+	return out;
+}
+
+async function resolveGenresForGame(api, game, idKey) {
+	const idCandidates = uniqueNonEmptyStrings([
+		idKey,
+		game?.id,
+		game?.appid,
+		game?.app_id,
+	]);
+
+	for (const idCandidate of idCandidates) {
+		try {
+			const details = await api.getAllDetailsByID(idCandidate);
+			const genres = normalizeMetadataList(details?.genre_names ?? details?.genres);
+			if (genres.length > 0) return genres;
+		} catch {
+			// Try fallback endpoint variants.
+		}
+	}
+
+	if (typeof api.getAllDetailsByAppIDAndPlatform === 'function') {
+		const appIdCandidates = uniqueNonEmptyStrings([
+			game?.app_id,
+			game?.appid,
+			idKey,
+		]);
+		const platformCandidates = uniqueNonEmptyStrings([
+			resolveStorePlatformFromGameStrict(game),
+			game?.platform_name,
+			game?.platform,
+		]);
+
+		for (const appId of appIdCandidates) {
+			for (const platform of platformCandidates) {
+				try {
+					const details = await api.getAllDetailsByAppIDAndPlatform(appId, platform);
+					const genres = normalizeMetadataList(details?.genre_names ?? details?.genres);
+					if (genres.length > 0) return genres;
+				} catch {
+					// Keep trying alternates.
+				}
+			}
+		}
+	}
+
+	return [];
+}
+
 const FilteredGamesSection = ({
 	games = [],
 	title = "Browse Games",
@@ -19,15 +141,33 @@ const FilteredGamesSection = ({
 	const [selectedPlatforms, setSelectedPlatforms] = useState([]);
 	const [priceRange, setPriceRange] = useState({ min: 0, max: 100 });
 	const [selectedGame, setSelectedGame] = useState(null);
+	const [resolvedGenresByGameId, setResolvedGenresByGameId] = useState({});
 	const [currentPage, setCurrentPage] = useState(1);
 	const gamesPerPage = 20;
+
+	const getMetadataForGame = (game) => {
+		const local = getGameMetadata(game);
+		if (local.genres.length > 0) return local;
+
+		const idKey = getGameIdKey(game);
+		const cachedGenres = idKey ? resolvedGenresByGameId[idKey] : null;
+		if (!Array.isArray(cachedGenres) || cachedGenres.length < 1) return local;
+
+		const fallbackGenres = normalizeMetadataList(cachedGenres);
+		if (fallbackGenres.length < 1) return local;
+
+		return {
+			tags: local.tags.length > 0 ? local.tags : fallbackGenres,
+			genres: fallbackGenres,
+		};
+	};
 
 	const { quickTags, advancedTags } = useMemo(() => {
 		const counts = new Map();
 		const labels = new Map();
 		for (const game of games) {
-			const rawTags = Array.isArray(game?.tags) ? game.tags : [];
-			for (const rawTag of rawTags) {
+			const { tags } = getMetadataForGame(game);
+			for (const rawTag of tags) {
 				const label = String(rawTag || '').trim();
 				if (!label) continue;
 				const key = label.toLowerCase();
@@ -47,7 +187,7 @@ const FilteredGamesSection = ({
 			quickTags: ordered.slice(0, 4),
 			advancedTags: ordered.slice(4),
 		};
-	}, [games]);
+	}, [games, resolvedGenresByGameId]);
 
 	// Filtered games based on filters
 	const filteredGames = useMemo(() => {
@@ -56,8 +196,9 @@ const FilteredGamesSection = ({
 				return false;
 
 			if (selectedTags.length > 0) {
+				const metadata = getMetadataForGame(game);
 				const gameTags = new Set(
-					(Array.isArray(game.tags) ? game.tags : [])
+					metadata.tags
 						.map((tag) => String(tag || '').trim().toLowerCase())
 						.filter(Boolean),
 				);
@@ -76,7 +217,7 @@ const FilteredGamesSection = ({
 
 			return true;
 		});
-	}, [games, searchQuery, selectedTags, selectedPlatforms, priceRange]);
+	}, [games, searchQuery, selectedTags, selectedPlatforms, priceRange, resolvedGenresByGameId]);
 
 	const totalPages = Math.max(1, Math.ceil(filteredGames.length / gamesPerPage));
 
@@ -86,6 +227,65 @@ const FilteredGamesSection = ({
 	}, [filteredGames, currentPage]);
 
 	const displayGame = selectedGame || pagedGames[0] || null;
+	const displayGameMetadata = useMemo(() => {
+		return displayGame ? getMetadataForGame(displayGame) : { tags: [], genres: [] };
+	}, [displayGame, resolvedGenresByGameId]);
+
+	useEffect(() => {
+		let cancelled = false;
+		const api = typeof window !== 'undefined' ? window.electronAPI : null;
+		if (!api || typeof api.getAllDetailsByID !== 'function') return;
+
+		const candidateGames = [...pagedGames, ...games.slice(0, 24)];
+		const pendingEntries = [];
+		const pendingSeen = new Set();
+
+		for (const game of candidateGames) {
+			const idKey = getGameIdKey(game);
+			if (!idKey || (idKey in resolvedGenresByGameId) || pendingSeen.has(idKey)) continue;
+			pendingSeen.add(idKey);
+			pendingEntries.push([idKey, game]);
+		}
+
+		if (pendingEntries.length < 1) return;
+
+		void (async () => {
+			const resolvedEntries = await Promise.all(
+				pendingEntries.map(async ([idKey, game]) => {
+					try {
+						const genres = await resolveGenresForGame(api, game, idKey);
+						return [idKey, genres];
+					} catch {
+						return [idKey, []];
+					}
+				}),
+			);
+
+			if (cancelled) return;
+			setResolvedGenresByGameId((prev) => {
+				let changed = false;
+				const next = { ...prev };
+				for (const [idKey, genres] of resolvedEntries) {
+					const normalizedGenres = Array.isArray(genres) ? genres : [];
+					if (normalizedGenres.length < 1) continue;
+
+					const previousGenres = Array.isArray(next[idKey]) ? next[idKey] : [];
+					const isSame =
+						previousGenres.length === normalizedGenres.length
+						&& previousGenres.every((value, index) => value === normalizedGenres[index]);
+					if (isSame) continue;
+
+					next[idKey] = normalizedGenres;
+					changed = true;
+				}
+				return changed ? next : prev;
+			});
+		})();
+
+		return () => {
+			cancelled = true;
+		};
+	}, [pagedGames, games, resolvedGenresByGameId]);
 
 	// Reset page when filters change
 	useEffect(() => {
@@ -178,6 +378,11 @@ useEffect(() => {
 					{pagedGames.length > 0 ? pagedGames.map(game => {
 						const gameId = game.appid || game.app_id || game.id;
 						const isSelected = displayGame && (displayGame.appid || displayGame.app_id || displayGame.id) === gameId;
+						const metadata = getMetadataForGame(game);
+						const visibleTags = metadata.tags.slice(0, 2);
+						const visibleGenres = metadata.genres
+							.filter((genre) => !visibleTags.some((tag) => tag.toLowerCase() === String(genre || '').toLowerCase()))
+							.slice(0, 2);
 
 						return (
 							<div
@@ -198,9 +403,15 @@ useEffect(() => {
 								<div className="flex-1 min-w-0">
 									<h4 className="text-sm font-medium text-slate-100 truncate mb-1">{game.title || game.name}</h4>
 									<div className="flex flex-wrap gap-1">
-										{game.tags?.slice(0, 3).map((tag, idx) => (
-											<span key={idx} className="text-xs px-2 py-0.5 bg-slate-900/50 text-slate-400 rounded">{tag}</span>
+										{visibleTags.map((tag) => (
+											<span key={`tag-${tag}`} className="text-xs px-2 py-0.5 bg-slate-900/50 text-slate-300 rounded">{tag}</span>
 										))}
+										{visibleGenres.map((genre) => (
+											<span key={`genre-${genre}`} className="text-xs px-2 py-0.5 bg-sky-900/30 text-sky-200 rounded">{genre}</span>
+										))}
+										{visibleTags.length === 0 && visibleGenres.length === 0 ? (
+											<span className="text-xs px-2 py-0.5 bg-slate-900/50 text-slate-500 rounded">No tags</span>
+										) : null}
 									</div>
 								</div>
 							</div>
@@ -242,6 +453,17 @@ useEffect(() => {
 						<div className="flex-1 overflow-y-auto p-3 scrollbar-thin">
 							<div className="w-full aspect-[16/9] rounded overflow-hidden bg-slate-900/50 mb-3">
 								<img src={displayGame.image || displayGame.banner_img} alt={displayGame.title || displayGame.name} className="w-full h-full object-cover" onError={e => e.target.style.display = 'none'} />
+							</div>
+							<div className="mb-3 flex flex-wrap gap-1">
+								{displayGameMetadata.tags.slice(0, 4).map((tag) => (
+									<span key={`preview-tag-${tag}`} className="text-xs px-2 py-0.5 bg-slate-900/50 text-slate-300 rounded">{tag}</span>
+								))}
+								{displayGameMetadata.genres
+									.filter((genre) => !displayGameMetadata.tags.some((tag) => tag.toLowerCase() === String(genre || '').toLowerCase()))
+									.slice(0, 4)
+									.map((genre) => (
+										<span key={`preview-genre-${genre}`} className="text-xs px-2 py-0.5 bg-sky-900/30 text-sky-200 rounded">{genre}</span>
+									))}
 							</div>
 							<p className="text-xs text-slate-300 leading-relaxed mb-3">{displayGame.description || 'No description available.'}</p>
 							<button onClick={() => navigate(toStoreGameUrl(displayGame), { state: { game: displayGame } })}

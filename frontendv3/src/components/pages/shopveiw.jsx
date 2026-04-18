@@ -125,40 +125,107 @@ function parseDiscountPercent(game) {
 	return 0;
 }
 
-function normalizePriceValue(raw) {
+function normalizePriceValue(raw, platformHint = '') {
 	const numeric = Number(raw);
 	if (!Number.isFinite(numeric) || numeric <= 0) return 0;
 
+	const normalizedPlatform = String(platformHint || '').trim().toLowerCase();
+	const looksLikeMinorUnits = Number.isInteger(numeric)
+		&& (
+			(normalizedPlatform === 'gog' || normalizedPlatform === 'gog.com')
+				? numeric >= 100
+				: numeric >= 1000
+		);
+
 	// Some backends store cents; normalize to major currency unit for UI filters.
-	if (Number.isInteger(numeric) && numeric >= 1000) {
+	if (looksLikeMinorUnits) {
 		return Number((numeric / 100).toFixed(2));
 	}
 
-	return numeric;
+	return Number(numeric.toFixed(2));
+}
+
+function extractNamedValue(value) {
+	if (value == null) return '';
+
+	if (typeof value === 'object') {
+		const fields = [
+			value.name,
+			value.genre,
+			value.description,
+			value.tag,
+			value.title,
+			value.label,
+		];
+		for (const field of fields) {
+			if (typeof field === 'string' && field.trim()) {
+				return field.trim();
+			}
+		}
+		return '';
+	}
+
+	if (typeof value === 'string') {
+		return value.trim();
+	}
+
+	return '';
+}
+
+function normalizeNamedList(input) {
+	const source = Array.isArray(input) ? input : [input];
+	const seen = new Set();
+	const out = [];
+
+	for (const entry of source) {
+		const label = extractNamedValue(entry);
+		if (!label) continue;
+
+		const parts = label.includes(',')
+			? label.split(',').map((part) => part.trim()).filter(Boolean)
+			: [label];
+
+		for (const part of parts) {
+			if (!part || /^\d+$/.test(part)) continue;
+			const key = part.toLowerCase();
+			if (seen.has(key)) continue;
+			seen.add(key);
+			out.push(part);
+		}
+	}
+
+	return out;
 }
 
 function mapGameCard(game, fallbackTag = '') {
-	const normalizedPrice = normalizePriceValue(game.cost ?? game.price);
 	const normalizedPlatform = resolveStorePlatformFromGame(game, 'steam');
+	const resolvedImage = game.banner_img || game.image || steamPoster(game.app_id || game.appid || game.id);
+	const normalizedPrice = normalizePriceValue(game.cost ?? game.price, normalizedPlatform);
+	const normalizedGenres = normalizeNamedList(game.genre_names ?? game.genreNames ?? game.genres);
+	const normalizedTags = normalizeNamedList(game.tag_names ?? game.tagNames ?? game.tags);
+	const baseTags = normalizedTags.length > 0 ? normalizedTags : normalizedGenres;
+	const tagSet = new Set(baseTags.map((tag) => String(tag).toLowerCase()));
+	if (fallbackTag && !tagSet.has(String(fallbackTag).toLowerCase())) {
+		baseTags.push(fallbackTag);
+	}
+
 	return {
 		id: game.app_id || game.appid || game.id,
 		app_id: game.app_id || game.appid || game.id,
 		appid: game.app_id || game.appid || game.id,
 		name: game.name,
 		title: game.name || game.title,
-		image: game.banner_img || game.image || steamPoster(game.app_id || game.appid || game.id),
+		image: resolvedImage,
 		banner_img: game.banner_img || game.image || null,
+		preferContainImage: !game.banner_img,
 		cost: normalizedPrice,
 		price: normalizedPrice,
 		discountPercent: parseDiscountPercent(game),
 		description: game.description || '',
 		platform_name: normalizedPlatform,
 		minimum_requirements: game.minimum_requirements || '',
-		genres: Array.isArray(game.genres) ? game.genres : [],
-		tags: [
-			...(Array.isArray(game.tags) ? game.tags : []),
-			...(fallbackTag ? [fallbackTag] : []),
-		],
+		genres: normalizedGenres,
+		tags: baseTags,
 	};
 }
 

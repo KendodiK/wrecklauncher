@@ -24,6 +24,55 @@ const { error } = require('console');
 const shopSpecials = require('./fetchShopSpecials.js');
 //#endregion
 
+async function collectOwnedGamesFromSteamForNativeUser(nativeUserId) {
+    const normalizedNativeUserId = String(nativeUserId ?? '').trim();
+    if (!normalizedNativeUserId) {
+        throw new Error('Missing native user id');
+    }
+
+    const platformUserCtrl = new PlatformUsersController();
+    const platformCtrl = new PlatformsController();
+    const platformUsers = await platformUserCtrl.getByNativeUserId(normalizedNativeUserId);
+    const steamPlatform = await platformCtrl.getByPlatformName('steam');
+
+    const steamPlatformId = Number(steamPlatform?.id);
+    if (!Number.isFinite(steamPlatformId) || steamPlatformId <= 0) {
+        return [];
+    }
+
+    const ownedGames = [];
+    for (const platformUser of platformUsers) {
+        if (Number(platformUser?.platform_id) !== steamPlatformId) {
+            continue;
+        }
+
+        const steamProfileId = String(platformUser?.platform_profile_id ?? '').trim();
+        if (!steamProfileId) {
+            continue;
+        }
+
+        const steamApiUrl = `https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key=${steamApiKey}&steamid=${steamProfileId}&include_appinfo=true&format=json`;
+        const response = await fetch(steamApiUrl);
+        if (!response.ok) {
+            console.warn('Steam API call failed for profile:', { steamProfileId, status: response.status });
+            continue;
+        }
+
+        const data = await response.json();
+        const games = Array.isArray(data?.response?.games) ? data.response.games : [];
+        ownedGames.push(...games);
+    }
+
+    const seen = new Set();
+    return ownedGames.filter((game) => {
+        const id = game?.appid ?? game?.app_id;
+        const key = String(id ?? '').trim();
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+}
+
 module.exports.fetchInitialShopSpecialsData = async function() {
   try {    
         const postNewGame = module.exports.POSTNewGame;
@@ -205,45 +254,33 @@ module.exports.GETSteamProfileId = async function (req, res) {
 
 module.exports.GETOwnedGamesSteam = async function (req, res) {
     try {
-        const platformUserCtrl = new PlatformUsersController();
-        const platformCtrl = new PlatformsController();
+                const userId = String(req?.auth?.userId ?? req?.body?.userId ?? '').trim();
+                if (!userId) {
+                        return res.status(400).json({ error: 'Missing authenticated user id' });
+                }
 
-        const { userId } = req.body ||req.auth;
-        const platformUsers = await platformUserCtrl.getByNativeUserId(userId);
-        const steamPlatform = await platformCtrl.getByPlatformName('steam');
-        if (!steamPlatform) {
-          return res.status(400).json(steamPlatform.error ?? { error: 'Steam platform not found in database' });
-        }
-        let ownedGames = [];
-        for (const platformUser of platformUsers) {
-          if (Number(platformUser.platform_id) === Number(steamPlatform.id)) {
-                        // include_appinfo=true is required so each owned game contains a human-readable name.
-                        const steamApiUrl = `https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key=${steamApiKey}&steamid=${platformUser.platform_profile_id}&include_appinfo=true&format=json`;
-            const response = await fetch(steamApiUrl);
-            if (!response.ok) {
-              console.error('Error fetching Steam API:', response.statusText);
-              return res.status(500).json({ error: 'Failed to fetch data from Steam API' });
-            }
-            const data = await response.json();
-                        const games = Array.isArray(data?.response?.games) ? data.response.games : [];
-                        ownedGames.push(...games);
-          }
-        }
-        if (ownedGames.length === 0) {
-          return res.status(400).json({ error: 'No owned games found for this user on Steam' });
-        }
-        const seen = new Set();
-        const uniqueOwnedGames = ownedGames.filter(g => {
-        const id = g.appid ?? g.app_id;
-        if (!id || seen.has(id)) return false;
-        seen.add(id);
-        return true;
-        });
-        return res.json({ ownedGames: uniqueOwnedGames });
+                const ownedGames = await collectOwnedGamesFromSteamForNativeUser(userId);
+                return res.json({ ownedGames });
     } catch (error) {
         console.error('Error in /steam/api/getOwnedGames endpoint:', error);
         return res.status(500).json({ error: 'Internal server error' });
     }
+}
+
+module.exports.GETOwnedGamesSteamByNativeUserId = async function (req, res) {
+        try {
+                const { userId } = req.params;
+                const normalizedUserId = String(userId ?? '').trim();
+                if (!normalizedUserId) {
+                        return res.status(400).json({ error: 'Missing userId' });
+                }
+
+                const ownedGames = await collectOwnedGamesFromSteamForNativeUser(normalizedUserId);
+                return res.json({ ownedGames });
+        } catch (error) {
+                console.error('Error in /api/native-users/:userId/steam-owned-games endpoint:', error);
+                return res.status(500).json({ error: error?.message || 'Internal server error' });
+        }
 }
 
 module.exports.GETGameCount = async function (req, res) {
@@ -401,12 +438,15 @@ module.exports.GETFriendsOfNativeUser = async function (req, res) {
         const { nativeUserId } = req.params;
         const friendsCtrl = new FriendsController();
         const friendsRaw = await friendsCtrl.getNativeUserFriends(nativeUserId);
+        const normalizedNativeUserId = String(nativeUserId ?? '').trim();
 
         const friends = [];
         friendsRaw.forEach(friend => {
+            const user1 = String(friend.user1_id ?? '').trim();
+            const user2 = String(friend.user2_id ?? '').trim();
             friends.push({
                 id: friend.id,
-                user_id: (Number(friend.user1_id) !== Number(nativeUserId)) ? friend.user1_id : friend.user2_id
+                user_id: user1 !== normalizedNativeUserId ? friend.user1_id : friend.user2_id
             });
         });
         return res.json(friends);
@@ -726,12 +766,22 @@ module.exports.POSTNewFriends = async function (req, res) {
             return res.status(400).json({ message: 'Missing required fields', missing: ['friend_user_id'] });
         }
 
+        if (String(userId) === String(friendUserId)) {
+            return res.status(400).json({ message: 'You cannot add yourself as a friend' });
+        }
+
         const result = await friendsCtrl.create({ user1_id: userId, user2_id: friendUserId });
-        if (result.message.includes('already exists') || result instanceof Error) {
+        if (result instanceof Error) {
+            return res.status(409).json({ message: result.message });
+        }
+        if (String(result?.message || '').toLowerCase().includes('already exists')) {
             return res.status(400).json({ message: result.message });
         }
         return res.status(201).json({ message: "friendship created", id: result.id });
     } catch (error) {
+        if (String(error?.code || '').toUpperCase() === 'ER_DUP_ENTRY') {
+            return res.status(409).json({ message: 'Friendship already exists' });
+        }
         console.error('Error in /api/friends endpoint:', error);
         return res.status(500).json({ error: error.message }); 
     }
@@ -851,17 +901,17 @@ module.exports.PUTNativeUserProfileInfo = async function (req, res) {
         const { name, email, bio, pfp } = req.body;
 
         const data = {
-            "token": 'new',
-            "name": name ?? null,
-            "email": email ?? null,
-            "bio": bio ?? null,
-            "pfp": pfp ?? null
+            "name": name ?? undefined,
+            "email": email ?? undefined,
+            "bio": bio ?? undefined,
+            "pfp": pfp ?? undefined
         }
-        const result = nativeUserCtrl.update(data);
+
+        const result = await nativeUserCtrl.update(userId, data);
         if (result instanceof Error) {
             return res.status(400).json({ error: result });
         }
-        return res.json(202).json(result);
+        return res.status(202).json(result);
     } catch (err) {
         console.error('Error in /api/native-users endpoint:', err)
         return res.status(500).json({ error: err.message });

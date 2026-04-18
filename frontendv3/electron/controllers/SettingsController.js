@@ -69,6 +69,10 @@ class SettingsController {
         concurrent: 3,
       },
       account: {
+        profile: {
+          bio: '',
+          avatarUrl: '',
+        },
         platforms: {
           steam: { connected: false, username: '', profileLink: '' },
           gog: { connected: false, username: '' },
@@ -88,6 +92,23 @@ class SettingsController {
   }
 
   /**
+   * Platform link records are backend-owned and should not be persisted in local settings.
+   * @param {any} settings
+   * @returns {any}
+   */
+  #stripVolatilePlatformSettings(settings) {
+    if (typeof settings !== 'object' || settings === null) return settings;
+
+    const next = { ...settings };
+    if (typeof next.account === 'object' && next.account !== null) {
+      next.account = { ...next.account };
+      delete next.account.platforms;
+    }
+
+    return next;
+  }
+
+  /**
    * Load settings from file or return defaults
    * @returns {Promise<any>}
    */
@@ -98,10 +119,11 @@ class SettingsController {
       if (fs.existsSync(settingsPath)) {
         const data = fs.readFileSync(settingsPath, 'utf-8');
         const parsed = JSON.parse(data);
+        const sanitizedLoaded = this.#stripVolatilePlatformSettings(parsed);
         
         // Merge with defaults to ensure all fields exist
         const defaults = this.#getDefaultSettings();
-        return this.#mergeSettings(defaults, parsed);
+        return this.#mergeSettings(defaults, sanitizedLoaded);
       }
     } catch (err) {
       console.error('[SettingsController] Failed to load settings:', err);
@@ -122,6 +144,12 @@ class SettingsController {
     if (typeof loaded !== 'object' || loaded === null) return defaults;
 
     const result = { ...defaults };
+    const loadedKeys = Object.keys(loaded);
+    for (const key of loadedKeys) {
+      if (!(key in defaults)) {
+        result[key] = loaded[key];
+      }
+    }
 
     for (const key of Object.keys(defaults)) {
       const defaultValue = defaults[key];
@@ -151,7 +179,8 @@ class SettingsController {
     const settingsPath = this.#getSettingsPath();
     
     try {
-      fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+      const sanitized = this.#stripVolatilePlatformSettings(settings);
+      fs.writeFileSync(settingsPath, JSON.stringify(sanitized, null, 2), 'utf-8');
     } catch (err) {
       console.error('[SettingsController] Failed to save settings:', err);
       throw new Error('Failed to save settings');
@@ -219,15 +248,8 @@ class SettingsController {
    * @returns {Promise<any>}
    */
   async updatePlatformConnection(platform, connected, username = '') {
+    // Backward-compatible IPC no-op: platform link data is fetched from backend per request.
     const settings = await this.getSettings();
-
-    if (!settings.account.platforms[platform]) {
-      throw new Error(`Invalid platform: ${platform}`);
-    }
-
-    settings.account.platforms[platform] = { connected, username };
-    await this.#saveSettings(settings);
-
     return settings;
   }
 }

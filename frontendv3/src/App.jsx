@@ -61,13 +61,24 @@ function App() {
           typeof profile?.username === 'string' && profile.username.trim()
             ? profile.username.trim()
             : (userId ? `User ${userId}` : 'Player');
+        const avatarCandidate =
+          profile?.avatarUrl ||
+          profile?.avatar_url ||
+          profile?.avatarURL ||
+          profile?.profilePicture ||
+          profile?.pfp ||
+          null;
+        const resolvedAvatarUrl =
+          typeof avatarCandidate === 'string' && avatarCandidate.trim()
+            ? avatarCandidate.trim()
+            : null;
 
         if (!cancelled) {
           setUser({
             id: profile?.id ?? userId,
             username,
             bio: profile?.bio ?? null,
-            avatarUrl: profile?.avatarUrl ?? null,
+            avatarUrl: resolvedAvatarUrl,
             token: token.trim(),
           });
         }
@@ -102,6 +113,23 @@ function App() {
     setUser(null);
   }, []);
 
+  const handleLocalUserProfileUpdate = useCallback((profilePatch) => {
+    const patch = profilePatch && typeof profilePatch === 'object' ? profilePatch : {};
+    const hasBio = Object.prototype.hasOwnProperty.call(patch, 'bio');
+    const hasAvatar = Object.prototype.hasOwnProperty.call(patch, 'avatarUrl');
+
+    if (!hasBio && !hasAvatar) return;
+
+    setUser((previous) => {
+      if (!previous) return previous;
+      return {
+        ...previous,
+        bio: hasBio ? (patch.bio ?? null) : previous.bio,
+        avatarUrl: hasAvatar ? (patch.avatarUrl ?? null) : previous.avatarUrl,
+      };
+    });
+  }, []);
+
   return (
     <DownloadManagerProvider>
       <HashRouter>
@@ -121,7 +149,7 @@ function App() {
               <Route path="/game/:id" element={<GamePage />} />
               <Route path="/downloads" element={<DownloadsPage />} />
               <Route path="/friends" element={<FriendsPage user={user} />} />
-              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/settings" element={<SettingsPage onProfileLocalUpdate={handleLocalUserProfileUpdate} />} />
               <Route path="/profile/:userId?" element={<ProfilePage user={user} />} />
               <Route path="/" element={<Store />} />
             </Routes>

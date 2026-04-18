@@ -27,8 +27,9 @@ class FriendsController extends Controller {
             throw foreignKeyCheck;
         }
 
-        if(!this.#checkUniqueConsrain(data)) {
-            return new Error({ message: `friendsip already exsisting between the user ${data.user1_id} and ${data.user2_id}` })
+        const uniqueCheck = await this.#checkUniqueConsrain(data);
+        if (uniqueCheck instanceof Error) {
+            return uniqueCheck;
         }
 
         const query = 'INSERT INTO `friends` (user1_id, user2_id) VALUES (?,?)'
@@ -128,7 +129,7 @@ class FriendsController extends Controller {
             const values = [data.user1_id, data.user2_id, data.user2_id, data.user1_id];
             const [rows] = await this.dbConnection.execute(query, values);
             if (rows && rows.length > 0) {
-                return { message: `Friendship already exists between user ${data.user1_id} and user ${data.user2_id}` };
+                return new Error(`Friendship already exists between user ${data.user1_id} and user ${data.user2_id}`);
             }
         } catch (err) {
             console.error(`Error while fetching friends for native user ${data.user1_id} from table ${this.tableName}: ${err}`);

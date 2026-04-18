@@ -10,7 +10,7 @@ const LibraryGameStrip = ({ games, activeGameId, onSelect, onOpenStore }) => {
     () =>
       (games ?? []).map((game) => ({
         id: game.id,
-        image: game.coverUrl,
+        image: game.heroUrl || game.coverUrl,
         title: game.title,
         _origGame: game,
       })),

@@ -31,6 +31,7 @@ const DownloadsPage = () => {
 		pause,
 		remove,
 		resumeDownload,
+		openDownload,
 		clearError,
 	} = useDownloadManager();
 	const [localError, setLocalError] = useState('');
@@ -112,7 +113,7 @@ const DownloadsPage = () => {
 													<span>Up: {formatBytes(item.uploadSpeed)}/s</span>
 													<span>ETA: {formatSeconds(item.timeRemaining)}</span>
 												</div>
-												<div className="mt-3 flex flex-wrap gap-2">
+												<div className="mt-3 flex flex-wrap items-center gap-2">
 											<button
 												type="button"
 												disabled={!canToggle}
@@ -131,7 +132,33 @@ const DownloadsPage = () => {
 													</svg>
 												)}
 											</button>
-											<button type="button" onClick={() => remove(item.infoHash, true)} className="rounded-lg border border-rose-700/70 bg-rose-900/20 px-3 py-1.5 text-xs text-rose-100 hover:bg-rose-900/40">Remove</button>
+											{item.done ? (
+												<button
+													type="button"
+													onClick={async () => {
+														setLocalError('');
+														try {
+															await openDownload(item.infoHash, item.savePath || item.path || '');
+														} catch (e) {
+															setLocalError(e instanceof Error ? e.message : String(e));
+														}
+													}}
+													className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-emerald-500/70 bg-emerald-900/30 text-emerald-100 hover:bg-emerald-800/45"
+													title="Open download folder"
+													aria-label="Open download folder"
+												>
+													<svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+														<path strokeLinecap="round" strokeLinejoin="round" d="M3 7h5l2 2h11v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
+													</svg>
+												</button>
+											) : null}
+											<button
+												type="button"
+												onClick={() => remove(item.infoHash, true)}
+												className="ml-auto rounded-lg border border-rose-700/70 bg-rose-900/20 px-3 py-1.5 text-xs text-rose-100 hover:bg-rose-900/40"
+											>
+												Remove
+											</button>
 												</div>
 												<details className="mt-2 rounded-lg border border-slate-700/70 bg-slate-900/40 px-2 py-1.5 text-xs text-slate-300">
 													<summary className="cursor-pointer list-none text-[11px] uppercase tracking-[0.1em] text-slate-400">Advanced</summary>

@@ -56,6 +56,7 @@ const [activeFriendId, setActiveFriendId] = useState(null);
 const [draft, setDraft] = useState('');
 const [localMessages, setLocalMessages] = useState({});
 const [addingFriendIds, setAddingFriendIds] = useState([]);
+const [removingFriendIds, setRemovingFriendIds] = useState([]);
 
 const loadFriends = useCallback(async () => {
 try {
@@ -239,6 +240,7 @@ profile: {
 id: friend.id,
 name: friend.name,
 bio: friend.bio,
+avatarUrl: friend.avatarUrl,
 pfp: friend.avatarUrl,
 },
 viewerUsername: user?.username || 'Player',
@@ -247,11 +249,11 @@ viewerUsername: user?.username || 'Player',
 };
 
 const handleAddFriend = async (candidate) => {
-const candidateId = Number(candidate?.id);
-if (!Number.isFinite(candidateId) || candidateId <= 0) return;
+const candidateId = String(candidate?.id ?? '').trim();
+if (!candidateId) return;
 
-if (addingFriendIds.includes(candidate.id)) return;
-setAddingFriendIds((prev) => [...prev, candidate.id]);
+if (addingFriendIds.includes(candidateId)) return;
+setAddingFriendIds((prev) => [...prev, candidateId]);
 setSearchError('');
 
 try {
@@ -272,11 +274,59 @@ String(item.id || '').trim() === String(candidate.id || '').trim()
 console.error('Failed to add friend:', error);
 setSearchError(error instanceof Error ? error.message : 'Failed to add friend');
 } finally {
-setAddingFriendIds((prev) => prev.filter((id) => id !== candidate.id));
+setAddingFriendIds((prev) => prev.filter((id) => id !== candidateId));
 }
 };
 
-const FriendRow = ({ friend, selected, showMsgButton }) => (
+const handleRemoveFriend = async (friend) => {
+const friendId = String(friend?.id ?? '').trim();
+const friendshipId = String(friend?.friendshipId ?? '').trim();
+if (!friendId) return;
+if (!friendshipId) {
+setFriendsError('Cannot remove this friend: missing friendship id');
+return;
+}
+
+if (removingFriendIds.includes(friendId)) return;
+const canConfirm = typeof window.confirm === 'function';
+const shouldRemove = !canConfirm || window.confirm(`Remove ${friend?.name || 'this user'} from your friends?`);
+if (!shouldRemove) return;
+
+setRemovingFriendIds((prev) => [...prev, friendId]);
+setFriendsError('');
+
+try {
+if (typeof window.electronAPI.removeFriend !== 'function') {
+throw new Error('Remove-friend API is not available in this build');
+}
+
+await window.electronAPI.removeFriend(friendshipId);
+
+setFriends((prev) => prev.filter((row) => String(row?.id ?? '').trim() !== friendId));
+setLocalMessages((prev) => {
+const next = { ...prev };
+delete next[friendId];
+return next;
+});
+setSearchResults((prev) =>
+prev.map((item) =>
+String(item?.id ?? '').trim() === friendId
+? { ...item, alreadyFriend: false }
+: item,
+),
+);
+setActiveFriendId((prev) => (String(prev ?? '').trim() === friendId ? null : prev));
+
+await loadFriends();
+} catch (error) {
+console.error('Failed to remove friend:', error);
+setFriendsError(error instanceof Error ? error.message : 'Failed to remove friend');
+} finally {
+setRemovingFriendIds((prev) => prev.filter((id) => id !== friendId));
+}
+};
+
+const FriendRow = ({ friend, selected, showMsgButton, showProfileButton, showRemoveButton, removeBusy, onRemove }) => (
 <div
 role="button"
 tabIndex={0}
@@ -314,6 +364,8 @@ statusDot(friend.status)
 <div className="text-xs text-slate-400 capitalize">{friend.status}</div>
 </div>
 
+{(showMsgButton || showProfileButton || showRemoveButton) && (
+<div className="flex items-center gap-2">
 {showMsgButton && (
 <button
 type="button"
@@ -325,6 +377,35 @@ openChat(friend.id);
 >
 MSG
 </button>
+)}
+{showProfileButton && (
+<button
+type="button"
+className="text-xs px-2 py-1 rounded border border-slate-700/60 bg-slate-900/30 hover:bg-slate-900/50"
+onClick={(e) => {
+e.stopPropagation();
+viewProfile(friend);
+}}
+>
+Profile
+</button>
+)}
+{showRemoveButton && (
+<button
+type="button"
+disabled={!!removeBusy}
+className="text-xs px-2 py-1 rounded border border-rose-700/70 bg-rose-900/25 hover:bg-rose-900/35 text-rose-200 disabled:opacity-60"
+onClick={(e) => {
+e.stopPropagation();
+if (typeof onRemove === 'function') {
+void onRemove(friend);
+}
+}}
+>
+{removeBusy ? 'Removing...' : 'Remove'}
+</button>
+)}
+</div>
 )}
 </div>
 );
@@ -374,7 +455,16 @@ className="h-9 flex-1 rounded-lg border border-slate-700/60 bg-slate-950/20 px-3
 <div className="text-sm text-slate-300 px-2 py-2">No friends found.</div>
 ) : (
 filteredFriends.map((f) => (
-<FriendRow key={f.id} friend={f} selected={false} showMsgButton />
+<FriendRow
+key={f.id}
+friend={f}
+selected={false}
+showMsgButton
+showProfileButton
+showRemoveButton
+removeBusy={removingFriendIds.includes(String(f.id))}
+onRemove={handleRemoveFriend}
+/>
 ))
 )}
 </div>
@@ -390,7 +480,7 @@ filteredFriends.map((f) => (
 <div className="text-sm text-slate-300 px-2 py-2">No users found.</div>
 ) : (
 searchResults.map((candidate) => {
-const isBusy = addingFriendIds.includes(candidate.id);
+const isBusy = addingFriendIds.includes(String(candidate.id || '').trim());
 return (
 <div key={candidate.id} className="flex items-center gap-3 rounded-lg border border-slate-700/60 bg-slate-950/25 px-3 py-2">
 <div className="h-9 w-9 rounded-full overflow-hidden border border-slate-600/60 bg-slate-700/60 grid place-items-center text-xs font-semibold">
@@ -433,6 +523,8 @@ key={f.id}
 friend={f}
 selected={f.id === activeFriendId}
 showMsgButton={false}
+showProfileButton
+showRemoveButton={false}
 />
 ))}
 </div>
@@ -550,6 +642,17 @@ className="mt-3 w-full h-9 rounded-lg border border-slate-700/60 bg-slate-900/25
 onClick={() => viewProfile(activeFriend)}
 >
 View profile
+</button>
+
+<button
+type="button"
+disabled={removingFriendIds.includes(String(activeFriend.id))}
+className="mt-2 w-full h-9 rounded-lg border border-rose-700/70 bg-rose-900/25 hover:bg-rose-900/35 text-sm text-rose-200 disabled:opacity-60"
+onClick={() => {
+void handleRemoveFriend(activeFriend);
+}}
+>
+{removingFriendIds.includes(String(activeFriend.id)) ? 'Removing...' : 'Remove friend'}
 </button>
 </div>
 </div>

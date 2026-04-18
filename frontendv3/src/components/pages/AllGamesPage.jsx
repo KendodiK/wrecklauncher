@@ -52,16 +52,24 @@ function parseDiscountPercent(game) {
 	return 0;
 }
 
-function normalizePriceValue(raw) {
+function normalizePriceValue(raw, platformHint = '') {
 	const numeric = Number(raw);
 	if (!Number.isFinite(numeric) || numeric <= 0) return 0;
 
+	const normalizedPlatform = String(platformHint || '').trim().toLowerCase();
+	const looksLikeMinorUnits = Number.isInteger(numeric)
+		&& (
+			(normalizedPlatform === 'gog' || normalizedPlatform === 'gog.com')
+				? numeric >= 100
+				: numeric >= 1000
+		);
+
 	// Some backends store cents; normalize to major currency unit for UI filters.
-	if (Number.isInteger(numeric) && numeric >= 1000) {
+	if (looksLikeMinorUnits) {
 		return Number((numeric / 100).toFixed(2));
 	}
 
-	return numeric;
+	return Number(numeric.toFixed(2));
 }
 
 async function fetchAllGamesInBatches(api, batchSize = 20) {
@@ -172,7 +180,7 @@ const AllGamesPage = () => {
 					const normalizedPlatform =
 						resolveStorePlatformFromGameStrict(game) ||
 						resolveStorePlatformFromGame(game, 'steam');
-					const normalizedPrice = normalizePriceValue(game.cost ?? game.price);
+					const normalizedPrice = normalizePriceValue(game.cost ?? game.price, normalizedPlatform);
 					return {
 					id: game.id,
 					app_id: game.app_id,

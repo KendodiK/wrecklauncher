@@ -300,14 +300,14 @@ async function fetchGogCoverUrl(appId) {
   }
   const data = await response.json();
   const imageFormatterUrl = String(String(data?._embedded?.product?._links?.image?.href).split('{formatter}.png')[0] ?? '');
-  const imageUrl = `${String(data?._embedded?.product?._links?.image?.href).split('{formatter}.png')[0] ?? ''}glx_vertical_cover.webp`;
+  const imageUrl = `${String(data?._embedded?.product?._links?.image?.href).split('{formatter}.png')[0] ?? ''}1600.png`;
   const isValidImage = await fetch(imageUrl, { method: 'HEAD' })
     .then(res => res.ok && res.status === 200)
     .catch(() => false);
   if (isValidImage) {
     return imageUrl;
   }
-  const fallback = `${imageFormatterUrl}1600.png`;
+  const fallback = `${imageFormatterUrl}product_630.png`;
   return fallback;
 }
 /**

@@ -136,14 +136,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getCurrentUser: () => {
     return invokeAuthed('user:get-current-user');
   },
+  updateCurrentUserProfile: (profilePatch) => {
+    return invokeAuthed('user:update-profile', profilePatch);
+  },
   getMyFriends: (nativeUserId) => {
     return invokeAuthed('friends:get-mine', nativeUserId);
   },
   searchNativeUsersByName: (name) => {
     return invokeAuthed('native-users:search', name);
   },
+  getNativeUserById: (nativeUserId) => {
+    return invokeAuthed('native-users:get-by-id', nativeUserId);
+  },
   addFriend: (friendUserId) => {
     return invokeAuthed('friends:add', friendUserId);
+  },
+  removeFriend: (friendshipId) => {
+    return invokeAuthed('friends:delete', friendshipId);
   },
   clearToken: async () => {
     setAuthToken(null);
@@ -189,6 +198,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   //Steam
   getOwnedGamesFromSteam: () => {
     return invokeAuthed('user:get-owned-games-from-steam' );
+  },
+  getOwnedGamesFromSteamByNativeUserId: (nativeUserId) => {
+    return invokeAuthed('user:get-owned-games-from-steam-by-native-userid', nativeUserId);
   },
   getSteamInstalledGames: () => ipcRenderer.invoke('steam:get-installed-games'),
   getSteamGameDetails: (appID, cc) => {
@@ -278,6 +290,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   torrentRemove: (infoHash, deleteFiles) => ipcRenderer.invoke('torrent:remove', infoHash, deleteFiles),
   /** @returns {Promise<import('./electron/models').TorrentProgress[]>} */
   torrentGetStatus: () => ipcRenderer.invoke('torrent:get-status'),
+  /**
+   * Open the download folder/path for a torrent.
+   * @param {string} infoHash
+   * @param {string} [savePath]
+   */
+  torrentOpen: (infoHash, savePath) => ipcRenderer.invoke('torrent:open', infoHash, savePath),
   /**
    * Subscribe to live progress pushes from the main process.
    * Returns an unsubscribe function.

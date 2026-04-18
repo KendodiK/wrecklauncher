@@ -6,13 +6,23 @@ function steamPoster(appid) {
 	return `https://cdn.cloudflare.steamstatic.com/steam/apps/${id}/library_600x900.jpg`;
 }
 
-function normalizePriceValue(raw) {
+function normalizePriceValue(raw, platformHint = '') {
 	const numeric = Number(raw);
 	if (!Number.isFinite(numeric) || numeric <= 0) return 0;
-	if (Number.isInteger(numeric) && numeric >= 1000) {
+
+	const normalizedPlatform = String(platformHint || '').trim().toLowerCase();
+	const looksLikeMinorUnits = Number.isInteger(numeric)
+		&& (
+			(normalizedPlatform === 'gog' || normalizedPlatform === 'gog.com')
+				? numeric >= 100
+				: numeric >= 1000
+		);
+
+	if (looksLikeMinorUnits) {
 		return Number((numeric / 100).toFixed(2));
 	}
-	return numeric;
+
+	return Number(numeric.toFixed(2));
 }
 
 function normalizePlatformCandidates(selectedPlatforms) {
@@ -32,7 +42,7 @@ function mapServerGame(game) {
 	const title = String(game.name ?? game.title ?? '').trim();
 	if (!title) return null;
 
-	const normalizedPrice = normalizePriceValue(game.cost ?? game.price);
+	const normalizedPrice = normalizePriceValue(game.cost ?? game.price, platform);
 
 	return {
 		id: game.id ?? appId,
@@ -67,8 +77,8 @@ function mapSteamDetails(details) {
 		name: title,
 		image: details.banner_img || details.coverUrl || steamPoster(appId),
 		banner_img: details.banner_img || details.coverUrl || null,
-		price: normalizePriceValue(details.cost ?? details.price),
-		cost: normalizePriceValue(details.cost ?? details.price),
+		price: normalizePriceValue(details.cost ?? details.price, 'steam'),
+		cost: normalizePriceValue(details.cost ?? details.price, 'steam'),
 		description: details.description || details.short_description || '',
 		platform_name: 'steam',
 		platform: 'steam',
@@ -90,8 +100,8 @@ function mapGogDetails(details) {
 		name: title,
 		image: details.banner_img || details.cover_url || details.coverUrl || null,
 		banner_img: details.banner_img || details.cover_url || details.coverUrl || null,
-		price: normalizePriceValue(details.cost ?? details.price),
-		cost: normalizePriceValue(details.cost ?? details.price),
+		price: normalizePriceValue(details.cost ?? details.min_price ?? details.minPrice ?? details.price, 'gog'),
+		cost: normalizePriceValue(details.cost ?? details.min_price ?? details.minPrice ?? details.price, 'gog'),
 		description: details.description || '',
 		platform_name: 'gog',
 		platform: 'gog',
@@ -113,8 +123,8 @@ function mapItchDetails(details) {
 		name: title,
 		image: details.coverUrl || details.cover_url || details.banner_img || null,
 		banner_img: details.coverUrl || details.cover_url || details.banner_img || null,
-		price: normalizePriceValue(details.minPrice ?? details.cost ?? details.price),
-		cost: normalizePriceValue(details.minPrice ?? details.cost ?? details.price),
+		price: normalizePriceValue(details.minPrice ?? details.cost ?? details.price, 'itchio'),
+		cost: normalizePriceValue(details.minPrice ?? details.cost ?? details.price, 'itchio'),
 		description: details.shortText || details.description || '',
 		platform_name: 'itchio',
 		platform: 'itchio',

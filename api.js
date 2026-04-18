@@ -119,6 +119,8 @@ app.get("/api/native-users/:userId", apiFunctions.GETNativeUserById); //old path
 
 app.get("/api/native-users/name/:name", apiFunctions.GETNativeUserByName); //totally new path
 
+app.get("/api/native-users/:userId/steam-owned-games", tokenValidate(), apiFunctions.GETOwnedGamesSteamByNativeUserId);
+
 app.get("/api/friends/:nativeUserId", apiFunctions.GETFriendsOfNativeUser);
 
 app.get("/api/messages/:friendsId", apiFunctions.GETChatlogByFriendId); //old path: /api/chat/:friendsId TEST NEEDED!

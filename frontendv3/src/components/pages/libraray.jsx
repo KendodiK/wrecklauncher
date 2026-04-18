@@ -427,6 +427,71 @@ function dedupeLibraryGames(games) {
 	return out;
 }
 
+function createEmptyPlatformConnectionState() {
+	return {
+		steam: { connected: false, username: '' },
+		gog: { connected: false, username: '' },
+		itch: { connected: false, username: '' },
+	};
+}
+
+function normalizePlatformUsersPayload(payload) {
+	if (Array.isArray(payload)) return payload;
+	if (Array.isArray(payload?.items)) return payload.items;
+	if (Array.isArray(payload?.data)) return payload.data;
+	return [];
+}
+
+function normalizePlatformIdentifier(raw) {
+	return String(raw ?? '').trim().toLowerCase();
+}
+
+async function fetchRuntimePlatformConnections(electronAPI) {
+	const empty = createEmptyPlatformConnectionState();
+	if (!electronAPI || typeof electronAPI.getPlatformUsers !== 'function') {
+		return empty;
+	}
+
+	const [usersPayload, steamPlatform, gogPlatform, itchPlatform] = await Promise.all([
+		electronAPI.getPlatformUsers(),
+		typeof electronAPI.getPlatform === 'function' ? electronAPI.getPlatform('steam').catch(() => null) : Promise.resolve(null),
+		typeof electronAPI.getPlatform === 'function' ? electronAPI.getPlatform('gog').catch(() => null) : Promise.resolve(null),
+		typeof electronAPI.getPlatform === 'function' ? electronAPI.getPlatform('itch').catch(() => null) : Promise.resolve(null),
+	]);
+
+	const users = normalizePlatformUsersPayload(usersPayload);
+	const platformIds = {
+		steam: normalizePlatformIdentifier(steamPlatform?.id ?? steamPlatform?.platform_id ?? steamPlatform?.platformId ?? 'steam'),
+		gog: normalizePlatformIdentifier(gogPlatform?.id ?? gogPlatform?.platform_id ?? gogPlatform?.platformId ?? 'gog'),
+		itch: normalizePlatformIdentifier(itchPlatform?.id ?? itchPlatform?.platform_id ?? itchPlatform?.platformId ?? 'itch'),
+	};
+
+	const resolvePlatformName = (row) => {
+		const raw = normalizePlatformIdentifier(
+			row?.platform_id ?? row?.platformId ?? row?.platform ?? row?.platform_name ?? row?.platformName,
+		);
+		if (!raw) return '';
+		if (raw === platformIds.steam || raw === 'steam') return 'steam';
+		if (raw === platformIds.gog || raw === 'gog' || raw === 'gog.com') return 'gog';
+		if (raw === platformIds.itch || raw === 'itch' || raw === 'itchio' || raw === 'itch.io') return 'itch';
+		return '';
+	};
+
+	const next = createEmptyPlatformConnectionState();
+	for (const row of users) {
+		if (!row || typeof row !== 'object') continue;
+		const platformName = resolvePlatformName(row);
+		if (!platformName) continue;
+
+		next[platformName].connected = true;
+		if (!next[platformName].username) {
+			next[platformName].username = String(row?.platform_user_name ?? row?.platformUserName ?? row?.username ?? '').trim();
+		}
+	}
+
+	return next;
+}
+
 const LibraryPage = () => {
 	const navigate = useNavigate();
 	const [libraryGames, setLibraryGames] = useState([]);
@@ -456,195 +521,229 @@ const LibraryPage = () => {
 			setErrorMessage('');
 
 			try {
-				const settings = await window.electronAPI.getSettings();
-				const steamSettings = settings?.account?.platforms?.steam;
-				const username = typeof steamSettings?.username === 'string' ? steamSettings.username.trim() : '';
-				const gogSettings = settings?.account?.platforms?.gog;
-				const itchSettings = settings?.account?.platforms?.itch;
+				if (typeof window?.electronAPI?.getSettings === 'function') {
+					await window.electronAPI.getSettings();
+				}
+				const runtimePlatforms = await fetchRuntimePlatformConnections(window.electronAPI).catch((error) => {
+					console.warn('Failed to load runtime platform connections for library:', error);
+					return createEmptyPlatformConnectionState();
+				});
+				const steamSettings = runtimePlatforms.steam;
+				const gogSettings = runtimePlatforms.gog;
+				const itchSettings = runtimePlatforms.itch;
 
 				/** @type {any[]} */
 				const mergedLibraryGames = [];
 				const loadErrors = [];
+				const platformTasks = [];
 
-				if (steamSettings?.connected && username) {
-					try {
-						const installedSteamGamesPromise =
-							typeof window.electronAPI.getSteamInstalledGames === 'function'
-								? window.electronAPI.getSteamInstalledGames()
-								: window.electronAPI.invoke('steam:get-installed-games');
+				if (steamSettings?.connected) {
+					platformTasks.push((async () => {
+						try {
+							const installedSteamGamesPromise =
+								typeof window.electronAPI.getSteamInstalledGames === 'function'
+									? window.electronAPI.getSteamInstalledGames()
+									: window.electronAPI.invoke('steam:get-installed-games');
 
-						const [ownedSteamGames, installedSteamGames] = await Promise.all([
-							window.electronAPI.getOwnedGamesFromSteam(username),
-							installedSteamGamesPromise.catch((error) => {
-								console.warn('Failed to load installed Steam games:', error);
-								return [];
-							}),
-						]);
+							const [ownedSteamGames, installedSteamGames] = await Promise.all([
+								window.electronAPI.getOwnedGamesFromSteam(),
+								installedSteamGamesPromise.catch((error) => {
+									console.warn('Failed to load installed Steam games:', error);
+									return [];
+								}),
+							]);
 
-						const installedAppIds = new Set(
-							(Array.isArray(installedSteamGames) ? installedSteamGames : [])
-								.map((game) => extractSteamAppId(game))
-								.filter((appId) => appId != null),
-						);
+							const installedAppIds = new Set(
+								(Array.isArray(installedSteamGames) ? installedSteamGames : [])
+									.map((game) => extractSteamAppId(game))
+									.filter((appId) => appId != null),
+							);
 
-						const normalizedSteamGames = (ownedSteamGames || [])
-							.map((game) => toSteamLibraryGame(game, installedAppIds))
-							.filter(Boolean);
+							const normalizedSteamGames = (ownedSteamGames || [])
+								.map((game) => toSteamLibraryGame(game, installedAppIds))
+								.filter(Boolean);
 
-						mergedLibraryGames.push(...normalizedSteamGames);
-					} catch (error) {
-						console.error('Failed to load Steam library:', error);
-						loadErrors.push(error instanceof Error ? error.message : 'Failed to load Steam library');
-					}
+							return { games: normalizedSteamGames, error: '' };
+						} catch (error) {
+							console.error('Failed to load Steam library:', error);
+							return {
+								games: [],
+								error: error instanceof Error ? error.message : 'Failed to load Steam library',
+							};
+						}
+					})());
 				}
 
 				if (itchSettings?.connected) {
-					try {
-						const installedItchGamesPromise =
-							typeof window.electronAPI.getItchInstalledGames === 'function'
-								? window.electronAPI.getItchInstalledGames()
-								: window.electronAPI.invoke('itch:get-installed-games');
+					platformTasks.push((async () => {
+						try {
+							const installedItchGamesPromise =
+								typeof window.electronAPI.getItchInstalledGames === 'function'
+									? window.electronAPI.getItchInstalledGames()
+									: window.electronAPI.invoke('itch:get-installed-games');
 
-						const itchLibraryPromise =
-							typeof window.electronAPI.getItchLibrary === 'function'
-								? window.electronAPI.getItchLibrary()
-								: window.electronAPI.invoke('itch:get-library');
+							const itchLibraryPromise =
+								typeof window.electronAPI.getItchLibrary === 'function'
+									? window.electronAPI.getItchLibrary()
+									: window.electronAPI.invoke('itch:get-library');
 
-						const [itchLibraryPayload, installedItchGames] = await Promise.all([
-							itchLibraryPromise.catch((error) => {
-								console.warn('Failed to load itch owned library:', error);
-								return null;
-							}),
-							installedItchGamesPromise.catch((error) => {
-								console.warn('Failed to load installed itch games:', error);
-								return [];
-							}),
-						]);
+							const [itchLibraryPayload, installedItchGames] = await Promise.all([
+								itchLibraryPromise.catch((error) => {
+									console.warn('Failed to load itch owned library:', error);
+									return null;
+								}),
+								installedItchGamesPromise.catch((error) => {
+									console.warn('Failed to load installed itch games:', error);
+									return [];
+								}),
+							]);
 
-						const installedList = Array.isArray(installedItchGames) ? installedItchGames : [];
-						const installedById = new Map();
-						for (const installed of installedList) {
-							const id = extractItchInstalledGameId(installed);
-							if (!id || installedById.has(id)) continue;
-							installedById.set(id, installed);
-						}
-
-						const ownedKeys = Array.isArray(itchLibraryPayload?.owned_keys) ? itchLibraryPayload.owned_keys : [];
-						const ownedMapped = [];
-						const usedInstalledIds = new Set();
-
-						for (const ownedKey of ownedKeys) {
-							const id = extractItchOwnedGameId(ownedKey);
-							const mapped = toItchLibraryGame(ownedKey, installedById, id);
-							if (!mapped) continue;
-							ownedMapped.push(mapped);
-							if (id) usedInstalledIds.add(id);
-						}
-
-						const installedOnlyMapped = [];
-						for (const installed of installedList) {
-							const id = extractItchInstalledGameId(installed);
-							if (!id || usedInstalledIds.has(id)) continue;
-							const mapped = toItchInstalledOnlyLibraryGame(installed, id);
-							if (!mapped) continue;
-							installedOnlyMapped.push(mapped);
-						}
-
-						mergedLibraryGames.push(...ownedMapped, ...installedOnlyMapped);
-					} catch (error) {
-						console.error('Failed to load itch library:', error);
-						loadErrors.push(error instanceof Error ? error.message : 'Failed to load itch library');
-					}
-				}
-
-				if (gogSettings?.connected) {
-					try {
-						const installedGogGamesPromise =
-							typeof window.electronAPI.getGogInstalledGames === 'function'
-								? window.electronAPI.getGogInstalledGames()
-								: window.electronAPI.invoke('gog:get-installed-games');
-
-						const gogLibraryPromise =
-							typeof window.electronAPI.getGogLibrary === 'function'
-								? window.electronAPI.getGogLibrary()
-								: window.electronAPI.invoke('gog:get-library');
-
-						const [gogLibraryPayload, installedGogGames] = await Promise.all([
-							gogLibraryPromise.catch((error) => {
-								console.warn('Failed to load GOG owned library:', error);
-								return null;
-							}),
-							installedGogGamesPromise.catch((error) => {
-								console.warn('Failed to load installed GOG games:', error);
-								return [];
-							}),
-						]);
-
-						const installedList = Array.isArray(installedGogGames) ? installedGogGames : [];
-						const installedById = new Map();
-						const installedByTitle = new Map();
-						for (const installed of installedList) {
-							const id = extractGogInstalledProductId(installed);
-							if (id && !installedById.has(id)) {
+							const installedList = Array.isArray(installedItchGames) ? installedItchGames : [];
+							const installedById = new Map();
+							for (const installed of installedList) {
+								const id = extractItchInstalledGameId(installed);
+								if (!id || installedById.has(id)) continue;
 								installedById.set(id, installed);
 							}
 
-							const normalizedTitle = normalizeLibraryTitleForMatch(installed?.gameName);
-							if (normalizedTitle && !installedByTitle.has(normalizedTitle)) {
-								installedByTitle.set(normalizedTitle, installed);
+							const ownedKeys = Array.isArray(itchLibraryPayload?.owned_keys) ? itchLibraryPayload.owned_keys : [];
+							const ownedMapped = [];
+							const usedInstalledIds = new Set();
+
+							for (const ownedKey of ownedKeys) {
+								const id = extractItchOwnedGameId(ownedKey);
+								const mapped = toItchLibraryGame(ownedKey, installedById, id);
+								if (!mapped) continue;
+								ownedMapped.push(mapped);
+								if (id) usedInstalledIds.add(id);
 							}
+
+							const installedOnlyMapped = [];
+							for (const installed of installedList) {
+								const id = extractItchInstalledGameId(installed);
+								if (!id || usedInstalledIds.has(id)) continue;
+								const mapped = toItchInstalledOnlyLibraryGame(installed, id);
+								if (!mapped) continue;
+								installedOnlyMapped.push(mapped);
+							}
+
+							return { games: [...ownedMapped, ...installedOnlyMapped], error: '' };
+						} catch (error) {
+							console.error('Failed to load itch library:', error);
+							return {
+								games: [],
+								error: error instanceof Error ? error.message : 'Failed to load itch library',
+							};
 						}
-
-						const ownedProducts = Array.isArray(gogLibraryPayload?.products) ? gogLibraryPayload.products : [];
-						const ownedMapped = [];
-						const usedInstalledIds = new Set();
-
-						for (const product of ownedProducts) {
-							const id = extractGogOwnedProductId(product);
-							const normalizedTitle = normalizeLibraryTitleForMatch(product?.title);
-							const installedMatch =
-								(id ? installedById.get(id) : null)
-								|| (normalizedTitle ? installedByTitle.get(normalizedTitle) : null)
-								|| null;
-							const mapped = toGogLibraryGame(product, installedMatch, id);
-							if (!mapped) continue;
-							ownedMapped.push(mapped);
-
-							const matchedInstalledId = extractGogInstalledProductId(installedMatch);
-							if (matchedInstalledId) usedInstalledIds.add(matchedInstalledId);
-							if (id) usedInstalledIds.add(id);
-						}
-
-						const installedOnlyMapped = [];
-						for (const installed of installedList) {
-							const id = extractGogInstalledProductId(installed);
-							if (!id || usedInstalledIds.has(id)) continue;
-							const mapped = toGogInstalledOnlyLibraryGame(installed, id);
-							if (!mapped) continue;
-							installedOnlyMapped.push(mapped);
-						}
-
-						mergedLibraryGames.push(...ownedMapped, ...installedOnlyMapped);
-					} catch (error) {
-						console.error('Failed to load GOG library:', error);
-						loadErrors.push(error instanceof Error ? error.message : 'Failed to load GOG library');
-					}
+					})());
 				}
 
-				try {
-					const pirateLibraryPayload =
-						typeof window.electronAPI.getPirateLibraryGames === 'function'
-							? await window.electronAPI.getPirateLibraryGames()
-							: await window.electronAPI.invoke('pirate-library:get-games');
+				if (gogSettings?.connected) {
+					platformTasks.push((async () => {
+						try {
+							const installedGogGamesPromise =
+								typeof window.electronAPI.getGogInstalledGames === 'function'
+									? window.electronAPI.getGogInstalledGames()
+									: window.electronAPI.invoke('gog:get-installed-games');
 
-					const pirateLibraryEntries = Array.isArray(pirateLibraryPayload) ? pirateLibraryPayload : [];
-					const normalizedPirateGames = pirateLibraryEntries
-						.map((entry) => toPirateLibraryGame(entry))
-						.filter(Boolean);
+							const gogLibraryPromise =
+								typeof window.electronAPI.getGogLibrary === 'function'
+									? window.electronAPI.getGogLibrary()
+									: window.electronAPI.invoke('gog:get-library');
 
-					mergedLibraryGames.push(...normalizedPirateGames);
-				} catch (error) {
-					console.warn('Failed to load local pirate library:', error);
+							const [gogLibraryPayload, installedGogGames] = await Promise.all([
+								gogLibraryPromise.catch((error) => {
+									console.warn('Failed to load GOG owned library:', error);
+									return null;
+								}),
+								installedGogGamesPromise.catch((error) => {
+									console.warn('Failed to load installed GOG games:', error);
+									return [];
+								}),
+							]);
+
+							const installedList = Array.isArray(installedGogGames) ? installedGogGames : [];
+							const installedById = new Map();
+							const installedByTitle = new Map();
+							for (const installed of installedList) {
+								const id = extractGogInstalledProductId(installed);
+								if (id && !installedById.has(id)) {
+									installedById.set(id, installed);
+								}
+
+								const normalizedTitle = normalizeLibraryTitleForMatch(installed?.gameName);
+								if (normalizedTitle && !installedByTitle.has(normalizedTitle)) {
+									installedByTitle.set(normalizedTitle, installed);
+								}
+							}
+
+							const ownedProducts = Array.isArray(gogLibraryPayload?.products) ? gogLibraryPayload.products : [];
+							const ownedMapped = [];
+							const usedInstalledIds = new Set();
+
+							for (const product of ownedProducts) {
+								const id = extractGogOwnedProductId(product);
+								const normalizedTitle = normalizeLibraryTitleForMatch(product?.title);
+								const installedMatch =
+									(id ? installedById.get(id) : null)
+									|| (normalizedTitle ? installedByTitle.get(normalizedTitle) : null)
+									|| null;
+								const mapped = toGogLibraryGame(product, installedMatch, id);
+								if (!mapped) continue;
+								ownedMapped.push(mapped);
+
+								const matchedInstalledId = extractGogInstalledProductId(installedMatch);
+								if (matchedInstalledId) usedInstalledIds.add(matchedInstalledId);
+								if (id) usedInstalledIds.add(id);
+							}
+
+							const installedOnlyMapped = [];
+							for (const installed of installedList) {
+								const id = extractGogInstalledProductId(installed);
+								if (!id || usedInstalledIds.has(id)) continue;
+								const mapped = toGogInstalledOnlyLibraryGame(installed, id);
+								if (!mapped) continue;
+								installedOnlyMapped.push(mapped);
+							}
+
+							return { games: [...ownedMapped, ...installedOnlyMapped], error: '' };
+						} catch (error) {
+							console.error('Failed to load GOG library:', error);
+							return {
+								games: [],
+								error: error instanceof Error ? error.message : 'Failed to load GOG library',
+							};
+						}
+					})());
+				}
+
+				platformTasks.push((async () => {
+					try {
+						const pirateLibraryPayload =
+							typeof window.electronAPI.getPirateLibraryGames === 'function'
+								? await window.electronAPI.getPirateLibraryGames()
+								: await window.electronAPI.invoke('pirate-library:get-games');
+
+						const pirateLibraryEntries = Array.isArray(pirateLibraryPayload) ? pirateLibraryPayload : [];
+						const normalizedPirateGames = pirateLibraryEntries
+							.map((entry) => toPirateLibraryGame(entry))
+							.filter(Boolean);
+
+						return { games: normalizedPirateGames, error: '' };
+					} catch (error) {
+						console.warn('Failed to load local pirate library:', error);
+						return { games: [], error: '' };
+					}
+				})());
+
+				const platformResults = await Promise.all(platformTasks);
+				for (const result of platformResults) {
+					if (Array.isArray(result?.games) && result.games.length > 0) {
+						mergedLibraryGames.push(...result.games);
+					}
+					if (typeof result?.error === 'string' && result.error.trim()) {
+						loadErrors.push(result.error.trim());
+					}
 				}
 
 				const uniqueGames = dedupeLibraryGames(mergedLibraryGames);
@@ -921,6 +1020,177 @@ const LibraryPage = () => {
 		return false;
 	};
 
+	const refreshSteamInstalledState = async ({ targetAppId = null, attempts = 1, intervalMs = 0 } = {}) => {
+		const normalizedTargetAppId = extractSteamAppId({ appid: targetAppId });
+
+		for (let attempt = 0; attempt < attempts; attempt += 1) {
+			try {
+				const installedPayload =
+					typeof window.electronAPI.getSteamInstalledGames === 'function'
+						? await window.electronAPI.getSteamInstalledGames()
+						: await window.electronAPI.invoke('steam:get-installed-games');
+
+				const installedIds = new Set(
+					(Array.isArray(installedPayload) ? installedPayload : [])
+						.map((entry) => extractSteamAppId(entry))
+						.filter((id) => id != null),
+				);
+
+				let targetIsInstalled = false;
+				setLibraryGames((previous) =>
+					previous.map((game) => {
+						const launcher = String(game?.launcherId || game?.platform_name || '').trim().toLowerCase();
+						if (launcher !== 'steam') return game;
+
+						const appId = extractSteamAppId(game);
+						const isInstalled = appId != null && installedIds.has(appId);
+
+						if (normalizedTargetAppId != null && appId === normalizedTargetAppId && isInstalled) {
+							targetIsInstalled = true;
+						}
+
+						if ((game?.installed === true) === isInstalled) return game;
+
+						const baseTags = Array.isArray(game?.tags)
+							? game.tags.filter((tag) => {
+								const normalizedTag = String(tag || '').trim().toLowerCase();
+								return normalizedTag !== 'installed' && normalizedTag !== 'ready to install';
+							})
+							: [];
+
+						return {
+							...game,
+							installed: isInstalled,
+							progress: isInstalled ? 100 : 0,
+							installedSize: isInstalled
+								? 'Installed on this PC'
+								: (appId != null ? `App ID ${appId}` : game?.installedSize),
+							tags: [...baseTags, isInstalled ? 'Installed' : 'Ready to install'],
+						};
+					}),
+				);
+
+				if (normalizedTargetAppId == null || targetIsInstalled) {
+					return targetIsInstalled;
+				}
+			} catch (error) {
+				console.warn('Failed to refresh Steam installed state:', error);
+				return false;
+			}
+
+			if (attempt + 1 < attempts && intervalMs > 0) {
+				await new Promise((resolve) => setTimeout(resolve, intervalMs));
+			}
+		}
+
+		return false;
+	};
+
+	const refreshItchInstalledState = async ({ targetGameId = null, targetGameUrl = '', targetTitle = '', attempts = 1, intervalMs = 0 } = {}) => {
+		const normalizedTargetGameId = normalizeItchGameId(targetGameId);
+		const normalizedTargetGameUrl = String(targetGameUrl || '').trim().toLowerCase();
+		const normalizedTargetTitle = normalizeLibraryTitleForMatch(targetTitle);
+
+		for (let attempt = 0; attempt < attempts; attempt += 1) {
+			try {
+				const installedPayload =
+					typeof window.electronAPI.getItchInstalledGames === 'function'
+						? await window.electronAPI.getItchInstalledGames()
+						: await window.electronAPI.invoke('itch:get-installed-games');
+
+				const installedList = Array.isArray(installedPayload) ? installedPayload : [];
+				const installedById = new Map();
+				const installedByUrl = new Map();
+				const installedByTitle = new Map();
+
+				for (const installed of installedList) {
+					const normalizedId = extractItchInstalledGameId(installed);
+					if (normalizedId && !installedById.has(normalizedId)) {
+						installedById.set(normalizedId, installed);
+					}
+
+					const normalizedUrl = String(installed?.url || '').trim().toLowerCase();
+					if (normalizedUrl && !installedByUrl.has(normalizedUrl)) {
+						installedByUrl.set(normalizedUrl, installed);
+					}
+
+					const normalizedTitle = normalizeLibraryTitleForMatch(installed?.title);
+					if (normalizedTitle && !installedByTitle.has(normalizedTitle)) {
+						installedByTitle.set(normalizedTitle, installed);
+					}
+				}
+
+				let targetIsInstalled = false;
+				setLibraryGames((previous) =>
+					previous.map((game) => {
+						const launcher = String(game?.launcherId || game?.platform_name || '').trim().toLowerCase();
+						if (launcher !== 'itch' && launcher !== 'itchio' && launcher !== 'itch.io') return game;
+
+						const normalizedId = normalizeItchGameId(
+							game?.appid ?? String(game?.id || '').replace(/^itch:/i, ''),
+						);
+						const normalizedUrl = String(game?.url || '').trim().toLowerCase();
+						const normalizedTitle = normalizeLibraryTitleForMatch(game?.title);
+
+						const installedMatch =
+							(normalizedId ? installedById.get(normalizedId) : null)
+							|| (normalizedUrl ? installedByUrl.get(normalizedUrl) : null)
+							|| (normalizedTitle ? installedByTitle.get(normalizedTitle) : null)
+							|| null;
+
+						const isInstalled = !!installedMatch;
+						const matchesTarget = !!(
+							(normalizedTargetGameId && normalizedId === normalizedTargetGameId)
+							|| (normalizedTargetGameUrl && normalizedUrl === normalizedTargetGameUrl)
+							|| (normalizedTargetTitle && normalizedTitle === normalizedTargetTitle)
+						);
+
+						if (matchesTarget && isInstalled) {
+							targetIsInstalled = true;
+						}
+
+						if ((game?.installed === true) === isInstalled) return game;
+
+						const baseTags = Array.isArray(game?.tags)
+							? game.tags.filter((tag) => {
+								const normalizedTag = String(tag || '').trim().toLowerCase();
+								return normalizedTag !== 'installed' && normalizedTag !== 'ready to install';
+							})
+							: [];
+
+						return {
+							...game,
+							installed: isInstalled,
+							progress: isInstalled ? 100 : 0,
+							installLocation: isInstalled
+								? (typeof installedMatch?.installLocation === 'string' && installedMatch.installLocation.trim()
+									? installedMatch.installLocation.trim()
+									: game?.installLocation)
+								: game?.installLocation,
+							installedSize: isInstalled
+								? 'Installed on this PC'
+								: (normalizedId ? `Game ID ${normalizedId}` : game?.installedSize),
+							tags: [...baseTags, isInstalled ? 'Installed' : 'Ready to install'],
+						};
+					}),
+				);
+
+				if (!(normalizedTargetGameId || normalizedTargetGameUrl || normalizedTargetTitle) || targetIsInstalled) {
+					return targetIsInstalled;
+				}
+			} catch (error) {
+				console.warn('Failed to refresh Itch installed state:', error);
+				return false;
+			}
+
+			if (attempt + 1 < attempts && intervalMs > 0) {
+				await new Promise((resolve) => setTimeout(resolve, intervalMs));
+			}
+		}
+
+		return false;
+	};
+
 	const handleLibraryAction = async (action) => {
 		if (!canUsePrimaryAction) {
 			setActionState({
@@ -980,6 +1250,55 @@ const LibraryPage = () => {
 		try {
 			setActionState({ busyAction: action, text: '', type: '' });
 			await selectedAction.fn();
+			const activeTitle = activeGame?.title || 'Game';
+
+			if (action === 'install' && canUseSteamActions) {
+				setActionState({ busyAction: '', text: selectedAction.success, type: 'success' });
+
+				void (async () => {
+					const installed = await refreshSteamInstalledState({
+						targetAppId: activeGameAppId,
+						attempts: 30,
+						intervalMs: 4_000,
+					});
+					if (installed) {
+						setActionState({
+							busyAction: '',
+							text: `${activeTitle} is installed and ready to launch.`,
+							type: 'success',
+						});
+					}
+				})();
+				return;
+			}
+
+			if (action === 'install' && canExecuteItchAction) {
+				setActionState({ busyAction: '', text: selectedAction.success, type: 'success' });
+
+				const targetGameId = normalizeItchGameId(
+					Number.isFinite(activeGameAppId) && activeGameAppId > 0
+						? activeGameAppId
+						: String(activeGame?.id || '').replace(/^itch:/i, ''),
+				);
+
+				void (async () => {
+					const installed = await refreshItchInstalledState({
+						targetGameId,
+						targetGameUrl: activeItchGameUrl || '',
+						targetTitle: activeTitle,
+						attempts: 30,
+						intervalMs: 4_000,
+					});
+					if (installed) {
+						setActionState({
+							busyAction: '',
+							text: `${activeTitle} is installed and ready to launch.`,
+							type: 'success',
+						});
+					}
+				})();
+				return;
+			}
 
 			if (action === 'install' && canUseGogActions) {
 				setActionState({ busyAction: '', text: selectedAction.success, type: 'success' });
@@ -1000,6 +1319,14 @@ const LibraryPage = () => {
 					}
 				})();
 				return;
+			}
+
+			if (action === 'open' && canUseSteamActions) {
+				void refreshSteamInstalledState({ attempts: 1 });
+			}
+
+			if (action === 'open' && canExecuteItchAction) {
+				void refreshItchInstalledState({ attempts: 1 });
 			}
 
 			if (action === 'open' && canUseGogActions) {

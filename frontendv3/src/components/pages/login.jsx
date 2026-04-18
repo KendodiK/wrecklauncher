@@ -57,10 +57,37 @@ const Login = ({ onLogin }) => {
         
         // Validate token is a non-empty string
         if (token && typeof token === 'string' && token.trim().length > 0) {
+          let profile = null;
+          if (typeof window?.electronAPI?.getCurrentUser === 'function') {
+            try {
+              profile = await window.electronAPI.getCurrentUser();
+            } catch {
+              profile = null;
+            }
+          }
+
+          const avatarCandidate =
+            profile?.avatarUrl ||
+            profile?.avatar_url ||
+            profile?.avatarURL ||
+            profile?.profilePicture ||
+            profile?.pfp ||
+            null;
+          const resolvedAvatarUrl =
+            typeof avatarCandidate === 'string' && avatarCandidate.trim()
+              ? avatarCandidate.trim()
+              : null;
+          const resolvedUsername =
+            typeof profile?.username === 'string' && profile.username.trim()
+              ? profile.username.trim()
+              : username;
+
           const userData = {
-            username: username,
-            avatarUrl: null,
-            token: token,
+            id: profile?.id ?? null,
+            username: resolvedUsername,
+            bio: profile?.bio ?? null,
+            avatarUrl: resolvedAvatarUrl,
+            token: token.trim(),
           };
 
           // Sikeres belépésnél frissítjük a globális user állapotot
@@ -69,7 +96,7 @@ const Login = ({ onLogin }) => {
           }
 
           // Visszajelzés a felhasználónak, majd átirányítás a Store oldalra
-          setStatus(`Logged in as ${username}`);
+          setStatus(`Logged in as ${resolvedUsername}`);
           setTimeout(() => navigate('/store'), 500);
         } else {
           setStatus('Login failed. Username or password might be invalid.');
