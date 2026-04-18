@@ -7,29 +7,6 @@ import {
 	resolveStorePlatformFromGame,
 	resolveStorePlatformFromGameStrict,
 } from '../../utils/storeRouting.js';
-import { isTrimmedTitleMatch } from '../../utils/gameUtils.js';
-
-function getGameTagLabels(game, limit = Infinity) {
-	const labels = [];
-	const seen = new Set();
-	const push = (value) => {
-		const label = String(
-			typeof value === 'object' && value !== null
-				? value.name ?? value.genre ?? value.description ?? value.label ?? ''
-				: value ?? '',
-		)
-			.trim();
-		if (!label || /^\d+$/.test(label)) return;
-		const key = label.toLowerCase();
-		if (seen.has(key)) return;
-		seen.add(key);
-		labels.push(label);
-	};
-
-	(Array.isArray(game?.tags) ? game.tags : []).forEach(push);
-	(Array.isArray(game?.genres) ? game.genres : []).forEach(push);
-	return labels.slice(0, limit);
-}
 
 function steamPoster(appid) {
 	const id = Number(appid);
@@ -75,37 +52,24 @@ function parseDiscountPercent(game) {
 	return 0;
 }
 
-function normalizePriceValue(raw) {
+function normalizePriceValue(raw, platformHint = '') {
 	const numeric = Number(raw);
 	if (!Number.isFinite(numeric) || numeric <= 0) return 0;
 
+	const normalizedPlatform = String(platformHint || '').trim().toLowerCase();
+	const looksLikeMinorUnits = Number.isInteger(numeric)
+		&& (
+			(normalizedPlatform === 'gog' || normalizedPlatform === 'gog.com')
+				? numeric >= 100
+				: numeric >= 1000
+		);
+
 	// Some backends store cents; normalize to major currency unit for UI filters.
-	if (Number.isInteger(numeric) && numeric >= 1000) {
+	if (looksLikeMinorUnits) {
 		return Number((numeric / 100).toFixed(2));
 	}
 
-	return numeric;
-}
-
-function normalizeTextList(value) {
-	if (Array.isArray(value)) {
-		return value
-			.map((entry) => String(
-				typeof entry === 'object' && entry !== null
-					? entry.name ?? entry.genre ?? entry.description ?? entry.label ?? ''
-					: entry ?? '',
-			).trim())
-			.filter(Boolean);
-	}
-
-	if (typeof value === 'string') {
-		return value
-			.split(',')
-			.map((part) => part.trim())
-			.filter(Boolean);
-	}
-
-	return [];
+	return Number(numeric.toFixed(2));
 }
 
 async function fetchAllGamesInBatches(api, batchSize = 20) {
@@ -156,7 +120,7 @@ const AllGamesPage = () => {
 		const counts = new Map();
 		const labels = new Map();
 		for (const game of allGames) {
-			const tags = getGameTagLabels(game);
+			const tags = Array.isArray(game?.tags) ? game.tags : [];
 			for (const rawTag of tags) {
 				const label = String(rawTag || '').trim();
 				if (!label) continue;
@@ -216,13 +180,7 @@ const AllGamesPage = () => {
 					const normalizedPlatform =
 						resolveStorePlatformFromGameStrict(game) ||
 						resolveStorePlatformFromGame(game, 'steam');
-					const normalizedPrice = normalizePriceValue(game.cost ?? game.price);
-					const normalizedGenres = normalizeTextList(
-						game.genres ?? game.genre_names ?? game.genreNames ?? game.genre ?? game.categories,
-					);
-					const normalizedTags = normalizeTextList(
-						game.tags ?? game.tag_names ?? game.tagNames,
-					);
+					const normalizedPrice = normalizePriceValue(game.cost ?? game.price, normalizedPlatform);
 					return {
 					id: game.id,
 					app_id: game.app_id,
@@ -236,8 +194,8 @@ const AllGamesPage = () => {
 					description: game.description || '',
 					platform: normalizedPlatform,
 					platform_name: normalizedPlatform,
-					genres: normalizedGenres,
-					tags: [...normalizedTags, ...normalizedGenres],
+					genres: Array.isArray(game.genres) ? game.genres : [],
+					tags: Array.isArray(game.tags) ? game.tags : [],
 					discountPercent: parseDiscountPercent(game),
 					};
 				});
@@ -270,14 +228,18 @@ const AllGamesPage = () => {
 	const filteredGames = useMemo(() => {
 		return allGames.filter(game => {
 			// Search filter
-			if (searchQuery && !isTrimmedTitleMatch(game.title || game.name || '', searchQuery)) {
-				return false;
+			if (searchQuery) {
+				const needle = String(searchQuery || '').trim().toLowerCase();
+				const title = String(game.title || game.name || '').trim().toLowerCase();
+				if (needle && title && !title.includes(needle) && !needle.includes(title)) {
+					return false;
+				}
 			}
 
 			// Tag filter: game must contain all selected tags
 			if (selectedTags.length > 0) {
 				const gameTags = new Set(
-					getGameTagLabels(game)
+					(Array.isArray(game.tags) ? game.tags : [])
 						.map((tag) => String(tag || '').trim().toLowerCase())
 						.filter(Boolean),
 				);
@@ -409,19 +371,16 @@ const AllGamesPage = () => {
 										</h4>
 										
 										{/* Tags/Genres */}
-										{(() => {
-											const visibleTags = getGameTagLabels(game, 3);
-											if (!visibleTags.length) return null;
-											return (
-												<div className="flex flex-wrap gap-1">
-													{visibleTags.map((tag, idx) => (
-														<span key={idx} className="text-xs px-2 py-0.5 bg-slate-900/50 text-slate-400 rounded">
-															{tag}
-														</span>
-													))}
-												</div>
-											);
-										})()}
+										<div className="flex flex-wrap gap-1">
+											{game.tags && game.tags.slice(0, 3).map((tag, idx) => (
+												<span
+													key={idx}
+													className="text-xs px-2 py-0.5 bg-slate-900/50 text-slate-400 rounded"
+												>
+													{tag}
+												</span>
+											))}
+										</div>
 									</div>
 
 									{/* Price section */}
@@ -547,7 +506,7 @@ const AllGamesPage = () => {
 
 							{/* Tags (max 5) */}
 							<div className="flex flex-wrap gap-1">
-								{getGameTagLabels(displayGame, 5).map((tag, idx) => (
+								{displayGame.tags && displayGame.tags.slice(0, 5).map((tag, idx) => (
 									<span
 										key={idx}
 										className="text-xs px-2 py-1 bg-slate-700/50 text-slate-300 rounded"

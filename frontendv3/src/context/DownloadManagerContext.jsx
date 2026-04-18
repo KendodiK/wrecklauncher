@@ -1,6 +1,8 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 const DownloadManagerContext = createContext(null);
+const DOWNLOAD_RESUME_STORAGE_KEY = 'wrecklauncher.torrent.resume.v1';
+const RESUME_RESTORE_STARTUP_DELAY_MS = 1800;
 
 function normalizeProgress(progress) {
 	if (!progress || typeof progress !== 'object') return null;
@@ -18,9 +20,15 @@ function normalizeProgress(progress) {
 		timeRemaining: typeof progress.timeRemaining === 'number' ? progress.timeRemaining : -1,
 		paused: Boolean(progress.paused),
 		done: Boolean(progress.done),
-		magnetURI: typeof progress.magnetURI === 'string' ? progress.magnetURI : '',
-		savePath: typeof progress.savePath === 'string' ? progress.savePath : '',
 	};
+
+	const magnetURI = typeof progress.magnetURI === 'string' ? progress.magnetURI.trim() : '';
+	if (magnetURI) normalized.magnetURI = magnetURI;
+
+	const savePath = typeof progress.savePath === 'string'
+		? progress.savePath.trim()
+		: (typeof progress.path === 'string' ? progress.path.trim() : '');
+	if (savePath) normalized.savePath = savePath;
 
 	if (typeof progress.imageUrl === 'string' && progress.imageUrl.trim()) {
 		normalized.imageUrl = progress.imageUrl.trim();
@@ -38,10 +46,113 @@ function normalizeProgress(progress) {
 	return normalized;
 }
 
+function normalizeResumableEntry(entry) {
+	if (!entry || typeof entry !== 'object') return null;
+	const infoHash = String(entry.infoHash || '').trim();
+	const magnetURI = String(entry.magnetURI || entry.magnetUri || '').trim();
+	const savePath = String(entry.savePath || entry.path || '').trim();
+	if (!infoHash && !magnetURI) return null;
+
+	const normalized = {
+		infoHash,
+		magnetURI,
+		savePath,
+		paused: Boolean(entry.paused),
+		done: Boolean(entry.done),
+		name: String(entry.name || '').trim(),
+	};
+
+	if (typeof entry.imageUrl === 'string' && entry.imageUrl.trim()) {
+		normalized.imageUrl = entry.imageUrl.trim();
+	}
+	if (typeof entry.thumbnailUrl === 'string' && entry.thumbnailUrl.trim()) {
+		normalized.thumbnailUrl = entry.thumbnailUrl.trim();
+	}
+	if (typeof entry.coverUrl === 'string' && entry.coverUrl.trim()) {
+		normalized.coverUrl = entry.coverUrl.trim();
+	}
+	if (typeof entry.image === 'string' && entry.image.trim()) {
+		normalized.image = entry.image.trim();
+	}
+
+	return normalized;
+}
+
+function resumableKey(entry) {
+	if (!entry || typeof entry !== 'object') return '';
+	const hash = String(entry.infoHash || '').trim().toLowerCase();
+	if (hash) return `hash:${hash}`;
+	const magnet = String(entry.magnetURI || '').trim().toLowerCase();
+	if (magnet) return `magnet:${magnet}`;
+	return '';
+}
+
+function readResumableEntries() {
+	if (typeof window === 'undefined' || !window.localStorage) return [];
+	try {
+		const raw = window.localStorage.getItem(DOWNLOAD_RESUME_STORAGE_KEY);
+		if (!raw) return [];
+		const parsed = JSON.parse(raw);
+		if (!Array.isArray(parsed)) return [];
+
+		const deduped = [];
+		const seen = new Set();
+		for (const entry of parsed) {
+			const normalized = normalizeResumableEntry(entry);
+			if (!normalized) continue;
+			const key = resumableKey(normalized);
+			if (!key || seen.has(key)) continue;
+			seen.add(key);
+			deduped.push(normalized);
+		}
+		return deduped;
+	} catch {
+		return [];
+	}
+}
+
+function writeResumableEntries(entries) {
+	if (typeof window === 'undefined' || !window.localStorage) return;
+	try {
+		window.localStorage.setItem(DOWNLOAD_RESUME_STORAGE_KEY, JSON.stringify(entries));
+	} catch {
+		// ignore local storage write errors
+	}
+}
+
+function buildResumableEntry(download, previous = null) {
+	if (!download || typeof download !== 'object') return null;
+	const infoHash = String(download.infoHash || previous?.infoHash || '').trim();
+	const magnetURI = String(download.magnetURI || previous?.magnetURI || '').trim();
+	const savePath = String(download.savePath || download.path || previous?.savePath || '').trim();
+	if (!infoHash && !magnetURI) return null;
+
+	const out = {
+		infoHash,
+		magnetURI,
+		savePath,
+		paused: Boolean(download.paused),
+		done: Boolean(download.done),
+		name: String(download.name || previous?.name || '').trim(),
+	};
+
+	const imageUrl = String(download.imageUrl || previous?.imageUrl || '').trim();
+	if (imageUrl) out.imageUrl = imageUrl;
+	const thumbnailUrl = String(download.thumbnailUrl || previous?.thumbnailUrl || '').trim();
+	if (thumbnailUrl) out.thumbnailUrl = thumbnailUrl;
+	const coverUrl = String(download.coverUrl || previous?.coverUrl || '').trim();
+	if (coverUrl) out.coverUrl = coverUrl;
+	const image = String(download.image || previous?.image || '').trim();
+	if (image) out.image = image;
+
+	return out;
+}
+
 export function DownloadManagerProvider({ children }) {
 	const [downloads, setDownloads] = useState([]);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState('');
+	const [resumeBootstrapped, setResumeBootstrapped] = useState(false);
 
 	const upsertDownload = useCallback((entry) => {
 		const normalized = normalizeProgress(entry);
@@ -73,32 +184,124 @@ export function DownloadManagerProvider({ children }) {
 		}
 	}, []);
 
-	useEffect(() => {
-		let unsub = null;
+	const restoreInterruptedDownloads = useCallback(async (entries = null) => {
 		const api = typeof window !== 'undefined' ? window.electronAPI : null;
-		if (!api) return;
+		if (!api || typeof api.torrentStart !== 'function') return;
 
-		refreshStatus();
+		const sourceEntries = Array.isArray(entries) ? entries : readResumableEntries();
+		const resumable = sourceEntries.filter((entry) => {
+			if (!entry || typeof entry !== 'object') return false;
+			if (entry.done) return false;
+			if (entry.paused) return false;
+			return Boolean(String(entry.magnetURI || '').trim());
+		});
+
+		if (resumable.length < 1) return;
+
+		for (const entry of resumable) {
+			try {
+				const snapshot = await api.torrentStart(entry.magnetURI, entry.savePath || undefined);
+				upsertDownload({
+					...snapshot,
+					magnetURI: entry.magnetURI,
+					savePath: entry.savePath || snapshot?.savePath || snapshot?.path || '',
+					imageUrl: entry.imageUrl,
+					thumbnailUrl: entry.thumbnailUrl,
+					coverUrl: entry.coverUrl,
+					image: entry.image,
+				});
+			} catch {
+				// Keep startup resilient if one resumed torrent fails.
+			}
+		}
+	}, [upsertDownload]);
+
+	useEffect(() => {
+		let cancelled = false;
+		let unsub = null;
+		let restoreTimer = null;
+		const api = typeof window !== 'undefined' ? window.electronAPI : null;
+		if (!api) {
+			setResumeBootstrapped(true);
+			return;
+		}
+
 		if (typeof api.onTorrentProgress === 'function') {
 			unsub = api.onTorrentProgress((progress) => {
 				upsertDownload(progress);
 			});
 		}
 
+		const resumableSnapshot = readResumableEntries();
+		void refreshStatus().catch(() => {
+			// Ignore startup status refresh errors.
+		});
+
+		if (resumableSnapshot.length < 1) {
+			setResumeBootstrapped(true);
+		} else {
+			restoreTimer = window.setTimeout(() => {
+				void (async () => {
+					try {
+						await restoreInterruptedDownloads(resumableSnapshot);
+						await refreshStatus();
+					} finally {
+						if (!cancelled) setResumeBootstrapped(true);
+					}
+				})();
+			}, RESUME_RESTORE_STARTUP_DELAY_MS);
+		}
+
 		return () => {
+			cancelled = true;
+			if (restoreTimer) window.clearTimeout(restoreTimer);
 			if (typeof unsub === 'function') unsub();
 		};
-	}, [refreshStatus, upsertDownload]);
+	}, [refreshStatus, restoreInterruptedDownloads, upsertDownload]);
+
+	useEffect(() => {
+		if (!resumeBootstrapped) return;
+
+		const previous = readResumableEntries();
+		const previousByKey = new Map(previous.map((entry) => [resumableKey(entry), entry]));
+
+		const nextEntries = downloads
+			.map((download) => {
+				const hashKey = download?.infoHash ? `hash:${String(download.infoHash).trim().toLowerCase()}` : '';
+				const magnetKey = download?.magnetURI ? `magnet:${String(download.magnetURI).trim().toLowerCase()}` : '';
+				const previousEntry =
+					(hashKey && previousByKey.get(hashKey)) ||
+					(magnetKey && previousByKey.get(magnetKey)) ||
+					null;
+				return buildResumableEntry(download, previousEntry);
+			})
+			.filter(Boolean)
+			.filter((entry) => !entry.done && Boolean(String(entry.magnetURI || '').trim()));
+
+		writeResumableEntries(nextEntries);
+	}, [downloads, resumeBootstrapped]);
 
 	const startDownload = useCallback(async ({ magnetUri, savePath, artwork } = {}) => {
 		const api = typeof window !== 'undefined' ? window.electronAPI : null;
 		if (!api || typeof api.torrentStart !== 'function') throw new Error('torrentStart API is not available');
-		if (!magnetUri || !String(magnetUri).trim()) throw new Error('Magnet URI is required');
+		if (!magnetUri || !String(magnetUri).trim()) throw new Error('Download URI is required');
+		const cleanMagnetUri = String(magnetUri).trim();
+		const cleanSavePath = String(savePath || '').trim();
 		setError('');
-		const snapshot = await api.torrentStart(String(magnetUri).trim(), String(savePath || '').trim() || undefined);
+		const snapshot = await api.torrentStart(cleanMagnetUri, cleanSavePath || undefined);
 		const art = artwork && typeof artwork === 'object' ? artwork : {};
 		const withArtwork = {
 			...snapshot,
+			magnetURI:
+				typeof snapshot?.magnetURI === 'string' && snapshot.magnetURI.trim()
+					? snapshot.magnetURI.trim()
+					: cleanMagnetUri,
+			savePath:
+				typeof snapshot?.savePath === 'string' && snapshot.savePath.trim()
+					? snapshot.savePath.trim()
+					: (typeof snapshot?.path === 'string' && snapshot.path.trim()
+						? snapshot.path.trim()
+						: cleanSavePath),
 			imageUrl: typeof art.imageUrl === 'string' ? art.imageUrl : undefined,
 			thumbnailUrl: typeof art.thumbnailUrl === 'string' ? art.thumbnailUrl : undefined,
 			coverUrl: typeof art.coverUrl === 'string' ? art.coverUrl : undefined,
@@ -140,6 +343,12 @@ export function DownloadManagerProvider({ children }) {
 		setDownloads((prev) => prev.filter((item) => item.infoHash !== infoHash));
 	}, []);
 
+	const openDownload = useCallback(async (infoHash, savePath = '') => {
+		const api = typeof window !== 'undefined' ? window.electronAPI : null;
+		if (!api || typeof api.torrentOpen !== 'function') throw new Error('torrentOpen API is not available');
+		return await api.torrentOpen(String(infoHash || ''), String(savePath || '').trim() || undefined);
+	}, []);
+
 	const start = useCallback(async ({ magnetUri, savePath } = {}) => {
 		return await startDownload({ magnetUri, savePath });
 	}, [startDownload]);
@@ -165,6 +374,7 @@ export function DownloadManagerProvider({ children }) {
 		pauseDownload,
 		resumeDownload,
 		removeDownload,
+		openDownload,
 		clearError: () => setError(''),
 	}), [
 		downloads,
@@ -179,6 +389,7 @@ export function DownloadManagerProvider({ children }) {
 		pauseDownload,
 		resumeDownload,
 		removeDownload,
+		openDownload,
 	]);
 
 	return <DownloadManagerContext.Provider value={value}>{children}</DownloadManagerContext.Provider>;

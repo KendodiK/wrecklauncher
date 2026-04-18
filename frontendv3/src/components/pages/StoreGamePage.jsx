@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { getStorePlatformLabel, normalizeStorePlatform } from '../../utils/storeRouting.js';
+import { useDownloadManager } from '../../context/DownloadManagerContext.jsx';
 
 const fallback = {
 	id: null,
@@ -17,6 +18,7 @@ const fallback = {
 	price: null,
 	priceLabel: null,
 	platform_name: 'steam',
+	pirate_links: [],
 };
 
 function normalizeCountryCode(value) {
@@ -98,6 +100,32 @@ function pickFirstFiniteNumber(...values) {
 	return null;
 }
 
+function normalizePriceValue(raw, platformHint = '') {
+	const numeric = Number(raw);
+	if (!Number.isFinite(numeric) || numeric < 0) return null;
+
+	const normalizedPlatform = String(platformHint || '').trim().toLowerCase();
+	const looksLikeMinorUnits = Number.isInteger(numeric)
+		&& (
+			(normalizedPlatform === 'gog' || normalizedPlatform === 'gog.com')
+				? numeric >= 100
+				: numeric >= 1000
+		);
+
+	// Some sources return integer minor units (cents), normalize to major units.
+	if (looksLikeMinorUnits) {
+		return Number((numeric / 100).toFixed(2));
+	}
+
+	return Number(numeric.toFixed(2));
+}
+
+function formatCurrencyPrice(raw, platformHint = '') {
+	const normalized = normalizePriceValue(raw, platformHint);
+	if (normalized == null) return '';
+	return `$${normalized.toFixed(2)}`;
+}
+
 function pickFirstNonEmptyArray(...values) {
 	for (const value of values) {
 		if (!Array.isArray(value)) continue;
@@ -113,6 +141,57 @@ function pickFirstPositiveNumber(...values) {
 		if (Number.isFinite(numeric) && numeric > 0) return numeric;
 	}
 	return null;
+}
+
+function normalizeTagValue(value) {
+	if (value == null) return '';
+
+	if (typeof value === 'object') {
+		const candidates = [
+			value.description,
+			value.genre,
+			value.name,
+			value.tag,
+			value.label,
+			value.title,
+		];
+		for (const candidate of candidates) {
+			if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+		}
+		return '';
+	}
+
+	if (typeof value === 'string') return value.trim();
+	return '';
+}
+
+function normalizeTagList(input) {
+	const source = Array.isArray(input) ? input : [input];
+	const out = [];
+	const seen = new Set();
+
+	for (const entry of source) {
+		const label = normalizeTagValue(entry);
+		if (!label) continue;
+
+		const parts = label.includes(',')
+			? label.split(',').map((part) => part.trim()).filter(Boolean)
+			: [label];
+
+		for (const part of parts) {
+			if (!part || /^\d+$/.test(part)) continue;
+			const key = part.toLowerCase();
+			if (seen.has(key)) continue;
+			seen.add(key);
+			out.push(part);
+		}
+	}
+
+	return out;
+}
+
+function mergeTagLists(...lists) {
+	return normalizeTagList(lists.flat());
 }
 
 function normalizeTrimmedTitle(value) {
@@ -408,32 +487,88 @@ function normalizeSiteLinksFromAny(value) {
 	return [];
 }
 
+function normalizePirateLinksFromAny(value) {
+	if (!value) return [];
+
+	const source = Array.isArray(value)
+		? value
+		: (typeof value === 'object' ? Object.values(value) : []);
+
+	const out = [];
+	const seen = new Set();
+
+	for (let index = 0; index < source.length; index += 1) {
+		const entry = source[index];
+		if (!entry) continue;
+
+		let href = '';
+		let label = 'Pirate Download';
+
+		if (typeof entry === 'string') {
+			href = entry.trim();
+		} else if (typeof entry === 'object') {
+			href = String(entry.link || entry.url || entry.href || '').trim();
+			label = String(entry.site_name || entry.siteName || entry.name || entry.label || 'Pirate Download').trim() || 'Pirate Download';
+		}
+
+		if (!href) continue;
+		if (!/^https?:\/\//i.test(href) && !/^magnet:\?/i.test(href)) continue;
+
+		const key = href.toLowerCase();
+		if (seen.has(key)) continue;
+		seen.add(key);
+
+		out.push({
+			id: `pirate-${index}`,
+			label,
+			href,
+		});
+	}
+
+	return out;
+}
+
+function decodeHtmlAmpersands(value) {
+	return String(value || '')
+		.replace(/&#0*38;/g, '&')
+		.replace(/&amp;/gi, '&')
+		.trim();
+}
+
+function extractSlugFromUrl(href) {
+	if (!hasFilledText(href)) return '';
+	try {
+		const parsed = new URL(String(href));
+		const chunks = parsed.pathname
+			.split('/')
+			.map((chunk) => decodeURIComponent(chunk).trim())
+			.filter(Boolean);
+		if (chunks.length < 1) return '';
+		return chunks[chunks.length - 1].replace(/\.html?$/i, '').trim();
+	} catch {
+		return '';
+	}
+}
+
+function pirateEntryKey(entry, fallback = '') {
+	const fromId = String(entry?.id || '').trim();
+	if (fromId) return fromId;
+	const fromHref = String(entry?.href || '').trim().toLowerCase();
+	if (fromHref) return fromHref;
+	const fromLabel = String(entry?.label || '').trim().toLowerCase();
+	if (fromLabel) return fromLabel;
+	return String(fallback || '').trim().toLowerCase();
+}
+
 function defaultSiteForPlatform(platform, appId) {
 	if (!appId) return [];
 	if (platform === 'gog') {
-		return [{ id: 'gog', label: 'GOG Store', href: `https://www.gog.com/en/game/${appId}` }];
+		return [{ id: 'gog', label: 'GoG', href: `https://www.gog.com/en/game/${appId}` }];
 	}
 	if (platform === 'itchio') {
 		return [{ id: 'itchio', label: 'Itch.io', href: 'https://itch.io/' }];
 	}
-	return [{ id: 'steam', label: 'Steam Store', href: `https://store.steampowered.com/app/${appId}` }];
-}
-
-function mergeUniqueSites(...groups) {
-	const out = [];
-	const seen = new Set();
-	for (const group of groups) {
-		const items = normalizeSiteLinksFromAny(group);
-		for (const item of items) {
-			const href = String(item?.href || '').trim();
-			if (!href) continue;
-			const key = href.toLowerCase();
-			if (seen.has(key)) continue;
-			seen.add(key);
-			out.push(item);
-		}
-	}
-	return out;
+	return [{ id: 'steam', label: 'Steam', href: `https://store.steampowered.com/app/${appId}` }];
 }
 
 function inferPlatformFromSite(site) {
@@ -497,11 +632,7 @@ function parseSteamDetails(details) {
 	if (!Number.isFinite(appid) || appid <= 0) return null;
 
 	const raw = details.raw && typeof details.raw === 'object' ? details.raw : {};
-	const tags = Array.isArray(details.genres)
-		? details.genres
-			.map((genre) => (genre && typeof genre === 'object' ? genre.description : null))
-			.filter((value) => typeof value === 'string' && value.trim())
-		: [];
+	const tags = normalizeTagList(details.genre_names ?? details.genreNames ?? details.genres);
 	const screenshots = Array.isArray(raw.screenshots)
 		? raw.screenshots
 			.map((shot) => (shot && typeof shot === 'object' ? shot.path_full || shot.path_thumbnail : null))
@@ -517,7 +648,7 @@ function parseSteamDetails(details) {
 		tags,
 		screenshots,
 		minimumRequirements: details.minimum_requirements || '',
-		price: typeof details.price_overview === 'number' ? details.price_overview / 100 : null,
+		price: normalizePriceValue(typeof details.price_overview === 'number' ? details.price_overview / 100 : null, 'steam'),
 	};
 }
 
@@ -534,16 +665,12 @@ function parsePlatformDetails(platform, details, appId) {
 	}
 
 	if (platform === 'gog') {
-		const genres = Array.isArray(details.genreNames)
-			? details.genreNames
-			: (Array.isArray(details.genres)
-				? details.genres.map((entry) => (typeof entry === 'string' ? entry : entry?.name || entry?.genre || entry?.description)).filter(Boolean)
-				: []);
+		const genres = normalizeTagList(details.genre_names ?? details.genreNames ?? details.genres);
 		const minimumRequirements = details.minimum_requirements || details.minimumRequirements || '';
 		const parsedAppId = toPositiveNumber(details.productId ?? details.app_id ?? details.id ?? appId);
 		const price = [details.cost, details.min_price, details.minPrice, details.price]
-			.map((value) => Number(value))
-			.find((value) => Number.isFinite(value));
+			.map((value) => normalizePriceValue(value, 'gog'))
+			.find((value) => value !== null);
 		const banner = details.bannerImg || details.banner_img || details.coverUrl || details.cover_url || '';
 		const siteLinks = normalizeSiteLinksFromAny(details.url || details.store_url || details.storeUrl || details.links || details.sites);
 		return {
@@ -555,7 +682,7 @@ function parsePlatformDetails(platform, details, appId) {
 			tags: genres,
 			screenshots: [],
 			minimumRequirements,
-			price: Number.isFinite(price) ? price : null,
+			price,
 			coverImage: banner,
 			heroImage: banner,
 			platform_name: 'gog',
@@ -566,22 +693,21 @@ function parsePlatformDetails(platform, details, appId) {
 	if (platform === 'itchio') {
 		const parsedAppId = toPositiveNumber(details.gameId ?? details.app_id ?? details.id ?? appId);
 		const price = [details.minPrice, details.min_price, details.cost, details.price]
-			.map((value) => Number(value))
-			.find((value) => Number.isFinite(value));
+			.map((value) => normalizePriceValue(value, 'itchio'))
+			.find((value) => value !== null);
 		const banner = details.coverUrl || details.cover_url || details.banner_img || '';
 		const siteLinks = normalizeSiteLinksFromAny(details.url || details.store_url || details.storeUrl || details.links || details.sites);
+		const genres = normalizeTagList(details.genre_names ?? details.genreNames ?? details.genres);
 		return {
 			id: parsedAppId,
 			appid: parsedAppId,
 			title: details.title || fallback.title,
 			description: details.shortText || details.short_text || details.description || '',
 			longDescription: details.description || details.shortText || details.short_text || '',
-			tags: Array.isArray(details.genres)
-				? details.genres.map((entry) => (typeof entry === 'string' ? entry : entry?.name || entry?.genre || entry?.description)).filter(Boolean)
-				: [],
+			tags: genres,
 			screenshots: [],
 			minimumRequirements: details.minimum_requirements || details.minimumRequirements || '',
-			price: Number.isFinite(price) ? price : null,
+			price,
 			coverImage: banner,
 			heroImage: banner,
 			platform_name: 'itchio',
@@ -614,11 +740,13 @@ const StoreGamePage = () => {
 	const { id, platform } = useParams();
 	const location = useLocation();
 	const navigate = useNavigate();
+	const { startDownload } = useDownloadManager();
 	const [platformDetails, setPlatformDetails] = useState(null);
 	const [dbDetails, setDbDetails] = useState(null);
 	const [scrapedTargets, setScrapedTargets] = useState([]);
 	const [errorMessage, setErrorMessage] = useState('');
 	const [currentScreenshot, setCurrentScreenshot] = useState(0);
+	const [startingPirateKeys, setStartingPirateKeys] = useState([]);
 	const [loading, setLoading] = useState(true);
 
 	const routeState = useMemo(() => normalizeLocationState(location?.state), [location?.state]);
@@ -771,6 +899,7 @@ const StoreGamePage = () => {
 		const scrapedPlatform = normalizePlatformName(platformDetails?.__resolved_platform || routePlatform);
 		const parsedPlatform = parsePlatformDetails(scrapedPlatform, platformDetails, appId);
 		const dbSites = normalizeSiteLinksFromAny(dbDetails?.sites || dbDetails?.links || dbDetails?.store_links || dbDetails?.storeLinks || dbDetails?.urls);
+		const dbPlatformName = normalizePlatformName(dbDetails?.platform_name || routePlatform);
 		const parsedDb = dbDetails
 			? {
 				id: Number(dbDetails.app_id) || null,
@@ -778,16 +907,15 @@ const StoreGamePage = () => {
 				title: dbDetails.name || routeState.title,
 				description: dbDetails.description || '',
 				longDescription: dbDetails.description || routeState.longDescription,
-				tags: Array.isArray(dbDetails.genre_names) ? dbDetails.genre_names : [],
+				tags: normalizeTagList(dbDetails.genre_names ?? dbDetails.genres),
 				minimumRequirements: dbDetails.minimum_requirements || '',
-				price: typeof dbDetails.cost === 'number' ? dbDetails.cost : routeState.price,
+				price: normalizePriceValue(pickFirstFiniteNumber(dbDetails.cost, routeState.price), dbPlatformName),
 				priceLabel:
-					typeof dbDetails.formated_price === 'string' && dbDetails.formated_price.trim()
+					dbPlatformName !== 'gog' && typeof dbDetails.formated_price === 'string' && dbDetails.formated_price.trim()
 						? dbDetails.formated_price.trim()
 						: null,
-				platform_name: normalizePlatformName(dbDetails.platform_name || routePlatform),
+				platform_name: dbPlatformName,
 				sites: dbSites,
-				pirate_sites: Array.isArray(dbDetails.pirate_sites) ? dbDetails.pirate_sites : [],
 			}
 			: null;
 
@@ -812,23 +940,22 @@ const StoreGamePage = () => {
 			routeState?.longDescription,
 			description
 		);
-		const tags = pickFirstNonEmptyArray(
-			parsedPlatform?.tags,
+		const tags = mergeTagLists(
 			parsedDb?.tags,
-			routeState?.tags
+			parsedPlatform?.tags,
+			routeState?.tags,
 		);
 		const screenshots = pickFirstNonEmptyArray(
 			parsedPlatform?.screenshots,
 			routeState?.screenshots
 		);
-		const links = mergeUniqueSites(
+		const siteCandidates = pickFirstNonEmptyArray(
 			parsedPlatform?.sites,
 			parsedDb?.sites,
-			routeState?.sites,
-			parsedDb?.pirate_sites
+			routeState?.sites
 		);
-		const resolvedLinks = links.length > 0
-			? links
+		const links = siteCandidates.length > 0
+			? normalizeSiteLinksFromAny(siteCandidates)
 			: defaultSiteForPlatform(routePlatform, resolvedAppId || appId);
 		const coverImage = pickFirstFilledText(
 			parsedPlatform?.coverImage,
@@ -855,11 +982,11 @@ const StoreGamePage = () => {
 			coverImage,
 			fallback.heroImage
 		);
-		const price = pickFirstFiniteNumber(
+		const price = normalizePriceValue(pickFirstFiniteNumber(
 			parsedPlatform?.price,
 			parsedDb?.price,
 			routeState?.price
-		);
+		), routePlatform);
 		const priceLabel = pickFirstFilledText(
 			parsedPlatform?.priceLabel,
 			parsedDb?.priceLabel,
@@ -869,6 +996,9 @@ const StoreGamePage = () => {
 			parsedPlatform?.minimumRequirements,
 			parsedDb?.minimumRequirements,
 			routeState?.minimumRequirements
+		);
+		const pirateLinks = normalizePirateLinksFromAny(
+			dbDetails?.pirate_sites || routeState?.pirate_sites || routeState?.pirateSites
 		);
 
 		return {
@@ -886,7 +1016,8 @@ const StoreGamePage = () => {
 			screenshots,
 			price,
 			priceLabel: priceLabel || null,
-			sites: resolvedLinks,
+			sites: links,
+			pirate_links: pirateLinks,
 		};
 	}, [appId, dbDetails, platformDetails, requestedPlatform, routeState]);
 
@@ -907,7 +1038,7 @@ const StoreGamePage = () => {
 				{ label: 'Name', value: steam.name || '' },
 				{ label: 'Country', value: steam.cc || '' },
 				{ label: 'Language', value: steam.lang || '' },
-				{ label: 'Price', value: typeof steam.price_overview === 'number' ? `$${(steam.price_overview / 100).toFixed(2)}` : '' },
+				{ label: 'Price', value: formatCurrencyPrice(typeof steam.price_overview === 'number' ? steam.price_overview / 100 : null, 'steam') },
 				{ label: 'Genres', value: genres },
 				{ label: 'Minimum Requirements', value: steam.minimum_requirements || '' },
 				{ label: 'Banner Image', value: steam.bannerimg || '' },
@@ -915,8 +1046,8 @@ const StoreGamePage = () => {
 		} else if (platform === 'gog' && platformDetails && typeof platformDetails === 'object') {
 			const gog = platformDetails;
 			const gogPrice = [gog.cost, gog.min_price, gog.minPrice, gog.price]
-				.map((value) => Number(value))
-				.find((value) => Number.isFinite(value));
+				.map((value) => normalizePriceValue(value, 'gog'))
+				.find((value) => value !== null);
 			const gogGenres = Array.isArray(gog.genreNames)
 				? gog.genreNames
 				: (Array.isArray(gog.genres)
@@ -925,7 +1056,7 @@ const StoreGamePage = () => {
 			rows.push(
 				{ label: 'Product ID', value: gog.productId || gog.app_id || gog.id || '' },
 				{ label: 'Title', value: gog.title || '' },
-				{ label: 'Price', value: Number.isFinite(gogPrice) ? `$${Number(gogPrice).toFixed(2)}` : '' },
+				{ label: 'Price', value: formatCurrencyPrice(gogPrice, 'gog') },
 				{ label: 'Genres', value: gogGenres.join(', ') },
 				{ label: 'Banner Image', value: gog.bannerImg || gog.banner_img || gog.coverUrl || gog.cover_url || '' },
 				{ label: 'Minimum Requirements', value: gog.minimum_requirements || gog.minimumRequirements || '' },
@@ -934,12 +1065,12 @@ const StoreGamePage = () => {
 		} else if (platform === 'itchio' && platformDetails && typeof platformDetails === 'object') {
 			const itch = platformDetails;
 			const itchPrice = [itch.minPrice, itch.min_price, itch.cost, itch.price]
-				.map((value) => Number(value))
-				.find((value) => Number.isFinite(value));
+				.map((value) => normalizePriceValue(value, 'itchio'))
+				.find((value) => value !== null);
 			rows.push(
 				{ label: 'Game ID', value: itch.gameId != null ? String(itch.gameId) : (itch.app_id != null ? String(itch.app_id) : '') },
 				{ label: 'Title', value: itch.title || '' },
-				{ label: 'Minimum Price', value: Number.isFinite(itchPrice) ? `$${Number(itchPrice).toFixed(2)}` : '' },
+				{ label: 'Minimum Price', value: formatCurrencyPrice(itchPrice, 'itchio') },
 				{ label: 'Cover', value: itch.coverUrl || itch.cover_url || itch.banner_img || '' },
 				{ label: 'Description', value: itch.shortText || itch.short_text || itch.description || '' },
 				{ label: 'Store URL', value: itch.url || itch.store_url || itch.storeUrl || '' },
@@ -947,11 +1078,12 @@ const StoreGamePage = () => {
 		}
 
 		if (dbDetails && typeof dbDetails === 'object') {
+			const dbPlatform = normalizePlatformName(dbDetails.platform_name || model.platform_name);
 			const dbGenres = Array.isArray(dbDetails.genre_names) ? dbDetails.genre_names.filter(Boolean).join(', ') : '';
 			const dbPriceText =
-				typeof dbDetails.formated_price === 'string' && dbDetails.formated_price.trim()
+				dbPlatform !== 'gog' && typeof dbDetails.formated_price === 'string' && dbDetails.formated_price.trim()
 					? dbDetails.formated_price.trim()
-					: (typeof dbDetails.cost === 'number' ? `$${Number(dbDetails.cost).toFixed(2)}` : '');
+					: formatCurrencyPrice(dbDetails.cost, dbPlatform);
 			rows.push(
 				{ label: 'DB App ID', value: dbDetails.app_id != null ? String(dbDetails.app_id) : '' },
 				{ label: 'DB Platform', value: dbDetails.platform_name || '' },
@@ -1066,6 +1198,73 @@ const StoreGamePage = () => {
 		await handleOpenPlatform(target);
 	};
 
+	const handleOpenPirateLink = async (entry) => {
+		const rawHref = String(entry?.href || '').trim();
+		if (!rawHref) return;
+
+		const entryKey = pirateEntryKey(entry, rawHref);
+		setStartingPirateKeys((prev) => (prev.includes(entryKey) ? prev : [...prev, entryKey]));
+		setErrorMessage('');
+
+		try {
+			let torrentId = decodeHtmlAmpersands(rawHref);
+			const lowerHref = torrentId.toLowerCase();
+			const label = String(entry?.label || '').toLowerCase();
+
+			if (!/^magnet:\?/i.test(torrentId)) {
+				const api = typeof window !== 'undefined' ? window.electronAPI : null;
+				const slugFallback = slugFromTitle(model.title, '-') || '';
+				const slugFromLink = extractSlugFromUrl(torrentId);
+				const slug = slugFromLink || slugFallback;
+
+				if ((/fitgirl-repacks\.site/.test(lowerHref) || label.includes('fitgirl')) && slug && typeof api?.fitGirlMagnetLink === 'function') {
+					const resolved = await api.fitGirlMagnetLink(slug);
+					if (hasFilledText(resolved)) {
+						torrentId = decodeHtmlAmpersands(resolved);
+					}
+				} else if ((/pcgamestorrents?\.com/.test(lowerHref) || /igg-games\.com/.test(lowerHref) || label.includes('pcgamestorrent')) && slug && typeof api?.pcGamesTorrentMagnetLink === 'function') {
+					const resolved = await api.pcGamesTorrentMagnetLink(slug);
+					if (hasFilledText(resolved)) {
+						torrentId = decodeHtmlAmpersands(resolved);
+					}
+				}
+			}
+
+			if (!/^magnet:\?/i.test(torrentId) && !/^https?:\/\//i.test(torrentId)) {
+				throw new Error('Unsupported pirate download link.');
+			}
+
+			let configuredPirateSavePath = '';
+			try {
+				if (typeof window.electronAPI.getSettings === 'function') {
+					const settings = await window.electronAPI.getSettings();
+					configuredPirateSavePath = String(
+						settings?.downloads?.pirateTorrentsPath || settings?.downloads?.path || '',
+					).trim();
+				}
+			} catch {
+				configuredPirateSavePath = '';
+			}
+
+			await startDownload({
+				magnetUri: torrentId,
+				savePath: configuredPirateSavePath || undefined,
+				artwork: {
+					imageUrl: model.heroImage || model.coverImage || '',
+					thumbnailUrl: model.coverImage || model.heroImage || '',
+					coverUrl: model.coverImage || model.heroImage || '',
+					image: model.coverImage || model.heroImage || '',
+				},
+			});
+
+			navigate('/downloads');
+		} catch (error) {
+			setErrorMessage(error instanceof Error ? error.message : 'Could not start pirate download.');
+		} finally {
+			setStartingPirateKeys((prev) => prev.filter((key) => key !== entryKey));
+		}
+	};
+
 	return (
 		<div className="flex-1 overflow-y-auto text-slate-100">
 			<div className="relative min-h-full">
@@ -1099,7 +1298,7 @@ const StoreGamePage = () => {
 										<p className="mt-2 text-3xl font-semibold text-white">
 											{model.price === 0
 												? 'Free'
-												: (model.priceLabel || (typeof model.price === 'number' ? `$${model.price.toFixed(2)}` : 'Check Store'))}
+												: ((activePlatform !== 'gog' && model.priceLabel) || formatCurrencyPrice(model.price, activePlatform) || 'Check Store')}
 										</p>
 									</div>
 									{platformActionTargets.map((target) => {
@@ -1129,6 +1328,28 @@ const StoreGamePage = () => {
 											</div>
 										);
 									})}
+									{Array.isArray(model.pirate_links) && model.pirate_links.length > 0 ? (
+										<div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3">
+											<p className="text-[11px] uppercase tracking-[0.18em] text-amber-200">Pirate Downloads</p>
+											<div className="mt-2 flex flex-col gap-2">
+												{model.pirate_links.map((entry, index) => {
+													const pirateKey = pirateEntryKey(entry, index);
+													const isStartingPirate = startingPirateKeys.includes(pirateKey);
+													return (
+													<button
+														key={entry.id || `${entry.label}-${index}`}
+														type="button"
+														onClick={() => handleOpenPirateLink(entry)}
+														disabled={isStartingPirate}
+														className="w-full rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-950 transition-colors hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
+													>
+														{isStartingPirate ? 'Starting Download...' : entry.label}
+													</button>
+													);
+												})}
+											</div>
+										</div>
+									) : null}
 								</div>
 							</div>
 
@@ -1198,21 +1419,7 @@ const StoreGamePage = () => {
 										className="mt-3 text-sm leading-7 text-slate-300 [&_ul]:ml-5 [&_ul]:list-disc [&_strong]:text-slate-100"
 										dangerouslySetInnerHTML={{ __html: model.longDescription || model.description || 'No long description available.' }}
 									/>
-								</div>
-
-									{gameDetailsRows.length > 0 ? (
-										<div className="rounded-2xl border border-slate-700/60 bg-slate-900/45 p-5 backdrop-blur-sm xl:col-span-2">
-											<h2 className="text-lg font-semibold text-white">Game Details</h2>
-											<div className="mt-3 grid gap-2 text-sm text-slate-300">
-												{gameDetailsRows.map((row) => (
-													<div key={row.label} className="rounded-lg border border-slate-700/50 bg-slate-950/35 px-3 py-2">
-														<div className="text-xs uppercase tracking-[0.14em] text-slate-400">{row.label}</div>
-														<div className="mt-1 break-words text-slate-200">{row.value}</div>
-													</div>
-												))}
-											</div>
-										</div>
-									) : null}
+								</div>									
 
 							</div>
 						</div>

@@ -1,8 +1,10 @@
-const { get } = require('cloudscraper');
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const fs = require('node:fs');
 const path = require('path');
 
 const isDev = process.env.NODE_ENV === 'development';
+const ITCH_OAUTH_CLIENT_ID = 'e0ee61cc2f4a3ad1a984914d3d833341';
+const GOG_OAUTH_CLIENT_ID = '46899977096215655';
 
 let mainWindow;
 
@@ -81,6 +83,8 @@ app.whenReady().then(() => {
   let shopSpecialsCtrl = null;
   /** @type {import('./controllers/SettingsController')|null} */
   let settingsCtrl = null;
+  /** @type {import('./controllers/PirateLibraryController')|null} */
+  let pirateLibraryCtrl = null;
 
   function getUserCtrl() {
     if (!userCtrl) {
@@ -176,6 +180,14 @@ function getShopSpecialsCtrl() {
     }
     return settingsCtrl;
   }
+
+  function getPirateLibraryCtrl() {
+    if (!pirateLibraryCtrl) {
+      const PirateLibraryController = require('./controllers/PirateLibraryController');
+      pirateLibraryCtrl = new PirateLibraryController();
+    }
+    return pirateLibraryCtrl;
+  }
   /**
    * Registers an IPC handler with consistent error logging.
    * @param {string} channel
@@ -268,7 +280,12 @@ function getShopSpecialsCtrl() {
   handle('user:get-token', async () => await getUserCtrl().getToken());
 
   handle('user:clear-token', async () => {
-    await getUserCtrl()._invalidateToken();
+    const ctrl = getUserCtrl();
+    if (ctrl && typeof ctrl.clearSession === 'function') {
+      await ctrl.clearSession();
+    } else {
+      await ctrl._invalidateToken();
+    }
     return true;
   });
 
@@ -306,13 +323,22 @@ function getShopSpecialsCtrl() {
   handleAuthed('user:get-platform-userid', async ({ token }, platformName, platformUsername) => {
     // Ensure the controller uses the token from renderer.
     getUserCtrl().setToken(token);
-    const platformId = await getPlatformsCtrl().getPlatform(String(platformName));
-    return await getUserCtrl().getPlatformUserID(String(platformId), String(platformUsername));
+    const platformRow = await getPlatformsCtrl().getPlatform(String(platformName));
+    const resolvedPlatformId = Number(platformRow?.id ?? platformRow?.platform_id);
+    if (!Number.isFinite(resolvedPlatformId) || resolvedPlatformId <= 0) {
+      throw new Error(`Failed to resolve platform id for: ${String(platformName)}`);
+    }
+    return await getUserCtrl().getPlatformUserId(String(resolvedPlatformId), String(platformUsername));
   });
 
   handleAuthed('user:get-owned-games-from-steam', async ({ token }) => {
     getUserCtrl().setToken(token);
     return await getUserCtrl().getOwnedGamesFromSteam();
+  });
+
+  handleAuthed('user:get-owned-games-from-steam-by-native-userid', async ({ token }, nativeUserId) => {
+    getUserCtrl().setToken(token);
+    return await getUserCtrl().getOwnedGamesFromSteamByNativeUserId(nativeUserId);
   });
 
   handleAuthed('user:get-current-user', async ({ token }) => {
@@ -362,6 +388,37 @@ function getShopSpecialsCtrl() {
     console.log('[auth.debug] user:get-current-user resolved payload', resolvedPayload);
 
     return resolvedPayload;
+  });
+
+  handleAuthed('user:update-profile', async ({ token }, profilePatch) => {
+    getUserCtrl().setToken(token);
+    return await getUserCtrl().updateCurrentUserProfile(profilePatch, token);
+  });
+
+  handleAuthed('friends:get-mine', async ({ token }, nativeUserId) => {
+    getUserCtrl().setToken(token);
+    const normalizedNativeUserId = String(nativeUserId || '').trim();
+    return await getUserCtrl().getFriendsWithProfiles(normalizedNativeUserId || null);
+  });
+
+  handleAuthed('native-users:search', async ({ token }, name) => {
+    getUserCtrl().setToken(token);
+    return await getUserCtrl().searchNativeUsersByName(String(name || '').trim());
+  });
+
+  handleAuthed('native-users:get-by-id', async ({ token }, nativeUserId) => {
+    getUserCtrl().setToken(token);
+    return await getUserCtrl().getNativeUserById(String(nativeUserId || '').trim());
+  });
+
+  handleAuthed('friends:add', async ({ token }, friendUserId) => {
+    getUserCtrl().setToken(token);
+    return await getUserCtrl().addFriend(friendUserId);
+  });
+
+  handleAuthed('friends:delete', async ({ token }, friendshipId) => {
+    getUserCtrl().setToken(token);
+    return await getUserCtrl().deleteFriend(friendshipId);
   });
 
   // Settings (global app settings)
@@ -420,7 +477,7 @@ function getShopSpecialsCtrl() {
     });
 
   handleAuthed('platform:get-users', async ({ token }) => {
-    return await getPlatformsCtrl().getPlatformUserIDAll(token);
+    return await getPlatformsCtrl().getAllPlatformUserIds(token);
   });
 
   handleAuthed('platform:delete-user', async ({ token }, platformUserId) => {
@@ -467,7 +524,7 @@ handle('steam:get-installed-games', async () => {
       }
     }
 
-    return await getSteamCtrl().getGamesDetails(token || '', Number(appID), cc ? String(cc) : undefined);
+    return await getSteamCtrl().getGameDetails(token || '', Number(appID), cc ? String(cc) : undefined);
   });
 
   // Steam title-based details.
@@ -513,22 +570,22 @@ handle('steam:get-installed-games', async () => {
 
   // Open Steam client install prompt for a Steam AppID.
   handle('steam:install-game', async (_event, appID) => {
-    return await getSteamCtrl().clientGameControllUtil(appID, 'install');
+    return await getSteamCtrl().clientGameControlUtil(appID, 'install');
   });
 
   // Open Steam client uninstall prompt for a Steam AppID.
   handle('steam:delete-game', async (_event, appID) => {
-    return await getSteamCtrl().clientGameControllUtil(appID, 'uninstall');
+    return await getSteamCtrl().clientGameControlUtil(appID, 'uninstall');
   });
 
   // Open Steam store page for a Steam AppID.
   handle('steam:store-page', async (_event, appID) => {
-    return await getSteamCtrl().clientGameControllUtil(appID, 'store');
+    return await getSteamCtrl().clientGameControlUtil(appID, 'store');
   });
 
   // Run/launch a Steam game by AppID.
   handle('steam:run-game', async (_event, appID) => {
-    return await getSteamCtrl().clientGameControllUtil(appID, 'run');
+    return await getSteamCtrl().clientGameControlUtil(appID, 'run');
   });
 
   // Game DB details (requires backend support)
@@ -539,13 +596,21 @@ handle('steam:get-installed-games', async () => {
         : 'DE';
     return await getGamesCtrl().getGames(Number(from), countryCode || 'DE');
   });
+
+  handle('games:search', async (_event, needle, opts) => {
+    const normalizedNeedle = String(needle || '').trim();
+    const tags = opts && typeof opts === 'object' && Array.isArray(opts.tags)
+      ? opts.tags.map((tag) => String(tag || '').trim()).filter((tag) => !!tag)
+      : [];
+    return await getGamesCtrl().searchGames(normalizedNeedle, { tags });
+  });
   async function makeNameSlug(name) {
     return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
   }
   async function getPirateSitesForGame(name) {
     let sites = [];
     try {
-      const fitGirlLink = await getFitGirlCtrl().FitGirlMagnetLink(await makeNameSlug(name));
+      const fitGirlLink = await getFitGirlCtrl().fitGirlMagnetLink(await makeNameSlug(name));
       if (fitGirlLink) {        
         sites.push({ name: 'FitGirl Repacks', url: fitGirlLink });
       }
@@ -554,7 +619,7 @@ handle('steam:get-installed-games', async () => {
     }
     console.log('Attempting to fetch PCGamesTorrent link for game:', await makeNameSlug(name));
     try {
-      const pcGamesTorrentLink = await getPcGamesTorrentCtrl().PcGamesTorrentMagnetLink(await makeNameSlug(name));
+      const pcGamesTorrentLink = await getPcGamesTorrentCtrl().pcGamesTorrentMagnetLink(await makeNameSlug(name));
       if (pcGamesTorrentLink) {
         sites.push({ name: 'PCGamesTorrent', url: pcGamesTorrentLink });
       }
@@ -562,6 +627,119 @@ handle('steam:get-installed-games', async () => {
       console.warn('Failed to fetch PCGamesTorrent link:', e);
     }
     return sites;
+  }
+
+  /**
+   * @param {unknown} value
+   * @returns {string}
+   */
+  function normalizePirateSiteName(value) {
+    const raw = String(value || '').trim().toLowerCase();
+    if (!raw) return '';
+    if (raw.includes('fitgirl')) return 'fitgirl';
+    if (raw.includes('pcgames')) return 'pcgames';
+    return raw.replace(/[^a-z0-9]+/g, '');
+  }
+
+  /**
+   * @param {unknown} value
+   * @returns {string}
+   */
+  function normalizePirateSiteLink(value) {
+    return String(value || '').trim();
+  }
+
+  /**
+   * @param {any} site
+   * @returns {{ nameKey: string, displayName: string, link: string }|null}
+   */
+  function normalizePirateSiteEntry(site) {
+    if (site == null) return null;
+
+    if (typeof site === 'string') {
+      const link = normalizePirateSiteLink(site);
+      if (!link) return null;
+      return { nameKey: '', displayName: '', link };
+    }
+
+    if (typeof site !== 'object') return null;
+
+    const rawName = String(site.site_name ?? site.siteName ?? site.name ?? site.label ?? '').trim();
+    const link = normalizePirateSiteLink(site.link ?? site.url ?? site.href ?? '');
+    if (!link) return null;
+
+    return {
+      nameKey: normalizePirateSiteName(rawName),
+      displayName: rawName,
+      link,
+    };
+  }
+
+  /**
+   * @param {Array<any>|null|undefined} backendSites
+   * @param {Array<any>|null|undefined} scrapedSites
+   * @returns {{ sitesToSync: Array<{ name: string, url: string }>, mergedSites: Array<{ site_name: string, link: string }> }}
+   */
+  function buildPirateSiteSyncPlan(backendSites, scrapedSites) {
+    const backendNormalized = Array.isArray(backendSites)
+      ? backendSites.map((entry) => normalizePirateSiteEntry(entry)).filter(Boolean)
+      : [];
+    const scrapedNormalized = Array.isArray(scrapedSites)
+      ? scrapedSites.map((entry) => normalizePirateSiteEntry(entry)).filter(Boolean)
+      : [];
+
+    const backendByName = new Map();
+    const backendLinks = new Set();
+    for (const site of backendNormalized) {
+      backendLinks.add(site.link.toLowerCase());
+      if (site.nameKey && !backendByName.has(site.nameKey)) {
+        backendByName.set(site.nameKey, site);
+      }
+    }
+
+    /** @type {Array<{ name: string, url: string }>} */
+    const sitesToSync = [];
+    for (const scraped of scrapedNormalized) {
+      if (scraped.nameKey) {
+        const current = backendByName.get(scraped.nameKey);
+        if (!current || current.link.toLowerCase() !== scraped.link.toLowerCase()) {
+          sitesToSync.push({
+            name: scraped.displayName || scraped.nameKey,
+            url: scraped.link,
+          });
+        }
+        continue;
+      }
+
+      if (!backendLinks.has(scraped.link.toLowerCase())) {
+        sitesToSync.push({
+          name: scraped.displayName || 'Pirate Download',
+          url: scraped.link,
+        });
+      }
+    }
+
+    const mergedByKey = new Map();
+    for (const site of backendNormalized) {
+      const key = site.nameKey || `link:${site.link.toLowerCase()}`;
+      mergedByKey.set(key, {
+        site_name: site.displayName || site.nameKey || 'Pirate Download',
+        link: site.link,
+      });
+    }
+
+    for (const site of scrapedNormalized) {
+      const key = site.nameKey || `link:${site.link.toLowerCase()}`;
+      mergedByKey.set(key, {
+        site_name: site.displayName || site.nameKey || 'Pirate Download',
+        link: site.link,
+      });
+    }
+
+    return {
+      sitesToSync,
+      mergedSites: Array.from(mergedByKey.values()),
+    };
   }
 
   function getSenderUrl(event) {
@@ -650,27 +828,37 @@ handle('steam:get-installed-games', async () => {
 
     if (!gameDetails) return null;
     console.log('Fetched game details:', gameDetails);
-    console.log('Pirate sites from backend:', gameDetails.pirate_sites);
-      if(!Array.isArray(gameDetails.pirate_sites) || gameDetails.pirate_sites.length === 0){
-        gameDetails.pirate_sites = await getPirateSitesForGame(gameDetails.name || '');
-        if(token && gameDetails.pirate_sites.length > 0){
-        for (const site of gameDetails.pirate_sites) {
-          //FINISH THIS LATER!!!!!
-          try{
-          const siteUrl = site && typeof site === 'object' ? site.url : site;
-          if (siteUrl) {
-            await getGamesCtrl().uploadPirateSites(token, gameDetails.app_id, gameDetails.platform_name, [String(siteUrl)]);
-          }
-          } catch(e){
-            console.warn('Failed to upload pirate site:', e);
-          }
+    const backendPirateSites = Array.isArray(gameDetails.pirate_sites) ? gameDetails.pirate_sites : [];
+    console.log('Pirate sites from backend:', backendPirateSites);
+
+    const scrapedPirateSites = await getPirateSitesForGame(gameDetails.name || '');
+    const syncPlan = buildPirateSiteSyncPlan(backendPirateSites, scrapedPirateSites);
+
+    // Always expose the freshest scrape output while preserving DB-only entries.
+    gameDetails.pirate_sites = syncPlan.mergedSites;
+    console.log('Fetched pirate sites:', scrapedPirateSites);
+
+    if (token && syncPlan.sitesToSync.length > 0) {
+      try {
+        const uploadSummary = await getGamesCtrl().uploadPirateSites(
+          token,
+          gameDetails.app_id ?? appId,
+          gameDetails.platform_name ?? platform,
+          syncPlan.sitesToSync
+        );
+        console.log('Uploaded scraped pirate site changes:', {
+          attempted: syncPlan.sitesToSync.length,
+          ...uploadSummary,
+        });
+      } catch (e) {
+        if (e && typeof e === 'object' && e.code === 'WRECK_INVALID_TOKEN') {
+          throw e;
         }
+        console.warn('Failed to upload scraped pirate site changes:', e);
       }
-        console.log('Fetched pirate sites:', gameDetails.pirate_sites);
-        return gameDetails;
-      } else {
-        return gameDetails;
-      }
+    }
+
+    return gameDetails;
   });
   handle('games:get-all-details-by-id', async (event, id, opts) => {
     const senderUrl = getSenderUrl(event);
@@ -711,9 +899,9 @@ handle('steam:get-installed-games', async () => {
     return getItchCtrl().getInstalledGames();
   });
 
-  // Get itch.io OAuth client ID from environment
+  // Get hardcoded itch.io OAuth client ID
   handle('itch:get-client-id', async () => {
-    return process.env.ITCH_CLIENT_ID || null;
+    return ITCH_OAUTH_CLIENT_ID;
   });
 
   // OAuth-based library (uses user's own token)
@@ -722,10 +910,141 @@ handle('steam:get-installed-games', async () => {
   });
 
   handle('itch:oauth-login', async (_event, clientId) => {
-    // Use provided clientId or fall back to env
-    const id = "e0ee61cc2f4a3ad1a984914d3d833341";
-    if (!id) throw new Error('itch.io OAuth client ID is required. Set ITCH_CLIENT_ID in .env or pass it as argument.');
-    return await getItchCtrl().login(id);
+    // Use provided clientId or fall back to hardcoded default.
+    const id = String(clientId || ITCH_OAUTH_CLIENT_ID || '').trim();
+    if (!id) throw new Error('itch.io OAuth client ID is required. Provide it as argument or set ITCH_OAUTH_CLIENT_ID in main.js.');
+    const loginResult = await getItchCtrl().login(id);
+    console.log(loginResult);
+    return loginResult;
+  });
+
+  // Runs itch OAuth and persists the linked account in platform_users for the authed Wreck user.
+  handleAuthed('itch:oauth-login-and-upload', async ({ token }, clientId) => {
+    const id = String(clientId || ITCH_OAUTH_CLIENT_ID || '').trim();
+    if (!id) {
+      throw new Error('itch.io OAuth client ID is required. Provide it as argument or set ITCH_OAUTH_CLIENT_ID in main.js.');
+    }
+
+    const ctrl = getItchCtrl();
+    let profile = null;
+    let loginResult = null;
+
+    if (ctrl.isLoggedIn()) {
+      try {
+        profile = await ctrl.getProfile();
+      } catch {
+        profile = null;
+      }
+    }
+
+    if (!profile) {
+      loginResult = await ctrl.login(id);
+      if (!loginResult || loginResult.success !== true) {
+        throw new Error('itch.io OAuth login was cancelled');
+      }
+      profile = await ctrl.getProfile().catch(() => null);
+      const loginUserId = loginResult?.user?.id ?? null;
+      const loginUsername = String(loginResult?.user?.username ?? '').trim();
+      if (!profile && ((loginUserId !== null && loginUserId !== undefined) || !!loginUsername)) {
+        profile = {
+          id: loginUserId,
+          username: loginUsername || null,
+          display_name: (loginResult.user?.display_name ?? loginUsername) || null,
+          url: null,
+          cover_url: null,
+        };
+      }
+    }
+
+    const oauthToken = String(ctrl.getAccessToken() || '').trim();
+    const tokenPrefix = oauthToken.replace(/[^a-zA-Z0-9]/g, '').slice(0, 12);
+    const generatedUsername = tokenPrefix ? `itch_${tokenPrefix}` : 'itch_oauth_user';
+    const profileUsername = String(
+      profile?.username ??
+      profile?.display_name ??
+      loginResult?.user?.username ??
+      generatedUsername
+    ).trim() || generatedUsername;
+
+    const profileId = String(
+      profile?.id ??
+      profile?.user_id ??
+      profile?.userid ??
+      loginResult?.user?.id ??
+      profileUsername
+    ).trim() || profileUsername;
+
+    const resolvedProfile = {
+      id: profileId,
+      username: profileUsername,
+      display_name: String(profile?.display_name ?? profileUsername).trim() || profileUsername,
+      url: typeof profile?.url === 'string' ? profile.url : null,
+      cover_url: typeof profile?.cover_url === 'string' ? profile.cover_url : null,
+    };
+
+    console.log('Resolved itch.io profile:', {
+      rawProfile: profile,
+      loginResult,
+      generatedUsername,
+      resolvedProfile,
+      oauthToken,
+    });
+
+    if (!oauthToken) throw new Error('itch.io OAuth token is missing after login');
+
+    const platform = await getPlatformsCtrl().getPlatform('itchio');
+    const platformId = Number(platform?.id ?? platform?.platform_id);
+    if (!Number.isFinite(platformId) || platformId <= 0) {
+      throw new Error('Failed to resolve itchio platform ID');
+    }
+
+    const platformUsers = await getPlatformsCtrl().getAllPlatformUserIds(token).catch(() => []);
+    const existing = Array.isArray(platformUsers)
+      ? platformUsers.find((row) => {
+          const rowOauthToken = String(row?.oauth_token ?? row?.oauthToken ?? '').trim();
+          if (rowOauthToken && rowOauthToken === oauthToken) return true;
+
+          const rowPlatformId = Number(row?.platform_id ?? row?.platformId ?? row?.platform?.id);
+          if (!Number.isFinite(rowPlatformId) || rowPlatformId !== platformId) return false;
+
+          const rowProfileId = String(row?.platform_profile_id ?? row?.platform_prof_id ?? row?.platformProfileId ?? '').trim();
+          const rowUsername = String(row?.platform_user_name ?? row?.platformUserName ?? '').trim().toLowerCase();
+
+          if (rowProfileId) return rowProfileId === profileId;
+          return rowUsername && rowUsername === profileUsername.toLowerCase();
+        })
+      : null;
+
+    if (existing) {
+      return {
+        success: true,
+        created: false,
+        platformUserId: existing?.id ?? existing?.platformUserID ?? existing?.platform_user_id ?? null,
+        profile: resolvedProfile,
+        oauthToken,
+      };
+    }
+
+    const created = await getPlatformsCtrl().createPlatformUser(
+      token,
+      'itchio',
+      profileUsername,
+      oauthToken,
+      profileId,
+    );
+
+    return {
+      success: true,
+      created: true,
+      platformUserId: created?.id ?? created?.platformUserID ?? created?.platform_user_id ?? null,
+      profile: resolvedProfile,
+      oauthToken,
+    };
+  });
+
+  handle('itch:get-oauth-token', async () => {
+    const oauthToken = String(getItchCtrl().getAccessToken() || '').trim();
+    return oauthToken || null;
   });
 
   handle('itch:oauth-logout', async () => {
@@ -797,18 +1116,196 @@ handle('steam:get-installed-games', async () => {
     return await getItchCtrl().getGameDetailsByTitle(title);
   });
 
-  handle('itch:open-game', async (_event, gameId) => {
-    return await getItchCtrl().clientGameControlUtil(gameId, 'open');
+  handle('itch:open-game', async (_event, gameId, gameUrl) => {
+    return await getItchCtrl().clientGameControlUtil(gameId, 'open', gameUrl);
   });
 
-  handle('itch:install-game', async (_event, gameId) => {
-    return await getItchCtrl().clientGameControlUtil(gameId, 'install');
+  handle('itch:run-game', async (_event, gameId, gameUrl, installLocation) => {
+    return await getItchCtrl().clientGameControlUtil(gameId, 'run', gameUrl, installLocation);
+  });
+
+  handle('itch:install-game', async (_event, gameId, gameUrl) => {
+    return await getItchCtrl().clientGameControlUtil(gameId, 'install', gameUrl);
+  });
+
+  handle('itch:delete-game', async (_event, gameId, gameUrl, installLocation) => {
+    return await getItchCtrl().clientGameControlUtil(gameId, 'uninstall', gameUrl, installLocation);
   });
 
   // ── GOG ───────────────────────────────────────────────────────────────────
 
   handle('gog:get-installed-games', async () => {
     return await getGogCtrl().getInstalledGames();
+  });
+
+  handle('gog:get-client-id', async () => {
+    return GOG_OAUTH_CLIENT_ID;
+  });
+
+  handle('gog:get-library', async () => {
+    return await getGogCtrl().getLibraryWithUserToken();
+  });
+
+  handle('gog:oauth-login', async (_event, clientId) => {
+    const id = String(clientId || GOG_OAUTH_CLIENT_ID || '').trim();
+    if (!id) {
+      throw new Error('GOG OAuth client ID is required. Provide it as argument or set GOG_OAUTH_CLIENT_ID in main.js.');
+    }
+    const loginResult = await getGogCtrl().login(id);
+    console.log(loginResult);
+    return loginResult;
+  });
+
+  handleAuthed('gog:oauth-login-and-upload', async ({ token }, clientId) => {
+    const id = String(clientId || GOG_OAUTH_CLIENT_ID || '').trim();
+    if (!id) {
+      throw new Error('GOG OAuth client ID is required. Provide it as argument or set GOG_OAUTH_CLIENT_ID in main.js.');
+    }
+
+    const ctrl = getGogCtrl();
+    let profile = null;
+    let loginResult = null;
+
+    if (ctrl.isLoggedIn()) {
+      try {
+        profile = await ctrl.getProfile();
+      } catch {
+        profile = null;
+      }
+    }
+
+    if (!profile) {
+      loginResult = await ctrl.login(id);
+      if (!loginResult || loginResult.success !== true) {
+        const message = String(loginResult?.error || 'GOG OAuth login was cancelled').trim();
+        throw new Error(message || 'GOG OAuth login was cancelled');
+      }
+
+      profile = await ctrl.getProfile().catch(() => null);
+      const loginUserId = loginResult?.user?.id ?? null;
+      const loginUsername = String(loginResult?.user?.username ?? '').trim();
+      if (!profile && ((loginUserId !== null && loginUserId !== undefined) || !!loginUsername)) {
+        profile = {
+          id: loginUserId,
+          username: loginUsername || null,
+          display_name: loginUsername || null,
+          url: null,
+          cover_url: null,
+        };
+      }
+    }
+
+    const oauthToken = String(ctrl.getAccessToken() || '').trim();
+    const tokenPrefix = oauthToken.replace(/[^a-zA-Z0-9]/g, '').slice(0, 12);
+    const generatedUsername = tokenPrefix ? `gog_${tokenPrefix}` : 'gog_oauth_user';
+
+    const profileUsername = String(
+      profile?.username ??
+      profile?.display_name ??
+      loginResult?.user?.username ??
+      generatedUsername
+    ).trim() || generatedUsername;
+
+    const profileId = String(
+      profile?.id ??
+      profile?.user_id ??
+      loginResult?.user?.id ??
+      profileUsername
+    ).trim() || profileUsername;
+
+    const resolvedProfile = {
+      id: profileId,
+      username: profileUsername,
+      display_name: String(profile?.display_name ?? profileUsername).trim() || profileUsername,
+      url: typeof profile?.url === 'string' ? profile.url : null,
+      cover_url: typeof profile?.cover_url === 'string' ? profile.cover_url : null,
+    };
+
+    if (!oauthToken) {
+      throw new Error('GOG OAuth token is missing after login');
+    }
+
+    const platform = await getPlatformsCtrl().getPlatform('gog');
+    const platformId = Number(platform?.id ?? platform?.platform_id);
+    if (!Number.isFinite(platformId) || platformId <= 0) {
+      throw new Error('Failed to resolve gog platform ID');
+    }
+
+    const platformUsers = await getPlatformsCtrl().getAllPlatformUserIds(token).catch(() => []);
+    const existing = Array.isArray(platformUsers)
+      ? platformUsers.find((row) => {
+          const rowOauthToken = String(row?.oauth_token ?? row?.oauthToken ?? '').trim();
+        if (rowOauthToken && rowOauthToken === oauthToken) return true;
+
+          const rowPlatformId = Number(row?.platform_id ?? row?.platformId ?? row?.platform?.id);
+          if (!Number.isFinite(rowPlatformId) || rowPlatformId !== platformId) return false;
+
+          const rowProfileId = String(row?.platform_profile_id ?? row?.platform_prof_id ?? row?.platformProfileId ?? '').trim();
+          const rowUsername = String(row?.platform_user_name ?? row?.platformUserName ?? '').trim().toLowerCase();
+
+          if (rowProfileId) return rowProfileId === profileId;
+          return rowUsername && rowUsername === profileUsername.toLowerCase();
+        })
+      : null;
+
+    const existingId = existing?.id ?? existing?.platformUserID ?? existing?.platform_user_id ?? null;
+    const existingOauthToken = String(existing?.oauth_token ?? existing?.oauthToken ?? '').trim();
+
+    if (existing && existingOauthToken === oauthToken) {
+      return {
+        success: true,
+        created: false,
+        platformUserId: existingId,
+        profile: resolvedProfile,
+        oauthToken,
+      };
+    }
+
+    if (existingId !== null && existingId !== undefined) {
+      try {
+        await getPlatformsCtrl().deletePlatformUser(token, String(existingId));
+      } catch {
+        // ignore stale entry cleanup errors and proceed with create
+      }
+    }
+
+    const created = await getPlatformsCtrl().createPlatformUser(
+      token,
+      'gog',
+      profileUsername,
+      oauthToken,
+      profileId,
+    );
+
+    return {
+      success: true,
+      created: true,
+      platformUserId: created?.id ?? created?.platformUserID ?? created?.platform_user_id ?? null,
+      profile: resolvedProfile,
+      oauthToken,
+    };
+  });
+
+  handle('gog:get-oauth-token', async () => {
+    const oauthToken = String(getGogCtrl().getAccessToken() || '').trim();
+    return oauthToken || null;
+  });
+
+  handle('gog:oauth-logout', async () => {
+    getGogCtrl().logout();
+    return { success: true };
+  });
+
+  handle('gog:oauth-status', async () => {
+    const ctrl = getGogCtrl();
+    return {
+      isLoggedIn: ctrl.isLoggedIn(),
+      hasToken: !!ctrl.getAccessToken(),
+    };
+  });
+
+  handle('gog:get-profile', async () => {
+    return await getGogCtrl().getProfile();
   });
 
   // Supports both call styles:
@@ -900,24 +1397,43 @@ handle('steam:get-installed-games', async () => {
     return await getGogCtrl().clientGameControlUtil(productId, 'install');
   });
 
+  handle('gog:delete-game', async (_event, productId) => {
+    return await getGogCtrl().clientGameControlUtil(productId, 'uninstall');
+  });
+
+  // ── Local pirate library (manual EXE-based entries) ─────────────────────
+
+  handle('pirate-library:get-games', async () => {
+    return await getPirateLibraryCtrl().getGames();
+  });
+
+  handle('pirate-library:add-game-from-dialog', async (event) => {
+    const ownerWindow = BrowserWindow.fromWebContents(event.sender) || mainWindow || null;
+    return await getPirateLibraryCtrl().addGameFromDialog(ownerWindow);
+  });
+
+  handle('pirate-library:remove-game', async (_event, gameId) => {
+    return await getPirateLibraryCtrl().removeGame(String(gameId || ''));
+  });
+
+  handle('pirate-library:run-game', async (_event, executablePath) => {
+    return await getPirateLibraryCtrl().runGame(String(executablePath || ''));
+  });
+
   // Cloudscraper helpers
   handle('cloudscraper:fetch', async (_event, url, options) => {
     return await getCloudscraperCtrl().fetch(String(url), options && typeof options === 'object' ? options : {});
-  });
-
-  handle('cloudscraper:dodi-repacks-home', async () => {
-    return await getCloudscraperCtrl().fetchDodiRepacksHome();
   });
 
   handle('cloudscraper:search-byxatab', async (_event, query, page) => {
     return await getCloudscraperCtrl().searchByxatab(String(query), Number(page || 1));
   });
   handle('fitgirl:magnet-link', async (_event, gameName) => {
-    return await getFitGirlCtrl().FitGirlMagnetLink(String(gameName));
+    return await getFitGirlCtrl().fitGirlMagnetLink(String(gameName));
   });
 
   handle('pcgamestorrent:magnet-link', async (_event, gameName) => {
-    return await getPcGamesTorrentCtrl().PcGamesTorrentMagnetLink(String(gameName));
+    return await getPcGamesTorrentCtrl().pcGamesTorrentMagnetLink(String(gameName));
   });
 
   
@@ -930,7 +1446,21 @@ handle('steam:get-installed-games', async () => {
     const mUri  = String(magnetUri || '').trim()
       .replace(/&#0*38;/g, '&')
       .replace(/&amp;/gi, '&');
-    const sPath = String(savePath  || '').trim() || app.getPath('downloads');
+    const requestedSavePath = String(savePath || '').trim();
+    let configuredDefaultSavePath = '';
+    if (!requestedSavePath) {
+      try {
+        const settings = await getSettingsCtrl().getSettings();
+        configuredDefaultSavePath = String(
+          settings?.downloads?.pirateTorrentsPath
+          || settings?.downloads?.path
+          || '',
+        ).trim();
+      } catch {
+        configuredDefaultSavePath = '';
+      }
+    }
+    const sPath = requestedSavePath || configuredDefaultSavePath || app.getPath('downloads');
     console.log('[torrent:start] mUri (full):', mUri);
     console.log('[torrent:start] sPath:', sPath);
     console.log('[torrent:start] tracker count:', (mUri.match(/&tr=/g) || []).length);
@@ -956,6 +1486,58 @@ handle('steam:get-installed-games', async () => {
 
   handle('torrent:get-status', () => {
     return getTorrentCtrl().getStatus();
+  });
+
+  handle('torrent:open', async (_event, infoHash, savePath) => {
+    const normalizedSavePath = String(savePath || '').trim();
+    const normalizedInfoHash = String(infoHash || '').trim().toLowerCase();
+
+    let targetPath = normalizedSavePath;
+    let torrentName = '';
+    if (!targetPath && normalizedInfoHash) {
+      const current = getTorrentCtrl().getStatus();
+      const match = current.find((item) => String(item?.infoHash || '').trim().toLowerCase() === normalizedInfoHash);
+      targetPath = String(match?.savePath || match?.path || '').trim();
+      torrentName = String(match?.name || '').trim();
+    }
+
+    if (targetPath && normalizedInfoHash && !torrentName) {
+      const current = getTorrentCtrl().getStatus();
+      const match = current.find((item) => String(item?.infoHash || '').trim().toLowerCase() === normalizedInfoHash);
+      torrentName = String(match?.name || '').trim();
+    }
+
+    if (!targetPath) {
+      throw new Error('Download path is unavailable for this torrent.');
+    }
+
+    let folderToOpen = targetPath;
+    try {
+      if (fs.existsSync(folderToOpen)) {
+        const stats = fs.statSync(folderToOpen);
+        if (stats.isFile()) {
+          folderToOpen = path.dirname(folderToOpen);
+        }
+      }
+
+      // If a subfolder with the torrent name exists, open that exact folder.
+      if (torrentName) {
+        const namedFolderCandidate = path.join(folderToOpen, torrentName);
+        if (fs.existsSync(namedFolderCandidate) && fs.statSync(namedFolderCandidate).isDirectory()) {
+          folderToOpen = namedFolderCandidate;
+        }
+      }
+    } catch {
+      // Fall back to opening the original path if fs checks fail.
+      folderToOpen = targetPath;
+    }
+
+    const openError = await shell.openPath(folderToOpen);
+    if (openError) {
+      throw new Error(`Failed to open download path: ${openError}`);
+    }
+
+    return { ok: true, path: folderToOpen };
   });
 //----------------Shop Specials Controller────────────────────────────────────────
 

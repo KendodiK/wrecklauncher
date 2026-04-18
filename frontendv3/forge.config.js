@@ -9,7 +9,9 @@ module.exports = {
   makers: [
     {
       name: '@electron-forge/maker-squirrel',
-      config: {},
+      config: {
+        authors: 'WreckLauncher Team',
+      },
     },
     {
       name: '@electron-forge/maker-zip',

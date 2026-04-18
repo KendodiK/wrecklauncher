@@ -2,17 +2,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-function isValidHttpUrl(value) {
-  const raw = String(value || '').trim();
-  if (!raw) return false;
-  try {
-    const parsed = new URL(raw);
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
-  } catch {
-    return false;
-  }
-}
-
 // onLogin: szülőből érkező callback, ami elmenti a user adatokat globálisan (App-ben)
 const Login = ({ onLogin }) => {
   // Form mezők lokális állapota
@@ -37,16 +26,6 @@ const Login = ({ onLogin }) => {
 
     if (isRegisterMode && !email) {
       setStatus('Please enter your email');
-      return;
-    }
-
-    if (isRegisterMode && !avatarUrl.trim()) {
-      setStatus('Please enter a profile picture URL');
-      return;
-    }
-
-    if (isRegisterMode && !isValidHttpUrl(avatarUrl)) {
-      setStatus('Invalid profile picture URL format. Use a full http/https link.');
       return;
     }
 
@@ -79,20 +58,36 @@ const Login = ({ onLogin }) => {
         // Validate token is a non-empty string
         if (token && typeof token === 'string' && token.trim().length > 0) {
           let profile = null;
-          try {
-            if (typeof window?.electronAPI?.getCurrentUser === 'function') {
+          if (typeof window?.electronAPI?.getCurrentUser === 'function') {
+            try {
               profile = await window.electronAPI.getCurrentUser();
+            } catch {
+              profile = null;
             }
-          } catch {
-            profile = null;
           }
+
+          const avatarCandidate =
+            profile?.avatarUrl ||
+            profile?.avatar_url ||
+            profile?.avatarURL ||
+            profile?.profilePicture ||
+            profile?.pfp ||
+            null;
+          const resolvedAvatarUrl =
+            typeof avatarCandidate === 'string' && avatarCandidate.trim()
+              ? avatarCandidate.trim()
+              : null;
+          const resolvedUsername =
+            typeof profile?.username === 'string' && profile.username.trim()
+              ? profile.username.trim()
+              : username;
 
           const userData = {
             id: profile?.id ?? null,
-            username: profile?.username || username,
+            username: resolvedUsername,
             bio: profile?.bio ?? null,
-            avatarUrl: profile?.avatarUrl ?? null,
-            token: token,
+            avatarUrl: resolvedAvatarUrl,
+            token: token.trim(),
           };
 
           // Sikeres belépésnél frissítjük a globális user állapotot
@@ -101,7 +96,7 @@ const Login = ({ onLogin }) => {
           }
 
           // Visszajelzés a felhasználónak, majd átirányítás a Store oldalra
-          setStatus(`Logged in as ${username}`);
+          setStatus(`Logged in as ${resolvedUsername}`);
           setTimeout(() => navigate('/store'), 500);
         } else {
           setStatus('Login failed. Username or password might be invalid.');
@@ -164,7 +159,7 @@ const Login = ({ onLogin }) => {
 
               <div>
                 <label className="block text-xs mb-1" htmlFor="avatarUrl">
-                  Profile picture URL
+                  Profile picture URL (optional)
                 </label>
                 <input
                   id="avatarUrl"

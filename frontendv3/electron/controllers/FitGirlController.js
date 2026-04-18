@@ -19,7 +19,7 @@ class FitGirlController {
    * @param {string} gameName
    * @returns {Promise<string | null>}
    */
-  async FitGirlMagnetLink(gameName) {
+  async fitGirlMagnetLink(gameName) {
     if (!gameName || !String(gameName).trim()) throw new Error('Game name is required');
     const slug = String(gameName).trim();
     const url = `https://fitgirl-repacks.site/${encodeURIComponent(slug)}`;
@@ -45,6 +45,15 @@ class FitGirlController {
 
     console.log('[FitGirl] decoded magnet:', magnetLink.slice(0, 120));
     return magnetLink;
+  }
+
+  /**
+   * Backward-compatible alias for legacy PascalCase method name.
+   * @param {string} gameName
+   * @returns {Promise<string | null>}
+   */
+  async FitGirlMagnetLink(gameName) {
+    return this.fitGirlMagnetLink(gameName);
   }
 }
 

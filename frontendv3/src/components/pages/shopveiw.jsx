@@ -125,57 +125,99 @@ function parseDiscountPercent(game) {
 	return 0;
 }
 
-function normalizePriceValue(raw) {
+function normalizePriceValue(raw, platformHint = '') {
 	const numeric = Number(raw);
 	if (!Number.isFinite(numeric) || numeric <= 0) return 0;
 
+	const normalizedPlatform = String(platformHint || '').trim().toLowerCase();
+	const looksLikeMinorUnits = Number.isInteger(numeric)
+		&& (
+			(normalizedPlatform === 'gog' || normalizedPlatform === 'gog.com')
+				? numeric >= 100
+				: numeric >= 1000
+		);
+
 	// Some backends store cents; normalize to major currency unit for UI filters.
-	if (Number.isInteger(numeric) && numeric >= 1000) {
+	if (looksLikeMinorUnits) {
 		return Number((numeric / 100).toFixed(2));
 	}
 
-	return numeric;
+	return Number(numeric.toFixed(2));
 }
 
-function normalizeTextList(value) {
-	if (Array.isArray(value)) {
-		return value
-			.map((entry) => String(
-				typeof entry === 'object' && entry !== null
-					? entry.name ?? entry.genre ?? entry.description ?? entry.label ?? ''
-					: entry ?? '',
-			).trim())
-			.filter(Boolean);
+function extractNamedValue(value) {
+	if (value == null) return '';
+
+	if (typeof value === 'object') {
+		const fields = [
+			value.name,
+			value.genre,
+			value.description,
+			value.tag,
+			value.title,
+			value.label,
+		];
+		for (const field of fields) {
+			if (typeof field === 'string' && field.trim()) {
+				return field.trim();
+			}
+		}
+		return '';
 	}
 
 	if (typeof value === 'string') {
-		return value
-			.split(',')
-			.map((part) => part.trim())
-			.filter(Boolean);
+		return value.trim();
 	}
 
-	return [];
+	return '';
+}
+
+function normalizeNamedList(input) {
+	const source = Array.isArray(input) ? input : [input];
+	const seen = new Set();
+	const out = [];
+
+	for (const entry of source) {
+		const label = extractNamedValue(entry);
+		if (!label) continue;
+
+		const parts = label.includes(',')
+			? label.split(',').map((part) => part.trim()).filter(Boolean)
+			: [label];
+
+		for (const part of parts) {
+			if (!part || /^\d+$/.test(part)) continue;
+			const key = part.toLowerCase();
+			if (seen.has(key)) continue;
+			seen.add(key);
+			out.push(part);
+		}
+	}
+
+	return out;
 }
 
 function mapGameCard(game, fallbackTag = '') {
-	const normalizedPrice = normalizePriceValue(game.cost ?? game.price);
 	const normalizedPlatform = resolveStorePlatformFromGame(game, 'steam');
-	const normalizedGenres = normalizeTextList(
-		game.genres ?? game.genre_names ?? game.genreNames ?? game.genre ?? game.categories,
-	);
-	const normalizedTags = normalizeTextList(
-		game.tags ?? game.tag_names ?? game.tagNames,
-	);
-	const mergedTags = [...normalizedTags, ...normalizedGenres];
+	const resolvedImage = game.banner_img || game.image || steamPoster(game.app_id || game.appid || game.id);
+	const normalizedPrice = normalizePriceValue(game.cost ?? game.price, normalizedPlatform);
+	const normalizedGenres = normalizeNamedList(game.genre_names ?? game.genreNames ?? game.genres);
+	const normalizedTags = normalizeNamedList(game.tag_names ?? game.tagNames ?? game.tags);
+	const baseTags = normalizedTags.length > 0 ? normalizedTags : normalizedGenres;
+	const tagSet = new Set(baseTags.map((tag) => String(tag).toLowerCase()));
+	if (fallbackTag && !tagSet.has(String(fallbackTag).toLowerCase())) {
+		baseTags.push(fallbackTag);
+	}
+
 	return {
 		id: game.app_id || game.appid || game.id,
 		app_id: game.app_id || game.appid || game.id,
 		appid: game.app_id || game.appid || game.id,
 		name: game.name,
 		title: game.name || game.title,
-		image: game.banner_img || game.image || steamPoster(game.app_id || game.appid || game.id),
+		image: resolvedImage,
 		banner_img: game.banner_img || game.image || null,
+		preferContainImage: !game.banner_img,
 		cost: normalizedPrice,
 		price: normalizedPrice,
 		discountPercent: parseDiscountPercent(game),
@@ -183,10 +225,7 @@ function mapGameCard(game, fallbackTag = '') {
 		platform_name: normalizedPlatform,
 		minimum_requirements: game.minimum_requirements || '',
 		genres: normalizedGenres,
-		tags: [
-			...mergedTags,
-			...(fallbackTag ? [fallbackTag] : []),
-		],
+		tags: baseTags,
 	};
 }
 
@@ -353,7 +392,7 @@ const ensureFullBrowsePages = async () => {
 			});
 
 
-			if (batch.length <= 1) {
+			if (batch.length < BATCH_SIZE) {
 				setHasMoreBrowse(false);
 			}
 
@@ -486,14 +525,6 @@ const ensureFullBrowsePages = async () => {
 				// component will use window.electronAPI.getSteamGameDetails(appID) or 
 				// window.electronAPI.getAllDetailsByID(id) to fetch full scraped data
 				const transformedGames = (gamesData || []).map((game) => mapGameCard(game));
-				console.log('[tags-debug] first mapped game:', transformedGames[0]
-					? {
-						id: transformedGames[0].id,
-						title: transformedGames[0].title,
-						genres: transformedGames[0].genres,
-						tags: transformedGames[0].tags,
-					}
-					: null);
 
 				let featuredCards = appendUniqueGames(
 					[],
@@ -513,32 +544,6 @@ const ensureFullBrowsePages = async () => {
 						.map((game) => mapGameCard(game, 'upcoming'))
 						.slice(0, CAROUSEL_INITIAL_ITEMS)
 				);
-
-				// If specials endpoints are empty, keep shop sections usable with browse-data fallbacks.
-				if (featuredCards.length < 1) {
-					featuredCards = transformedGames
-						.slice(0, CAROUSEL_INITIAL_ITEMS)
-						.map((game) => ({ ...game, tags: [...(Array.isArray(game.tags) ? game.tags : []), 'featured'] }));
-				}
-
-				if (discountedCards.length < 1) {
-					const discountedFallback = transformedGames
-						.filter((game) => Number(game.discountPercent) > 0)
-						.slice(0, CAROUSEL_INITIAL_ITEMS)
-						.map((game) => ({ ...game, tags: [...(Array.isArray(game.tags) ? game.tags : []), 'discount'] }));
-
-					discountedCards = discountedFallback.length > 0
-						? discountedFallback
-						: transformedGames
-							.slice(CAROUSEL_CHUNK_SIZE, CAROUSEL_CHUNK_SIZE + CAROUSEL_INITIAL_ITEMS)
-							.map((game) => ({ ...game, tags: [...(Array.isArray(game.tags) ? game.tags : []), 'discount'] }));
-				}
-
-				if (upcomingCards.length < 1) {
-					upcomingCards = transformedGames
-						.slice(CAROUSEL_CHUNK_SIZE * 2, CAROUSEL_CHUNK_SIZE * 2 + CAROUSEL_INITIAL_ITEMS)
-						.map((game) => ({ ...game, tags: [...(Array.isArray(game.tags) ? game.tags : []), 'upcoming'] }));
-				}
 
 				const featuredNextOffset = featuredPage2.status === 'fulfilled'
 					? featuredChunk2.nextFrom

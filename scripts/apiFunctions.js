@@ -15,89 +15,68 @@ const FriendsController = require('../database/controllers/FriendsController.js'
 const NativeUsersController = require('../database/controllers/NativeUsersController.js');
 const ChatsController = require('../database/controllers/ChatsController.js');
 const PlatformsController = require('../database/controllers/PlatformsController.js');
+const PirateSitesController = require('../database/controllers/PirateSitesController.js');
 const PlatformUsersController = require('../database/controllers/PlatformUsersController.js');
 const ShopSpecialsController = require('../database/controllers/ShopSpecialsController.js');
 const PricesController = require('../database/controllers/PricesController.js');
-const PirateSitesController = require('../database/controllers/PirateSitesController.js');
 const ShopSpecialsMaker = require('../database/makers/ShopSpecialsTableMaker.js');
 const { error } = require('console');
 const shopSpecials = require('./fetchShopSpecials.js');
 //#endregion
 
-function normalizeCountryCodeInput(value, fallback = 'DE') {
-    const normalized = String(value || fallback).trim().toUpperCase();
-    return /^[A-Z]{2}$/.test(normalized) ? normalized : fallback;
-}
-
-function normalizeOffsetParam(fromRaw) {
-    const offset = Number(fromRaw);
-    if (!Number.isFinite(offset) || offset < 0 || !Number.isInteger(offset)) {
-        return null;
-    }
-    return offset;
-}
-
-async function resolvePlatformIdFromParam(platformRef) {
-    const raw = String(platformRef ?? '').trim();
-    if (!raw) return null;
-
-    if (/^\d+$/.test(raw)) {
-        const numericId = Number(raw);
-        if (!Number.isFinite(numericId) || numericId <= 0) return null;
-        return numericId;
+async function collectOwnedGamesFromSteamForNativeUser(nativeUserId) {
+    const normalizedNativeUserId = String(nativeUserId ?? '').trim();
+    if (!normalizedNativeUserId) {
+        throw new Error('Missing native user id');
     }
 
-    const normalized = apiHelpers.normalizePlatformName(raw);
-    const candidates = new Set([
-        raw.toLowerCase(),
-        normalized,
-    ]);
+    const platformUserCtrl = new PlatformUsersController();
+    const platformCtrl = new PlatformsController();
+    const platformUsers = await platformUserCtrl.getByNativeUserId(normalizedNativeUserId);
+    const steamPlatform = await platformCtrl.getByPlatformName('steam');
 
-    if (normalized === 'itch') candidates.add('itchio');
-    if (normalized === 'itchio') candidates.add('itch');
-    if (normalized === 'gogcom') candidates.add('gog');
+    const steamPlatformId = Number(steamPlatform?.id);
+    if (!Number.isFinite(steamPlatformId) || steamPlatformId <= 0) {
+        return [];
+    }
 
-    const platformsCtrl = new PlatformsController();
-    for (const candidate of candidates) {
-        if (!candidate) continue;
-        const row = await platformsCtrl.getByPlatformName(candidate).catch(() => null);
-        const id = Number(row?.id);
-        if (Number.isFinite(id) && id > 0) {
-            return id;
+    const ownedGames = [];
+    for (const platformUser of platformUsers) {
+        if (Number(platformUser?.platform_id) !== steamPlatformId) {
+            continue;
         }
+
+        const steamProfileId = String(platformUser?.platform_profile_id ?? '').trim();
+        if (!steamProfileId) {
+            continue;
+        }
+
+        const steamApiUrl = `https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key=${steamApiKey}&steamid=${steamProfileId}&include_appinfo=true&format=json`;
+        const response = await fetch(steamApiUrl);
+        if (!response.ok) {
+            console.warn('Steam API call failed for profile:', { steamProfileId, status: response.status });
+            continue;
+        }
+
+        const data = await response.json();
+        const games = Array.isArray(data?.response?.games) ? data.response.games : [];
+        ownedGames.push(...games);
     }
 
-    return null;
-}
-
-function parseIncomingCost(body) {
-    if (!body || typeof body !== 'object') return null;
-
-    const hasCost = body.cost !== undefined && body.cost !== null && String(body.cost).trim() !== '';
-    if (hasCost) return body.cost;
-
-    const hasPrice = body.price !== undefined && body.price !== null && String(body.price).trim() !== '';
-    if (hasPrice) return body.price;
-
-    return null;
-}
-
-function normalizeCostToCents(value) {
-    const numeric = Number(value);
-    if (!Number.isFinite(numeric)) {
-        return null;
-    }
-
-    // Preserve already-cents integers, otherwise convert major units to cents.
-    if (Number.isInteger(numeric) && Math.abs(numeric) >= 1000) {
-        return Math.trunc(numeric);
-    }
-
-    return Math.round(numeric * 100);
+    const seen = new Set();
+    return ownedGames.filter((game) => {
+        const id = game?.appid ?? game?.app_id;
+        const key = String(id ?? '').trim();
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
 }
 
 module.exports.fetchInitialShopSpecialsData = async function() {
   try {    
+        const postNewGame = module.exports.POSTNewGame;
+        const postNewShopSpecials = module.exports.POSTNewShopSpecials;
     const games = await shopSpecials.getShopSpecials();
     try{
         const shopSpecialsMaker = new ShopSpecialsMaker();
@@ -168,10 +147,7 @@ module.exports.fetchInitialShopSpecialsData = async function() {
           console.log('Skipping upload: missing id or name', { app: payload.app_id, name: payload.name });
           continue;
         }
-
-
-
-        const uploadResp = await this.POSTNewGame({ body: payload }, fakeRes);
+    const uploadResp = await postNewGame({ body: payload }, fakeRes);
         const resp = fakeRes._data ?? {};
         const uploadedId = uploadResp.gameId ?? resp.gameId ?? resp.id ?? null;
         //upload to shopspecials table
@@ -184,7 +160,7 @@ module.exports.fetchInitialShopSpecialsData = async function() {
               discount_percent: game.discount ?? 0,
               country_code: payload.country_code
             };
-            const shopSpecialsResp = await this.POSTNewShopSpecials({ body: shopSpecialsPayload, params: shopSpecialsPayload }, fakeRes);
+                        const shopSpecialsResp = await postNewShopSpecials({ body: shopSpecialsPayload, params: shopSpecialsPayload }, fakeRes);
           }
           catch (err) {            
             console.error('Error uploading shop special for game:', err);
@@ -278,44 +254,42 @@ module.exports.GETSteamProfileId = async function (req, res) {
 
 module.exports.GETOwnedGamesSteam = async function (req, res) {
     try {
-        const platformUserCtrl = new PlatformUsersController();
-        const platformCtrl = new PlatformsController();
+                const userId = String(req?.auth?.userId ?? req?.body?.userId ?? '').trim();
+                if (!userId) {
+                        return res.status(400).json({ error: 'Missing authenticated user id' });
+                }
 
-        const { userId } = req.auth;
-        const platformUsers = await platformUserCtrl.getByNativeUserId(userId);
-        const steamPlatform = await platformCtrl.getByPlatformName('steam');
-        if (!steamPlatform) {
-          return res.status(400).json(steamPlatform.error ?? { error: 'Steam platform not found in database' });
-        }
-        let ownedGames = [];
-        for (const platformUser of platformUsers) {
-          if (Number(platformUser.platform_id) === Number(steamPlatform.id)) {
-                        // include_appinfo=true is required so each owned game contains a human-readable name.
-                        const steamApiUrl = `https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key=${steamApiKey}&steamid=${platformUser.platform_profile_id}&include_appinfo=true&format=json`;
-            const response = await fetch(steamApiUrl);
-            if (!response.ok) {
-              console.error('Error fetching Steam API:', response.statusText);
-              return res.status(500).json({ error: 'Failed to fetch data from Steam API' });
-            }
-            const data = await response.json();
-                        const games = Array.isArray(data?.response?.games) ? data.response.games : [];
-                        ownedGames.push(...games);
-          }
-        }
-        if (ownedGames.length === 0) {
-          return res.status(400).json({ error: 'No owned games found for this user on Steam' });
-        }
-        const seen = new Set();
-        const uniqueOwnedGames = ownedGames.filter(g => {
-        const id = g.appid ?? g.app_id;
-        if (!id || seen.has(id)) return false;
-        seen.add(id);
-        return true;
-        });
-        return res.json({ ownedGames: uniqueOwnedGames });
+                const ownedGames = await collectOwnedGamesFromSteamForNativeUser(userId);
+                return res.json({ ownedGames });
     } catch (error) {
         console.error('Error in /steam/api/getOwnedGames endpoint:', error);
         return res.status(500).json({ error: 'Internal server error' });
+    }
+}
+
+module.exports.GETOwnedGamesSteamByNativeUserId = async function (req, res) {
+        try {
+                const { userId } = req.params;
+                const normalizedUserId = String(userId ?? '').trim();
+                if (!normalizedUserId) {
+                        return res.status(400).json({ error: 'Missing userId' });
+                }
+
+                const ownedGames = await collectOwnedGamesFromSteamForNativeUser(normalizedUserId);
+                return res.json({ ownedGames });
+        } catch (error) {
+                console.error('Error in /api/native-users/:userId/steam-owned-games endpoint:', error);
+                return res.status(500).json({ error: error?.message || 'Internal server error' });
+        }
+}
+
+module.exports.GETGameCount = async function (req, res) {
+    try {
+        const gameCtrl = new GamesController();
+        const countedGames = await gameCtrl.getGameCount();
+        return res.json({ countedGames });
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
     }
 }
 
@@ -344,19 +318,14 @@ module.exports.GETGameById = async function (req, res) {
 module.exports.GETGamesByPlatformIdWithAllData = async function (req, res) {
     try {
         const { platformId, appId } = req.params;
-        const countryCode = normalizeCountryCodeInput(req.query?.country_code ?? req.body?.country_code, 'DE');
+        const countryCode = req.query?.country_code ?? req.body?.country_code;
         const appIdNum = Number(appId);
         if (!Number.isFinite(appIdNum) || appIdNum <= 0) {
             return res.status(400).json({ error: `Invalid appId: ${String(appId)}` });
         }
 
-        const resolvedPlatformId = await resolvePlatformIdFromParam(platformId);
-        if (!resolvedPlatformId) {
-            return res.status(400).json({ error: `Invalid platformId: ${String(platformId)}` });
-        }
-
         const gameCtrl = new GamesController();
-        const gameId = await gameCtrl.getGameIdByAppId(appIdNum, resolvedPlatformId);
+        const gameId = await gameCtrl.getGameIdByAppId(appIdNum, platformId);
         if (!gameId) {
             return res.status(404).json({ error: `Game not found by appId: ${appIdNum}` });
         }
@@ -406,20 +375,10 @@ module.exports.GETGameByIdWithAllData = async function (req, res) {
 module.exports.GETGamesInListByPlatformId = async function (req, res) {
     try {
         const { platformId, from } = req.params;
-        const normalizedFrom = normalizeOffsetParam(from);
-        if (normalizedFrom == null) {
-            return res.status(400).json({ error: `Invalid from offset: ${String(from)}` });
-        }
-
-        const resolvedPlatformId = await resolvePlatformIdFromParam(platformId);
-        if (!resolvedPlatformId) {
-            return res.status(400).json({ error: `Invalid platformId: ${String(platformId)}` });
-        }
-
-        const countryCode = normalizeCountryCodeInput(req.query?.country_code ?? req.body?.country_code, 'DE');
+        const countryCode = req.query?.country_code ?? req.body?.country_code;
 
         const gameCtrl = new GamesController();
-        const games = await gameCtrl.getAllGamesByPlatformFrom(countryCode, resolvedPlatformId, normalizedFrom);
+        const games = await gameCtrl.getAllGamesByPlatformFrom(countryCode, platformId, from);
 
         const gamesGenresCtrl = new GamesGenresConnnectionController();
         await Promise.all((Array.isArray(games) ? games : []).map(async (game) => {
@@ -434,7 +393,7 @@ module.exports.GETGamesInListByPlatformId = async function (req, res) {
         }));
 
         if (games instanceof Error) {
-            return res.status(404).json({ error: games.message });
+            res.status(404).json({ error: games.message });
         }
         return res.json(games);
     } catch (err) {
@@ -468,24 +427,30 @@ module.exports.GETGamesInList = async function (req, res) {
     }
 }
 
-module.exports.GETGameCount = async function (req, res) {
-    try {
-        const gamesCtrl = new GamesController();
-        const count = await gamesCtrl.getGameCount();
-        return res.json(count);
-    } catch (err) {
-        return res.status(500).json({ error: err.message });
-    }
-}
-
 module.exports.GETSearch = async function (req, res) {
     try {
-        const { needle } = req.params;
+        const { needle } = req.body;
+        /**
+         * @type {Array<string>}
+         */
+        let { tags } = req.body;
         const gameCtrl = new GamesController();
-        const result = await gameCtrl.search(needle);
-        if (result instanceof Error) {
-            return res.status(400).json({ error: result.error });
+        let resultNeedle = [];
+        if (needle || needle.trim() !== "") {
+            resultNeedle = await gameCtrl.search(needle, tags);
         }
+        let resultTags = [];
+        if (Array.isArray(tags) && tags.length > 0) {
+            resultTags = await gameCtrl.searchByTags(tags);
+        }
+        if (resultTags instanceof Error) {
+            console.error('Error searching by tags:', gatsResult);
+            return res.status(400).json({ error: `Error searching by tags: ${gatsResult.error}` });
+        }
+        if (resultNeedle instanceof Error) {
+            return res.status(400).json({ error: `Error searching by needle: ${resultNeedle.error}` });
+        }
+        const result = [...new Set([...resultNeedle, ...resultTags])];
         return res.json(result);
     } catch (err) {
         return res.status(500).json({ error: err.message });
@@ -497,12 +462,15 @@ module.exports.GETFriendsOfNativeUser = async function (req, res) {
         const { nativeUserId } = req.params;
         const friendsCtrl = new FriendsController();
         const friendsRaw = await friendsCtrl.getNativeUserFriends(nativeUserId);
+        const normalizedNativeUserId = String(nativeUserId ?? '').trim();
 
         const friends = [];
         friendsRaw.forEach(friend => {
+            const user1 = String(friend.user1_id ?? '').trim();
+            const user2 = String(friend.user2_id ?? '').trim();
             friends.push({
                 id: friend.id,
-                user_id: (Number(friend.user1_id) !== Number(nativeUserId)) ? friend.user1_id : friend.user2_id
+                user_id: user1 !== normalizedNativeUserId ? friend.user1_id : friend.user2_id
             });
         });
         return res.json(friends);
@@ -566,13 +534,15 @@ module.exports.GETChatlogByFriendId = async function (req, res) {
     }
 }
 
-module.exports.GETPlatforms = async function (req, res) { 
+module.exports.GETPlatforms = async function (req, res) {
     try {
         const platformCtrl = new PlatformsController();
-        const platforms = await platformCtrl.index();
-        return res.json(platforms);
+        const result = await platformCtrl.index();
+        if (result instanceof Error) {
+            return res.status(400).json({ message: 'Iternal server error', error: result });
+        }
+        return res.json(result);
     } catch (err) {
-        console.error('Error in /api/platforms endpoint:', err);
         return res.status(500).json({ error: err.message });
     }
 }
@@ -582,6 +552,19 @@ module.exports.GETPlatformByPlatromName = async function (req, res) {
         const { platformName } = req.params;
         const platformCtrl = new PlatformsController();
         const result = await platformCtrl.getByPlatformName(platformName);
+        if (result instanceof Error) {
+            return res.status(400).json({ message: 'Iternal server error', error: result });
+        }
+        return res.json(result);
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+}
+
+module.exports.GETPirateSites = async function (req, res) {
+    try {
+        const pirateSitesCtrl = new PirateSitesController();
+        const result = await pirateSitesCtrl.index();
         if (result instanceof Error) {
             return res.status(400).json({ message: 'Iternal server error', error: result });
         }
@@ -603,18 +586,6 @@ module.exports.GETPlatformUsersByNativeUserId = async function (req, res) {
     } catch (err) {
         return res.status(500).json({ error: err.message });
     }
-}
-
-module.exports.GETPirateSites = async function (req, res) {
-    try {
-        const pirateSitesCtrl = new PirateSitesController();
-        const pirateSites = await pirateSitesCtrl.index();
-        return res.json(pirateSites);
-    } catch (err) {
-        console.error('Error in /api/pirate-sites endpoint:', err);
-        return res.status(500).json({ error: err.message });
-    }
-
 }
 
 module.exports.GETShopSpecialsFilteredInList = async function (req, res) {
@@ -678,28 +649,21 @@ module.exports.POSTNewGame = async function (req, res) {
             description,
             banner_img: bannerImg,
             minimum_requirements: minRequirements,
-            platform_name: platformNameRaw,
+            platform_name: platformName,
             platform_id: platformId,
-            country_code: countryCodeRaw,
-            genre_names: incomingGenreNames,
+            country_code: countryCode,
+            cost: price,
+            genre_names: rawGenreNames
         } = req.body;
-
-        const inputPrice = parseIncomingCost(req.body);
-        const countryCode = normalizeCountryCodeInput(countryCodeRaw, 'DE');
-        let genreNames = Array.isArray(incomingGenreNames) ? incomingGenreNames : [];
-
+        let genreNames = rawGenreNames;
         let missing = [];
         if(appId == null) {missing.push("app_id")}
         if(name == null) {missing.push("name")}
-        if(inputPrice == null) {missing.push("price")}
+        if(price == null) {missing.push("price")}
+        if(countryCode == null) {missing.push("country_code")}
         if (missing.length) {
             return res.status(400).json({ message: 'Missing required fields', missing });
         }
-
-        let platformName = apiHelpers.normalizePlatformName(platformNameRaw);
-        if (platformName === 'itch') platformName = 'itchio';
-        if (platformName === 'gogcom') platformName = 'gog';
-
         // Resolve platform name: prefer provided platform_name, otherwise try to look up by platform_id
         let resolvedPlatformName = platformName ?? null;
         if (!resolvedPlatformName && platformId != null) {
@@ -739,14 +703,13 @@ module.exports.POSTNewGame = async function (req, res) {
         };
 
 
-        const normalizedPlatform = apiHelpers.normalizePlatformName(resolvedPlatformName);
-        if ((!Array.isArray(genreNames) || genreNames.length === 0) && (normalizedPlatform === 'itch' || normalizedPlatform === 'itchio')) {
+        if ((!Array.isArray(genreNames) || genreNames.length === 0) && String(resolvedPlatformName ?? '').trim().toLowerCase() === 'itch') {
             const itchDetails = await apiHelpers.fetchItchGameDetails(req.body.app_id, { includePageDetails: true });
             genreNames = apiHelpers.normalizeGenreNames(itchDetails?.genres ?? []);
         }
         const countyId = await apiHelpers.getCountryIdByCode(countryCode);
         
-        const uploadedGame = await gamesCtrl.uploadWithAll(gameData, null, genreNames, {"price": inputPrice, "country_id": countyId});
+        const uploadedGame = await gamesCtrl.uploadWithAll(gameData, null, genreNames, {"price": price, "country_id": countyId});
         return res.status(201).json({ message: 'Game uploaded successfully', gameId: uploadedGame.id });
     } catch (err) {
         console.error('Error in /api/games/upload endpoint:', err);
@@ -798,6 +761,7 @@ module.exports.POSTNewPirateSiteConnectionByGameId = async function (req, res) {
         }
         const data = {
             "game_id": gameId,
+            "site_id": siteId ?? null,
             "pirate_site_id": siteId ?? null,
             "site_name": siteName ?? null,
             "link": link,
@@ -809,6 +773,9 @@ module.exports.POSTNewPirateSiteConnectionByGameId = async function (req, res) {
         }
         return res.json(result);
     } catch (err) {
+        if (String(err?.message || '').includes('Duplicate entry for game_id and pirate_site_id')) {
+            return res.status(409).json({ message: err.message });
+        }
         console.error('Error in /api/pirate_sites/:gameId/siteId endpoint:', err);
         return res.status(500).json({ error: err.message });
     }
@@ -823,12 +790,22 @@ module.exports.POSTNewFriends = async function (req, res) {
             return res.status(400).json({ message: 'Missing required fields', missing: ['friend_user_id'] });
         }
 
+        if (String(userId) === String(friendUserId)) {
+            return res.status(400).json({ message: 'You cannot add yourself as a friend' });
+        }
+
         const result = await friendsCtrl.create({ user1_id: userId, user2_id: friendUserId });
-        if (result.message.includes('already exists') || result instanceof Error) {
+        if (result instanceof Error) {
+            return res.status(409).json({ message: result.message });
+        }
+        if (String(result?.message || '').toLowerCase().includes('already exists')) {
             return res.status(400).json({ message: result.message });
         }
         return res.status(201).json({ message: "friendship created", id: result.id });
     } catch (error) {
+        if (String(error?.code || '').toUpperCase() === 'ER_DUP_ENTRY') {
+            return res.status(409).json({ message: 'Friendship already exists' });
+        }
         console.error('Error in /api/friends endpoint:', error);
         return res.status(500).json({ error: error.message }); 
     }
@@ -948,17 +925,17 @@ module.exports.PUTNativeUserProfileInfo = async function (req, res) {
         const { name, email, bio, pfp } = req.body;
 
         const data = {
-            "token": 'new',
-            "name": name ?? null,
-            "email": email ?? null,
-            "bio": bio ?? null,
-            "pfp": pfp ?? null
+            "name": name ?? undefined,
+            "email": email ?? undefined,
+            "bio": bio ?? undefined,
+            "pfp": pfp ?? undefined
         }
-        const result = nativeUserCtrl.update(data);
+
+        const result = await nativeUserCtrl.update(userId, data);
         if (result instanceof Error) {
             return res.status(400).json({ error: result });
         }
-        return res.json(202).json(result);
+        return res.status(202).json(result);
     } catch (err) {
         console.error('Error in /api/native-users endpoint:', err)
         return res.status(500).json({ error: err.message });
@@ -1034,20 +1011,10 @@ module.exports.PUTGames = async function (req, res) {
             banner_img: bannerImg,
             description,
             minimum_requirements: minimumRequirements,
+            cost,
             genre_names: genreNames,
-            country_code: countryCodeRaw,
+            country_code: countryCode,
         } = req.body;
-
-        const incomingCost = parseIncomingCost(req.body);
-        const normalizedCountryCode = normalizeCountryCodeInput(countryCodeRaw, 'DE');
-        const hasGameFieldUpdate = [
-            appId,
-            platformId,
-            name,
-            bannerImg,
-            description,
-            minimumRequirements,
-        ].some((value) => value !== undefined);
 
         const gameData = {
             "app_id": appId,
@@ -1058,48 +1025,38 @@ module.exports.PUTGames = async function (req, res) {
             "minimum_requirements": minimumRequirements,
         }
 
-        let updatedGame = null;
-        if (hasGameFieldUpdate) {
-            updatedGame = await gamesCtrl.update(numericGameId, gameData);
-            if (updatedGame instanceof Error) {
-                return res.status(400).json({ message: updatedGame.message });
-            }
-        } else {
-            const existing = await gamesCtrl.show(numericGameId);
-            if (!existing) {
-                return res.status(404).json({ error: `Game not found: ${numericGameId}` });
-            }
+        const updatedGame = await gamesCtrl.update(numericGameId, gameData);
+        if (updatedGame instanceof Error) {
+            return res.status(400).json({ message: updatedGame.message });
         }
 
-        if (incomingCost != null) {
-            const priceInCents = normalizeCostToCents(incomingCost);
-            if (!Number.isFinite(priceInCents)) {
-                return res.status(400).json({ error: 'Invalid cost/price value' });
-            }
+        if (cost != null) {
+            const numericCost = Number(cost);
+            if (Number.isFinite(numericCost)) {
+                const normalizedCountryCode = String(countryCode || 'DE').trim() || 'DE';
+                const countyId = await apiHelpers.getCountryIdByCode(normalizedCountryCode);
+                const existingPrices = await pricesCtrl.getByGameId(numericGameId);
+                const existingPriceForCountry = Array.isArray(existingPrices)
+                    ? existingPrices.find((priceRow) =>
+                        String(priceRow?.county_code || '').trim().toLowerCase() === normalizedCountryCode.toLowerCase()
+                    )
+                    : null;
 
-            const countyId = await apiHelpers.getCountryIdByCode(normalizedCountryCode);
-            const existingPrices = await pricesCtrl.getByGameId(numericGameId);
-            const existingPriceForCountry = Array.isArray(existingPrices)
-                ? existingPrices.find((priceRow) =>
-                    String(priceRow?.county_code || '').trim().toLowerCase() === normalizedCountryCode.toLowerCase()
-                )
-                : null;
-
-            if (existingPriceForCountry && existingPriceForCountry.id != null) {
-                const existingPriceCents = Number(existingPriceForCountry.price);
-                if (!Number.isFinite(existingPriceCents) || existingPriceCents !== priceInCents) {
+                // Prices are stored in cents in this backend query path.
+                const priceInCents = Math.round(numericCost * 100);
+                if (existingPriceForCountry && existingPriceForCountry.id != null) {
                     await pricesCtrl.update(existingPriceForCountry.id, {
                         gameId: numericGameId,
                         countyId,
                         price: priceInCents,
                     });
+                } else {
+                    await pricesCtrl.create({
+                        gameId: numericGameId,
+                        countyId,
+                        price: priceInCents,
+                    });
                 }
-            } else {
-                await pricesCtrl.create({
-                    gameId: numericGameId,
-                    countyId,
-                    price: priceInCents,
-                });
             }
         }
 
@@ -1123,10 +1080,6 @@ module.exports.PUTGames = async function (req, res) {
                 await gamesGenresCtrl.create({ game_id: numericGameId, genre_id: genreId });
                 existingGenres.add(key);
             }
-        }
-
-        if (!updatedGame) {
-            updatedGame = await gamesCtrl.show(numericGameId);
         }
 
         return res.json(updatedGame);

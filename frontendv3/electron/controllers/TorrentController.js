@@ -103,6 +103,8 @@ class TorrentController {
       timeRemaining: (tr == null || !Number.isFinite(tr)) ? -1 : tr,
       paused:        forcedPaused || (t.paused ?? false),
       done:          t.done          ?? false,
+      magnetURI:     (typeof t.magnetURI === 'string' ? t.magnetURI : ''),
+      savePath:      t.path          || fallbackPath,
       path:          t.path          || fallbackPath,
     };
   }
@@ -292,8 +294,19 @@ class TorrentController {
     const hash = String(t?.infoHash || infoHash || '').trim().toLowerCase();
     if (hash) this.#forcedPaused.delete(hash);
     if (!t) return Promise.resolve();
+    const client = this.#client;
+    const torrentId = String(t.infoHash || infoHash || '').trim();
+    if (client && typeof client.remove === 'function') {
+      return new Promise((resolve, reject) => {
+        //@ts-ignore
+        client.remove(torrentId, { destroyStore: Boolean(destroyStore) }, (err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+    }
     return new Promise((resolve, reject) => {
-      t.destroy({ destroyStore }, (err) => {
+      t.destroy({ destroyStore: Boolean(destroyStore) }, (err) => {
         if (err) reject(err);
         else resolve();
       });

@@ -1,11 +1,31 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 const AUTH_TOKEN_KEY = 'wrecklauncher.authToken';
+const LEGACY_AUTH_TOKEN_KEYS = ['authToken', 'token', 'wreck_auth_token'];
+
+function clearAuthTokenStorage() {
+  localStorage.removeItem(AUTH_TOKEN_KEY);
+  for (const key of LEGACY_AUTH_TOKEN_KEYS) {
+    localStorage.removeItem(key);
+  }
+}
 
 function getAuthToken() {
   try {
-    const t = localStorage.getItem(AUTH_TOKEN_KEY);
-    return typeof t === 'string' && t.trim() ? t.trim() : null;
+    const keys = [AUTH_TOKEN_KEY, ...LEGACY_AUTH_TOKEN_KEYS];
+    for (const key of keys) {
+      const raw = localStorage.getItem(key);
+      const t = typeof raw === 'string' ? raw.trim() : '';
+      if (!t) continue;
+      if (key !== AUTH_TOKEN_KEY) {
+        localStorage.setItem(AUTH_TOKEN_KEY, t);
+        for (const legacyKey of LEGACY_AUTH_TOKEN_KEYS) {
+          localStorage.removeItem(legacyKey);
+        }
+      }
+      return t;
+    }
+    return null;
   } catch {
     return null;
   }
@@ -15,8 +35,14 @@ function getAuthToken() {
 function setAuthToken(token) {
   try {
     const t = typeof token === 'string' ? token.trim() : '';
-    if (!t) localStorage.removeItem(AUTH_TOKEN_KEY);
-    else localStorage.setItem(AUTH_TOKEN_KEY, t);
+    if (!t) {
+      clearAuthTokenStorage();
+      return;
+    }
+    localStorage.setItem(AUTH_TOKEN_KEY, t);
+    for (const key of LEGACY_AUTH_TOKEN_KEYS) {
+      localStorage.removeItem(key);
+    }
   } catch {
     // ignore
   }
@@ -110,6 +136,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getCurrentUser: () => {
     return invokeAuthed('user:get-current-user');
   },
+  updateCurrentUserProfile: (profilePatch) => {
+    return invokeAuthed('user:update-profile', profilePatch);
+  },
+  getMyFriends: (nativeUserId) => {
+    return invokeAuthed('friends:get-mine', nativeUserId);
+  },
+  searchNativeUsersByName: (name) => {
+    return invokeAuthed('native-users:search', name);
+  },
+  getNativeUserById: (nativeUserId) => {
+    return invokeAuthed('native-users:get-by-id', nativeUserId);
+  },
+  addFriend: (friendUserId) => {
+    return invokeAuthed('friends:add', friendUserId);
+  },
+  removeFriend: (friendshipId) => {
+    return invokeAuthed('friends:delete', friendshipId);
+  },
   clearToken: async () => {
     setAuthToken(null);
     try {
@@ -128,6 +172,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const token = await ipcRenderer.invoke('user:register', username, password, email, profile);
     if (typeof token === 'string' && token.trim()) setAuthToken(token);
     return token;
+  },
+  getPlatformUserId: (platformName, platformUsername) => {
+    return invokeAuthed('user:get-platform-userid', platformName, platformUsername);
   },
   getPlatformUserID: (platformName, platformUsername) => {
     return invokeAuthed('user:get-platform-userid', platformName, platformUsername);
@@ -152,6 +199,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getOwnedGamesFromSteam: () => {
     return invokeAuthed('user:get-owned-games-from-steam' );
   },
+  getOwnedGamesFromSteamByNativeUserId: (nativeUserId) => {
+    return invokeAuthed('user:get-owned-games-from-steam-by-native-userid', nativeUserId);
+  },
   getSteamInstalledGames: () => ipcRenderer.invoke('steam:get-installed-games'),
   getSteamGameDetails: (appID, cc) => {
     return invokeAuthed('steam:get-game-details', appID, cc);
@@ -166,8 +216,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   runSteamGame: (appID) => ipcRenderer.invoke('steam:run-game', appID),
   // itch.io
   getItchInstalledGames: () => ipcRenderer.invoke('itch:get-installed-games'),
+  getItchLibrary: () => ipcRenderer.invoke('itch:get-library'),
   getItchClientId: () => ipcRenderer.invoke('itch:get-client-id'),
   loginItchOAuth: (clientId) => ipcRenderer.invoke('itch:oauth-login', clientId),
+  loginItchOAuthAndUpload: (clientId) => invokeAuthed('itch:oauth-login-and-upload', clientId),
+  getItchOAuthToken: () => ipcRenderer.invoke('itch:get-oauth-token'),
   logoutItchOAuth: () => ipcRenderer.invoke('itch:oauth-logout'),
   getItchOAuthStatus: () => ipcRenderer.invoke('itch:oauth-status'),
   getItchProfile: () => ipcRenderer.invoke('itch:get-profile'),
@@ -177,10 +230,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getItchGameDetailsByTitle: (title) => {
     return invokeAuthed('itch:get-game-details-by-title', title);
   },
-  openItchGame: (gameId) => ipcRenderer.invoke('itch:open-game', gameId),
-  installItchGame: (gameId) => ipcRenderer.invoke('itch:install-game', gameId),
+  runItchGame: (gameId, gameUrl, installLocation) => ipcRenderer.invoke('itch:run-game', gameId, gameUrl, installLocation),
+  openItchGame: (gameId, gameUrl) => ipcRenderer.invoke('itch:open-game', gameId, gameUrl),
+  installItchGame: (gameId, gameUrl) => ipcRenderer.invoke('itch:install-game', gameId, gameUrl),
+  deleteItchGame: (gameId, gameUrl, installLocation) => ipcRenderer.invoke('itch:delete-game', gameId, gameUrl, installLocation),
   // GOG
   getGogInstalledGames: () => ipcRenderer.invoke('gog:get-installed-games'),
+  getGogLibrary: () => ipcRenderer.invoke('gog:get-library'),
+  getGogClientId: () => ipcRenderer.invoke('gog:get-client-id'),
+  loginGogOAuth: (clientId) => ipcRenderer.invoke('gog:oauth-login', clientId),
+  loginGogOAuthAndUpload: (clientId) => invokeAuthed('gog:oauth-login-and-upload', clientId),
+  getGogOAuthToken: () => ipcRenderer.invoke('gog:get-oauth-token'),
+  logoutGogOAuth: () => ipcRenderer.invoke('gog:oauth-logout'),
+  getGogOAuthStatus: () => ipcRenderer.invoke('gog:oauth-status'),
+  getGogProfile: () => ipcRenderer.invoke('gog:get-profile'),
   getGogGameDetails: (productId) => {
     return invokeAuthed('gog:get-game-details', productId);
   },
@@ -190,10 +253,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openGogGame: (productId) => ipcRenderer.invoke('gog:open-game', productId),
   runGogGame: (productId) => ipcRenderer.invoke('gog:run-game', productId),
   installGogGame: (productId) => ipcRenderer.invoke('gog:install-game', productId),
+  deleteGogGame: (productId) => ipcRenderer.invoke('gog:delete-game', productId),
+  // Local pirate library
+  getPirateLibraryGames: () => ipcRenderer.invoke('pirate-library:get-games'),
+  addPirateLibraryGameFromDialog: () => ipcRenderer.invoke('pirate-library:add-game-from-dialog'),
+  removePirateLibraryGame: (gameId) => ipcRenderer.invoke('pirate-library:remove-game', gameId),
+  runPirateLibraryGame: (executablePath) => ipcRenderer.invoke('pirate-library:run-game', executablePath),
   //Pirate Sites
   cloudscraperFetch: (url, options) => ipcRenderer.invoke('cloudscraper:fetch', url, options),
   cloudscraperDodiRepacksHome: () => ipcRenderer.invoke('cloudscraper:dodi-repacks-home'),
   cloudscraperSearchByxatab: (query, page) => ipcRenderer.invoke('cloudscraper:search-byxatab', query, page),
+  fitGirlMagnetLink: (gameName) => ipcRenderer.invoke('fitgirl:magnet-link', gameName),
+  pcGamesTorrentMagnetLink: (gameName) => ipcRenderer.invoke('pcgamestorrent:magnet-link', gameName),
   FitGirlMagnetLink: (gameName) => ipcRenderer.invoke('fitgirl:magnet-link', gameName),
   PcGamesTorrentMagnetLink: (gameName) => ipcRenderer.invoke('pcgamestorrent:magnet-link', gameName),
   ComingSoonGames: (from) => ipcRenderer.invoke('shop-specials:coming-soon', from),
@@ -220,6 +291,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   /** @returns {Promise<import('./electron/models').TorrentProgress[]>} */
   torrentGetStatus: () => ipcRenderer.invoke('torrent:get-status'),
   /**
+   * Open the download folder/path for a torrent.
+   * @param {string} infoHash
+   * @param {string} [savePath]
+   */
+  torrentOpen: (infoHash, savePath) => ipcRenderer.invoke('torrent:open', infoHash, savePath),
+  /**
    * Subscribe to live progress pushes from the main process.
    * Returns an unsubscribe function.
    * @param {(progress: import('./electron/models').TorrentProgress) => void} cb
@@ -232,9 +309,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   // GamesController
   getGames: (from, countryCode = 'DE') => ipcRenderer.invoke('games:get-games', from, { countryCode }),
+  searchGames: (needle, tags = []) => ipcRenderer.invoke('games:search', needle, { tags }),
   getAllDetailsByID: (id, countryCode = 'DE') => ipcRenderer.invoke('games:get-all-details-by-id', id, { countryCode }),
   getAllDetailsByAppIDAndPlatform: (appId, platform, countryCode = 'DE') =>
-    ipcRenderer.invoke('games:get-all-details-by-appid-and-platform', { appId, platform, countryCode }),
+    ipcRenderer.invoke('games:get-all-details-by-appid-and-platform', {
+      appId,
+      platform,
+      countryCode,
+      token: getAuthToken() || undefined,
+    }),
   // SettingsController
   getSettings: () => ipcRenderer.invoke('settings:get'),
   updateSetting: (category, key, value) => ipcRenderer.invoke('settings:update', category, key, value),

@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 const { shell, BrowserWindow } = require('electron');
 const GamesController = require('./GamesController');
 const { joinUrl, normalizeBaseUrl } = require('../lib/url');
@@ -119,7 +120,7 @@ class ItchioController extends GamesController {
 
   /**
    * Scan itch.io installed games from the apps directory.
-   * Each installed game has a `.itch/receipt.json` file inside its install folder.
+    * Each installed game has a `.itch/receipt.json` or `.itch/receipt.json.gz` file.
    *
    * @returns {import('../models').ItchInstalledGame[]}
    */
@@ -141,11 +142,20 @@ class ItchioController extends GamesController {
       if (!entry.isDirectory()) continue;
       const gameDir = path.join(appsDir, entry.name);
       const receiptPath = path.join(gameDir, '.itch', 'receipt.json');
+      const receiptGzipPath = path.join(gameDir, '.itch', 'receipt.json.gz');
 
-      if (!fs.existsSync(receiptPath)) continue;
+      if (!fs.existsSync(receiptPath) && !fs.existsSync(receiptGzipPath)) continue;
 
       try {
-        const raw = JSON.parse(fs.readFileSync(receiptPath, 'utf8'));
+        let receiptText = '';
+        if (fs.existsSync(receiptPath)) {
+          receiptText = fs.readFileSync(receiptPath, 'utf8');
+        } else {
+          const compressed = fs.readFileSync(receiptGzipPath);
+          receiptText = zlib.gunzipSync(compressed).toString('utf8');
+        }
+
+        const raw = JSON.parse(receiptText);
         const game = raw?.game ?? raw;
         const upload = raw?.upload ?? null;
 
@@ -195,47 +205,6 @@ class ItchioController extends GamesController {
   }
 
   /**
-   * @param {unknown} value
-   * @returns {string}
-   */
-  #normalizeTitleForCompare(value) {
-    return String(value || '')
-      .toLowerCase()
-      .replace(/[\u00a9\u00ae\u2122]/g, '')
-      .replace(/[^a-z0-9]+/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-  }
-
-  /**
-   * @param {unknown} query
-   * @param {unknown} candidate
-   * @returns {number}
-   */
-  #titleMatchScore(query, candidate) {
-    const q = this.#normalizeTitleForCompare(query);
-    const c = this.#normalizeTitleForCompare(candidate);
-    if (!q || !c) return 0;
-    if (q === c) return 1;
-    if (q.includes(c) || c.includes(q)) return 0.9;
-
-    const qTokens = new Set(q.split(' ').filter((t) => t.length > 1));
-    const cTokens = new Set(c.split(' ').filter((t) => t.length > 1));
-    if (qTokens.size < 1 || cTokens.size < 1) return 0;
-
-    let overlap = 0;
-    for (const token of qTokens) {
-      if (cTokens.has(token)) overlap += 1;
-    }
-    if (overlap < 1) return 0;
-
-    const union = qTokens.size + cTokens.size - overlap;
-    const jaccard = union > 0 ? overlap / union : 0;
-    const coverage = overlap / Math.min(qTokens.size, cTokens.size);
-    return Math.max(jaccard, coverage * 0.9);
-  }
-
-  /**
    * Search itch.io games by title and return ranked candidates.
    *
    * @param {string} title
@@ -281,7 +250,7 @@ class ItchioController extends GamesController {
         gameId,
         title: resultTitle,
         url: href,
-        score: this.#titleMatchScore(needle, resultTitle),
+        score: this._titleMatchScore(needle, resultTitle),
       });
     }
 
@@ -349,7 +318,6 @@ class ItchioController extends GamesController {
    */
   async getGameDetails(tokenOrAppId, maybeAppId) {
     const hasExplicitToken = maybeAppId !== undefined;
-    const token = hasExplicitToken && typeof tokenOrAppId === 'string' ? tokenOrAppId.trim() : '';
     const rawAppId = hasExplicitToken ? maybeAppId : tokenOrAppId;
     const id = Number(rawAppId);
     if (!Number.isFinite(id) || id <= 0) throw new Error(`Invalid itch.io game ID: ${String(rawAppId)}`);
@@ -388,7 +356,7 @@ class ItchioController extends GamesController {
 
 
     const url = `${joinUrl(this.#serverUrl, 'api', 'itch', 'game', String(id))}`;
-    const { ok, status, json } = await fetchJsonSafe(url, {
+    const { ok, status, json, text } = await fetchJsonSafe(url, {
       method: 'GET',
       headers: {
         'Accept': 'application/json',
@@ -403,27 +371,25 @@ class ItchioController extends GamesController {
         e.code = 'WRECK_INVALID_TOKEN';
         throw e;
       }
-      const msg = (json && typeof json === 'object' ? json.error : null) || `HTTP ${status}`;
+      const msg = (json && typeof json === 'object' ? (json.error ?? json.message) : null) || text || `HTTP ${status}`;
       throw new Error(`itch.io game fetch failed: ${String(msg).slice(0, 300)}`);
     }
 
     if (!json || typeof json !== 'object') return null;
 
-    const normalizedDetails = {
-      gameId: typeof json.gameId === 'number' ? json.gameId : (typeof json.app_id === 'number' ? json.app_id : id),
-      title: typeof json.title === 'string' ? json.title : `itch:${id}`,
-      coverUrl: json.coverUrl ?? json.cover_url ?? json.banner_img ?? null,
-      shortText: json.shortText ?? json.short_text ?? json.description ?? null,
-      minPrice: typeof json.minPrice === 'number' ? json.minPrice : (typeof json.min_price === 'number' ? json.min_price : 0),
-      url: json.url ?? null,
-      raw: {
-        ...json,
-        source: 'scrape-endpoint',
-      },
-    };
+    const serverDetails = /** @type {any} */ (json);
+    const resolvedGameId = Number(serverDetails.gameId ?? serverDetails.app_id ?? serverDetails.id ?? id);
+    const resolvedPrice = [
+      serverDetails.price,
+      serverDetails.min_price,
+      serverDetails.minPrice,
+      serverDetails.cost,
+    ]
+      .map((value) => Number(value))
+      .find((value) => Number.isFinite(value));
 
-    const scrapedGenres = Array.isArray(json.genres)
-      ? json.genres
+    const resolvedGenres = Array.isArray(serverDetails.genres)
+      ? serverDetails.genres
           .map((entry) => {
             if (typeof entry === 'string') return entry;
             if (entry && typeof entry === 'object') return entry.name ?? entry.genre ?? entry.description ?? null;
@@ -432,29 +398,23 @@ class ItchioController extends GamesController {
           .filter((value) => typeof value === 'string' && value.trim())
       : [];
 
-    if (token) {
-      try {
-        await super.syncScrapedGameWithServer(token, {
-          app_id: String(normalizedDetails.gameId ?? id),
-          platform_name: 'itch',
-          name: normalizedDetails.title,
-          banner_img: normalizedDetails.coverUrl,
-          description: normalizedDetails.shortText,
-          minimum_requirements: '',
-          cost: normalizedDetails.minPrice,
-          genre_names: scrapedGenres,
-          country_code: 'DE',
-        });
-      } catch (err) {
-        if (err && typeof err === 'object' && /** @type {any} */ (err).code === 'WRECK_INVALID_TOKEN') {
-          throw err;
-        }
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn(`Failed to sync itch game details for appID ${id}: ${msg}`);
-      }
-    }
-
-    return normalizedDetails;
+    return {
+      ...serverDetails,
+      gameId: Number.isFinite(resolvedGameId) && resolvedGameId > 0 ? resolvedGameId : id,
+      title:
+        typeof serverDetails.title === 'string'
+          ? serverDetails.title
+          : (typeof serverDetails.name === 'string' ? serverDetails.name : `itch:${id}`),
+      coverUrl: serverDetails.cover_url ?? serverDetails.coverUrl ?? serverDetails.banner_img ?? null,
+      shortText: serverDetails.description ?? serverDetails.short_text ?? serverDetails.shortText ?? null,
+      minPrice: Number.isFinite(resolvedPrice) ? Number(resolvedPrice) : 0,
+      url: typeof serverDetails.url === 'string' ? serverDetails.url : null,
+      genreNames: resolvedGenres,
+      raw: {
+        ...(serverDetails.raw && typeof serverDetails.raw === 'object' ? serverDetails.raw : {}),
+        source: 'scrape-endpoint',
+      },
+    };
   }
 
   /**
@@ -555,15 +515,51 @@ class ItchioController extends GamesController {
       }
 
       const payload = await response.json();
-      const user = payload?.user ?? payload;
-      if (!user || typeof user !== 'object') return null;
+      const candidates = [
+        payload?.user,
+        payload?.me,
+        payload?.profile,
+        payload?.account,
+        payload?.data?.user,
+        payload?.data?.me,
+        payload?.result?.user,
+        payload?.result?.me,
+        payload?.response?.user,
+        payload?.response?.me,
+        payload?.user?.user,
+        payload,
+      ].filter((entry) => entry && typeof entry === 'object');
+
+      /** @type {any|null} */
+      let user = null;
+      for (const candidate of candidates) {
+        const c = /** @type {any} */ (candidate);
+        const candidateId = c.id ?? c.user_id ?? c.userid ?? c.userId ?? c.account_id ?? c.accountId ?? c.profile_id ?? c.profileId ?? c.user?.id ?? null;
+        const candidateUsername = c.username ?? c.user_name ?? c.userName ?? c.name ?? c.login ?? c.slug ?? c.user?.username ?? null;
+
+        const hasId = candidateId !== null && candidateId !== undefined && String(candidateId).trim() !== '';
+        const hasUsername = typeof candidateUsername === 'string' && candidateUsername.trim() !== '';
+        if (hasId || hasUsername) {
+          user = c;
+          break;
+        }
+      }
+
+      if (!user) return null;
+
+      const resolvedId = user.id ?? user.user_id ?? user.userid ?? user.userId ?? user.account_id ?? user.accountId ?? user.profile_id ?? user.profileId ?? user.user?.id ?? null;
+      const resolvedUsername = user.username ?? user.user_name ?? user.userName ?? user.name ?? user.login ?? user.slug ?? user.user?.username ?? null;
+      const normalizedId = resolvedId === null || resolvedId === undefined ? '' : String(resolvedId).trim();
+      const normalizedUsername = typeof resolvedUsername === 'string' ? resolvedUsername.trim() : '';
+
+      if (!normalizedId && !normalizedUsername) return null;
 
       return {
-        id: user.id ?? null,
-        username: user.username ?? null,
-        display_name: user.display_name ?? user.username ?? null,
-        url: user.url ?? null,
-        cover_url: user.cover_url ?? null,
+        id: normalizedId || null,
+        username: normalizedUsername || null,
+        display_name: (user.display_name ?? user.displayName ?? user.full_name ?? user.fullName ?? normalizedUsername) || null,
+        url: user.url ?? user.profile_url ?? user.profileUrl ?? user.user?.url ?? null,
+        cover_url: user.cover_url ?? user.coverUrl ?? user.avatar_url ?? user.avatarUrl ?? user.user?.cover_url ?? null,
       };
     } catch (err) {
       if (err instanceof Error && err.message.includes('expired')) throw err;
@@ -588,8 +584,8 @@ class ItchioController extends GamesController {
       throw new Error('itch.io OAuth client ID is required');
     }
 
-    return new Promise((resolve, reject) => {
-      // Create a hidden window for OAuth
+    return new Promise((resolve) => {
+      // Create OAuth window
       const authWindow = new BrowserWindow({
         width: 600,
         height: 700,
@@ -602,115 +598,180 @@ class ItchioController extends GamesController {
 
       // itch.io OAuth URL - using implicit grant (token in URL fragment)
       const redirectUri = 'urn:ietf:wg:oauth:2.0:oob';
-      const scope = 'profile:me';
+      const scope = 'profile';
       const authUrl = `https://itch.io/user/oauth?client_id=${encodeURIComponent(clientId)}&scope=${encodeURIComponent(scope)}&response_type=token&redirect_uri=${encodeURIComponent(redirectUri)}`;
 
-      authWindow.loadURL(authUrl);
+      let settled = false;
 
-      // Listen for page title changes - itch.io shows token in the title after auth
-      authWindow.webContents.on('page-title-updated', async (event, title) => {
-        // When using oob redirect, itch.io shows "Authorization - itch.io" then displays token
-        // We need to check the page content for the token
-      });
+      /**
+       * @param {string|null|undefined} value
+       * @returns {string|null}
+       */
+      const normalizeToken = (value) => {
+        const token = String(value || '').trim();
+        if (!token) return null;
+        if (!/^[A-Za-z0-9_-]{20,}$/.test(token)) return null;
+        return token;
+      };
 
-      // Listen for navigation to detect the token in the URL or page
-      authWindow.webContents.on('did-navigate', async (event, url) => {
-        // Check if we're on the authorization success page
-        if (url.includes('itch.io/user/oauth') || url.includes('oauth/authorize')) {
-          // Try to extract token from the page
-          try {
-            const token = await authWindow.webContents.executeJavaScript(`
-              (function() {
-                // Look for token in various places
-                const codeEl = document.querySelector('code');
-                if (codeEl) return codeEl.textContent.trim();
-                
-                const preEl = document.querySelector('pre');
-                if (preEl) return preEl.textContent.trim();
-                
-                // Check for token in URL hash
-                if (window.location.hash) {
-                  const params = new URLSearchParams(window.location.hash.substring(1));
-                  const accessToken = params.get('access_token');
-                  if (accessToken) return accessToken;
-                }
-                
-                return null;
-              })()
-            `);
+      /**
+       * @param {{ success: boolean, user?: { id: number, username: string } }} result
+       */
+      const finish = (result) => {
+        if (settled) return;
+        settled = true;
+        if (pollTimer) clearInterval(pollTimer);
+        resolve(result);
+      };
 
-            if (token && typeof token === 'string' && token.length > 10) {
-              // Save the token
-              this.#oauthToken = { access_token: token };
-              this.#saveTokenToDisk(this.#oauthToken);
+      /**
+       * @param {string} token
+       */
+      const persistTokenAndResolve = async (token) => {
+        if (settled) return;
 
-              // Get user profile to confirm login
-              try {
-                const profile = await this.getProfile();
-                authWindow.close();
-                resolve({
-                  success: true,
-                  user: profile ? { id: profile.id, username: profile.username } : undefined,
-                });
-              } catch {
-                authWindow.close();
-                resolve({ success: true });
-              }
-            }
-          } catch (err) {
-            // Ignore - might not be on the right page yet
-          }
-        }
-      });
+        this.#oauthToken = { access_token: token };
+        this.#saveTokenToDisk(this.#oauthToken);
 
-      // Also check when page finishes loading
-      authWindow.webContents.on('did-finish-load', async () => {
         try {
-          const token = await authWindow.webContents.executeJavaScript(`
+          const profile = await this.getProfile();
+          const profileId = Number(profile?.id);
+          const profileUsername = String(profile?.username || '').trim();
+
+          finish({
+            success: true,
+            user:
+              Number.isFinite(profileId) && profileId > 0 && profileUsername
+                ? { id: profileId, username: profileUsername }
+                : undefined,
+          });
+          if (!authWindow.isDestroyed()) authWindow.close();
+        } catch {
+          finish({ success: true });
+          if (!authWindow.isDestroyed()) authWindow.close();
+        }
+      };
+
+      const readTokenFromPage = async () => {
+        if (authWindow.isDestroyed()) return null;
+        try {
+          const rawToken = await authWindow.webContents.executeJavaScript(`
             (function() {
-              const codeEl = document.querySelector('code');
-              if (codeEl) return codeEl.textContent.trim();
-              
-              const preEl = document.querySelector('pre');
-              if (preEl) return preEl.textContent.trim();
-              
-              // Check URL hash
-              if (window.location.hash) {
-                const params = new URLSearchParams(window.location.hash.substring(1));
-                const accessToken = params.get('access_token');
-                if (accessToken) return accessToken;
+              function fromLocation() {
+                try {
+                  if (window.location.hash) {
+                    const hashParams = new URLSearchParams(window.location.hash.substring(1));
+                    const hashToken = hashParams.get('access_token');
+                    if (hashToken) return hashToken;
+                  }
+
+                  if (window.location.search) {
+                    const queryParams = new URLSearchParams(window.location.search.substring(1));
+                    const queryToken = queryParams.get('access_token') || queryParams.get('token');
+                    if (queryToken) return queryToken;
+                  }
+                } catch {
+                  // ignore URL parse errors
+                }
+                return null;
               }
-              
-              return null;
+
+              function fromElements() {
+                const inputSelectors = [
+                  'input.api_key_input',
+                  'input[name="access_token"]',
+                  'input[name="token"]',
+                  'input[type="text"][readonly]',
+                  'input[readonly].api_key_input'
+                ];
+
+                for (const selector of inputSelectors) {
+                  const el = document.querySelector(selector);
+                  if (!el) continue;
+                  const value = (typeof el.value === 'string' ? el.value : (el.getAttribute && el.getAttribute('value'))) || '';
+                  const trimmed = String(value).trim();
+                  if (trimmed) return trimmed;
+                }
+
+                const codeEl = document.querySelector('code');
+                if (codeEl && codeEl.textContent) {
+                  const codeValue = codeEl.textContent.trim();
+                  if (codeValue) return codeValue;
+                }
+
+                const preEl = document.querySelector('pre');
+                if (preEl && preEl.textContent) {
+                  const preValue = preEl.textContent.trim();
+                  if (preValue) return preValue;
+                }
+
+                return null;
+              }
+
+              function fromBodyText() {
+                const text = (document.body && document.body.innerText ? document.body.innerText : '') || '';
+                const match = text.match(/\b([A-Za-z0-9_-]{20,})\b/);
+                return match ? match[1] : null;
+              }
+
+              return fromLocation() || fromElements() || fromBodyText() || null;
             })()
           `);
 
-          if (token && typeof token === 'string' && token.length > 10) {
-            this.#oauthToken = { access_token: token };
-            this.#saveTokenToDisk(this.#oauthToken);
-
-            try {
-              const profile = await this.getProfile();
-              authWindow.close();
-              resolve({
-                success: true,
-                user: profile ? { id: profile.id, username: profile.username } : undefined,
-              });
-            } catch {
-              authWindow.close();
-              resolve({ success: true });
-            }
-          }
+          return normalizeToken(rawToken);
         } catch {
-          // Ignore
+          return null;
         }
+      };
+
+      const tryResolveToken = async () => {
+        if (settled) return;
+        const token = await readTokenFromPage();
+        if (!token) return;
+        await persistTokenAndResolve(token);
+      };
+
+      // itch can open the success page in a popup, so keep navigation in this tracked window.
+      authWindow.webContents.setWindowOpenHandler(({ url }) => {
+        if (url && !authWindow.isDestroyed()) {
+          authWindow.loadURL(url).catch(() => {});
+        }
+        return { action: 'deny' };
       });
+
+      authWindow.loadURL(authUrl);
+
+      authWindow.webContents.on('did-navigate', () => {
+        tryResolveToken().catch(() => {});
+      });
+      authWindow.webContents.on('did-navigate-in-page', () => {
+        tryResolveToken().catch(() => {});
+      });
+      authWindow.webContents.on('did-redirect-navigation', () => {
+        tryResolveToken().catch(() => {});
+      });
+      authWindow.webContents.on('dom-ready', () => {
+        tryResolveToken().catch(() => {});
+      });
+      authWindow.webContents.on('did-finish-load', () => {
+        tryResolveToken().catch(() => {});
+      });
+      authWindow.webContents.on('page-title-updated', () => {
+        tryResolveToken().catch(() => {});
+      });
+
+      // Some OOB pages render token asynchronously without navigation/title change.
+      const pollTimer = setInterval(() => {
+        if (settled || authWindow.isDestroyed()) {
+          clearInterval(pollTimer);
+          return;
+        }
+        tryResolveToken().catch(() => {});
+      }, 500);
 
       // Handle window close (user cancelled)
       authWindow.on('closed', () => {
-        if (!this.#oauthToken) {
-          resolve({ success: false });
-        }
+        finish({ success: false });
       });
     });
   }
@@ -724,29 +785,209 @@ class ItchioController extends GamesController {
   }
 
   /**
+   * Resolve a launchable executable from an itch install directory.
+   *
+   * @param {string|null|undefined} installLocation
+   * @returns {string|null}
+   */
+  #resolveLaunchExecutable(installLocation) {
+    const baseDir = String(installLocation || '').trim();
+    if (!baseDir) return null;
+    if (!fs.existsSync(baseDir)) return null;
+
+    /** @type {string[]} */
+    const exeCandidates = [];
+    const queue = [baseDir];
+    const skipDirNames = new Set(['.itch', '__macosx']);
+
+    while (queue.length > 0) {
+      const currentDir = queue.shift();
+      if (!currentDir) continue;
+
+      /** @type {import('fs').Dirent[]} */
+      let entries = [];
+      try {
+        entries = fs.readdirSync(currentDir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+
+      for (const entry of entries) {
+        const fullPath = path.join(currentDir, entry.name);
+        if (entry.isDirectory()) {
+          if (!skipDirNames.has(entry.name.toLowerCase())) {
+            queue.push(fullPath);
+          }
+          continue;
+        }
+
+        if (!entry.isFile()) continue;
+        if (!/\.exe$/i.test(entry.name)) continue;
+        exeCandidates.push(fullPath);
+      }
+    }
+
+    if (exeCandidates.length < 1) return null;
+
+    const excludedExePattern = /(unins|uninstall|crashpad|crashhandler|unitycrash|updater|redist|vcredist|eac|easyanticheat)/i;
+    const preferred = exeCandidates.filter((candidate) => !excludedExePattern.test(path.basename(candidate)));
+    const pool = preferred.length > 0 ? preferred : exeCandidates;
+    pool.sort((a, b) => a.length - b.length);
+    return pool[0] || null;
+  }
+
+  /**
+   * Resolve an uninstall executable from an itch install directory.
+   *
+   * @param {string|null|undefined} installLocation
+   * @returns {string|null}
+   */
+  #resolveUninstallExecutable(installLocation) {
+    const baseDir = String(installLocation || '').trim();
+    if (!baseDir) return null;
+    if (!fs.existsSync(baseDir)) return null;
+
+    /** @type {string[]} */
+    const exeCandidates = [];
+    const queue = [baseDir];
+    const skipDirNames = new Set(['.itch', '__macosx']);
+
+    while (queue.length > 0) {
+      const currentDir = queue.shift();
+      if (!currentDir) continue;
+
+      /** @type {import('fs').Dirent[]} */
+      let entries = [];
+      try {
+        entries = fs.readdirSync(currentDir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+
+      for (const entry of entries) {
+        const fullPath = path.join(currentDir, entry.name);
+        if (entry.isDirectory()) {
+          if (!skipDirNames.has(entry.name.toLowerCase())) {
+            queue.push(fullPath);
+          }
+          continue;
+        }
+
+        if (!entry.isFile()) continue;
+        if (!/\.exe$/i.test(entry.name)) continue;
+        if (!/(unins|uninstall|remove)/i.test(entry.name)) continue;
+        exeCandidates.push(fullPath);
+      }
+    }
+
+    if (exeCandidates.length < 1) return null;
+    exeCandidates.sort((a, b) => a.length - b.length);
+    return exeCandidates[0] || null;
+  }
+
+  /**
    * Open the itch.io client for a game action via URL scheme.
    *
-   * @param {string|number} gameId  itch.io game ID
-   * @param {'open'|'install'} action
+  * @param {string|number|null|undefined} gameId  itch.io game ID
+  * @param {'open'|'install'|'run'|'uninstall'} action
+   * @param {string|null|undefined} [gameUrl] itch.io game page URL fallback
+   * @param {string|null|undefined} [installLocation] local install path fallback for run
    * @returns {Promise<{ ok: boolean, url: string }>}
    */
-  async clientGameControlUtil(gameId, action) {
-    // itch:// scheme: itch://games/{gameId} opens the game page in the client.
-    // There is no documented itch://install/... scheme, so we fall back to https for install.
+  async clientGameControlUtil(gameId, action, gameUrl, installLocation) {
     const id = Number(gameId);
-    if (!Number.isFinite(id) || id <= 0) throw new Error(`Invalid itch.io game ID: ${String(gameId)}`);
+    const hasValidId = Number.isFinite(id) && id > 0;
+    const normalizedGameUrl = typeof gameUrl === 'string' ? gameUrl.trim() : '';
+    const hasValidGameUrl = /^https?:\/\//i.test(normalizedGameUrl);
+    const normalizedInstallLocation = typeof installLocation === 'string' ? installLocation.trim() : '';
+    const hasValidInstallLocation = !!normalizedInstallLocation && fs.existsSync(normalizedInstallLocation);
 
-    const url = action === 'install'
-      ? `https://itch.io/games/${encodeURIComponent(String(id))}`
-      : `itch://games/${encodeURIComponent(String(id))}`;
-
-    try {
-      await shell.openExternal(url);
-      return { ok: true, url };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      throw new Error(`Failed to open itch.io URL (${url}): ${msg}`);
+    if (!hasValidId && !hasValidGameUrl && !hasValidInstallLocation) {
+      throw new Error(`Invalid itch.io game target: id=${String(gameId)} url=${String(gameUrl || '')} install=${String(installLocation || '')}`);
     }
+
+    /** @type {string[]} */
+    const candidateUrls = [];
+
+    const normalizedAction =
+      action === 'install' || action === 'run' || action === 'uninstall'
+        ? action
+        : 'open';
+
+    if (normalizedAction === 'run' && hasValidInstallLocation) {
+      const launchExecutable = this.#resolveLaunchExecutable(normalizedInstallLocation);
+      if (launchExecutable) {
+        try {
+          const openError = await shell.openPath(launchExecutable);
+          if (!openError) {
+            return { ok: true, url: launchExecutable };
+          }
+        } catch {
+          // fallback to itch:// / https targets
+        }
+      }
+    }
+
+    if (normalizedAction === 'uninstall' && hasValidInstallLocation) {
+      const uninstallExecutable = this.#resolveUninstallExecutable(normalizedInstallLocation);
+      if (uninstallExecutable) {
+        try {
+          const openError = await shell.openPath(uninstallExecutable);
+          if (!openError) {
+            return { ok: true, url: `local-uninstall://${encodeURIComponent(uninstallExecutable)}` };
+          }
+        } catch {
+          // fallback to itch:// uninstall targets
+        }
+      }
+    }
+
+    // Use itch client URL scheme first for both open and install flows.
+    if (hasValidId) {
+      if (normalizedAction === 'run') {
+        candidateUrls.push(`itch://games/${encodeURIComponent(String(id))}/launch`);
+      }
+      if (normalizedAction === 'install') {
+        candidateUrls.push(`itch://games/${encodeURIComponent(String(id))}/install`);
+      }
+      if (normalizedAction === 'uninstall') {
+        candidateUrls.push(`itch://games/${encodeURIComponent(String(id))}/uninstall`);
+        candidateUrls.push(`itch://games/${encodeURIComponent(String(id))}/remove`);
+      }
+      if (normalizedAction !== 'uninstall') {
+        candidateUrls.push(`itch://games/${encodeURIComponent(String(id))}`);
+      }
+    }
+
+    // If client invocation fails, fall back to the actual game URL (not id-based fake path).
+    if (hasValidGameUrl) {
+      if (normalizedAction === 'install' || normalizedAction === 'run' || !hasValidId) {
+        candidateUrls.push(normalizedGameUrl);
+      }
+    }
+
+    if (normalizedAction !== 'uninstall' && candidateUrls.length < 1 && hasValidGameUrl) {
+      candidateUrls.push(normalizedGameUrl);
+    }
+
+    if (normalizedAction === 'uninstall' && candidateUrls.length < 1) {
+      throw new Error('No uninstall target is available for this itch game');
+    }
+
+    /** @type {unknown|null} */
+    let lastError = null;
+
+    for (const url of candidateUrls) {
+      try {
+        await shell.openExternal(url);
+        return { ok: true, url };
+      } catch (err) {
+        lastError = err;
+      }
+    }
+
+    const msg = lastError instanceof Error ? lastError.message : String(lastError);
+    throw new Error(`Failed to open itch.io URL (${candidateUrls.join(' -> ')}): ${msg}`);
   }
 }
 

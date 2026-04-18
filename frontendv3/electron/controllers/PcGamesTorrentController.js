@@ -92,7 +92,7 @@ class PcGamesTorrentController {
    * @param {string} gameName
    * @returns {Promise<string | null>}
    */
-  async PcGamesTorrentMagnetLink(gameName) {
+  async pcGamesTorrentMagnetLink(gameName) {
     if (!gameName || !String(gameName).trim()) throw new Error('Game name is required');
     const slug = String(gameName).trim();
     const url = `https://igg-games.com/${encodeURIComponent(slug)}.html`;
@@ -140,6 +140,15 @@ class PcGamesTorrentController {
       console.warn('[PcGamesTorrent] failed to extract magnet from download page:', e);
       return null;
     }
+  }
+
+  /**
+   * Backward-compatible alias for legacy PascalCase method name.
+   * @param {string} gameName
+   * @returns {Promise<string | null>}
+   */
+  async PcGamesTorrentMagnetLink(gameName) {
+    return this.pcGamesTorrentMagnetLink(gameName);
   }
 }
 

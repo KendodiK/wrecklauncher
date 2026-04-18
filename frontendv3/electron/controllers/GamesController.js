@@ -2,16 +2,22 @@
 
 const { enc, joinUrl, normalizeBaseUrl } = require('../lib/url');
 const { fetchJsonSafe } = require('../lib/http');
+const http = require('node:http');
+const https = require('node:https');
 
 class GamesController {
   /** @type {string} */
   #serverUrl;
+
+  /** @type {Map<string, number>} */
+  #platformIdByNameCache;
 
   /**
    * @param {{ serverUrl: string }} cfg
    */
   constructor(cfg) {
     this.#serverUrl = normalizeBaseUrl(cfg.serverUrl || '', { defaultProtocol: 'http:' });
+    this.#platformIdByNameCache = new Map();
   }
 
   /**
@@ -32,10 +38,141 @@ class GamesController {
    */
   _platformNameFromId(platformId) {
     const id = Number(platformId);
-    if (id === 1) return 'steam';
-    if (id === 3) return 'itchio';
-    if (id === 4) return 'gog';
+    if (!Number.isFinite(id) || id <= 0) return null;
+    for (const [platformName, cachedId] of this.#platformIdByNameCache.entries()) {
+      if (Number(cachedId) === id) return platformName;
+    }
     return null;
+  }
+
+  /**
+   * @param {string|number|null|undefined} platform
+   * @returns {string}
+   */
+  _normalizePlatformLookupName(platform) {
+    const raw = String(platform ?? '').trim().toLowerCase();
+    if (!raw) return '';
+    if (raw === 'itch' || raw === 'itch.io') return 'itchio';
+    if (raw === 'gog.com') return 'gog';
+    return raw;
+  }
+
+  /**
+   * @param {unknown} value
+   * @returns {string}
+   */
+  _normalizeTitleForCompare(value) {
+    return String(value || '')
+      .toLowerCase()
+      .replace(/[\u00a9\u00ae\u2122]/g, '')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  /**
+   * @param {unknown} query
+   * @param {unknown} candidate
+   * @returns {number}
+   */
+  _titleMatchScore(query, candidate) {
+    const q = this._normalizeTitleForCompare(query);
+    const c = this._normalizeTitleForCompare(candidate);
+    if (!q || !c) return 0;
+    if (q === c) return 1;
+    if (q.includes(c) || c.includes(q)) return 0.9;
+
+    const qTokens = new Set(q.split(' ').filter((t) => t.length > 1));
+    const cTokens = new Set(c.split(' ').filter((t) => t.length > 1));
+    if (qTokens.size < 1 || cTokens.size < 1) return 0;
+
+    let overlap = 0;
+    for (const token of qTokens) {
+      if (cTokens.has(token)) overlap += 1;
+    }
+    if (overlap < 1) return 0;
+
+    const union = qTokens.size + cTokens.size - overlap;
+    const jaccard = union > 0 ? overlap / union : 0;
+    const coverage = overlap / Math.min(qTokens.size, cTokens.size);
+    return Math.max(jaccard, coverage * 0.9);
+  }
+
+  /**
+   * @param {string} platformName
+   * @returns {Promise<number|null>}
+   */
+  async _fetchPlatformIdByName(platformName) {
+    const normalizedName = this._normalizePlatformLookupName(platformName);
+    if (!normalizedName) return null;
+
+    const cachedId = this.#platformIdByNameCache.get(normalizedName);
+    if (typeof cachedId === 'number' && Number.isFinite(cachedId) && cachedId > 0) {
+      return cachedId;
+    }
+
+    const url = joinUrl(this.#serverUrl, 'api', 'platforms', enc(normalizedName));
+    const { ok, status, json, text } = await fetchJsonSafe(url, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+      },
+    });
+
+    if (!ok) {
+      if (Number(status) === 404) return null;
+      const snippet = String((json && (json.error || json.message)) || text || 'Unknown error')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 300);
+      throw new Error(`Failed to resolve platform "${normalizedName}" (HTTP ${status}): ${snippet}`);
+    }
+
+    const id = Number(json?.id);
+    if (!Number.isFinite(id) || id <= 0) return null;
+
+    this.#platformIdByNameCache.set(normalizedName, id);
+    return id;
+  }
+
+  /**
+   * Resolve a platform reference to candidate numeric platform ids using backend lookup.
+   *
+   * @param {number|string|null|undefined} platform
+    * @returns {Promise<number[]>}
+   */
+  async _resolvePlatformIds(platform) {
+    if (platform === null || platform === undefined) return [];
+    const raw = String(platform).trim();
+    if (!raw) return [];
+    if (/^\d+$/.test(raw)) {
+      const id = Number(raw);
+      if (!Number.isFinite(id) || id <= 0) return [];
+      return [id];
+    }
+
+    const normalized = this._normalizePlatformLookupName(raw);
+    if (!normalized) return [];
+
+    /** @type {Record<string, string[]>} */
+    const candidatesByPlatform = {
+      steam: ['steam'],
+      gog: ['gog', 'gog.com'],
+      itchio: ['itchio', 'itch', 'itch.io'],
+    };
+
+    const namesToTry = candidatesByPlatform[normalized] || [normalized];
+    /** @type {number[]} */
+    const ids = [];
+
+    for (const name of namesToTry) {
+      const id = await this._fetchPlatformIdByName(name);
+      if (!id || ids.includes(id)) continue;
+      ids.push(id);
+      this.#platformIdByNameCache.set(this._normalizePlatformLookupName(name), id);
+    }
+
+    return ids;
   }
 
   /**
@@ -44,18 +181,18 @@ class GamesController {
    */
   _platformIdFromAny(platform) {
     if (platform === null || platform === undefined) return null;
-    const raw = String(platform).trim().toLowerCase();
+
+    const raw = String(platform).trim();
     if (!raw) return null;
+
     if (/^\d+$/.test(raw)) {
       const id = Number(raw);
-      if (!Number.isFinite(id)) return null;
-      if (id !== 1 && id !== 3 && id !== 4) return null;
-      return id;
+      return Number.isFinite(id) && id > 0 ? id : null;
     }
-    if (raw === 'steam') return 1;
-    if (raw === 'itch' || raw === 'itchio' || raw === 'itch.io') return 3;
-    if (raw === 'gog') return 4;
-    return null;
+
+    const normalizedName = this._normalizePlatformLookupName(raw);
+    const cachedId = this.#platformIdByNameCache.get(normalizedName);
+    return typeof cachedId === 'number' && Number.isFinite(cachedId) && cachedId > 0 ? cachedId : null;
   }
 
   /**
@@ -583,47 +720,59 @@ _collapseWhitespace(text) {
     if (!appId || !String(appId).trim()) throw new Error('App ID is required');
     if (!platform || !String(platform).trim()) throw new Error('Platform is required');
 
-    const platformId = this._platformIdFromAny(platform);
-    if (!platformId) throw new Error(`Invalid platform: ${String(platform)}`);
+    const platformIds = await this._resolvePlatformIds(platform);
+    if (platformIds.length < 1) throw new Error(`Invalid platform: ${String(platform)}`);
 
     const normalizedCountryCode = String(countryCode || 'DE').trim() || 'DE';
-    const url = `${joinUrl(this.#serverUrl, 'api', 'games', 'platforms', enc(String(platformId)), 'app-id', enc(String(appId)), 'details')}?country_code=${enc(normalizedCountryCode)}`;
-    const { ok, status, json, text } = await fetchJsonSafe(url,{
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-      },
-    });
-    if (!ok) {
-      const apiError = json && typeof json === 'object' ? (json.error || json.message) : null;
-      const snippet = String(apiError ?? text ?? 'Unknown error').replace(/\s+/g, ' ').trim().slice(0, 300);
-      throw new Error(`Failed to fetch game details (HTTP ${status}): ${snippet}`);
+    let lastNotFoundError = null;
+    for (const platformId of platformIds) {
+      const url = `${joinUrl(this.#serverUrl, 'api', 'games', 'platforms', enc(String(platformId)), 'app-id', enc(String(appId)), 'details')}?country_code=${enc(normalizedCountryCode)}`;
+      const { ok, status, json, text } = await fetchJsonSafe(url,{
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+        },
+      });
+      if (!ok) {
+        const apiError = json && typeof json === 'object' ? (json.error || json.message) : null;
+        const snippet = String(apiError ?? text ?? 'Unknown error').replace(/\s+/g, ' ').trim().slice(0, 300);
+        const error = new Error(`Failed to fetch game details (HTTP ${status}): ${snippet}`);
+        if (Number(status) === 404) {
+          lastNotFoundError = error;
+          continue;
+        }
+        throw error;
+      }
+
+      const obj = json && typeof json === 'object' ? json : null;
+      const rawGenres = Array.isArray(obj?.genres) ? obj.genres : null;
+      const genreNamesFromBackend = Array.isArray(rawGenres)
+        ? rawGenres          .map((g) => (g && typeof g === 'object' ? (g.genre ?? g.name ?? g.description) : null))
+            .filter((v) => typeof v === 'string' && v.trim())
+        : null;
+      console.log('Platform + appid gameDetails: ', json);
+      return {
+        id: obj?.id ?? null,
+        app_id: obj?.app_id ?? null,
+        name: obj?.name ?? null,
+        platform_name: obj?.platform_name ?? obj?.platform ?? null,
+        banner_img: obj?.banner_img ?? null,
+        description: obj?.description ?? null,
+        minimum_requirements: obj?.minimum_requirements ?? null,
+        cost: this._toOptionalFiniteNumber(obj?.cost),
+        price: this._toOptionalFiniteNumber(obj?.price),
+        currency: this._toOptionalString(obj?.currency),
+        formated_price: this._toOptionalString(obj?.formated_price),
+        country_code: this._toOptionalString(obj?.country_code),
+        genre_names: Array.isArray(obj?.genre_names)
+          ? obj.genre_names
+          : (genreNamesFromBackend && genreNamesFromBackend.length ? genreNamesFromBackend : null),
+        pirate_sites: Array.isArray(obj?.pirate_sites) ? obj.pirate_sites : null,
+      };
     }
-    const obj = json && typeof json === 'object' ? json : null;
-    const rawGenres = Array.isArray(obj?.genres) ? obj.genres : null;
-    const genreNamesFromBackend = Array.isArray(rawGenres)
-      ? rawGenres          .map((g) => (g && typeof g === 'object' ? (g.genre ?? g.name ?? g.description) : null))
-          .filter((v) => typeof v === 'string' && v.trim())
-      : null;
-    console.log('Platform + appid gameDetails: ', json);  
-    return {
-      id: obj?.id ?? null,
-      app_id: obj?.app_id ?? null,
-      name: obj?.name ?? null,
-      platform_name: obj?.platform_name ?? obj?.platform ?? null,
-      banner_img: obj?.banner_img ?? null,
-      description: obj?.description ?? null,
-      minimum_requirements: obj?.minimum_requirements ?? null,
-      cost: this._toOptionalFiniteNumber(obj?.cost),
-      price: this._toOptionalFiniteNumber(obj?.price),
-      currency: this._toOptionalString(obj?.currency),
-      formated_price: this._toOptionalString(obj?.formated_price),
-      country_code: this._toOptionalString(obj?.country_code),
-      genre_names: Array.isArray(obj?.genre_names)
-        ? obj.genre_names
-        : (genreNamesFromBackend && genreNamesFromBackend.length ? genreNamesFromBackend : null),      
-      pirate_sites: Array.isArray(obj?.pirate_sites) ? obj.pirate_sites : null,
-    };    
+
+    if (lastNotFoundError) throw lastNotFoundError;
+    throw new Error('Failed to fetch game details: no platform candidates resolved');
   }
 
   /**
@@ -661,55 +810,351 @@ _collapseWhitespace(text) {
 
     return Array.isArray(json) ? json : (json ?? []);
   }
+
   /**
-   * 
-   * @param {string} token 
-   * @param {string} appId 
-   * @param {string} platform 
-   * @param {object} pirateSites 
+   * Server-side game search via backend endpoint.
+   *
+   * @param {string} needle
+   * @param {{ tags?: string[] }} [opts]
+   * @returns {Promise<any[]>}
    */
-  //FINISH LATER!!!!!!!!!!!!!!!!!!!!
-  async uploadPirateSites(token, appId, platform, pirateSites){
-    if (!token || !String(token).trim()) throw new Error('Token is required');
-    if (!appId || !String(appId).trim()) throw new Error('App ID is required');
-    if (!platform || !String(platform).trim()) throw new Error('Platform is required');
-    if (!pirateSites || !Array.isArray(pirateSites)) throw new Error('Pirate sites array is required');
-    const gameUrl = joinUrl(this.#serverUrl, 'api', 'games', enc(String(platform)), enc(String(appId)));
-    const { ok, status, json, text } = await fetchJsonSafe(gameUrl, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      }
+  async searchGames(needle, opts = {}) {
+    const normalizedNeedle = String(needle || '').trim();
+    const normalizedTags = Array.isArray(opts?.tags)
+      ? opts.tags.map((tag) => String(tag || '').trim()).filter((tag) => !!tag)
+      : [];
+
+    if (!normalizedNeedle && normalizedTags.length < 1) {
+      return [];
+    }
+
+    const url = joinUrl(this.#serverUrl, 'api', 'search');
+    const payload = JSON.stringify({
+      needle: normalizedNeedle,
+      tags: normalizedTags,
+    });
+
+    const target = new URL(url);
+    const requestClient = target.protocol === 'https:' ? https : http;
+
+    const { ok, status, json, text } = await new Promise((resolve, reject) => {
+      const req = requestClient.request(
+        {
+          protocol: target.protocol,
+          hostname: target.hostname,
+          port: target.port || undefined,
+          path: `${target.pathname}${target.search}`,
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(payload),
+          },
+        },
+        (res) => {
+          /** @type {Buffer[]} */
+          const chunks = [];
+          res.on('data', (chunk) => {
+            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+          });
+          res.on('end', () => {
+            const text = Buffer.concat(chunks).toString('utf8');
+            let json = null;
+            if (text) {
+              try {
+                json = JSON.parse(text);
+              } catch {
+                json = null;
+              }
+            }
+
+            const status = Number(res.statusCode) || 0;
+            resolve({
+              ok: status >= 200 && status < 300,
+              status,
+              json,
+              text,
+            });
+          });
+        },
+      );
+
+      req.on('error', reject);
+      req.write(payload);
+      req.end();
     });
 
     if (!ok) {
       const apiError = json && typeof json === 'object' ? (json.error || json.message) : null;
       const snippet = String(apiError ?? text ?? 'Unknown error').replace(/\s+/g, ' ').trim().slice(0, 300);
-      throw new Error(`Failed to fetch game details (HTTP ${status}): ${snippet}`);
+      throw new Error(`Failed to search games (HTTP ${status}): ${snippet}`);
     }
-    for (const site of pirateSites) {
-      if (!site || typeof site !== 'string' || !site.trim()) {
-        throw new Error('Each pirate site must be a non-empty string');
-      }    
-    const url = joinUrl(this.#serverUrl, 'api', 'pirate_sites', enc(String(json.id)));
-    console.log('Uploading pirate sites to:', url, 'Sites:', pirateSites);
-    const { ok: uploadOk, status: uploadStatus, json: uploadJson, text: uploadText } = await fetchJsonSafe(url, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({ sites: pirateSites })
-    });
-    if (!uploadOk) {
-      const apiError = uploadJson && typeof uploadJson === 'object' ? (uploadJson.error || uploadJson.message) : null;
-      const snippet = String(apiError ?? uploadText ?? 'Unknown error').replace(/\s+/g, ' ').trim().slice(0, 300);
-      throw new Error(`Failed to upload pirate sites (HTTP ${uploadStatus}): ${snippet}`);
-    }    
+
+    if (Array.isArray(json)) return json;
+    if (Array.isArray(json?.items)) return json.items;
+    if (Array.isArray(json?.data)) return json.data;
+    return [];
   }
-  return true;
+  /**
+   * 
+   * @param {string} token 
+   * @param {string} appId 
+   * @param {string} platform 
+   * @param {Array<string|{name?: string, site_name?: string, url?: string, link?: string}>} pirateSites 
+   */
+  async uploadPirateSites(token, appId, platform, pirateSites){
+    const tokenStr = String(token || '').trim();
+    if (!tokenStr) throw new Error('Token is required');
+    if (appId == null || String(appId).trim() === '') throw new Error('App ID is required');
+    if (platform == null || String(platform).trim() === '') throw new Error('Platform is required');
+    if (!Array.isArray(pirateSites)) throw new Error('Pirate sites array is required');
+
+    /**
+     * @param {unknown} value
+     * @returns {string|null}
+     */
+    const normalizeSiteName = (value) => {
+      const raw = String(value || '').trim().toLowerCase();
+      if (!raw) return null;
+      if (raw.includes('fitgirl')) return 'fitgirl';
+      if (raw.includes('pcgames')) return 'pcgames';
+      if (raw.includes('dodi')) return 'dodi';
+      const compact = raw.replace(/[^a-z0-9]/g, '');
+      return compact ? compact.slice(0, 10) : null;
+    };
+
+    /**
+     * Keep persisted pirate links under DB limits while preserving full magnets in normal cases.
+     * For very large payloads we still compact magnets to their core identifiers.
+     * @param {string} rawLink
+     * @param {number} [maxLength]
+     * @returns {string}
+     */
+    const compactPirateLinkForStorage = (rawLink, maxLength = 16000) => {
+      const link = String(rawLink || '').trim();
+      if (!link) return '';
+      if (link.length <= maxLength) return link;
+
+      if (/^magnet:\?/i.test(link)) {
+        try {
+          const qIndex = link.indexOf('?');
+          const query = qIndex >= 0 ? link.slice(qIndex + 1) : '';
+          const params = new URLSearchParams(query);
+          const xt = params.get('xt');
+          const dn = params.get('dn');
+          const ws = params.get('ws');
+
+          const compactParams = new URLSearchParams();
+          if (xt) compactParams.set('xt', xt);
+          if (dn) compactParams.set('dn', dn);
+          if (ws) compactParams.set('ws', ws);
+
+          const compactMagnet = `magnet:?${compactParams.toString()}`;
+          if ((xt || dn) && compactMagnet.length <= maxLength) {
+            return compactMagnet;
+          }
+
+          if (xt) {
+            const xtOnly = `magnet:?xt=${encodeURIComponent(xt)}`;
+            if (xtOnly.length <= maxLength) return xtOnly;
+          }
+        } catch {
+          // fall through to hard cut below
+        }
+      }
+
+      // Last-resort hard cut for unexpected overly long non-magnet links.
+      return link.slice(0, Math.max(32, maxLength));
+    };
+
+    /** @type {Array<{ originalLink: string, link: string, siteName: string|null, siteId: number|null }>} */
+    const normalizedSites = [];
+    const seenLinks = new Set();
+
+    for (const rawSite of pirateSites) {
+      let link = null;
+      let siteName = null;
+      let siteId = null;
+
+      if (typeof rawSite === 'string') {
+        link = rawSite.trim();
+      } else if (rawSite && typeof rawSite === 'object') {
+        const anySite = /** @type {any} */ (rawSite);
+        link = String(anySite.url ?? anySite.link ?? '').trim();
+        siteName = normalizeSiteName(anySite.name ?? anySite.site_name ?? anySite.siteName ?? null);
+        const parsedSiteId = Number(anySite.site_id ?? anySite.siteId ?? anySite.pirate_site_id ?? anySite.pirateSiteId ?? null);
+        siteId = Number.isFinite(parsedSiteId) && parsedSiteId > 0 ? parsedSiteId : null;
+      }
+
+      if (!link) continue;
+      if (!/^https?:\/\//i.test(link) && !/^magnet:\?/i.test(link)) continue;
+
+      const dedupeKey = link.trim().toLowerCase();
+      if (seenLinks.has(dedupeKey)) continue;
+      seenLinks.add(dedupeKey);
+
+      normalizedSites.push({
+        originalLink: link,
+        link: compactPirateLinkForStorage(link, 16000),
+        siteName,
+        siteId,
+      });
+    }
+
+    if (normalizedSites.length < 1) {
+      return { uploaded: 0, skipped: 0, errors: [] };
+    }
+
+    // Resolve DB game id from (platform, app_id) before attaching pirate links.
+    const details = await this.getAllDetailsByAppIDAndPlatform(String(appId), String(platform), 'DE');
+    const gameId = Number(details?.id);
+    if (!Number.isFinite(gameId) || gameId <= 0) {
+      throw new Error(`Failed to resolve game id for appId=${String(appId)} platform=${String(platform)}`);
+    }
+
+    const authHeaders = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'Authorization': `Bearer ${tokenStr}`,
+    };
+
+    /** @type {{ uploaded: number, skipped: number, errors: string[] }} */
+    const summary = { uploaded: 0, skipped: 0, errors: [] };
+
+    for (const site of normalizedSites) {
+      const postNewPath = joinUrl(this.#serverUrl, 'api', 'pirate-sites', enc(String(gameId)));
+      const putNewPath = joinUrl(this.#serverUrl, 'api', 'pirate-sites', enc(String(gameId)));
+      const legacyPath = joinUrl(this.#serverUrl, 'api', 'pirate_sites', enc(String(gameId)));
+      const explicitSiteId = Number.isFinite(Number(site.siteId)) && Number(site.siteId) > 0
+        ? Number(site.siteId)
+        : null;
+      const structuredBody = {
+        game_id: gameId,
+        gameId,
+        link: site.link,
+        ...(site.siteName ? { site_name: site.siteName, siteName: site.siteName } : {}),
+        ...(typeof explicitSiteId === 'number' && Number.isFinite(explicitSiteId)
+          ? {
+              site_id: explicitSiteId,
+              siteId: explicitSiteId,
+              pirate_site_id: explicitSiteId,
+              pirateSiteId: explicitSiteId,
+            }
+          : {}),
+      };
+      const attemptBodies = [
+        {
+          label: 'POST /api/pirate-sites/:gameId',
+          method: 'POST',
+          url: postNewPath,
+          body: structuredBody,
+        },
+        {
+          label: 'PUT /api/pirate-sites/:gameId',
+          method: 'PUT',
+          url: putNewPath,
+          body: structuredBody,
+        },
+        {
+          label: 'PUT /api/pirate-sites/:gameId (sites array)',
+          method: 'PUT',
+          url: putNewPath,
+          body: { sites: [site.link] },
+        },
+        {
+          label: 'PUT /api/pirate_sites/:gameId',
+          method: 'PUT',
+          url: legacyPath,
+          body: structuredBody,
+        },
+        {
+          label: 'PUT /api/pirate_sites/:gameId (sites array)',
+          method: 'PUT',
+          url: legacyPath,
+          body: { sites: [site.link] },
+        },
+        {
+          label: 'POST /api/pirate_sites/:gameId',
+          method: 'POST',
+          url: legacyPath,
+          body: structuredBody,
+        },
+      ];
+
+      if (typeof explicitSiteId === 'number' && Number.isFinite(explicitSiteId) && explicitSiteId > 0) {
+        attemptBodies.push(
+          {
+            label: 'PUT /api/pirate-sites/:siteId/game/:gameId',
+            method: 'PUT',
+            url: joinUrl(this.#serverUrl, 'api', 'pirate-sites', enc(String(explicitSiteId)), 'game', enc(String(gameId))),
+            body: { game_id: gameId, gameId, link: site.link },
+          },
+          {
+            label: 'PUT /api/pirate_sites/:siteId/game/:gameId',
+            method: 'PUT',
+            url: joinUrl(this.#serverUrl, 'api', 'pirate_sites', enc(String(explicitSiteId)), 'game', enc(String(gameId))),
+            body: { game_id: gameId, gameId, link: site.link },
+          }
+        );
+      }
+
+      let uploaded = false;
+      let lastErrorMessage = 'unknown upload error';
+      const attemptErrors = [];
+
+      for (const attempt of attemptBodies) {
+        const { ok, status, json, text } = await fetchJsonSafe(attempt.url, {
+          method: attempt.method,
+          headers: authHeaders,
+          body: JSON.stringify(attempt.body),
+        });
+
+        if (ok) {
+          summary.uploaded += 1;
+          uploaded = true;
+          break;
+        }
+
+        const apiError = json && typeof json === 'object' ? (json.error || json.message) : null;
+        const snippet = String(apiError ?? text ?? 'Unknown error').replace(/\s+/g, ' ').trim().slice(0, 300);
+        const lowered = snippet.toLowerCase();
+        attemptErrors.push(`${attempt.label}: HTTP ${status} ${snippet}`);
+
+        if (status === 401) {
+          const unauthorizedError = new Error(`Failed to upload pirate sites (HTTP ${status}): ${snippet}`);
+          // @ts-ignore
+          unauthorizedError.code = 'WRECK_INVALID_TOKEN';
+          throw unauthorizedError;
+        }
+
+        if (lowered.includes('duplicate') || lowered.includes('already exists')) {
+          summary.skipped += 1;
+          uploaded = true;
+          break;
+        }
+
+        if (!lastErrorMessage || lastErrorMessage === 'unknown upload error' || (status !== 404 && status !== 405)) {
+          lastErrorMessage = `HTTP ${status}: ${snippet}`;
+        }
+
+        // Route mismatch and payload mismatch are expected between backend variants,
+        // so keep trying fallback variants before failing this site.
+        if (status === 404 || status === 405 || status === 400 || status === 422 || status === 500) {
+          continue;
+        }
+      }
+
+      if (!uploaded) {
+        const compactAttempts = attemptErrors.slice(0, 8).join(' | ');
+        summary.errors.push(`${site.originalLink.slice(0, 80)} -> ${lastErrorMessage} (${compactAttempts})`);
+      }
+    }
+
+    if (summary.errors.length > 0) {
+      console.warn('[GamesController.uploadPirateSites] some uploads failed:', summary.errors);
+    }
+
+    return summary;
   }
 
 }
