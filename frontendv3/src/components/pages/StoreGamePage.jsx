@@ -913,17 +913,26 @@ function parsePlatformDetails(platform, details, appId) {
 			resolveTemplatedImageHref(details?._embedded?.product?._links?.image?.href, '1600'),
 			resolveTemplatedImageHref(raw?._embedded?.product?._links?.image?.href, '1600'),
 		);
-		const banner = boxArt
+		const galaxyBackground = pickFirstFilledText(
+			details.galaxyBackgroundImage,
+			details.galaxy_background_img,
+			raw.galaxyBackgroundImage,
+			raw.galaxy_background_img,
+			details?._links?.galaxyBackgroundImage?.href,
+			raw?._links?.galaxyBackgroundImage?.href,
+			details.backgroundImage,
+			raw.backgroundImage,
+			details?._links?.backgroundImage?.href,
+			raw?._links?.backgroundImage?.href,
+		);
+		const banner = galaxyBackground
 			|| details.coverUrl
 			|| details.cover_url
-			|| details.backgroundImage
-			|| details.galaxyBackgroundImage
-			|| raw?._links?.backgroundImage?.href
-			|| raw?._links?.galaxyBackgroundImage?.href
 			|| raw.local_banner_img
 			|| details.bannerImg
 			|| details.banner_img
 			|| raw.db_banner_img
+			|| boxArt
 			|| '';
 		const siteLinks = normalizeSiteLinksFromAny(details.url || details.store_url || details.storeUrl || details.links || details.sites);
 		return {
@@ -1291,9 +1300,13 @@ const StoreGamePage = () => {
 			parsedDb?.minimumRequirements,
 			routeState?.minimumRequirements
 		);
-		const pirateLinks = normalizePirateLinksFromAny(
-			dbDetails?.pirate_sites || routeState?.pirate_sites || routeState?.pirateSites
-		);
+		const pirateLinks = normalizePirateLinksFromAny([
+			...(Array.isArray(dbDetails?.pirate_sites) ? dbDetails.pirate_sites : []),
+			...(Array.isArray(dbDetails?.pirateSites) ? dbDetails.pirateSites : []),
+			...(Array.isArray(dbDetails?.pirate_links) ? dbDetails.pirate_links : []),
+			...(Array.isArray(routeState?.pirate_sites) ? routeState.pirate_sites : []),
+			...(Array.isArray(routeState?.pirateSites) ? routeState.pirateSites : []),
+		]);
 
 		return {
 			...fallback,
@@ -1454,8 +1467,13 @@ const StoreGamePage = () => {
 		return deduped;
 	}, [dbDetails, model.platform_name, platformDetails]);
 
-	const screenshot = model.screenshots[currentScreenshot] || model.heroImage || model.coverImage;
 	const activePlatform = normalizePlatformName(model.platform_name);
+	const topBackdropImage = activePlatform === 'gog'
+		? (model.heroImage || model.coverImage || model.screenshots[currentScreenshot] || '')
+		: (model.screenshots[currentScreenshot] || model.heroImage || model.coverImage);
+	const showcaseImage = activePlatform === 'gog'
+		? (model.coverImage || model.screenshots[currentScreenshot] || model.heroImage || '')
+		: (model.screenshots[currentScreenshot] || model.heroImage || model.coverImage || '');
 
 	const platformActionTargets = useMemo(() => {
 		const byPlatform = new Map();
@@ -1669,7 +1687,7 @@ const StoreGamePage = () => {
 	return (
 		<div className="flex-1 overflow-y-auto text-slate-100">
 			<div className="relative min-h-full">
-				<div className="absolute inset-x-0 top-0 h-[340px] bg-cover bg-center opacity-30" style={{ backgroundImage: screenshot ? `url(${screenshot})` : undefined }} />
+				<div className="absolute inset-x-0 top-0 h-[340px] bg-cover bg-center opacity-30" style={{ backgroundImage: topBackdropImage ? `url(${topBackdropImage})` : undefined }} />
 				<div className="absolute inset-x-0 top-0 h-[340px] bg-gradient-to-b from-slate-950/10 via-slate-950/75 to-slate-950" />
 
 				<div className="relative px-4 py-5 md:px-8 md:py-6">
@@ -1794,7 +1812,7 @@ const StoreGamePage = () => {
 
 							<div className="overflow-hidden rounded-3xl border border-slate-700/60 bg-slate-900/45 backdrop-blur-sm">
 								<div className="aspect-video bg-slate-800/30">
-									{screenshot ? <img src={screenshot} alt={`${model.title} screenshot`} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-slate-500">No screenshot available</div>}
+									{showcaseImage ? <img src={showcaseImage} alt={`${model.title} screenshot`} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-slate-500">No screenshot available</div>}
 								</div>
 								{model.screenshots.length > 1 ? (
 									<div className="grid grid-cols-4 gap-2 border-t border-slate-800/80 p-3 md:grid-cols-6">

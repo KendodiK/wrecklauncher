@@ -52,6 +52,7 @@
  * @property {string|null|undefined} [platform]
  * @property {string|null|undefined} [platform_name]
  * @property {GameGenreRow[]|null|undefined} [genres]
+ * @property {Array<{site_name?: string|null, link?: string|null}>|null|undefined} [pirate_sites]
  */
 
 /**
@@ -70,6 +71,7 @@
  * @property {string|null|undefined} [formated_price]
  * @property {string|null|undefined} [country_code]
  * @property {string[]|null} genre_names
+ * @property {Array<{site_name?: string|null, link?: string|null}>|null|undefined} [pirate_sites]
  */
 
 /**

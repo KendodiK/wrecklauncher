@@ -1233,7 +1233,23 @@ handle('steam:get-installed-games', async () => {
 
     if (!gameDetails) return null;
     console.log('Fetched game details:', gameDetails);
-    const backendPirateSites = Array.isArray(gameDetails.pirate_sites) ? gameDetails.pirate_sites : [];
+    let backendPirateSites = Array.isArray(gameDetails.pirate_sites) ? gameDetails.pirate_sites : [];
+    if (backendPirateSites.length < 1) {
+      const gameId = Number(gameDetails.id);
+      if (Number.isFinite(gameId) && gameId > 0) {
+        try {
+          const byIdDetails = await getGamesCtrl().getAllDetailsByID(gameId, countryCode);
+          const byIdPirateSites = Array.isArray(byIdDetails?.pirate_sites) ? byIdDetails.pirate_sites : [];
+          if (byIdPirateSites.length > 0) {
+            backendPirateSites = byIdPirateSites;
+            gameDetails.pirate_sites = byIdPirateSites;
+            console.log('Pirate sites loaded from game-id fallback endpoint:', byIdPirateSites);
+          }
+        } catch (error) {
+          console.warn('Pirate sites game-id fallback failed:', error);
+        }
+      }
+    }
     console.log('Pirate sites from backend:', backendPirateSites);
 
     const scrapedPiratePromise = getPirateSitesForGame(gameDetails.name || '');
