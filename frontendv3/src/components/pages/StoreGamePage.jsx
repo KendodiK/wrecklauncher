@@ -155,6 +155,124 @@ function normalizePriceValue(raw, platformHint = '') {
 	return Number(numeric.toFixed(2));
 }
 
+const ZERO_DECIMAL_CURRENCIES = new Set([
+	'BIF',
+	'CLP',
+	'DJF',
+	'GNF',
+	'ISK',
+	'JPY',
+	'KMF',
+	'KRW',
+	'PYG',
+	'RWF',
+	'UGX',
+	'VND',
+	'VUV',
+	'XAF',
+	'XOF',
+	'XPF',
+]);
+
+function parsePriceFromFormattedText(rawValue) {
+	const text = String(rawValue || '').trim();
+	if (!text) return null;
+	if (/^free$/i.test(text)) return 0;
+
+	const compact = text.replace(/\s+/g, '');
+	const numericLike = compact.replace(/[^0-9,.-]/g, '');
+	if (!/[0-9]/.test(numericLike)) return null;
+
+	const lastDot = numericLike.lastIndexOf('.');
+	const lastComma = numericLike.lastIndexOf(',');
+	const decimalSep = lastDot > lastComma ? '.' : (lastComma > -1 ? ',' : '');
+
+	let normalized = numericLike;
+	if (decimalSep) {
+		const sepPattern = decimalSep === '.' ? /,/g : /\./g;
+		normalized = normalized.replace(sepPattern, '');
+
+		const lastDecimalIndex = normalized.lastIndexOf(decimalSep);
+		if (lastDecimalIndex >= 0) {
+			const left = normalized.slice(0, lastDecimalIndex).replace(new RegExp(`\\${decimalSep}`, 'g'), '');
+			const right = normalized.slice(lastDecimalIndex + 1);
+			if (right.length === 0) {
+				normalized = left;
+			} else if (right.length > 2 && left.length > 0) {
+				// Likely thousands separator-only format (e.g. "1.999").
+				normalized = `${left}${right}`;
+			} else {
+				normalized = `${left}.${right}`;
+			}
+		}
+	} else {
+		normalized = normalized.replace(/[.,]/g, '');
+	}
+
+	const parsed = Number(normalized);
+	if (!Number.isFinite(parsed) || parsed < 0) return null;
+	return Number(parsed.toFixed(2));
+}
+
+function resolveSteamPriceValue(details) {
+	const raw = details?.raw && typeof details.raw === 'object' ? details.raw : {};
+	const overview = raw?.price_overview && typeof raw.price_overview === 'object' ? raw.price_overview : null;
+
+	if (overview) {
+		const formattedFromOverview = parsePriceFromFormattedText(
+			overview.final_formatted || overview.initial_formatted || ''
+		);
+		if (formattedFromOverview !== null) return formattedFromOverview;
+
+		const finalNumeric = Number(overview.final);
+		if (Number.isFinite(finalNumeric) && finalNumeric >= 0) {
+			const currency = String(overview.currency || '').trim().toUpperCase();
+			if (ZERO_DECIMAL_CURRENCIES.has(currency)) {
+				return Number(finalNumeric.toFixed(2));
+			}
+
+			if (Number.isInteger(finalNumeric)) {
+				if (finalNumeric >= 100) return Number((finalNumeric / 100).toFixed(2));
+				return Number(finalNumeric.toFixed(2));
+			}
+
+			return Number(finalNumeric.toFixed(2));
+		}
+	}
+
+	const directCandidates = [
+		details?.price,
+		details?.cost,
+		details?.price_overview,
+	];
+
+	for (const candidate of directCandidates) {
+		const normalized = normalizePriceValue(candidate, 'steam');
+		if (normalized !== null) return normalized;
+	}
+
+	if (raw?.is_free === true || details?.raw?.is_free === true) return 0;
+	return null;
+}
+
+function resolveSteamPriceLabel(details) {
+	const raw = details?.raw && typeof details.raw === 'object' ? details.raw : {};
+	const candidates = [
+		raw?.price_overview?.final_formatted,
+		raw?.price_overview?.initial_formatted,
+		details?.priceLabel,
+	];
+
+	for (const candidate of candidates) {
+		const label = String(candidate || '').trim();
+		if (!label) continue;
+		if (!/[0-9]/.test(label) && !/^free$/i.test(label)) continue;
+		return label;
+	}
+
+	return null;
+}
+
 function formatCurrencyPrice(raw, platformHint = '') {
 	const normalized = normalizePriceValue(raw, platformHint);
 	if (normalized == null) return '';
@@ -1031,7 +1149,8 @@ function parseSteamDetails(details) {
 		tags,
 		screenshots,
 		minimumRequirements: details.minimum_requirements || '',
-		price: normalizePriceValue(typeof details.price_overview === 'number' ? details.price_overview / 100 : null, 'steam'),
+		price: resolveSteamPriceValue(details),
+		priceLabel: resolveSteamPriceLabel(details),
 	};
 }
 
@@ -1364,7 +1483,7 @@ const StoreGamePage = () => {
 				minimumRequirements: dbDetails.minimum_requirements || '',
 				price: normalizePriceValue(pickFirstFiniteNumber(dbDetails.cost, routeState.price), dbPlatformName),
 				priceLabel:
-					dbPlatformName !== 'gog' && typeof dbDetails.formated_price === 'string' && dbDetails.formated_price.trim()
+					dbPlatformName !== 'gog' && dbPlatformName !== 'steam' && typeof dbDetails.formated_price === 'string' && dbDetails.formated_price.trim()
 						? dbDetails.formated_price.trim()
 						: null,
 				platform_name: dbPlatformName,
@@ -1652,7 +1771,7 @@ const StoreGamePage = () => {
 				{ label: 'Name', value: steam.name || '' },
 				{ label: 'Country', value: steam.cc || '' },
 				{ label: 'Language', value: steam.lang || '' },
-				{ label: 'Price', value: formatCurrencyPrice(typeof steam.price_overview === 'number' ? steam.price_overview / 100 : null, 'steam') },
+				{ label: 'Price', value: resolveSteamPriceLabel(steam) || formatCurrencyPrice(resolveSteamPriceValue(steam), 'steam') },
 				{ label: 'Genres', value: genres },
 				{ label: 'Minimum Requirements', value: steam.minimum_requirements || '' },
 				{ label: 'Banner Image', value: steam.bannerimg || '' },
@@ -1695,7 +1814,7 @@ const StoreGamePage = () => {
 			const dbPlatform = normalizePlatformName(dbDetails.platform_name || model.platform_name);
 			const dbGenres = Array.isArray(dbDetails.genre_names) ? dbDetails.genre_names.filter(Boolean).join(', ') : '';
 			const dbPriceText =
-				dbPlatform !== 'gog' && typeof dbDetails.formated_price === 'string' && dbDetails.formated_price.trim()
+				dbPlatform !== 'gog' && dbPlatform !== 'steam' && typeof dbDetails.formated_price === 'string' && dbDetails.formated_price.trim()
 					? dbDetails.formated_price.trim()
 					: formatCurrencyPrice(dbDetails.cost, dbPlatform);
 			rows.push(
