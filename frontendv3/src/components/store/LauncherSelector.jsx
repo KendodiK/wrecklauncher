@@ -85,8 +85,7 @@ const LauncherSelector = () => {
 							</span>
 						</div>
 
-						{/* Shine effect on hover */}
-						<div className="absolute inset-0 rounded-2xl bg-gradient-to-tr from-transparent via-white/0 to-white/0 group-hover:via-white/10 transition-all duration-300" />
+						{/* No white shine overlay to keep artwork colors stable */}
 					</button>
 				))}
 			</div>

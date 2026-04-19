@@ -2,24 +2,24 @@ import React, { useMemo, useState } from 'react';
 import { useDownloadManager } from '../../context/DownloadManagerContext.jsx';
 
 function formatBytes(bytes) {
-	if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
-	const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-	let value = bytes;
-	let index = 0;
-	while (value >= 1024 && index < units.length - 1) {
-		value /= 1024;
-		index += 1;
-	}
-	return `${value.toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
+	if (!Number.isFinite(bytes) || bytes <= 0) return '0 KB';
+	const totalKb = Math.ceil(bytes / 1024);
+	const gb = Math.floor(totalKb / (1024 * 1024));
+	const mb = Math.floor((totalKb % (1024 * 1024)) / 1024);
+	const kb = totalKb % 1024;
+
+	if (gb > 0) return `${gb} GB ${mb} MB ${kb} KB`;
+	if (mb > 0) return `${mb} MB ${kb} KB`;
+	return `${kb} KB`;
 }
 
 function formatSeconds(ms) {
 	if (!Number.isFinite(ms) || ms < 0) return '∞';
 	const totalSeconds = Math.ceil(ms / 1000);
-	const minutes = Math.floor(totalSeconds / 60);
+	const hours = Math.floor(totalSeconds / 3600);
+	const minutes = Math.floor((totalSeconds % 3600) / 60);
 	const seconds = totalSeconds % 60;
-	if (minutes <= 0) return `${seconds}s`;
-	return `${minutes}m ${seconds}s`;
+	return `${hours} hour ${minutes} min ${seconds} second`;
 }
 
 function formatDateTime(value) {

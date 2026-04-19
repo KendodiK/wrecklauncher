@@ -384,6 +384,18 @@ module.exports.GETGamesInListByPlatformId = async function (req, res) {
         const gameCtrl = new GamesController();
         const games = await gameCtrl.getAllGamesByPlatformFrom(countryCode, platformId, from);
 
+        const gamesGenresCtrl = new GamesGenresConnnectionController();
+        await Promise.all((Array.isArray(games) ? games : []).map(async (game) => {
+            const gameId = Number(game?.id);
+            if (!Number.isFinite(gameId) || gameId <= 0) return;
+            const gameGenres = await gamesGenresCtrl.getByGameId(gameId);
+            const normalizedGenres = Array.isArray(gameGenres) ? gameGenres : [];
+            game.genres = normalizedGenres;
+            game.genre_names = normalizedGenres
+                .map((entry) => (typeof entry === 'object' ? entry.genre : entry))
+                .filter((value) => typeof value === 'string' && value.trim());
+        }));
+
         if (games instanceof Error) {
             res.status(404).json({ error: games.message });
         }
@@ -400,6 +412,18 @@ module.exports.GETGamesInList = async function (req, res) {
 
         const gamesCtrl = new GamesController();
         const games = await gamesCtrl.getAllGamesFrom(countryCode, from);
+
+        const gamesGenresCtrl = new GamesGenresConnnectionController();
+        await Promise.all((Array.isArray(games) ? games : []).map(async (game) => {
+            const gameId = Number(game?.id);
+            if (!Number.isFinite(gameId) || gameId <= 0) return;
+            const gameGenres = await gamesGenresCtrl.getByGameId(gameId);
+            const normalizedGenres = Array.isArray(gameGenres) ? gameGenres : [];
+            game.genres = normalizedGenres;
+            game.genre_names = normalizedGenres
+                .map((entry) => (typeof entry === 'object' ? entry.genre : entry))
+                .filter((value) => typeof value === 'string' && value.trim());
+        }));
 
         return res.json(games);
     } catch (err) {

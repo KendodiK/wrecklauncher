@@ -1068,6 +1068,7 @@ const LibraryPage = () => {
 	const [hideZeroPlaytime, setHideZeroPlaytime] = useState(false);
 	const [showAllGames, setShowAllGames] = useState(false);
 	const [stripWindowStart, setStripWindowStart] = useState(0);
+	const [showHeaderMenu, setShowHeaderMenu] = useState(false);
 	const [actionState, setActionState] = useState({ busyAction: '', text: '', type: '' });
 	const launcherOptions = useMemo(
 		() => (Array.isArray(launchers)
@@ -1090,6 +1091,16 @@ const LibraryPage = () => {
 	const toggleSortDirection = useCallback(() => {
 		setSortDirection((previous) => (previous === 'asc' ? 'desc' : 'asc'));
 	}, []);
+
+	const handleCycleSortMode = useCallback(() => {
+		cycleSortMode();
+		setShowHeaderMenu(false);
+	}, [cycleSortMode]);
+
+	const handleToggleSortDirection = useCallback(() => {
+		toggleSortDirection();
+		setShowHeaderMenu(false);
+	}, [toggleSortDirection]);
 
 	const ownedGames = useMemo(() => {
 		return dedupeLibraryGames(libraryGames.filter((g) => g.owned === true));
@@ -2221,34 +2232,45 @@ const LibraryPage = () => {
 					{/* Control board: search + launcher tabs */}
 			<section className="library-control-board">
 				<header className="library-control-header">
-					<label className="library-search-label">
-						<span className="library-search-hint">Search</span>
-						<input
-							value={search}
-							onChange={(e) => setSearch(e.target.value)}
-							placeholder="title, genre, tag"
-							className="library-search-input"
+					<div className="library-control-left">
+						<LauncherTabs
+							launchers={launchers}
+							activeLauncherId={activeLauncherId}
+							showAllOption
+							isAllActive={scope === 'all' || String(activeLauncherId || '').trim().toLowerCase() === 'all'}
+							onChange={handleLauncherTabChange}
 						/>
-					</label>
+					</div>
 
-					<button
-						type="button"
-						className="library-menu-btn"
-						onClick={toggleSortDirection}
-						title={`Sort direction: ${sortDirectionLabel}`}
-						aria-label={`Toggle sort direction (${sortDirectionLabel})`}
-					>
-						{sortDirection === 'asc' ? '↑' : '↓'}
-					</button>
+					<div className="library-control-right">
+						<label className="library-search-label">
+							<span className="library-search-hint">Search</span>
+							<input
+								value={search}
+								onChange={(e) => setSearch(e.target.value)}
+								placeholder="title, genre, tag"
+								className="library-search-input"
+							/>
+						</label>
 
-					<button
-						type="button"
-						className="library-menu-btn"
-						onClick={cycleSortMode}
-						title="Cycle sort mode"
-					>
-						{`Sort: ${sortLabel}`}
-					</button>
+						<button
+							type="button"
+							className="library-menu-btn library-header-inline-action"
+							onClick={toggleSortDirection}
+							title={`Sort direction: ${sortDirectionLabel}`}
+							aria-label={`Toggle sort direction (${sortDirectionLabel})`}
+						>
+							{sortDirection === 'asc' ? '↑' : '↓'}
+						</button>
+
+						<button
+							type="button"
+							className="library-menu-btn library-header-inline-action"
+							onClick={cycleSortMode}
+							title="Cycle sort mode"
+						>
+							{`Sort: ${sortLabel}`}
+						</button>
 
 					<button
 						type="button"
@@ -2259,15 +2281,51 @@ const LibraryPage = () => {
 						{actionState.busyAction === 'add-local' ? 'Adding EXE...' : 'Add Local EXE'}
 					</button>
 
-				</header>
+						<button
+							type="button"
+							className="library-menu-btn library-header-overflow-toggle"
+							onClick={() => setShowHeaderMenu((value) => !value)}
+							aria-label="Open library actions menu"
+						>
+							<svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+								<path d="M5 7h14M5 12h14M5 17h14" />
+							</svg>
+						</button>
 
-				<LauncherTabs
-					launchers={launcherOptions}
-					activeLauncherId={activeLauncherId}
-					showAllOption
-					isAllActive={scope === 'all' || String(activeLauncherId || '').trim().toLowerCase() === 'all'}
-					onChange={handleLauncherTabChange}
-				/>
+						{showHeaderMenu ? (
+							<div className="library-scope-menu library-header-overflow-menu">
+								<p className="library-scope-menu-label">Library Actions</p>
+								<button
+									type="button"
+									onClick={handleToggleSortDirection}
+									className="library-scope-btn"
+								>
+									Sort Direction: {sortDirectionLabel}
+								</button>
+								<button
+									type="button"
+									onClick={handleCycleSortMode}
+									className="library-scope-btn"
+								>
+									Sort Mode: {sortLabel}
+								</button>
+								<div className="library-scope-divider" />
+								<button
+									type="button"
+									onClick={() => {
+										setShowHeaderMenu(false);
+										handleAddPirateLibraryGame();
+									}}
+									className="library-scope-btn"
+									disabled={actionState.busyAction !== ''}
+								>
+									{actionState.busyAction === 'add-pirate' ? 'Adding EXE...' : 'Add Pirate EXE'}
+								</button>
+							</div>
+						) : null}
+					</div>
+
+				</header>
 				{actionState.text ? (
 					<p className={`library-action-notice ${actionState.type === 'error' ? 'library-action-notice-error' : ''}`}>
 						{actionState.text}
