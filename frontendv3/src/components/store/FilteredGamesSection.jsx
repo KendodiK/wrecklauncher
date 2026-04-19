@@ -4,8 +4,15 @@ import CompactFiltersSidebar from './CompactFiltersSidebar.jsx';
 import { mergeUniqueGames, searchGamesFromSources } from '../../utils/remoteGameSearch.js';
 import {
 	buildStoreGameRoute,
+	getStorePlatformLabel,
 	resolveStorePlatformFromGameStrict,
 } from '../../utils/storeRouting.js';
+
+const PLATFORM_ICON_META = {
+	steam: { short: 'S', tone: 'bg-sky-500/20 text-sky-200 border-sky-400/40' },
+	gog: { short: 'G', tone: 'bg-emerald-500/20 text-emerald-200 border-emerald-400/40' },
+	itchio: { short: 'I', tone: 'bg-rose-500/20 text-rose-200 border-rose-400/40' },
+};
 
 function extractMetadataLabel(value) {
 	if (value == null) return '';
@@ -70,6 +77,22 @@ function getGameIdKey(game) {
 		resolveStorePlatformFromGameStrict(game) || game?.platform_name || game?.platform || 'unknown'
 	).trim().toLowerCase() || 'unknown';
 	return `${platform}:${rawId}`;
+}
+
+function getGameTitleKey(game) {
+	return String(game?.title ?? game?.name ?? '').trim().toLowerCase();
+}
+
+function getPlatformIconMeta(platform) {
+	const normalized = String(platform || '').trim().toLowerCase();
+	if (Object.prototype.hasOwnProperty.call(PLATFORM_ICON_META, normalized)) {
+		return PLATFORM_ICON_META[normalized];
+	}
+
+	return {
+		short: String(getStorePlatformLabel(normalized || 'steam')).slice(0, 1).toUpperCase() || '?',
+		tone: 'bg-slate-700/60 text-slate-200 border-slate-500/40',
+	};
 }
 
 const FilteredGamesSection = ({
@@ -143,6 +166,23 @@ const FilteredGamesSection = ({
 		if (!hasSearchFilters) return games;
 		return mergeUniqueGames(remoteSearchGames, games);
 	}, [games, hasSearchFilters, remoteSearchGames]);
+
+	const availablePlatformsByTitle = useMemo(() => {
+		const byTitle = new Map();
+
+		for (const game of searchableGames) {
+			const titleKey = getGameTitleKey(game);
+			if (!titleKey) continue;
+
+			const platform = resolveStorePlatformFromGameStrict(game);
+			if (!platform) continue;
+
+			if (!byTitle.has(titleKey)) byTitle.set(titleKey, new Set());
+			byTitle.get(titleKey).add(platform);
+		}
+
+		return byTitle;
+	}, [searchableGames]);
 
 	const getMetadataForGame = (game) => {
 		const local = getGameMetadata(game);
@@ -418,6 +458,10 @@ useEffect(() => {
 						const visibleGenres = metadata.genres
 							.filter((genre) => !visibleTags.some((tag) => tag.toLowerCase() === String(genre || '').toLowerCase()))
 							.slice(0, 2);
+						const titleKey = getGameTitleKey(game);
+						const availablePlatforms = titleKey && availablePlatformsByTitle.has(titleKey)
+							? [...availablePlatformsByTitle.get(titleKey)]
+							: [];
 
 						return (
 							<div
@@ -436,13 +480,31 @@ useEffect(() => {
 									/>
 								</div>
 								<div className="flex-1 min-w-0">
-									<h4 className="text-sm font-medium text-slate-100 truncate mb-1">{game.title || game.name}</h4>
+									<div className="flex items-center justify-between gap-2 mb-1">
+										<h4 className="text-sm font-medium text-slate-100 truncate">{game.title || game.name}</h4>
+										{availablePlatforms.length > 0 ? (
+											<div className="flex items-center gap-1 flex-shrink-0">
+												{availablePlatforms.map((platform) => {
+													const meta = getPlatformIconMeta(platform);
+													return (
+														<span
+															key={`platform-icon-${gameId}-${platform}`}
+															className={`inline-flex items-center justify-center w-5 h-5 rounded border text-[10px] font-semibold ${meta.tone}`}
+															title={`Available on ${getStorePlatformLabel(platform)}`}
+														>
+															{meta.short}
+														</span>
+													);
+												})}
+											</div>
+										) : null}
+									</div>
 									<div className="flex flex-wrap gap-1">
 										{visibleTags.map((tag) => (
 											<span key={`tag-${tag}`} className="text-xs px-2 py-0.5 bg-slate-900/50 text-slate-300 rounded">{tag}</span>
 										))}
 										{visibleGenres.map((genre) => (
-											<span key={`genre-${genre}`} className="text-xs px-2 py-0.5 bg-sky-900/30 text-sky-200 rounded">{genre}</span>
+											<span key={`genre-${genre}`} className="text-xs px-2 py-0.5 bg-slate-900/50 text-slate-300 rounded">{genre}</span>
 										))}
 										{visibleTags.length === 0 && visibleGenres.length === 0 ? (
 											<span className="text-xs px-2 py-0.5 bg-slate-900/50 text-slate-500 rounded">No tags</span>
@@ -497,7 +559,7 @@ useEffect(() => {
 									.filter((genre) => !displayGameMetadata.tags.some((tag) => tag.toLowerCase() === String(genre || '').toLowerCase()))
 									.slice(0, 4)
 									.map((genre) => (
-										<span key={`preview-genre-${genre}`} className="text-xs px-2 py-0.5 bg-sky-900/30 text-sky-200 rounded">{genre}</span>
+										<span key={`preview-genre-${genre}`} className="text-xs px-2 py-0.5 bg-slate-900/50 text-slate-300 rounded">{genre}</span>
 									))}
 							</div>
 							<p className="text-xs text-slate-300 leading-relaxed mb-3">{displayGame.description || 'No description available.'}</p>
