@@ -1770,15 +1770,19 @@ function parsePlatformDetails(platform, details, appId) {
 			raw.coverUrl,
 			raw.cover_url,
 		);
-		const banner = galaxyBackground
-			|| details.bannerImg
-			|| details.banner_img
-			|| raw.db_banner_img
-			|| details.coverUrl
-			|| details.cover_url
-			|| raw.local_banner_img
-			|| boxArt
-			|| '';
+		const banner = pickFirstFilledText(
+			galaxyBackground,
+			details.bannerImg,
+			details.banner_img,
+			raw.bannerImg,
+			raw.banner_img,
+			raw.db_banner_img,
+			raw.local_banner_img,
+			details.heroImage,
+			details.hero_image,
+			raw.heroImage,
+			raw.hero_image,
+		);
 		const siteLinks = normalizeSiteLinksFromAny(details.url || details.store_url || details.storeUrl || details.links || details.sites);
 		return {
 			id: parsedAppId,
@@ -1790,7 +1794,7 @@ function parsePlatformDetails(platform, details, appId) {
 			screenshots: [],
 			minimumRequirements,
 			price,
-			coverImage: portraitCover || banner,
+			coverImage: banner || portraitCover,
 			heroImage: banner || portraitCover,
 			boxArtImage: boxArt || '',
 			platform_name: 'gog',
@@ -1803,7 +1807,35 @@ function parsePlatformDetails(platform, details, appId) {
 		const price = [details.minPrice, details.min_price, details.cost, details.price]
 			.map((value) => normalizePriceValue(value, 'itchio'))
 			.find((value) => value !== null);
-		const banner = details.coverUrl || details.cover_url || details.banner_img || '';
+		const raw = details.raw && typeof details.raw === 'object' ? details.raw : {};
+		const banner = pickFirstFilledText(
+			details.bannerImg,
+			details.banner_img,
+			details.headerImage,
+			details.header_image,
+			details.heroImage,
+			details.hero_image,
+			details.coverUrl,
+			details.cover_url,
+			raw.bannerImg,
+			raw.banner_img,
+			raw.headerImage,
+			raw.header_image,
+			raw.heroImage,
+			raw.hero_image,
+			raw.coverUrl,
+			raw.cover_url,
+		);
+		const portraitFallback = pickFirstFilledText(
+			details.still_cover_url,
+			details.thumb_url,
+			raw.still_cover_url,
+			raw.thumb_url,
+			details.coverUrl,
+			details.cover_url,
+			raw.coverUrl,
+			raw.cover_url,
+		);
 		const siteLinks = normalizeSiteLinksFromAny(details.url || details.store_url || details.storeUrl || details.links || details.sites);
 		const genres = normalizeTagList(details.genre_names ?? details.genreNames ?? details.genres);
 		return {
@@ -1816,8 +1848,8 @@ function parsePlatformDetails(platform, details, appId) {
 			screenshots: [],
 			minimumRequirements: details.minimum_requirements || details.minimumRequirements || '',
 			price,
-			coverImage: banner,
-			heroImage: banner,
+			coverImage: banner || portraitFallback,
+			heroImage: banner || portraitFallback,
 			platform_name: 'itchio',
 			sites: siteLinks,
 		};
@@ -1865,6 +1897,7 @@ const StoreGamePage = () => {
 	const lastDbPriceSyncKeyRef = useRef('');
 	const lastDbBannerSyncKeyRef = useRef('');
 	const lastDbGogBannerSyncKeyRef = useRef('');
+	const lastDbItchBannerSyncKeyRef = useRef('');
 
 	const routeState = useMemo(() => normalizeLocationState(location?.state), [location?.state]);
 	const requestedPlatform = useMemo(() => normalizePlatformName(platform || routeState.platform_name), [platform, routeState.platform_name]);
@@ -2125,9 +2158,11 @@ const StoreGamePage = () => {
 		const links = siteCandidates.length > 0
 			? normalizeSiteLinksFromAny(siteCandidates)
 			: defaultSiteForPlatform(routePlatform, resolvedAppId || appId, resolvedTitle);
+		const parsedPrimaryImage = scrapedPlatform === 'gog'
+			? pickFirstFilledText(parsedPlatform?.heroImage, parsedPlatform?.coverImage)
+			: pickFirstFilledText(parsedPlatform?.coverImage, parsedPlatform?.boxArtImage, parsedPlatform?.heroImage);
 		const coverImage = pickFirstFilledText(
-			parsedPlatform?.coverImage,
-			parsedPlatform?.boxArtImage,
+			parsedPrimaryImage,
 			routeState?.coverImage,
 			routeState?.coverUrl,
 			parsedDb?.coverImage,
@@ -2222,15 +2257,15 @@ const StoreGamePage = () => {
 		if (!resolvedTitle || isPlaceholderTitle(resolvedTitle)) return;
 
 		const resolvedBanner = pickFirstFilledText(
+			parsedScraped?.heroImage,
+			parsedScraped?.coverImage,
+			routeState?.heroImage,
+			routeState?.coverImage,
 			dbDetails?.banner_img,
 			dbDetails?.bannerImg,
 			dbDetails?.db_banner_img,
 			dbDetails?.cover_url,
 			dbDetails?.coverUrl,
-			parsedScraped?.coverImage,
-			parsedScraped?.heroImage,
-			routeState?.coverImage,
-			routeState?.heroImage,
 		);
 		const resolvedDescription = pickFirstFilledText(
 			parsedScraped?.longDescription,
@@ -2341,24 +2376,28 @@ const StoreGamePage = () => {
 		);
 
 		const coverCandidates = uniqueImageCandidates([
-			dbBanner,
-			model?.coverImage,
-			parsedSteam?.coverImage,
 			parsedSteam?.heroImage,
-			routeState?.coverImage,
+			parsedSteam?.coverImage,
 			routeState?.heroImage,
+			routeState?.coverImage,
+			model?.heroImage,
+			model?.coverImage,
+			...buildSteamHeroCandidates(currentAppId),
 			...buildSteamCoverCandidates(currentAppId),
+			dbBanner,
 		]);
 		if (coverCandidates.length < 1) return;
 
 		const heroCandidates = uniqueImageCandidates([
-			dbBanner,
-			model?.heroImage,
 			parsedSteam?.heroImage,
 			parsedSteam?.coverImage,
 			routeState?.heroImage,
 			routeState?.coverImage,
+			model?.heroImage,
+			model?.coverImage,
 			...buildSteamHeroCandidates(currentAppId),
+			...buildSteamCoverCandidates(currentAppId),
+			dbBanner,
 		]);
 
 		void (async () => {
@@ -2456,6 +2495,140 @@ const StoreGamePage = () => {
 			|| platformDetails?.__resolved_platform
 			|| requestedPlatform
 		);
+		if (currentPlatform !== 'itchio') return;
+
+		const currentAppId = pickFirstPositiveNumber(
+			dbDetails?.app_id,
+			model?.appid,
+			appId,
+		);
+		if (!currentAppId) return;
+
+		const parsedItch = parsePlatformDetails('itchio', platformDetails, currentAppId);
+		const dbBanner = pickFirstFilledText(
+			dbDetails?.banner_img,
+			dbDetails?.bannerImg,
+			dbDetails?.db_banner_img,
+			dbDetails?.cover_url,
+			dbDetails?.coverUrl,
+		);
+
+		const coverCandidates = uniqueImageCandidates([
+			parsedItch?.heroImage,
+			parsedItch?.coverImage,
+			routeState?.heroImage,
+			routeState?.coverImage,
+			model?.heroImage,
+			model?.coverImage,
+			dbBanner,
+		]);
+		if (coverCandidates.length < 1) return;
+
+		const heroCandidates = uniqueImageCandidates([
+			parsedItch?.heroImage,
+			parsedItch?.coverImage,
+			routeState?.heroImage,
+			routeState?.coverImage,
+			model?.heroImage,
+			model?.coverImage,
+			dbBanner,
+		]);
+
+		void (async () => {
+			try {
+				const resolvedCover = await resolveFirstLoadableImageUrl(coverCandidates);
+				const resolvedHero = await resolveFirstLoadableImageUrl([
+					resolvedCover,
+					...heroCandidates,
+				]);
+
+				if (cancelled) return;
+
+				const finalBanner = pickFirstFilledText(resolvedCover, resolvedHero);
+				if (!finalBanner) return;
+
+				const previousDbBanner = String(dbBanner || '').trim().toLowerCase();
+				const nextBanner = finalBanner.toLowerCase();
+				if (previousDbBanner !== nextBanner) {
+					setDbDetails((previous) => {
+						if (!previous || typeof previous !== 'object') return previous;
+						const current = pickFirstFilledText(
+							previous.banner_img,
+							previous.bannerImg,
+							previous.db_banner_img,
+							previous.cover_url,
+							previous.coverUrl,
+						).toLowerCase();
+						if (current === nextBanner) return previous;
+						return {
+							...previous,
+							banner_img: finalBanner,
+						};
+					});
+				}
+
+				const resolvedTitle = pickFirstFilledText(dbDetails?.name, parsedItch?.title, model?.title, routeState?.title);
+				if (!resolvedTitle || isPlaceholderTitle(resolvedTitle)) return;
+
+				const knownCountryCode = normalizeCountryCode(dbDetails?.country_code) || null;
+				const syncKey = `${currentAppId}|itchio|${nextBanner}|${String(knownCountryCode || '').toUpperCase()}`;
+				if (lastDbItchBannerSyncKeyRef.current === syncKey) return;
+				lastDbItchBannerSyncKeyRef.current = syncKey;
+
+				const countryCode = knownCountryCode || await resolvePreferredCountryCode(api);
+				const result = await api.syncScrapedGameDetailsByAppIdAndPlatform({
+					appId: currentAppId,
+					platform: 'itchio',
+					name: resolvedTitle,
+					banner_img: finalBanner,
+					countryCode,
+				});
+
+				if (!result || result.ok !== true || result.action === 'skipped') return;
+
+				const refreshed = await api.getAllDetailsByAppIDAndPlatform(currentAppId, 'itchio', countryCode);
+				if (!cancelled && refreshed) {
+					setDbDetails(refreshed);
+				}
+			} catch (err) {
+				if (!cancelled) {
+					console.warn('Failed to validate and sync Itch store image in background:', err);
+				}
+			}
+		})();
+
+		return () => {
+			cancelled = true;
+		};
+	}, [
+		appId,
+		dbDetails?.app_id,
+		dbDetails?.banner_img,
+		dbDetails?.bannerImg,
+		dbDetails?.country_code,
+		dbDetails?.cover_url,
+		dbDetails?.name,
+		model?.appid,
+		model?.coverImage,
+		model?.heroImage,
+		model?.title,
+		platformDetails,
+		requestedPlatform,
+		routeState?.coverImage,
+		routeState?.heroImage,
+		routeState?.title,
+	]);
+
+	useEffect(() => {
+		let cancelled = false;
+		const api = typeof window !== 'undefined' ? window.electronAPI : null;
+		if (!api || typeof api.syncScrapedGameDetailsByAppIdAndPlatform !== 'function') return;
+
+		const currentPlatform = normalizePlatformName(
+			dbDetails?.platform_name
+			|| platformDetails?.__resolved_platform
+			|| requestedPlatform
+		);
 		if (currentPlatform !== 'gog') return;
 
 		const currentAppId = pickFirstPositiveNumber(
@@ -2475,22 +2648,24 @@ const StoreGamePage = () => {
 		);
 
 		const coverCandidates = uniqueImageCandidates([
-			dbBanner,
-			model?.coverImage,
-			parsedGog?.coverImage,
 			parsedGog?.heroImage,
-			routeState?.coverImage,
+			parsedGog?.coverImage,
 			routeState?.heroImage,
+			routeState?.coverImage,
+			model?.heroImage,
+			model?.coverImage,
+			dbBanner,
 		]);
 		if (coverCandidates.length < 1) return;
 
 		const heroCandidates = uniqueImageCandidates([
-			dbBanner,
-			model?.heroImage,
 			parsedGog?.heroImage,
 			parsedGog?.coverImage,
 			routeState?.heroImage,
 			routeState?.coverImage,
+			model?.heroImage,
+			model?.coverImage,
+			dbBanner,
 		]);
 
 		void (async () => {
