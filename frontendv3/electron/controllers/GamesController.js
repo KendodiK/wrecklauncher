@@ -688,6 +688,9 @@ _collapseWhitespace(text) {
           .map((g) => (g && typeof g === 'object' ? (g.genre ?? g.name ?? g.description) : null))
           .filter((v) => typeof v === 'string' && v.trim())
       : null;
+    const pirateSites = Array.isArray(obj?.pirate_sites)
+      ? obj.pirate_sites
+      : (Array.isArray(obj?.pirateSites) ? obj.pirateSites : null);
 
     return {
       id: obj?.id ?? null,
@@ -707,6 +710,7 @@ _collapseWhitespace(text) {
       genre_names: Array.isArray(obj?.genre_names)
         ? obj.genre_names
         : (genreNamesFromBackend && genreNamesFromBackend.length ? genreNamesFromBackend : null),
+      pirate_sites: pirateSites,
     };
   }
   /**
@@ -750,6 +754,9 @@ _collapseWhitespace(text) {
         ? rawGenres          .map((g) => (g && typeof g === 'object' ? (g.genre ?? g.name ?? g.description) : null))
             .filter((v) => typeof v === 'string' && v.trim())
         : null;
+      let pirateSites = Array.isArray(obj?.pirate_sites)
+        ? obj.pirate_sites
+        : (Array.isArray(obj?.pirateSites) ? obj.pirateSites : null);
       console.log('Platform + appid gameDetails: ', json);
       return {
         id: obj?.id ?? null,
@@ -767,7 +774,7 @@ _collapseWhitespace(text) {
         genre_names: Array.isArray(obj?.genre_names)
           ? obj.genre_names
           : (genreNamesFromBackend && genreNamesFromBackend.length ? genreNamesFromBackend : null),
-        pirate_sites: Array.isArray(obj?.pirate_sites) ? obj.pirate_sites : null,
+        pirate_sites: Array.isArray(pirateSites) ? pirateSites : null,
       };
     }
 

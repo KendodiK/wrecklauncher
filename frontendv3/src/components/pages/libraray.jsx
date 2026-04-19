@@ -8,6 +8,174 @@ import AllGamesDrawer from '../library/AllGamesDrawer.jsx';
 const LIBRARY_SORT_MODES = ['alphabetical', 'appid', 'platform', 'playtime'];
 const MAX_LIBRARY_STRIP_GAMES = 180;
 const STRIP_WINDOW_EDGE_BUFFER = 40;
+const INSTALLED_SCAN_CACHE_TTL_MS = 60 * 60 * 1000;
+const STEAM_IMAGE_PROBE_TIMEOUT_MS = 5500;
+const STEAM_IMAGE_PROBE_CONCURRENCY = 4;
+const STEAM_CDN_HOSTS = [
+	'https://cdn.cloudflare.steamstatic.com',
+	'https://cdn.akamai.steamstatic.com',
+];
+
+const installedScanCache = new Map();
+const steamImageProbeCache = new Map();
+const steamDbBannerSyncCache = new Set();
+
+function normalizeInstalledScanCacheKey(platform = '') {
+	return String(platform || '').trim().toLowerCase();
+}
+
+async function readInstalledScanCacheFromDisk(platform) {
+	const key = normalizeInstalledScanCacheKey(platform);
+	if (!key) return null;
+	if (typeof window?.electronAPI?.invoke !== 'function') return null;
+
+	try {
+		const payload = await window.electronAPI.invoke('library-cache:get', key);
+		if (!payload || !Array.isArray(payload?.value)) return null;
+		return {
+			value: payload.value,
+			expiresAt: Number(payload.expiresAt) || 0,
+		};
+	} catch (error) {
+		console.warn(`Failed to read installed ${key} cache from disk:`, error);
+		return null;
+	}
+}
+
+function writeInstalledScanCacheToDisk(platform, value, expiresAt) {
+	const key = normalizeInstalledScanCacheKey(platform);
+	if (!key) return;
+	if (typeof window?.electronAPI?.invoke !== 'function') return;
+
+	void window.electronAPI
+		.invoke('library-cache:set', key, Array.isArray(value) ? value : [], Number(expiresAt) || 0)
+		.catch((error) => {
+			console.warn(`Failed to persist installed ${key} cache to disk:`, error);
+		});
+}
+
+function invalidateInstalledScanCacheOnDisk(platform = '') {
+	if (typeof window?.electronAPI?.invoke !== 'function') return;
+	void window.electronAPI
+		.invoke('library-cache:invalidate', normalizeInstalledScanCacheKey(platform))
+		.catch((error) => {
+			console.warn('Failed to invalidate installed cache on disk:', error);
+		});
+}
+
+function invalidateInstalledScanCache(platform = '') {
+	const normalized = normalizeInstalledScanCacheKey(platform);
+	if (!normalized) {
+		installedScanCache.clear();
+		invalidateInstalledScanCacheOnDisk('');
+		return;
+	}
+	installedScanCache.delete(normalized);
+	invalidateInstalledScanCacheOnDisk(normalized);
+}
+
+async function readInstalledGamesWithCache(platform, fetcher, { force = false, ttlMs = INSTALLED_SCAN_CACHE_TTL_MS } = {}) {
+	const key = normalizeInstalledScanCacheKey(platform);
+	if (!key || typeof fetcher !== 'function') return [];
+
+	const now = Date.now();
+	const current = installedScanCache.get(key) || null;
+	if (!force && current) {
+		if (Array.isArray(current.value) && current.expiresAt > now) {
+			return current.value;
+		}
+		if (current.promise) {
+			return current.promise;
+		}
+	}
+
+	if (!force && !current?.promise) {
+		const diskEntry = await readInstalledScanCacheFromDisk(key);
+		if (diskEntry && Array.isArray(diskEntry.value)) {
+			const hydrated = {
+				value: diskEntry.value,
+				expiresAt: Number(diskEntry.expiresAt) || 0,
+				promise: null,
+			};
+			installedScanCache.set(key, hydrated);
+			if (hydrated.expiresAt > now) {
+				return hydrated.value;
+			}
+		}
+	}
+
+	const promise = Promise.resolve()
+		.then(fetcher)
+		.then((payload) => {
+			const normalized = Array.isArray(payload) ? payload : [];
+			const expiresAt = Date.now() + Math.max(0, Number(ttlMs) || INSTALLED_SCAN_CACHE_TTL_MS);
+			installedScanCache.set(key, {
+				value: normalized,
+				expiresAt,
+				promise: null,
+			});
+			writeInstalledScanCacheToDisk(key, normalized, expiresAt);
+			return normalized;
+		})
+		.catch((error) => {
+			const entry = installedScanCache.get(key);
+			if (entry?.promise === promise) {
+				installedScanCache.delete(key);
+			}
+			throw error;
+		});
+
+	installedScanCache.set(key, {
+		value: Array.isArray(current?.value) ? current.value : null,
+		expiresAt: Number(current?.expiresAt) || 0,
+		promise,
+	});
+
+	return promise;
+}
+
+async function readSteamInstalledGames({ force = false } = {}) {
+	return readInstalledGamesWithCache(
+		'steam',
+		() => {
+			if (typeof window?.electronAPI?.getSteamInstalledGames === 'function') {
+				return window.electronAPI.getSteamInstalledGames();
+			}
+			return window?.electronAPI?.invoke?.('steam:get-installed-games');
+		},
+		{ force },
+	);
+}
+
+async function readGogInstalledGames({ force = false } = {}) {
+	return readInstalledGamesWithCache(
+		'gog',
+		() => {
+			if (typeof window?.electronAPI?.getGogInstalledGames === 'function') {
+				return window.electronAPI.getGogInstalledGames();
+			}
+			return window?.electronAPI?.invoke?.('gog:get-installed-games');
+		},
+		{ force },
+	);
+}
+
+async function readItchInstalledGames({ force = false } = {}) {
+	return readInstalledGamesWithCache(
+		'itch',
+		() => {
+			if (typeof window?.electronAPI?.getItchInstalledGames === 'function') {
+				return window.electronAPI.getItchInstalledGames();
+			}
+			return window?.electronAPI?.invoke?.('itch:get-installed-games');
+		},
+		{ force },
+	);
+}
+
+function delay(ms) {
+	return new Promise((resolve) => setTimeout(resolve, Number(ms) || 0));
+}
 
 function getLibrarySortLabel(sortMode) {
 	if (sortMode === 'appid') return 'App ID';
@@ -37,9 +205,264 @@ function extractSteamAppId(game) {
 	return appId;
 }
 
+function buildSteamAssetCandidates(appId, fileNames) {
+	const numericAppId = Number(appId);
+	if (!Number.isFinite(numericAppId) || numericAppId <= 0) return [];
+
+	const out = [];
+	const seen = new Set();
+
+	for (const host of STEAM_CDN_HOSTS) {
+		for (const fileName of fileNames || []) {
+			const name = String(fileName || '').trim();
+			if (!name) continue;
+			const href = `${host}/steam/apps/${Math.trunc(numericAppId)}/${name}`;
+			const key = href.toLowerCase();
+			if (seen.has(key)) continue;
+			seen.add(key);
+			out.push(href);
+		}
+	}
+
+	return out;
+}
+
+function buildSteamCoverCandidates(appId) {
+	return buildSteamAssetCandidates(appId, [
+		'library_600x900_2x.jpg',
+		'library_600x900.jpg',
+		'library_600x900_2x.png',
+		'library_600x900.png',
+		'header.jpg',
+		'capsule_616x353.jpg',
+	]);
+}
+
+function buildSteamHeroCandidates(appId) {
+	return buildSteamAssetCandidates(appId, [
+		'library_hero.jpg',
+		'header.jpg',
+		'capsule_616x353.jpg',
+		'capsule_467x181.jpg',
+	]);
+}
+
+function isHttpImageUrl(value) {
+	return /^https?:\/\//i.test(String(value || '').trim());
+}
+
+function uniqueImageCandidates(values) {
+	const out = [];
+	const seen = new Set();
+
+	for (const value of Array.isArray(values) ? values : []) {
+		const href = String(value || '').trim();
+		if (!href) continue;
+		if (!isHttpImageUrl(href) && !href.startsWith('data:image/')) continue;
+		const key = href.toLowerCase();
+		if (seen.has(key)) continue;
+		seen.add(key);
+		out.push(href);
+	}
+
+	return out;
+}
+
+async function probeImageUrlReachable(url, timeoutMs = STEAM_IMAGE_PROBE_TIMEOUT_MS) {
+	const href = String(url || '').trim();
+	if (!isHttpImageUrl(href)) return false;
+	if (typeof Image === 'undefined') return false;
+
+	const cacheKey = href.toLowerCase();
+	const cached = steamImageProbeCache.get(cacheKey);
+	if (cached === true) return true;
+	if (cached && typeof cached.then === 'function') {
+		const result = await cached;
+		return result === true;
+	}
+
+	const probePromise = new Promise((resolve) => {
+		let settled = false;
+		const image = new Image();
+
+		const finish = (ok) => {
+			if (settled) return;
+			settled = true;
+			image.onload = null;
+			image.onerror = null;
+			resolve(ok === true);
+		};
+
+		const timer = window.setTimeout(() => {
+			finish(false);
+		}, Math.max(1200, Number(timeoutMs) || STEAM_IMAGE_PROBE_TIMEOUT_MS));
+
+		image.onload = () => {
+			window.clearTimeout(timer);
+			finish(true);
+		};
+		image.onerror = () => {
+			window.clearTimeout(timer);
+			finish(false);
+		};
+
+		image.decoding = 'async';
+		image.loading = 'eager';
+		image.src = href;
+	});
+
+	steamImageProbeCache.set(cacheKey, probePromise);
+	const reachable = await probePromise;
+
+	if (reachable) {
+		steamImageProbeCache.set(cacheKey, true);
+	} else {
+		steamImageProbeCache.delete(cacheKey);
+	}
+
+	return reachable;
+}
+
+async function resolveFirstLoadableImageUrl(candidates) {
+	for (const candidate of uniqueImageCandidates(candidates)) {
+		if (candidate.startsWith('data:image/')) return candidate;
+		// eslint-disable-next-line no-await-in-loop
+		const reachable = await probeImageUrlReachable(candidate);
+		if (reachable) return candidate;
+	}
+	return '';
+}
+
+async function runTasksWithConcurrency(items, concurrency, worker) {
+	const source = Array.isArray(items) ? items : [];
+	if (source.length < 1 || typeof worker !== 'function') return;
+
+	let cursor = 0;
+	const limit = Math.max(1, Math.min(Number(concurrency) || 1, source.length));
+
+	const runners = Array.from({ length: limit }, async () => {
+		while (cursor < source.length) {
+			const currentIndex = cursor;
+			cursor += 1;
+			// eslint-disable-next-line no-await-in-loop
+			await worker(source[currentIndex], currentIndex);
+		}
+	});
+
+	await Promise.all(runners);
+}
+
+async function maybeSyncSteamBannerImage(api, game, resolvedCoverUrl) {
+	if (!api || typeof api.syncScrapedGameDetailsByAppIdAndPlatform !== 'function') return;
+
+	const appId = Number(game?.appid);
+	if (!Number.isFinite(appId) || appId <= 0) return;
+
+	const bannerUrl = String(resolvedCoverUrl || '').trim();
+	if (!isHttpImageUrl(bannerUrl)) return;
+
+	const syncKey = `${Math.trunc(appId)}|${bannerUrl.toLowerCase()}`;
+	if (steamDbBannerSyncCache.has(syncKey)) return;
+	steamDbBannerSyncCache.add(syncKey);
+
+	try {
+		if (typeof api.getAllDetailsByAppIDAndPlatform === 'function') {
+			const existing = await api.getAllDetailsByAppIDAndPlatform(Math.trunc(appId), 'steam');
+			const dbBanner = extractDbLibraryCoverUrl(existing);
+			if (dbBanner && dbBanner.toLowerCase() === bannerUrl.toLowerCase()) {
+				return;
+			}
+		}
+
+		await api.syncScrapedGameDetailsByAppIdAndPlatform({
+			appId: Math.trunc(appId),
+			platform: 'steam',
+			name: String(game?.title || `steam:${Math.trunc(appId)}`).trim() || `steam:${Math.trunc(appId)}`,
+			banner_img: bannerUrl,
+		});
+	} catch (error) {
+		console.warn(`Failed to sync Steam banner image for app ${Math.trunc(appId)}:`, error);
+	}
+}
+
+async function enrichSteamLibraryGamesWithFallbackAndDbSync(games) {
+	const list = Array.isArray(games) ? games : [];
+	if (list.length < 1) return list;
+
+	const api = typeof window !== 'undefined' ? window.electronAPI : null;
+	if (typeof window === 'undefined' || typeof Image === 'undefined') return list;
+
+	const steamGames = list.filter((game) => {
+		const launcher = String(game?.launcherId || game?.platform_name || '').trim().toLowerCase();
+		const appId = Number(game?.appid);
+		if (!Number.isFinite(appId) || appId <= 0) return false;
+		return launcher === 'steam';
+	});
+
+	if (steamGames.length < 1) return list;
+
+	const updatesById = new Map();
+
+	await runTasksWithConcurrency(steamGames, STEAM_IMAGE_PROBE_CONCURRENCY, async (game) => {
+		const appId = Number(game?.appid);
+		if (!Number.isFinite(appId) || appId <= 0) return;
+
+		const coverCandidates = uniqueImageCandidates([
+			...(Array.isArray(game?.coverFallbacks) ? game.coverFallbacks : []),
+			game?.coverUrl,
+			...buildSteamCoverCandidates(appId),
+		]);
+		const heroCandidates = uniqueImageCandidates([
+			...(Array.isArray(game?.heroFallbacks) ? game.heroFallbacks : []),
+			game?.heroUrl,
+			...buildSteamHeroCandidates(appId),
+		]);
+
+		const resolvedCover = await resolveFirstLoadableImageUrl(coverCandidates);
+		const resolvedHero = await resolveFirstLoadableImageUrl([
+			resolvedCover,
+			...heroCandidates,
+		]);
+
+		const finalCover = resolvedCover || resolveLibraryCoverUrl(null, game?.title, 'Steam');
+		const finalHero = resolvedHero || finalCover;
+
+		const currentCover = String(game?.coverUrl || '').trim();
+		const currentHero = String(game?.heroUrl || '').trim();
+		const coverChanged = finalCover && finalCover !== currentCover;
+		const heroChanged = finalHero && finalHero !== currentHero;
+
+		if (coverChanged || heroChanged) {
+			updatesById.set(game.id, {
+				coverUrl: coverChanged ? finalCover : currentCover,
+				heroUrl: heroChanged ? finalHero : currentHero,
+				coverFallbacks: coverCandidates,
+				heroFallbacks: heroCandidates,
+			});
+		}
+
+		if (coverChanged && isHttpImageUrl(finalCover)) {
+			await maybeSyncSteamBannerImage(api, game, finalCover);
+		}
+	});
+
+	if (updatesById.size < 1) return list;
+
+	return list.map((game) => {
+		const next = updatesById.get(game.id);
+		if (!next) return game;
+		return {
+			...game,
+			...next,
+		};
+	});
+}
+
 function toSteamLibraryGame(game, installedAppIds) {
 	const appId = extractSteamAppId(game);
 	if (appId == null) return null;
+	const coverFallbacks = buildSteamCoverCandidates(appId);
+	const heroFallbacks = buildSteamHeroCandidates(appId);
 
 	const playtimeMinutes = Number(game?.playtime_forever) || 0;
 	const isInstalled = installedAppIds instanceof Set ? installedAppIds.has(appId) : false;
@@ -66,8 +489,10 @@ function toSteamLibraryGame(game, installedAppIds) {
 		appid: appId,
 		title,
 		launcherId: 'steam',
-		coverUrl: `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/library_600x900_2x.jpg`,
-		heroUrl: `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/library_hero.jpg`,
+		coverUrl: resolveLibraryCoverUrl(coverFallbacks[0] || null, title, 'Steam'),
+		heroUrl: resolveLibraryCoverUrl(heroFallbacks[0] || coverFallbacks[0] || null, title, 'Steam'),
+		coverFallbacks,
+		heroFallbacks,
 		genres: ['Steam'],
 		tags,
 		cracked: false,
@@ -138,6 +563,34 @@ function resolveLibraryCoverUrl(coverUrl, title, fallbackLabel = 'Game') {
 	return buildInlineLibraryPlaceholder(title, fallbackLabel);
 }
 
+function isInlineLibraryPlaceholderCover(coverUrl) {
+	const raw = String(coverUrl || '').trim().toLowerCase();
+	if (!raw) return true;
+	return raw.startsWith('data:image/svg+xml');
+}
+
+function extractDbLibraryCoverUrl(details) {
+	const candidates = [
+		details?.banner_img,
+		details?.bannerImg,
+		details?.db_banner_img,
+		details?.cover_url,
+		details?.coverUrl,
+		details?.heroImage,
+		details?.image,
+		details?.image_url,
+		details?.thumbnail,
+	];
+
+	for (const candidate of candidates) {
+		const value = String(candidate || '').trim();
+		if (!value) continue;
+		return value;
+	}
+
+	return '';
+}
+
 function normalizeLibraryTitleForMatch(value) {
 	return String(value || '')
 		.toLowerCase()
@@ -167,7 +620,17 @@ function toItchLibraryGame(ownedKey, installedById, normalizedItchId) {
 				? installed.url.trim()
 				: null;
 
-	const coverUrl = resolveLibraryCoverUrl(game?.cover_url ?? installed?.coverUrl ?? null, title, 'Itch');
+	const coverUrl = resolveLibraryCoverUrl(
+		game?.cover_url
+		?? game?.coverUrl
+		?? game?.banner_img
+		?? game?.bannerImg
+		?? installed?.coverUrl
+		?? installed?.cover_url
+		?? null,
+		title,
+		'Itch'
+	);
 	const isInstalled = !!installed;
 	const tags = ['Owned'];
 	if (isInstalled) {
@@ -207,7 +670,7 @@ function toItchInstalledOnlyLibraryGame(installed, normalizedItchId) {
 		typeof installed?.title === 'string' && installed.title.trim()
 			? installed.title.trim()
 			: `itch:${normalizedItchId}`;
-	const coverUrl = resolveLibraryCoverUrl(installed?.coverUrl ?? null, title, 'Itch');
+	const coverUrl = resolveLibraryCoverUrl(installed?.coverUrl ?? installed?.cover_url ?? null, title, 'Itch');
 
 	return {
 		id: `itch:${normalizedItchId}`,
@@ -229,6 +692,67 @@ function toItchInstalledOnlyLibraryGame(installed, normalizedItchId) {
 		platform_name: 'itchio',
 		url: typeof installed?.url === 'string' && installed.url.trim() ? installed.url.trim() : null,
 	};
+}
+
+async function enrichItchLibraryGamesWithDbCover(games) {
+	const list = Array.isArray(games) ? games : [];
+	if (list.length < 1) return list;
+
+	const api = typeof window !== 'undefined' ? window.electronAPI : null;
+	if (!api || typeof api.getAllDetailsByAppIDAndPlatform !== 'function') return list;
+
+	const pendingAppIds = [];
+	const seen = new Set();
+
+	for (const game of list) {
+		const appId = Number(game?.appid);
+		if (!Number.isFinite(appId) || appId <= 0) continue;
+
+		const coverUrl = String(game?.coverUrl || '').trim();
+		if (coverUrl && !isInlineLibraryPlaceholderCover(coverUrl)) continue;
+
+		const key = String(Math.trunc(appId));
+		if (seen.has(key)) continue;
+		seen.add(key);
+		pendingAppIds.push(Math.trunc(appId));
+	}
+
+	if (pendingAppIds.length < 1) return list;
+
+	const coverByAppId = new Map();
+
+	await Promise.all(
+		pendingAppIds.map(async (appId) => {
+			try {
+				const dbDetails = await api.getAllDetailsByAppIDAndPlatform(appId, 'itchio');
+				const dbCoverUrl = extractDbLibraryCoverUrl(dbDetails);
+				if (dbCoverUrl) {
+					coverByAppId.set(appId, dbCoverUrl);
+				}
+			} catch (error) {
+				console.warn(`Failed to load DB cover for itch app ${appId}:`, error);
+			}
+		}),
+	);
+
+	if (coverByAppId.size < 1) return list;
+
+	return list.map((game) => {
+		const appId = Number(game?.appid);
+		if (!Number.isFinite(appId) || appId <= 0) return game;
+
+		const dbCoverUrl = coverByAppId.get(Math.trunc(appId));
+		if (!dbCoverUrl) return game;
+
+		const currentCover = String(game?.coverUrl || '').trim();
+		if (currentCover && !isInlineLibraryPlaceholderCover(currentCover)) return game;
+
+		return {
+			...game,
+			coverUrl: dbCoverUrl,
+			heroUrl: dbCoverUrl,
+		};
+	});
 }
 
 function normalizeGogProductId(value) {
@@ -359,15 +883,15 @@ function toGogInstalledOnlyLibraryGame(installed, normalizedGogId) {
 	};
 }
 
-function normalizePirateLibraryId(value) {
+function normalizeLocalLibraryId(value) {
 	const raw = String(value ?? '').trim();
 	if (!raw) return null;
 	return raw.toLowerCase();
 }
 
-function toPirateLibraryGame(entry) {
-	const normalizedPirateId = normalizePirateLibraryId(entry?.id ?? entry?.gameId ?? entry?.executablePath);
-	if (!normalizedPirateId) return null;
+function toLocalLibraryGame(entry) {
+	const normalizedLocalId = normalizeLocalLibraryId(entry?.id ?? entry?.gameId ?? entry?.executablePath);
+	if (!normalizedLocalId) return null;
 
 	const executablePath =
 		typeof entry?.executablePath === 'string' && entry.executablePath.trim()
@@ -390,12 +914,12 @@ function toPirateLibraryGame(entry) {
 	const title =
 		typeof entry?.title === 'string' && entry.title.trim()
 			? entry.title.trim()
-			: titleFromExecutable || `pirate:${normalizedPirateId}`;
+			: titleFromExecutable || `local:${normalizedLocalId}`;
 
-	const coverUrl = resolveLibraryCoverUrl(entry?.coverUrl ?? null, title, 'Pirate');
+	const coverUrl = resolveLibraryCoverUrl(entry?.coverUrl ?? null, title, 'Local');
 
 	return {
-		id: `pirate:${normalizedPirateId}`,
+		id: `pirate:${normalizedLocalId}`,
 		appid: null,
 		title,
 		launcherId: 'pirate',
@@ -403,8 +927,8 @@ function toPirateLibraryGame(entry) {
 		installLocation,
 		coverUrl,
 		heroUrl: coverUrl,
-		genres: ['Pirate'],
-		tags: ['Installed', 'Local', 'Pirate'],
+		genres: ['Local'],
+		tags: ['Installed', 'Local'],
 		cracked: true,
 		installedSize: installLocation ? `Installed at ${installLocation}` : 'Local executable',
 		playtime: '0m',
@@ -461,6 +985,25 @@ function normalizePlatformUsersPayload(payload) {
 
 function normalizePlatformIdentifier(raw) {
 	return String(raw ?? '').trim().toLowerCase();
+}
+
+function normalizeLauncherFilterId(raw) {
+	const normalized = normalizePlatformIdentifier(raw);
+	if (!normalized) return '';
+	if (normalized === 'gog.com') return 'gog';
+	if (normalized === 'itchio' || normalized === 'itch.io') return 'itch';
+	if (normalized === 'local') return 'pirate';
+	return normalized;
+}
+
+function formatLibraryLauncherLabel(raw) {
+	const normalized = normalizePlatformIdentifier(raw);
+	if (!normalized) return '';
+	if (normalized === 'pirate') return 'Local';
+	if (normalized === 'steam') return 'Steam';
+	if (normalized === 'gog' || normalized === 'gog.com') return 'GOG';
+	if (normalized === 'itch' || normalized === 'itchio' || normalized === 'itch.io') return 'Itch.io';
+	return normalized;
 }
 
 async function fetchRuntimePlatformConnections(electronAPI) {
@@ -527,6 +1070,16 @@ const LibraryPage = () => {
 	const [stripWindowStart, setStripWindowStart] = useState(0);
 	const [showHeaderMenu, setShowHeaderMenu] = useState(false);
 	const [actionState, setActionState] = useState({ busyAction: '', text: '', type: '' });
+	const launcherOptions = useMemo(
+		() => (Array.isArray(launchers)
+			? launchers.map((entry) => {
+				const id = normalizeLauncherFilterId(entry?.id);
+				if (id !== 'pirate') return entry;
+				return { ...entry, name: 'Local' };
+			})
+			: []),
+		[],
+	);
 
 	const sortLabel = useMemo(() => getLibrarySortLabel(sortBy), [sortBy]);
 	const sortDirectionLabel = sortDirection === 'asc' ? 'Ascending' : 'Descending';
@@ -580,10 +1133,7 @@ const LibraryPage = () => {
 				if (steamSettings?.connected) {
 					platformTasks.push((async () => {
 						try {
-							const installedSteamGamesPromise =
-								typeof window.electronAPI.getSteamInstalledGames === 'function'
-									? window.electronAPI.getSteamInstalledGames()
-									: window.electronAPI.invoke('steam:get-installed-games');
+							const installedSteamGamesPromise = readSteamInstalledGames({ force: true });
 
 							const [ownedSteamGames, installedSteamGames] = await Promise.all([
 								window.electronAPI.getOwnedGamesFromSteam(),
@@ -602,8 +1152,9 @@ const LibraryPage = () => {
 							const normalizedSteamGames = (ownedSteamGames || [])
 								.map((game) => toSteamLibraryGame(game, installedAppIds))
 								.filter(Boolean);
+							const enrichedSteamGames = await enrichSteamLibraryGamesWithFallbackAndDbSync(normalizedSteamGames);
 
-							return { games: normalizedSteamGames, error: '' };
+							return { games: enrichedSteamGames, error: '' };
 						} catch (error) {
 							console.error('Failed to load Steam library:', error);
 							return {
@@ -617,10 +1168,7 @@ const LibraryPage = () => {
 				if (itchSettings?.connected) {
 					platformTasks.push((async () => {
 						try {
-							const installedItchGamesPromise =
-								typeof window.electronAPI.getItchInstalledGames === 'function'
-									? window.electronAPI.getItchInstalledGames()
-									: window.electronAPI.invoke('itch:get-installed-games');
+							const installedItchGamesPromise = readItchInstalledGames({ force: true });
 
 							const itchLibraryPromise =
 								typeof window.electronAPI.getItchLibrary === 'function'
@@ -667,7 +1215,10 @@ const LibraryPage = () => {
 								installedOnlyMapped.push(mapped);
 							}
 
-							return { games: [...ownedMapped, ...installedOnlyMapped], error: '' };
+							const itchGames = [...ownedMapped, ...installedOnlyMapped];
+							const enrichedItchGames = await enrichItchLibraryGamesWithDbCover(itchGames);
+
+							return { games: enrichedItchGames, error: '' };
 						} catch (error) {
 							console.error('Failed to load itch library:', error);
 							return {
@@ -681,10 +1232,7 @@ const LibraryPage = () => {
 				if (gogSettings?.connected) {
 					platformTasks.push((async () => {
 						try {
-							const installedGogGamesPromise =
-								typeof window.electronAPI.getGogInstalledGames === 'function'
-									? window.electronAPI.getGogInstalledGames()
-									: window.electronAPI.invoke('gog:get-installed-games');
+							const installedGogGamesPromise = readGogInstalledGames({ force: true });
 
 							const gogLibraryPromise =
 								typeof window.electronAPI.getGogLibrary === 'function'
@@ -759,19 +1307,19 @@ const LibraryPage = () => {
 
 				platformTasks.push((async () => {
 					try {
-						const pirateLibraryPayload =
+						const localLibraryPayload =
 							typeof window.electronAPI.getPirateLibraryGames === 'function'
 								? await window.electronAPI.getPirateLibraryGames()
 								: await window.electronAPI.invoke('pirate-library:get-games');
 
-						const pirateLibraryEntries = Array.isArray(pirateLibraryPayload) ? pirateLibraryPayload : [];
-						const normalizedPirateGames = pirateLibraryEntries
-							.map((entry) => toPirateLibraryGame(entry))
+						const localLibraryEntries = Array.isArray(localLibraryPayload) ? localLibraryPayload : [];
+						const normalizedLocalGames = localLibraryEntries
+							.map((entry) => toLocalLibraryGame(entry))
 							.filter(Boolean);
 
-						return { games: normalizedPirateGames, error: '' };
+						return { games: normalizedLocalGames, error: '' };
 					} catch (error) {
-						console.warn('Failed to load local pirate library:', error);
+						console.warn('Failed to load local library:', error);
 						return { games: [], error: '' };
 					}
 				})());
@@ -818,13 +1366,13 @@ const LibraryPage = () => {
 
 	const searchPool = useMemo(() => {
 		if (scope === 'all' || String(activeLauncherId || '').trim().toLowerCase() === 'all') return ownedGames;
-		const launcherId = String(activeLauncherId || '').trim();
+		const launcherId = normalizeLauncherFilterId(activeLauncherId);
 		if (!launcherId) return ownedGames;
-		return ownedGames.filter((g) => g.launcherId === launcherId);
+		return ownedGames.filter((g) => normalizeLauncherFilterId(g.launcherId) === launcherId);
 	}, [activeLauncherId, scope, ownedGames]);
 
 	const handleLauncherTabChange = (launcherId) => {
-		const normalized = String(launcherId || '').trim().toLowerCase();
+		const normalized = normalizeLauncherFilterId(launcherId);
 		if (!normalized) return;
 		if (normalized === 'all') {
 			setScope('all');
@@ -840,11 +1388,11 @@ const LibraryPage = () => {
 	const activeLauncherLabel = useMemo(() => {
 		if (isAllLauncherSelected) return 'all platforms';
 		const normalizedActiveLauncherId = String(activeLauncherId || '').trim().toLowerCase();
-		const launcher = Array.isArray(launchers)
-			? launchers.find((entry) => String(entry?.id || '').trim().toLowerCase() === normalizedActiveLauncherId)
+		const launcher = Array.isArray(launcherOptions)
+			? launcherOptions.find((entry) => String(entry?.id || '').trim().toLowerCase() === normalizedActiveLauncherId)
 			: null;
-		return launcher?.name || normalizedActiveLauncherId || 'selected platform';
-	}, [activeLauncherId, isAllLauncherSelected]);
+		return launcher?.name || formatLibraryLauncherLabel(normalizedActiveLauncherId) || 'selected platform';
+	}, [activeLauncherId, isAllLauncherSelected, launcherOptions]);
 
 	const emptyFilteredMessage = useMemo(() => {
 		const q = deferredSearch.trim();
@@ -973,39 +1521,40 @@ const LibraryPage = () => {
 	const stripGames = useMemo(() => {
 		if (filteredGames.length <= MAX_LIBRARY_STRIP_GAMES) return filteredGames;
 
-		const activeIndex = filteredGames.findIndex((game) => game.id === activeGameId);
 		const maxStart = Math.max(0, filteredGames.length - MAX_LIBRARY_STRIP_GAMES);
 		let start = Math.min(Math.max(stripWindowStart, 0), maxStart);
-		if (activeIndex >= 0 && (activeIndex < start || activeIndex >= start + MAX_LIBRARY_STRIP_GAMES)) {
-			start = Math.max(0, Math.min(maxStart, activeIndex - Math.floor(MAX_LIBRARY_STRIP_GAMES / 2)));
-		}
 		return filteredGames.slice(start, start + MAX_LIBRARY_STRIP_GAMES);
-	}, [activeGameId, filteredGames, stripWindowStart]);
+	}, [filteredGames, stripWindowStart]);
 
 	const activeGameAppId = Number(activeGame?.appid);
+	const activeGogProductId = normalizeGogProductId(
+		Number.isFinite(activeGameAppId) && activeGameAppId > 0
+			? activeGameAppId
+			: String(activeGame?.id || '').replace(/^gog:/i, ''),
+	);
 	const normalizedLauncherId = String(activeGame?.launcherId || '').trim().toLowerCase();
 	const activeItchGameUrl = typeof activeGame?.url === 'string' ? activeGame.url.trim() : '';
 	const activeItchInstallLocation = typeof activeGame?.installLocation === 'string' ? activeGame.installLocation.trim() : '';
-	const activePirateExecutablePath = typeof activeGame?.executablePath === 'string' ? activeGame.executablePath.trim() : '';
-	const activePirateLibraryId = String(activeGame?.id || '').replace(/^pirate:/i, '').trim();
+	const activeLocalExecutablePath = typeof activeGame?.executablePath === 'string' ? activeGame.executablePath.trim() : '';
+	const activeLocalLibraryId = String(activeGame?.id || '').replace(/^pirate:/i, '').trim();
 	const hasActiveItchGameUrl = /^https?:\/\//i.test(activeItchGameUrl);
 	const hasActiveItchInstallLocation = activeItchInstallLocation.length > 0;
-	const hasActivePirateExecutablePath = activePirateExecutablePath.length > 0;
+	const hasActiveLocalExecutablePath = activeLocalExecutablePath.length > 0;
 	const isSteamLauncher = normalizedLauncherId === 'steam';
 	const isGogLauncher = normalizedLauncherId === 'gog' || normalizedLauncherId === 'gog.com';
 	const isItchLauncher = normalizedLauncherId === 'itch' || normalizedLauncherId === 'itchio' || normalizedLauncherId === 'itch.io';
-	const isPirateLauncher = normalizedLauncherId === 'pirate';
+	const isLocalLauncher = normalizedLauncherId === 'pirate';
 	const canUseSteamActions = Number.isFinite(activeGameAppId) && activeGameAppId > 0 && isSteamLauncher;
-	const canUseGogActions = Number.isFinite(activeGameAppId) && activeGameAppId > 0 && isGogLauncher;
-	const canUsePirateActions = isPirateLauncher && hasActivePirateExecutablePath;
+	const canUseGogActions = isGogLauncher && !!activeGogProductId;
+	const canUseLocalActions = isLocalLauncher && hasActiveLocalExecutablePath;
 	const canExecuteItchAction =
 		isItchLauncher
 		&& ((Number.isFinite(activeGameAppId) && activeGameAppId > 0) || hasActiveItchGameUrl || hasActiveItchInstallLocation);
-	const canUsePrimaryAction = canUseSteamActions || canUseGogActions || canExecuteItchAction || canUsePirateActions;
+	const canUsePrimaryAction = canUseSteamActions || canUseGogActions || canExecuteItchAction || canUseLocalActions;
 	const isActiveGameInstalled = activeGame?.installed === true;
 	const canUseRemoveAction =
 		isActiveGameInstalled
-		&& (canUseSteamActions || canUseGogActions || canExecuteItchAction || canUsePirateActions);
+		&& (canUseSteamActions || canUseGogActions || canExecuteItchAction || canUseLocalActions);
 	const primaryAction = isActiveGameInstalled ? 'open' : 'install';
 	const primaryActionLabel = isActiveGameInstalled ? 'OPEN' : 'INSTALL';
 	const primaryActionBusyLabel = isActiveGameInstalled ? 'OPENING' : 'INSTALLING';
@@ -1055,17 +1604,19 @@ const LibraryPage = () => {
 		);
 	};
 
-	const refreshGogInstalledState = async ({ targetProductId = null, attempts = 1, intervalMs = 0 } = {}) => {
+	const refreshGogInstalledState = async ({
+		targetProductId = null,
+		targetTitle = '',
+		targetExpectedInstalled = null,
+		attempts = 1,
+		intervalMs = 0,
+	} = {}) => {
 		const normalizedTargetProductId = normalizeGogProductId(targetProductId);
+		const normalizedTargetTitle = normalizeLibraryTitleForMatch(targetTitle);
 
 		for (let attempt = 0; attempt < attempts; attempt += 1) {
 			try {
-				const installedPayload =
-					typeof window.electronAPI.getGogInstalledGames === 'function'
-						? await window.electronAPI.getGogInstalledGames()
-						: await window.electronAPI.invoke('gog:get-installed-games');
-
-				const installedList = Array.isArray(installedPayload) ? installedPayload : [];
+				const installedList = await readGogInstalledGames({ force: true });
 				const installedIds = new Set(
 					installedList
 						.map((entry) => extractGogInstalledProductId(entry))
@@ -1087,14 +1638,21 @@ const LibraryPage = () => {
 							game?.appid ?? String(game?.id || '').replace(/^gog:/i, ''),
 						);
 						const titleKey = normalizeLibraryTitleForMatch(game?.title);
-						const isInstalled = !!(
+						const actualInstalled = !!(
 							(normalizedId && installedIds.has(normalizedId))
 							|| (titleKey && installedTitles.has(titleKey))
 						);
 
-						if (normalizedTargetProductId && normalizedId === normalizedTargetProductId && isInstalled) {
-							targetIsInstalled = true;
+						const matchesTarget = !!(
+							(normalizedTargetProductId && normalizedId === normalizedTargetProductId)
+							|| (normalizedTargetTitle && titleKey === normalizedTargetTitle)
+						);
+						if (matchesTarget) {
+							targetIsInstalled = actualInstalled;
 						}
+
+						const keepOptimisticNotInstalled = matchesTarget && targetExpectedInstalled === false && actualInstalled;
+						const isInstalled = keepOptimisticNotInstalled ? false : actualInstalled;
 
 						if ((game?.installed === true) === isInstalled) return game;
 
@@ -1117,7 +1675,12 @@ const LibraryPage = () => {
 					}),
 				);
 
-				if (!normalizedTargetProductId || targetIsInstalled) {
+				const hasTarget = !!(normalizedTargetProductId || normalizedTargetTitle);
+				if (!hasTarget) {
+					return targetIsInstalled;
+				}
+
+				if (targetExpectedInstalled == null || targetIsInstalled === targetExpectedInstalled) {
 					return targetIsInstalled;
 				}
 			} catch (error) {
@@ -1126,7 +1689,7 @@ const LibraryPage = () => {
 			}
 
 			if (attempt + 1 < attempts && intervalMs > 0) {
-				await new Promise((resolve) => setTimeout(resolve, intervalMs));
+				await delay(intervalMs);
 			}
 		}
 
@@ -1138,13 +1701,8 @@ const LibraryPage = () => {
 
 		for (let attempt = 0; attempt < attempts; attempt += 1) {
 			try {
-				const installedPayload =
-					typeof window.electronAPI.getSteamInstalledGames === 'function'
-						? await window.electronAPI.getSteamInstalledGames()
-						: await window.electronAPI.invoke('steam:get-installed-games');
-
 				const installedIds = new Set(
-					(Array.isArray(installedPayload) ? installedPayload : [])
+					(await readSteamInstalledGames({ force: true }))
 						.map((entry) => extractSteamAppId(entry))
 						.filter((id) => id != null),
 				);
@@ -1192,7 +1750,7 @@ const LibraryPage = () => {
 			}
 
 			if (attempt + 1 < attempts && intervalMs > 0) {
-				await new Promise((resolve) => setTimeout(resolve, intervalMs));
+				await delay(intervalMs);
 			}
 		}
 
@@ -1206,12 +1764,7 @@ const LibraryPage = () => {
 
 		for (let attempt = 0; attempt < attempts; attempt += 1) {
 			try {
-				const installedPayload =
-					typeof window.electronAPI.getItchInstalledGames === 'function'
-						? await window.electronAPI.getItchInstalledGames()
-						: await window.electronAPI.invoke('itch:get-installed-games');
-
-				const installedList = Array.isArray(installedPayload) ? installedPayload : [];
+				const installedList = await readItchInstalledGames({ force: true });
 				const installedById = new Map();
 				const installedByUrl = new Map();
 				const installedByTitle = new Map();
@@ -1297,7 +1850,7 @@ const LibraryPage = () => {
 			}
 
 			if (attempt + 1 < attempts && intervalMs > 0) {
-				await new Promise((resolve) => setTimeout(resolve, intervalMs));
+				await delay(intervalMs);
 			}
 		}
 
@@ -1308,7 +1861,7 @@ const LibraryPage = () => {
 		if (!canUsePrimaryAction) {
 			setActionState({
 				busyAction: '',
-				text: 'Open/Install actions are available for Steam, GOG, Itch, and local pirate items.',
+				text: 'Open/Install actions are available for Steam, GOG, Itch, and local items.',
 				type: 'error',
 			});
 			return;
@@ -1321,10 +1874,10 @@ const LibraryPage = () => {
 						return window.electronAPI.runSteamGame(activeGameAppId);
 					}
 					if (canUseGogActions) {
-						return window.electronAPI.runGogGame(activeGameAppId);
+						return window.electronAPI.runGogGame(activeGogProductId);
 					}
-					if (canUsePirateActions) {
-						return window.electronAPI.runPirateLibraryGame(activePirateExecutablePath);
+					if (canUseLocalActions) {
+						return window.electronAPI.runPirateLibraryGame(activeLocalExecutablePath);
 					}
 					if (canExecuteItchAction) {
 						return window.electronAPI.runItchGame(
@@ -1335,7 +1888,7 @@ const LibraryPage = () => {
 					}
 					throw new Error('No valid launch target is available for this game.');
 				},
-				success: `${activeGame?.title || 'Game'} launched via ${canUseSteamActions ? 'Steam' : (canUseGogActions ? 'GOG Galaxy' : (canUsePirateActions ? 'local executable' : 'Itch.io'))}.`,
+				success: `${activeGame?.title || 'Game'} launched via ${canUseSteamActions ? 'Steam' : (canUseGogActions ? 'GOG Galaxy' : (canUseLocalActions ? 'local executable' : 'Itch.io'))}.`,
 			},
 			install: {
 				fn: () => {
@@ -1343,7 +1896,7 @@ const LibraryPage = () => {
 						return window.electronAPI.installSteamGame(activeGameAppId);
 					}
 					if (canUseGogActions) {
-						return window.electronAPI.installGogGame(activeGameAppId);
+						return window.electronAPI.installGogGame(activeGogProductId);
 					}
 					if (canExecuteItchAction) {
 						return window.electronAPI.installItchGame(
@@ -1367,6 +1920,7 @@ const LibraryPage = () => {
 
 			if (action === 'install' && canUseSteamActions) {
 				setActionState({ busyAction: '', text: selectedAction.success, type: 'success' });
+				invalidateInstalledScanCache('steam');
 
 				void (async () => {
 					const installed = await refreshSteamInstalledState({
@@ -1387,6 +1941,7 @@ const LibraryPage = () => {
 
 			if (action === 'install' && canExecuteItchAction) {
 				setActionState({ busyAction: '', text: selectedAction.success, type: 'success' });
+				invalidateInstalledScanCache('itch');
 
 				const targetGameId = normalizeItchGameId(
 					Number.isFinite(activeGameAppId) && activeGameAppId > 0
@@ -1415,11 +1970,14 @@ const LibraryPage = () => {
 
 			if (action === 'install' && canUseGogActions) {
 				setActionState({ busyAction: '', text: selectedAction.success, type: 'success' });
+				invalidateInstalledScanCache('gog');
 
-				const targetProductId = normalizeGogProductId(activeGameAppId);
+				const targetProductId = activeGogProductId;
 				void (async () => {
 					const installed = await refreshGogInstalledState({
 						targetProductId,
+						targetTitle: activeTitle,
+						targetExpectedInstalled: true,
 						attempts: 30,
 						intervalMs: 4_000,
 					});
@@ -1457,32 +2015,32 @@ const LibraryPage = () => {
 		}
 	};
 
-	const handleAddPirateLibraryGame = async () => {
+	const handleAddLocalLibraryGame = async () => {
 		try {
-			setActionState({ busyAction: 'add-pirate', text: '', type: '' });
+			setActionState({ busyAction: 'add-local', text: '', type: '' });
 
-			const piratePayload =
+			const localPayload =
 				typeof window.electronAPI.addPirateLibraryGameFromDialog === 'function'
 					? await window.electronAPI.addPirateLibraryGameFromDialog()
 					: await window.electronAPI.invoke('pirate-library:add-game-from-dialog');
 
-			if (!piratePayload) {
+			if (!localPayload) {
 				setActionState({ busyAction: '', text: '', type: '' });
 				return;
 			}
 
-			const mapped = toPirateLibraryGame(piratePayload);
-			if (!mapped) throw new Error('Selected executable could not be added to pirate library.');
+			const mapped = toLocalLibraryGame(localPayload);
+			if (!mapped) throw new Error('Selected executable could not be added to local library.');
 
 			setLibraryGames((previous) => dedupeLibraryGames([mapped, ...previous]));
 			setActiveLauncherId('pirate');
 			setActiveGameId(mapped.id);
-			setActionState({ busyAction: '', text: `Added ${mapped.title} to local pirate library.`, type: 'success' });
+			setActionState({ busyAction: '', text: `Added ${mapped.title} to local library.`, type: 'success' });
 		} catch (error) {
-			console.error('Failed to add pirate library game:', error);
+			console.error('Failed to add local library game:', error);
 			setActionState({
 				busyAction: '',
-				text: error instanceof Error ? error.message : 'Failed to add local pirate game.',
+				text: error instanceof Error ? error.message : 'Failed to add local game.',
 				type: 'error',
 			});
 		}
@@ -1494,18 +2052,18 @@ const LibraryPage = () => {
 		try {
 			setActionState({ busyAction: 'remove', text: '', type: '' });
 
-			if (canUsePirateActions) {
-				if (!activePirateLibraryId) throw new Error('Local pirate game id is missing.');
+			if (canUseLocalActions) {
+				if (!activeLocalLibraryId) throw new Error('Local game id is missing.');
 				if (typeof window.electronAPI.removePirateLibraryGame === 'function') {
-					await window.electronAPI.removePirateLibraryGame(activePirateLibraryId);
+					await window.electronAPI.removePirateLibraryGame(activeLocalLibraryId);
 				} else {
-					await window.electronAPI.invoke('pirate-library:remove-game', activePirateLibraryId);
+					await window.electronAPI.invoke('pirate-library:remove-game', activeLocalLibraryId);
 				}
 
 				setLibraryGames((previous) => previous.filter((game) => game?.id !== activeGame.id));
 				setActionState({
 					busyAction: '',
-					text: `${activeGame.title || 'Game'} removed from local pirate library.`,
+					text: `${activeGame.title || 'Game'} removed from local library.`,
 					type: 'success',
 				});
 				return;
@@ -1514,6 +2072,7 @@ const LibraryPage = () => {
 			if (canUseSteamActions) {
 				await window.electronAPI.deleteSteamGame(activeGameAppId);
 				markLibraryGameAsNotInstalled(activeGame.id);
+				invalidateInstalledScanCache('steam');
 				setActionState({
 					busyAction: '',
 					text: `Opened Steam uninstall flow for ${activeGame.title || 'game'}.`,
@@ -1524,17 +2083,24 @@ const LibraryPage = () => {
 
 			if (canUseGogActions) {
 				if (typeof window.electronAPI.deleteGogGame === 'function') {
-					await window.electronAPI.deleteGogGame(activeGameAppId);
+					await window.electronAPI.deleteGogGame(activeGogProductId);
 				} else {
-					await window.electronAPI.invoke('gog:delete-game', activeGameAppId);
+					await window.electronAPI.invoke('gog:delete-game', activeGogProductId);
 				}
 				markLibraryGameAsNotInstalled(activeGame.id);
+				invalidateInstalledScanCache('gog');
 				setActionState({
 					busyAction: '',
 					text: `Opened GOG uninstall flow for ${activeGame.title || 'game'}.`,
 					type: 'success',
 				});
-				void refreshGogInstalledState({ attempts: 30, intervalMs: 4_000 });
+				void refreshGogInstalledState({
+					targetProductId: activeGogProductId,
+					targetTitle: activeGame?.title || '',
+					targetExpectedInstalled: false,
+					attempts: 30,
+					intervalMs: 4_000,
+				});
 				return;
 			}
 
@@ -1554,6 +2120,7 @@ const LibraryPage = () => {
 					);
 				}
 				markLibraryGameAsNotInstalled(activeGame.id);
+				invalidateInstalledScanCache('itch');
 				setActionState({
 					busyAction: '',
 					text: `Opened Itch uninstall flow for ${activeGame.title || 'game'}.`,
@@ -1621,7 +2188,7 @@ const LibraryPage = () => {
 				
 				<p className="text-sm text-slate-300">
 					{ownedGames.length} {ownedGames.length === 1 ? 'game' : 'games'} owned
-					{scope === 'launcher' && String(activeLauncherId || '').trim().toLowerCase() !== 'all' && searchPool.length > 0 && ` • ${searchPool.length} on ${activeLauncherId}`}
+					{scope === 'launcher' && String(activeLauncherId || '').trim().toLowerCase() !== 'all' && searchPool.length > 0 && ` • ${searchPool.length} on ${formatLibraryLauncherLabel(activeLauncherId)}`}
 				</p>
 			</div>
 
@@ -1634,7 +2201,7 @@ const LibraryPage = () => {
 						</svg>
 						<h2 className="text-2xl font-semibold mb-2">No games in your library</h2>
 						<p className="text-slate-400 mb-2">
-							{errorMessage || 'Connect Steam, GOG, or Itch.io on the settings page, or add a local pirate EXE.'}
+							{errorMessage || 'Connect Steam, GOG, or Itch.io on the settings page, or add a local EXE.'}
 						</p>
 						<p className="text-slate-500 mb-6">Start by connecting your gaming platforms or browse the store</p>
 						<div className="flex gap-3 justify-center">
@@ -1645,11 +2212,11 @@ const LibraryPage = () => {
 								Connect Platforms
 							</button>
 							<button
-								onClick={handleAddPirateLibraryGame}
+								onClick={handleAddLocalLibraryGame}
 								className="px-6 py-2 bg-amber-600 hover:bg-amber-500 rounded-lg font-medium transition-colors"
 								disabled={actionState.busyAction !== ''}
 							>
-								{actionState.busyAction === 'add-pirate' ? 'Adding EXE...' : 'Add Pirate EXE'}
+								{actionState.busyAction === 'add-local' ? 'Adding EXE...' : 'Add Local EXE'}
 							</button>
 							<button
 								onClick={() => window.location.hash = '/store'}
@@ -1705,14 +2272,14 @@ const LibraryPage = () => {
 							{`Sort: ${sortLabel}`}
 						</button>
 
-						<button
-							type="button"
-							className="library-add-pirate-btn library-header-inline-action"
-							onClick={handleAddPirateLibraryGame}
-							disabled={actionState.busyAction !== ''}
-						>
-							{actionState.busyAction === 'add-pirate' ? 'Adding EXE...' : 'Add Pirate EXE'}
-						</button>
+					<button
+						type="button"
+						className="library-add-local-btn"
+						onClick={handleAddLocalLibraryGame}
+						disabled={actionState.busyAction !== ''}
+					>
+						{actionState.busyAction === 'add-local' ? 'Adding EXE...' : 'Add Local EXE'}
+					</button>
 
 						<button
 							type="button"
@@ -1774,6 +2341,7 @@ const LibraryPage = () => {
 							<div className="library-dock-strip-area group">
 								<LibraryGameStrip
 									games={stripGames}
+									activeGameId={activeGame?.id ?? ''}
 									onSelect={setActiveGameId}
 									onOpenStore={handleOpenStorePage}
 								/>
@@ -1783,7 +2351,7 @@ const LibraryPage = () => {
 							<div className="library-status-bar group">
 								<div className="library-status-left">
 									<h2 className="library-status-title">{activeGame?.title ?? 'No game'}</h2>
-									<p className="library-status-launcher">{activeGame?.launcherId ?? ''}</p>
+									<p className="library-status-launcher">{formatLibraryLauncherLabel(activeGame?.launcherId ?? '')}</p>
 									<div className="library-status-tags">
 										{(activeGame?.tags ?? []).slice(0, 3).map((tag) => (
 											<span key={tag} className="library-status-tag">{tag}</span>
@@ -1858,7 +2426,7 @@ const LibraryPage = () => {
 			<AllGamesDrawer
 				open={showAllGames}
 				games={filteredGames}
-				launchers={launchers}
+				launchers={launcherOptions}
 				activeGameId={activeGame?.id ?? ''}
 				onClose={() => setShowAllGames(false)}
 				onSelectGame={setActiveGameId}
