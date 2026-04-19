@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { getStorePlatformLabel, normalizeStorePlatform } from '../../utils/storeRouting.js';
 import { useDownloadManager } from '../../context/DownloadManagerContext.jsx';
@@ -799,6 +799,150 @@ function defaultSiteForPlatform(platform, appId) {
 	return [{ id: 'steam', label: 'Steam', href: `https://store.steampowered.com/app/${appId}` }];
 }
 
+function buildItchSearchHref(gameTitle = '') {
+	const normalizedTitle = String(gameTitle || '').trim();
+	if (!normalizedTitle) return 'https://itch.io/';
+	return `https://itch.io/search?q=${encodeURIComponent(normalizedTitle)}`;
+}
+
+function isItchStoreHref(href) {
+	const rawHref = String(href || '').trim();
+	if (!/^https?:\/\//i.test(rawHref)) return false;
+	try {
+		const parsed = new URL(rawHref);
+		const host = String(parsed.hostname || '').toLowerCase();
+		return host === 'itch.io' || host.endsWith('.itch.io');
+	} catch {
+		return false;
+	}
+}
+
+function isSpecificItchGameHref(href) {
+	const rawHref = String(href || '').trim();
+	if (!/^https?:\/\//i.test(rawHref)) return false;
+	try {
+		const parsed = new URL(rawHref);
+		const host = String(parsed.hostname || '').toLowerCase();
+		const pathname = String(parsed.pathname || '/').replace(/\/+$/, '') || '/';
+
+		if (host.endsWith('.itch.io')) {
+			return pathname !== '/';
+		}
+
+		if (host === 'itch.io') {
+			if (pathname === '/' || pathname === '/search') return false;
+			return true;
+		}
+
+		return false;
+	} catch {
+		return false;
+	}
+}
+
+function collectItchHrefCandidates(details) {
+	const candidates = [
+		details?.url,
+		details?.store_url,
+		details?.storeUrl,
+		details?.raw?.search_match?.url,
+		details?.raw?.searchMatch?.url,
+		details?.raw?.url,
+		details?.raw?.store_url,
+		details?.raw?.storeUrl,
+	];
+
+	const out = [];
+	const seen = new Set();
+
+	for (const candidate of candidates) {
+		const href = String(candidate || '').trim();
+		if (!/^https?:\/\//i.test(href)) continue;
+		const key = href.toLowerCase();
+		if (seen.has(key)) continue;
+		seen.add(key);
+		out.push(href);
+	}
+
+	return out;
+}
+
+function collectItchTitleHintsFromSite(site) {
+	const hints = [];
+	const seen = new Set();
+
+	const addHint = (value) => {
+		const raw = String(value || '').trim();
+		if (!raw) return;
+		const normalized = normalizeTitleForCompare(raw);
+		if (!normalized) return;
+		if (
+			normalized === 'store'
+			|| normalized === 'store page'
+			|| normalized === 'itch io'
+			|| normalized === 'itchio'
+			|| normalized === 'itch'
+		) {
+			return;
+		}
+		if (seen.has(normalized)) return;
+		seen.add(normalized);
+		hints.push(raw);
+	};
+
+	addHint(site?.label);
+	addHint(site?.title);
+
+	const href = String(site?.href || '').trim();
+	if (!isItchStoreHref(href)) return hints;
+
+	try {
+		const parsed = new URL(href);
+		const pathname = String(parsed.pathname || '/').replace(/\/+$/, '') || '/';
+
+		if (pathname === '/search') {
+			addHint(parsed.searchParams.get('q'));
+		} else {
+			const slug = extractSlugFromUrl(href);
+			if (slug) {
+				addHint(slug.replace(/[-_]+/g, ' '));
+			}
+		}
+	} catch {
+		// ignore malformed URL hints
+	}
+
+	return hints;
+}
+
+function itchSiteMatchesGameTitle(site, gameTitle) {
+	const expectedTitle = String(gameTitle || '').trim();
+	if (!hasFilledText(expectedTitle) || isPlaceholderTitle(expectedTitle)) return true;
+
+	const titleHints = collectItchTitleHintsFromSite(site);
+	if (titleHints.length < 1) return true;
+
+	return titleHints.some((hint) => isExactTitleMatch(hint, [expectedTitle]));
+}
+
+function shouldPreferItchAvailableTarget(nextTarget, currentTarget, gameTitle) {
+	if (!currentTarget) return true;
+
+	const currentMatches = itchSiteMatchesGameTitle(currentTarget, gameTitle);
+	const nextMatches = itchSiteMatchesGameTitle(nextTarget, gameTitle);
+	if (currentMatches !== nextMatches) return nextMatches;
+
+	const currentSpecific = isSpecificItchGameHref(currentTarget?.href);
+	const nextSpecific = isSpecificItchGameHref(nextTarget?.href);
+	if (currentSpecific !== nextSpecific) return nextSpecific;
+
+	const currentSearch = /\/search\b/i.test(String(currentTarget?.href || ''));
+	const nextSearch = /\/search\b/i.test(String(nextTarget?.href || ''));
+	if (currentSearch !== nextSearch) return !nextSearch;
+
+	return false;
+}
+
 function inferPlatformFromSite(site) {
 	const label = String(site?.label || '').toLowerCase();
 	const href = String(site?.href || '').toLowerCase();
@@ -843,6 +987,17 @@ function extractScrapedStoreHref(platform, details, appId) {
 	const siteLinks = normalizeSiteLinksFromAny(
 		details?.url || details?.store_url || details?.storeUrl || details?.links || details?.sites
 	);
+	if (platform === 'itchio') {
+		const directCandidates = [
+			...collectItchHrefCandidates(details),
+			...siteLinks.map((site) => String(site?.href || '').trim()),
+		];
+		const specificItchLink = directCandidates.find((href) => isSpecificItchGameHref(href));
+		if (specificItchLink) return specificItchLink;
+
+		const directItchLink = directCandidates.find((href) => isItchStoreHref(href));
+		if (directItchLink) return directItchLink;
+	}
 	const preferred = siteLinks.find((site) => {
 		const inferred = inferPlatformFromSite(site);
 		const normalizedInferred = normalizePlatformName(inferred || platform);
@@ -1010,6 +1165,7 @@ const StoreGamePage = () => {
 	const [currentScreenshot, setCurrentScreenshot] = useState(0);
 	const [startingPirateKeys, setStartingPirateKeys] = useState([]);
 	const [loading, setLoading] = useState(true);
+	const lastDbScrapeSyncKeyRef = useRef('');
 	const lastDbPriceSyncKeyRef = useRef('');
 
 	const routeState = useMemo(() => normalizeLocationState(location?.state), [location?.state]);
@@ -1331,6 +1487,108 @@ const StoreGamePage = () => {
 	useEffect(() => {
 		let cancelled = false;
 		const api = typeof window !== 'undefined' ? window.electronAPI : null;
+		if (!api || typeof api.syncScrapedGameDetailsByAppIdAndPlatform !== 'function') return;
+
+		const scrapedPlatform = normalizePlatformName(platformDetails?.__resolved_platform || requestedPlatform);
+		const parsedScraped = parsePlatformDetails(scrapedPlatform, platformDetails, appId);
+		if (!parsedScraped) return;
+
+		const resolvedAppId = pickFirstPositiveNumber(
+			parsedScraped?.appid,
+			parsedScraped?.id,
+			appId,
+		);
+		if (!resolvedAppId) return;
+
+		const resolvedTitle = pickFirstFilledText(parsedScraped?.title, dbDetails?.name, routeState?.title);
+		if (!resolvedTitle || isPlaceholderTitle(resolvedTitle)) return;
+
+		const resolvedBanner = pickFirstFilledText(
+			parsedScraped?.coverImage,
+			parsedScraped?.heroImage,
+			routeState?.coverImage,
+			routeState?.heroImage,
+		);
+		const resolvedDescription = pickFirstFilledText(
+			parsedScraped?.longDescription,
+			parsedScraped?.description,
+			routeState?.longDescription,
+			routeState?.description,
+		);
+		const resolvedMinimumRequirements = pickFirstFilledText(
+			parsedScraped?.minimumRequirements,
+			routeState?.minimumRequirements,
+		);
+		const resolvedGenres = normalizeTagList(parsedScraped?.tags);
+		const resolvedCost = normalizePriceValue(parsedScraped?.price, scrapedPlatform);
+		const knownCountryCode = normalizeCountryCode(dbDetails?.country_code) || null;
+
+		const syncPayload = {
+			appId: resolvedAppId,
+			platform: scrapedPlatform,
+			name: resolvedTitle,
+			banner_img: resolvedBanner || undefined,
+			description: resolvedDescription || undefined,
+			minimum_requirements: resolvedMinimumRequirements || undefined,
+			genre_names: resolvedGenres,
+			cost: Number.isFinite(resolvedCost) && resolvedCost >= 0 ? resolvedCost : undefined,
+		};
+
+		const syncKey = JSON.stringify({
+			appId: syncPayload.appId,
+			platform: syncPayload.platform,
+			name: syncPayload.name,
+			banner_img: syncPayload.banner_img || '',
+			description: syncPayload.description || '',
+			minimum_requirements: syncPayload.minimum_requirements || '',
+			genre_names: syncPayload.genre_names,
+			cost: syncPayload.cost ?? null,
+			countryCode: knownCountryCode || '',
+		});
+		if (lastDbScrapeSyncKeyRef.current === syncKey) return;
+		lastDbScrapeSyncKeyRef.current = syncKey;
+
+		void (async () => {
+			try {
+				const countryCode = knownCountryCode || await resolvePreferredCountryCode(api);
+				const result = await api.syncScrapedGameDetailsByAppIdAndPlatform({
+					...syncPayload,
+					countryCode,
+				});
+
+				if (!result || result.ok !== true || result.action === 'skipped') return;
+
+				const refreshed = await api.getAllDetailsByAppIDAndPlatform(resolvedAppId, scrapedPlatform, countryCode);
+				if (!cancelled && refreshed) {
+					setDbDetails(refreshed);
+				}
+			} catch (err) {
+				if (!cancelled) {
+					console.warn('Failed to sync scraped store details to DB:', err);
+				}
+			}
+		})();
+
+		return () => {
+			cancelled = true;
+		};
+	}, [
+		appId,
+		dbDetails?.country_code,
+		dbDetails?.name,
+		platformDetails,
+		requestedPlatform,
+		routeState?.coverImage,
+		routeState?.description,
+		routeState?.heroImage,
+		routeState?.longDescription,
+		routeState?.minimumRequirements,
+		routeState?.title,
+	]);
+
+	useEffect(() => {
+		let cancelled = false;
+		const api = typeof window !== 'undefined' ? window.electronAPI : null;
 		if (!api || typeof api.syncGamePriceByAppIdAndPlatform !== 'function') return;
 
 		const currentPlatform = normalizePlatformName(dbDetails?.platform_name || requestedPlatform);
@@ -1478,41 +1736,49 @@ const StoreGamePage = () => {
 	const platformActionTargets = useMemo(() => {
 		const byPlatform = new Map();
 
-		const addTarget = (platform, href, appIdHint) => {
+		const addTarget = (platform, href, appIdHint, options = {}) => {
 			const normalizedPlatform = normalizePlatformName(platform);
 			if (!['steam', 'gog', 'itchio'].includes(normalizedPlatform)) return;
 
-			const appIdFromHref = inferPlatformAppId(normalizedPlatform, href);
+			const normalizedHref = String(href || '').trim();
+			const safeHref = normalizedPlatform === 'itchio' && normalizedHref && !isItchStoreHref(normalizedHref)
+				? ''
+				: normalizedHref;
+
+			const appIdFromHref = inferPlatformAppId(normalizedPlatform, safeHref);
 			const numericHint = Number(appIdHint);
+			const allowItchIdHint = options?.allowItchIdHint === true;
 			const resolvedAppId = Number.isFinite(appIdFromHref) && appIdFromHref > 0
 				? appIdFromHref
-				: (Number.isFinite(numericHint) && numericHint > 0 ? numericHint : null);
+				: normalizedPlatform === 'itchio'
+					? (allowItchIdHint && Number.isFinite(numericHint) && numericHint > 0 ? numericHint : null)
+					: (Number.isFinite(numericHint) && numericHint > 0 ? numericHint : null);
 
 			const current = byPlatform.get(normalizedPlatform);
 			if (!current) {
 				byPlatform.set(normalizedPlatform, {
 					platform: normalizedPlatform,
 					label: getStorePlatformLabel(normalizedPlatform),
-					href: href || null,
+					href: safeHref || null,
 					appId: resolvedAppId,
 				});
 				return;
 			}
 
-			if (!current.href && href) current.href = href;
+			if (!current.href && safeHref) current.href = safeHref;
 			if ((!current.appId || current.appId <= 0) && resolvedAppId) current.appId = resolvedAppId;
 		};
 
 		for (const target of scrapedTargets || []) {
-			addTarget(target?.platform, target?.href || null, target?.appId);
+			addTarget(target?.platform, target?.href || null, target?.appId, { allowItchIdHint: true });
 		}
 
 		const primaryHref = defaultSiteForPlatform(activePlatform, appId)?.[0]?.href || null;
-		addTarget(activePlatform, primaryHref, appId);
+		addTarget(activePlatform, primaryHref, appId, { allowItchIdHint: activePlatform === 'itchio' });
 
 		for (const site of model.sites || []) {
 			const inferredPlatform = inferPlatformFromSite(site) || activePlatform;
-			addTarget(inferredPlatform, site?.href || null, appId);
+			addTarget(inferredPlatform, site?.href || null, appId, { allowItchIdHint: false });
 		}
 
 		return Array.from(byPlatform.values());
@@ -1521,38 +1787,80 @@ const StoreGamePage = () => {
 	const availableOnTargets = useMemo(() => {
 		const targets = [];
 		const seen = new Set();
+		const platformTargetIndex = new Map();
+		const gameTitle = String(model.title || model.name || '').trim();
 
-		const addTarget = (id, label, href) => {
+		const isOfficialStorePlatform = (platformName) => (
+			platformName === 'steam' || platformName === 'gog' || platformName === 'itchio'
+		);
+
+		const addTarget = (id, label, href, platformHint = '') => {
 			const normalizedHref = String(href || '').trim();
 			if (!/^https?:\/\//i.test(normalizedHref)) return;
 			const hrefKey = normalizedHref.toLowerCase();
 			if (seen.has(hrefKey)) return;
-			seen.add(hrefKey);
-			targets.push({
+
+			const normalizedPlatform = normalizePlatformName(
+				platformHint || inferPlatformFromSite({ label, href: normalizedHref }) || ''
+			);
+			const nextTarget = {
 				id: String(id || hrefKey),
 				label: String(label || 'Store').trim() || 'Store',
 				href: normalizedHref,
-			});
+			};
+
+			if (isOfficialStorePlatform(normalizedPlatform)) {
+				const existingIndex = platformTargetIndex.get(normalizedPlatform);
+				if (typeof existingIndex === 'number') {
+					if (normalizedPlatform === 'itchio') {
+						const currentTarget = targets[existingIndex];
+						if (shouldPreferItchAvailableTarget(nextTarget, currentTarget, gameTitle)) {
+							const currentHrefKey = String(currentTarget?.href || '').trim().toLowerCase();
+							if (currentHrefKey) seen.delete(currentHrefKey);
+							targets[existingIndex] = nextTarget;
+							seen.add(hrefKey);
+						}
+					}
+					return;
+				}
+				platformTargetIndex.set(normalizedPlatform, targets.length);
+			}
+
+			seen.add(hrefKey);
+			targets.push(nextTarget);
 		};
 
 		for (let index = 0; index < (platformActionTargets || []).length; index += 1) {
 			const target = platformActionTargets[index];
 			const targetPlatform = normalizePlatformName(target?.platform);
 			const targetAppId = Number(target?.appId ?? appId);
-			const fallbackHref = defaultSiteForPlatform(
-				targetPlatform,
-				Number.isFinite(targetAppId) && targetAppId > 0 ? targetAppId : appId
-			)?.[0]?.href || '';
+			const fallbackHref = targetPlatform === 'itchio'
+				? buildItchSearchHref(model.title || model.name || '')
+				: (defaultSiteForPlatform(
+					targetPlatform,
+					Number.isFinite(targetAppId) && targetAppId > 0 ? targetAppId : appId
+				)?.[0]?.href || '');
+			const targetHref = targetPlatform === 'itchio' && !isSpecificItchGameHref(target?.href)
+				? fallbackHref
+				: (target?.href || fallbackHref);
 			addTarget(
 				target?.id || `platform-${targetPlatform || index}`,
 				target?.label || getStorePlatformLabel(targetPlatform || activePlatform),
-				target?.href || fallbackHref,
+				targetHref,
+				targetPlatform,
 			);
 		}
 
 		for (let index = 0; index < (model.sites || []).length; index += 1) {
 			const site = model.sites[index];
-			addTarget(site?.id || `site-${index}`, site?.label || 'Store', site?.href);
+			const inferredPlatform = normalizePlatformName(inferPlatformFromSite(site) || '');
+			if (inferredPlatform === 'itchio' && !itchSiteMatchesGameTitle(site, gameTitle)) {
+				continue;
+			}
+			const siteHref = inferredPlatform === 'itchio' && !isSpecificItchGameHref(site?.href)
+				? buildItchSearchHref(model.title || model.name || '')
+				: site?.href;
+			addTarget(site?.id || `site-${index}`, site?.label || 'Store', siteHref, inferredPlatform);
 		}
 
 		for (let index = 0; index < (model.pirate_links || []).length; index += 1) {
@@ -1566,46 +1874,109 @@ const StoreGamePage = () => {
 		return targets;
 	}, [activePlatform, appId, model.name, model.pirate_links, model.sites, model.title, platformActionTargets]);
 
-	const openExternalUrl = (href) => {
-		if (!href || typeof href !== 'string') return false;
+	const openExternalUrl = async (href) => {
+		const normalizedHref = String(href || '').trim();
+		if (!/^https?:\/\//i.test(normalizedHref)) return false;
+
+		const api = typeof window !== 'undefined' ? window.electronAPI : null;
+		if (api && typeof api.openExternalUrl === 'function') {
+			try {
+				await api.openExternalUrl(normalizedHref);
+				return true;
+			} catch {
+				// Fallback to window.open below.
+			}
+		}
+
 		try {
-			window.open(href, '_blank', 'noopener,noreferrer');
+			window.open(normalizedHref, '_blank', 'noopener,noreferrer');
 			return true;
 		} catch {
 			return false;
 		}
 	};
 
+	const resolveItchGamePageHref = useCallback(async (seedHref = '') => {
+		if (isSpecificItchGameHref(seedHref)) return seedHref;
+
+		const titleHint = String(model.title || model.name || '').trim();
+		const api = typeof window !== 'undefined' ? window.electronAPI : null;
+
+		if (titleHint && api && typeof api.getItchGameDetailsByTitle === 'function') {
+			try {
+				const details = await api.getItchGameDetailsByTitle(titleHint);
+				const detailSiteLinks = normalizeSiteLinksFromAny(details?.links || details?.sites || details?.url || details?.store_url || details?.storeUrl);
+				const detailCandidates = [
+					seedHref,
+					...collectItchHrefCandidates(details),
+					...detailSiteLinks.map((site) => String(site?.href || '').trim()),
+				];
+
+				for (const candidate of detailCandidates) {
+					if (isSpecificItchGameHref(candidate)) return candidate;
+				}
+			} catch {
+				// Fall back to search when title lookup fails.
+			}
+		}
+
+		if (titleHint) return buildItchSearchHref(titleHint);
+		if (isItchStoreHref(seedHref)) return seedHref;
+		return 'https://itch.io/';
+	}, [model.name, model.title]);
+
 	const handleOpenPlatform = async (target) => {
 		if (!target) return;
 		const targetAppId = Number(target.appId ?? appId);
+		const targetHref = String(target?.href || '').trim();
+		let fallbackOpenHref = targetHref;
 		try {
 			if (target.platform === 'gog' && Number.isFinite(targetAppId) && targetAppId > 0) {
 				await window.electronAPI.invoke('gog:open-game-view', String(targetAppId));
 				return;
 			}
-			if (target.platform === 'itchio' && Number.isFinite(targetAppId) && targetAppId > 0) {
-				await window.electronAPI.openItchGame(Number(targetAppId));
-				return;
+			if (target.platform === 'itchio') {
+				const itchioHref = await resolveItchGamePageHref(targetHref);
+				fallbackOpenHref = itchioHref;
+				if (/^https?:\/\//i.test(itchioHref)) {
+					await window.electronAPI.openItchGame(null, itchioHref);
+					return;
+				}
+				if (Number.isFinite(targetAppId) && targetAppId > 0) {
+					await window.electronAPI.openItchGame(Number(targetAppId));
+					return;
+				}
 			}
 			if (target.platform === 'steam' && Number.isFinite(targetAppId) && targetAppId > 0) {
 				await window.electronAPI.storePageSteam(targetAppId);
 				return;
 			}
 
-			if (openExternalUrl(target.href)) return;
+			if (await openExternalUrl(fallbackOpenHref)) return;
 			throw new Error(`No launcher action is available for ${target.label}.`);
 		} catch (error) {
-			if (openExternalUrl(target.href)) return;
+			if (await openExternalUrl(fallbackOpenHref)) return;
 			setErrorMessage(error instanceof Error ? error.message : String(error));
 		}
 	};
 
-	const handleOpenPirateSite = (entry) => {
+	const handleOpenPirateSite = async (entry) => {
 		setErrorMessage('');
 		const pageHref = resolvePirateSitePageHref(entry, model.title || model.name || '');
-		if (openExternalUrl(pageHref)) return;
+		if (await openExternalUrl(pageHref)) return;
 		setErrorMessage('No pirate site page URL is available for this source.');
+	};
+
+	const handleOpenAvailableSite = async (site) => {
+		setErrorMessage('');
+		const siteHref = String(site?.href || '').trim();
+		const inferredPlatform = normalizePlatformName(inferPlatformFromSite(site) || '');
+		const resolvedHref = inferredPlatform === 'itchio'
+			? await resolveItchGamePageHref(siteHref)
+			: siteHref;
+
+		if (await openExternalUrl(resolvedHref)) return;
+		setErrorMessage('No store page URL is available for this source.');
 	};
 
 	const handleOpenPirateLink = async (entry) => {
@@ -1782,7 +2153,19 @@ const StoreGamePage = () => {
 								<h2 className="text-lg font-semibold text-white">Available On</h2>
 								<div className="mt-3 flex flex-col gap-2">
 									{availableOnTargets.map((site, index) => (
-										<a key={site.id ?? `${site.label}-${index}`} href={site.href ?? '#'} target="_blank" rel="noreferrer" className="rounded-xl border border-slate-700/70 bg-slate-950/45 px-4 py-3 text-sm text-slate-200 transition-colors hover:bg-slate-800/80">{site.label ?? 'Store'}</a>
+										<a
+											key={site.id ?? `${site.label}-${index}`}
+											href={site.href ?? '#'}
+											target="_blank"
+											rel="noreferrer"
+											onClick={(event) => {
+												event.preventDefault();
+												void handleOpenAvailableSite(site);
+											}}
+											className="rounded-xl border border-slate-700/70 bg-slate-950/45 px-4 py-3 text-sm text-slate-200 transition-colors hover:bg-slate-800/80"
+										>
+											{site.label ?? 'Store'}
+										</a>
 									))}
 								</div>
 							</div>
