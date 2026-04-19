@@ -368,14 +368,40 @@ body {
   position: relative;
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  flex-wrap: nowrap;
+  gap: 14px;
+}
+
+.library-control-left {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+}
+
+.library-control-left .lib-launcher-tabs {
+  margin-top: 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.library-control-right {
+  position: relative;
+  display: flex;
+  align-items: center;
   justify-content: flex-end;
-  gap: 16px;
+  gap: 10px;
+  flex: 0 1 auto;
 }
 
 /* ---- Search ---- */
 .library-search-label {
   position: relative;
   display: block;
+  flex: 0 1 400px;
+  min-width: 160px;
   width: 100%;
   max-width: 400px;
 }
@@ -425,6 +451,20 @@ body {
 .library-menu-btn:hover {
   border-color: rgba(148, 163, 184, 0.4);
   color: #e2e8f0;
+}
+
+.library-header-inline-action {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.library-header-overflow-toggle {
+  display: none;
+  flex: 0 0 auto;
+}
+
+.library-header-overflow-menu {
+  min-width: 236px;
 }
 
 .library-add-pirate-btn {
@@ -1188,8 +1228,35 @@ body {
     padding: 8px 16px;
   }
 
+  .library-control-header {
+    gap: 8px;
+  }
+
+  .library-control-right {
+    gap: 8px;
+  }
+
+  .library-control-left {
+    flex: 1 1 auto;
+  }
+
+  .library-control-left .lib-launcher-tabs {
+    gap: 6px;
+  }
+
   .library-search-label {
-    max-width: 100%;
+    min-width: 120px;
+    max-width: 260px;
+  }
+
+  .library-header-inline-action {
+    display: none;
+  }
+
+  .library-header-overflow-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .library-status-title {
@@ -1231,6 +1298,26 @@ body {
   .library-list-head,
   .library-list-row {
     grid-template-columns: minmax(160px, 1.7fr) minmax(56px, 0.75fr) minmax(56px, 0.75fr);
+  }
+}
+
+@media (max-width: 1080px) {
+  .library-control-header {
+    gap: 10px;
+  }
+
+  .library-control-right {
+    gap: 8px;
+  }
+
+  .library-header-inline-action {
+    display: none;
+  }
+
+  .library-header-overflow-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 }
 
