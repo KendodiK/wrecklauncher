@@ -1,5 +1,132 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { buildStoreGameRoute, resolveStorePlatformFromGameStrict } from '../../utils/storeRouting.js';
+
+function normalizeMetadataLabel(value) {
+	if (value == null) return '';
+
+	if (typeof value === 'object') {
+		const fields = [
+			value.description,
+			value.genre,
+			value.name,
+			value.tag,
+			value.label,
+			value.title,
+		];
+		for (const field of fields) {
+			if (typeof field === 'string' && field.trim()) return field.trim();
+		}
+		return '';
+	}
+
+	if (typeof value === 'string') return value.trim();
+	return '';
+}
+
+function normalizeMetadataList(input) {
+	const source = Array.isArray(input) ? input : [input];
+	const out = [];
+	const seen = new Set();
+
+	for (const entry of source) {
+		const label = normalizeMetadataLabel(entry);
+		if (!label) continue;
+
+		const parts = label.includes(',')
+			? label.split(',').map((part) => part.trim()).filter(Boolean)
+			: [label];
+
+		for (const part of parts) {
+			if (!part || /^\d+$/.test(part)) continue;
+			const key = part.toLowerCase();
+			if (seen.has(key)) continue;
+			seen.add(key);
+			out.push(part);
+		}
+	}
+
+	return out;
+}
+
+function getGameIdKey(game) {
+	const rawId = String(game?.appid ?? game?.app_id ?? game?.id ?? '').trim();
+	if (!rawId) return '';
+	const platform = String(
+		resolveStorePlatformFromGameStrict(game) || game?.platform_name || game?.platform || 'unknown'
+	).trim().toLowerCase() || 'unknown';
+	return `${platform}:${rawId}`;
+}
+
+function uniqueNonEmptyStrings(values) {
+	const out = [];
+	const seen = new Set();
+
+	for (const raw of values) {
+		const value = String(raw ?? '').trim();
+		if (!value) continue;
+		const key = value.toLowerCase();
+		if (seen.has(key)) continue;
+		seen.add(key);
+		out.push(value);
+	}
+
+	return out;
+}
+
+async function resolveGenresForGame(api, game, idKey) {
+	const idCandidates = uniqueNonEmptyStrings([
+		game?.db_id,
+		game?.native_id,
+		game?.nativeId,
+		game?.id,
+	]);
+
+	for (const idCandidate of idCandidates) {
+		try {
+			const details = await api.getAllDetailsByID(idCandidate);
+			const genres = normalizeMetadataList(details?.genre_names ?? details?.genres);
+			if (genres.length > 0) return genres;
+		} catch {
+			// Try fallback endpoint variants.
+		}
+	}
+
+	if (typeof api.getAllDetailsByAppIDAndPlatform === 'function') {
+		const appIdCandidates = uniqueNonEmptyStrings([
+			game?.app_id,
+			game?.appid,
+		]);
+		const platformCandidates = uniqueNonEmptyStrings([
+			resolveStorePlatformFromGameStrict(game),
+			game?.platform_name,
+			game?.platform,
+		]);
+
+		for (const appId of appIdCandidates) {
+			for (const platform of platformCandidates) {
+				try {
+					const details = await api.getAllDetailsByAppIDAndPlatform(appId, platform);
+					const genres = normalizeMetadataList(details?.genre_names ?? details?.genres);
+					if (genres.length > 0) return genres;
+				} catch {
+					// Keep trying alternates.
+				}
+			}
+		}
+	}
+
+	return [];
+}
+
+function collectVisibleGenres(game, enrichedById) {
+	const nativeGenres = normalizeMetadataList(game?.genre_names ?? game?.genreNames ?? game?.genres);
+	if (nativeGenres.length > 0) return nativeGenres;
+
+	const idKey = getGameIdKey(game);
+	if (!idKey) return [];
+	return normalizeMetadataList(enrichedById[idKey] || []);
+}
 
 /**
  * Steam-style game grid component
@@ -7,21 +134,66 @@ import { useNavigate } from 'react-router-dom';
  */
 const GameGrid = ({ games = [], isLoading = false, emptyMessage = 'No games found' }) => {
 	const navigate = useNavigate();
+	const [enrichedGenresById, setEnrichedGenresById] = useState({});
 
-	const normalizePlatform = (value) => {
-		const normalized = String(value || '').trim().toLowerCase();
-		if (!normalized) return 'steam';
-		if (normalized === 'itch' || normalized === 'itch.io' || normalized === 'itchio') return 'itchio';
-		if (normalized === 'epic games' || normalized === 'epic_games') return 'steam';
-		return normalized;
-	};
+	useEffect(() => {
+		let cancelled = false;
+		const api = typeof window !== 'undefined' ? window.electronAPI : null;
+		if (!api || typeof api.getAllDetailsByID !== 'function') return;
+
+		const pendingEntries = [];
+		const pendingSeen = new Set();
+		for (const game of (games || []).slice(0, 24)) {
+			const idKey = getGameIdKey(game);
+			if (!idKey || (idKey in enrichedGenresById) || pendingSeen.has(idKey)) continue;
+			pendingSeen.add(idKey);
+			pendingEntries.push([idKey, game]);
+		}
+
+		if (pendingEntries.length < 1) return;
+
+		void (async () => {
+			const resolvedEntries = await Promise.all(
+				pendingEntries.map(async ([idKey, game]) => {
+					try {
+						const genres = await resolveGenresForGame(api, game, idKey);
+						return [idKey, genres];
+					} catch {
+						return [idKey, []];
+					}
+				}),
+			);
+
+			if (cancelled) return;
+			setEnrichedGenresById((prev) => {
+				let changed = false;
+				const next = { ...prev };
+				for (const [idKey, genres] of resolvedEntries) {
+					const normalizedGenres = Array.isArray(genres) ? genres : [];
+					if (normalizedGenres.length < 1) continue;
+
+					const previousGenres = Array.isArray(next[idKey]) ? next[idKey] : [];
+					const isSame =
+						previousGenres.length === normalizedGenres.length
+						&& previousGenres.every((value, index) => value === normalizedGenres[index]);
+					if (isSame) continue;
+
+					next[idKey] = normalizedGenres;
+					changed = true;
+				}
+				return changed ? next : prev;
+			});
+		})();
+
+		return () => {
+			cancelled = true;
+		};
+	}, [games, enrichedGenresById]);
 
 	const handleCardClick = (game) => {
-		if (game.id || game.appid) {
-			const gameId = game.id || game.appid;
-			const platform = normalizePlatform(game.platform_name || game.platform);
-			navigate(`/store/game/${encodeURIComponent(platform)}/${encodeURIComponent(gameId)}`, { state: { game } });
-		}
+		const target = buildStoreGameRoute(game, 'steam');
+		if (!target) return;
+		navigate(target, { state: { game } });
 	};
 
 	if (isLoading) {
@@ -71,6 +243,10 @@ const GameGrid = ({ games = [], isLoading = false, emptyMessage = 'No games foun
 				const gameImage = game.image || game.poster || `https://via.placeholder.com/300x400?text=${encodeURIComponent(game.title || 'Game')}`;
 				const gameTitle = game.title || game.name || 'Untitled Game';
 				const gamePrice = game.price !== undefined ? game.price : null;
+				const tags = normalizeMetadataList(game?.tag_names ?? game?.tagNames ?? game?.tags).slice(0, 2);
+				const genres = collectVisibleGenres(game, enrichedGenresById)
+					.filter((genre) => !tags.some((tag) => String(tag).toLowerCase() === String(genre).toLowerCase()))
+					.slice(0, 2);
 
 				return (
 					<div
@@ -105,6 +281,21 @@ const GameGrid = ({ games = [], isLoading = false, emptyMessage = 'No games foun
 							<h3 className="text-slate-100 font-medium text-sm line-clamp-2 mb-1 group-hover:text-white transition-colors">
 								{gameTitle}
 							</h3>
+
+							{(tags.length > 0 || genres.length > 0) ? (
+								<div className="mb-2 flex flex-wrap gap-1">
+									{tags.map((tag) => (
+										<span key={`tag-${gameId}-${tag}`} className="store-universal-tag store-universal-tag-sm">
+											{tag}
+										</span>
+									))}
+									{genres.map((genre) => (
+										<span key={`genre-${gameId}-${genre}`} className="store-universal-tag store-universal-tag-sm">
+											{genre}
+										</span>
+									))}
+								</div>
+							) : null}
 							
 							{gamePrice !== null && (
 								<div className="flex items-center gap-2">

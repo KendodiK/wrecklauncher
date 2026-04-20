@@ -26,8 +26,7 @@ class GamesController extends Controller {
      *  "name" = string, 
      *  "banner_img" = string || null, 
      *  "description" = string || null, 
-     *  "minimum_requirements" = string || null, 
-     *  "cost" = float ]
+    *  "minimum_requirements" = string || null ]
      * @returns {Array} - ["message": string, "id": int]
      */
     async create(data) {
@@ -39,7 +38,14 @@ class GamesController extends Controller {
         }
 
         const query = 'INSERT INTO `games` (app_id, platform_id, name, banner_img, description, minimum_requirements) VALUES (?, ?, ?, ?, ?, ?);';
-        const values = [data.app_id, data.platform_id, data.name, data.banner_img ?? "", String(data.description).slice(0, 1000) ?? "", data.minimum_requirements ?? ""];
+        const values = [
+            data.app_id,
+            data.platform_id,
+            data.name,
+            data.banner_img ?? "",
+            String(data.description).slice(0, 1000) ?? "",
+            data.minimum_requirements ?? "",
+        ];
         try {
             const [result] = await this.dbConnection.execute(query, values);
             return { message: `${result.insertId} Element created in table ${this.tableName}`, id: result.insertId };
@@ -51,7 +57,7 @@ class GamesController extends Controller {
 
     /**
      * @param {int} id
-     * @param {Array} data - ["app_id" = int, "platform_id" = platforms.id, "name" = string, "banner_img" = string || null, "description" = string || null, "minimum_requirements" = string || null, "cost" = float]
+    * @param {Array} data - ["app_id" = int, "platform_id" = platforms.id, "name" = string, "banner_img" = string || null, "description" = string || null, "minimum_requirements" = string || null]
      * @returns {Array} - ["message": string]
      */
     async update(id, data) {
@@ -66,7 +72,7 @@ class GamesController extends Controller {
 
         let old = await this.show(id);
 
-        const query = 'UPDATE `games` SET app_id = ?, platform_id = ?, name = ?, banner_img = ?, description = ?, minimum_requirements = ?, cost = ? WHERE id = ?;';
+        const query = 'UPDATE `games` SET app_id = ?, platform_id = ?, name = ?, banner_img = ?, description = ?, minimum_requirements = ? WHERE id = ?;';
         const values = [
             data.app_id ?? old.app_id, 
             data.platform_id ?? old.platform_id, 
@@ -74,7 +80,6 @@ class GamesController extends Controller {
             data.banner_img ?? old.banner_img,
             data.description ?? old.description, 
             data.minimum_requirements ?? old.minimum_requirements, 
-            data.cost ?? old.cost, 
             id ];
         try {
             const [result] = await this.dbConnection.execute(query, values);
@@ -196,10 +201,15 @@ class GamesController extends Controller {
      */
     async getGameIdByAppId(app_id, platform_id) {
         await this.ready;
+
+        const resolvedPlatformId = await this.#resolvePlatformId(platform_id);
+        if (!resolvedPlatformId) {
+            return null;
+        }
         
         const query = `SELECT id FROM ${this.tableName} WHERE app_id = ? AND platform_id = ? LIMIT 1;`;
         try {
-            const [rows] = await this.dbConnection.execute(query, [app_id, platform_id]);
+            const [rows] = await this.dbConnection.execute(query, [app_id, resolvedPlatformId]);
             if (!rows || rows.length === 0 || rows[0]?.id == null) {
                 return null;
             }
@@ -219,9 +229,14 @@ class GamesController extends Controller {
     async getGameIdByAppIdAndPlatform(app_id, platform_id) {
         await this.ready;
 
+        const resolvedPlatformId = await this.#resolvePlatformId(platform_id);
+        if (!resolvedPlatformId) {
+            return null;
+        }
+
         const query = `SELECT id FROM ${this.tableName} WHERE app_id = ? AND platform_id = ? LIMIT 1;`;
         try {
-            const [rows] = await this.dbConnection.execute(query, [app_id, platform_id]);
+            const [rows] = await this.dbConnection.execute(query, [app_id, resolvedPlatformId]);
             if (!rows || rows.length === 0 || rows[0]?.id == null) {
                 return null;
             }
@@ -251,7 +266,7 @@ class GamesController extends Controller {
         await this.ready;
 
         try {
-            let cc = countryCode == null ? "de" : String(countryCode).toLowerCase();
+            let cc = countryCode == null ? "DE" : String(countryCode).trim().toUpperCase();
             const query =  `SELECT 
                                 g.id,
                                 g.app_id,
@@ -259,24 +274,26 @@ class GamesController extends Controller {
                                 g.banner_img,
                                 g.description,
                                 g.minimum_requirements,
-                                g.cost,
+                                ROUND(pr.price / 100, 2) AS cost,
                                 g.platform_id,
                                 p.platform_name AS platform,
                                 pr.price,
-                                c.currency
+                                c.currency,
+                                c.code AS country_code
                             FROM games AS g
                             JOIN platforms AS p ON g.platform_id = p.id
-                            LEFT JOIN prices AS pr ON pr.game_id = g.id
-                            LEFT JOIN counties AS c ON pr.county_id = c.id AND c.code = "${cc}"
-                            WHERE g.id = ${gameId};`;
+                            LEFT JOIN counties AS c ON UPPER(c.code) = ?
+                            LEFT JOIN prices AS pr ON pr.game_id = g.id AND pr.county_id = c.id
+                            WHERE g.id = ?
+                            LIMIT 1;`;
 
-            const [rows] = await this.dbConnection.execute(query, [gameId]);
+            const [rows] = await this.dbConnection.execute(query, [cc, gameId]);
             let game = rows[0];
             if (!game) {
-                return new Error({ message: "No game in the database with given ID"})
+                return null;
             }
             let formatedPrice = null;
-            if (game.price) { 
+            if (game.price != null) {
                 formatedPrice = `${(game.price / 100).toFixed(2)} ${game.currency ?? ''}` 
             };
             game.formated_price = formatedPrice;
@@ -312,11 +329,73 @@ class GamesController extends Controller {
         let games = [];
         for (const game_id of game_ids) {
             const game = await this.getWithAllForeign(game_id, countyCode);
-            if (game) {
+            if (game && !(game instanceof Error)) {
                 games.push(game);
             } else {
                 console.warn(`Game with id ${game_id} not found in table ${this.tableName}`);
             }
+        }
+
+        return await this.#attachGenreNamesToGames(games);
+    }
+
+    /**
+     * Attach minimal genre/tag arrays to a game row list.
+     * Adds `genre_names` and `tag_names` (string arrays) by `games.id`.
+     *
+     * @param {Array<any>} games
+     * @returns {Promise<Array<any>>}
+     */
+    async #attachGenreNamesToGames(games) {
+        await this.ready;
+
+        if (!Array.isArray(games) || games.length < 1) {
+            return Array.isArray(games) ? games : [];
+        }
+
+        const gameIds = Array.from(
+            new Set(
+                games
+                    .map((game) => Number(game?.id))
+                    .filter((id) => Number.isFinite(id) && id > 0)
+            )
+        );
+
+        if (gameIds.length < 1) {
+            return games;
+        }
+
+        const placeholders = gameIds.map(() => '?').join(', ');
+        const query = `SELECT
+                            ggc.game_id,
+                            genres.genre
+                       FROM games_genres_connections AS ggc
+                       JOIN genres ON genres.id = ggc.genre_id
+                      WHERE ggc.game_id IN (${placeholders});`;
+
+        const [rows] = await this.dbConnection.execute(query, gameIds);
+        const namesByGameId = new Map();
+
+        for (const row of rows) {
+            const gameId = Number(row?.game_id);
+            const label = String(row?.genre ?? '').trim();
+            if (!Number.isFinite(gameId) || gameId <= 0 || !label) continue;
+
+            const existing = namesByGameId.get(gameId) ?? [];
+            if (!existing.some((entry) => entry.toLowerCase() === label.toLowerCase())) {
+                existing.push(label);
+                namesByGameId.set(gameId, existing);
+            }
+        }
+
+        for (const game of games) {
+            const gameId = Number(game?.id);
+            const names = Number.isFinite(gameId) && gameId > 0
+                ? (namesByGameId.get(gameId) ?? [])
+                : [];
+
+            game.genre_names = [...names];
+            game.tag_names = [...names];
         }
 
         return games;
@@ -343,14 +422,14 @@ class GamesController extends Controller {
         let games = [];
         for (const game_id of game_ids) {
             const game = await this.getWithAllForeign(game_id);
-            if (game) {
+            if (game && !(game instanceof Error)) {
                 games.push(game);
             } else {
                 console.warn(`Game with id ${game_id} not found in table ${this.tableName}`);
             }
         }
 
-        return games;
+        return await this.#attachGenreNamesToGames(games);
     }
 
     async searchByTags (tags) {
@@ -359,15 +438,14 @@ class GamesController extends Controller {
         try {
             let game_ids = new Set();
             let full_tags = Array.isArray(tags) ? tags : [];
-            if (tags.length > 0) { 
+            if (full_tags.length > 0) {
                 for (const tag of full_tags) {
-                    const query = `SELECT games.id FROM games 
+                    const query = `SELECT games.id FROM games
                                         JOIN games_genres_connections AS ggc ON games.id = ggc.game_id
                                         JOIN genres ON genres.id = ggc.genre_id
-                                        WHERE genres.genre LIKE "${tag}";`
-                    const rows = await this.dbConnection.execute(query, []);
-                    console.log(`Found ${rows.length} games for tag ${tag}, ${rows}`);
-                    for (const row of rows[0]) {     
+                                        WHERE genres.genre LIKE ?;`;
+                    const [rows] = await this.dbConnection.execute(query, [`%${String(tag || '').trim()}%`]);
+                    for (const row of rows) {
                         if (row && row.id != null) {
                             game_ids.add(row.id);
                         }
@@ -386,7 +464,7 @@ class GamesController extends Controller {
                 }
             }
 
-            return games;
+            return await this.#attachGenreNamesToGames(games);
         } catch (err) {
             console.error(`Error while fetching game ids by tag from table ${this.tableName}: ${err}`);
             throw err;
@@ -396,11 +474,16 @@ class GamesController extends Controller {
     async getAllGamesByPlatformFrom(countyCode, platform_id, from) {
         await this.ready;
 
+        const resolvedPlatformId = await this.#resolvePlatformId(platform_id);
+        if (!resolvedPlatformId) {
+            return [];
+        }
+
         let game_ids = [];
         try {
             const query = 'SELECT id FROM games WHERE platform_id = ? ORDER BY id LIMIT 20 OFFSET ?;';
 
-            const [rows] = await this.dbConnection.execute(query, [platform_id, from]);
+            const [rows] = await this.dbConnection.execute(query, [resolvedPlatformId, from]);
             for (const row of rows) {
                 game_ids.push(row.id);
             }
@@ -412,13 +495,13 @@ class GamesController extends Controller {
         let games = [];
         for (const game_id of game_ids) {
             const game = await this.getWithAllForeign(game_id, countyCode);
-            if (game) {
+            if (game && !(game instanceof Error)) {
                 games.push(game);
             } else {
                 console.warn(`Game with id ${game_id} not found in table ${this.tableName}`);
             }
         }
-        return games;
+        return await this.#attachGenreNamesToGames(games);
     }
 
     async getGameCount() {
@@ -434,6 +517,57 @@ class GamesController extends Controller {
             console.error(`Error while fetching game count from table ${this.tableName}: ${err}`);
             throw err;
         }
+    }
+
+    /**
+     * Resolve a platform reference to a numeric platform id.
+     * Accepts either a direct numeric id or common platform name aliases.
+     *
+     * @param {number|string|null|undefined} platform
+     * @returns {Promise<number|null>}
+     */
+    async #resolvePlatformId(platform) {
+        if (platform === null || platform === undefined) {
+            return null;
+        }
+
+        const raw = String(platform).trim().toLowerCase();
+        if (!raw) {
+            return null;
+        }
+
+        if (/^\d+$/.test(raw)) {
+            const id = Number(raw);
+            if (!Number.isFinite(id) || id <= 0) {
+                return null;
+            }
+            return id;
+        }
+
+        const aliasMap = {
+            steam: ['steam'],
+            gog: ['gog', 'gog.com'],
+            'gog.com': ['gog.com', 'gog'],
+            itchio: ['itchio', 'itch', 'itch.io'],
+            itch: ['itch', 'itchio', 'itch.io'],
+            'itch.io': ['itch.io', 'itchio', 'itch'],
+        };
+
+        const namesToTry = aliasMap[raw] ?? [raw];
+        for (const platformName of namesToTry) {
+            const [rows] = await this.dbConnection.execute(
+                'SELECT id FROM platforms WHERE LOWER(platform_name) = ? LIMIT 1;',
+                [platformName]
+            );
+            if (rows && rows.length > 0 && rows[0]?.id != null) {
+                const id = Number(rows[0].id);
+                if (Number.isFinite(id) && id > 0) {
+                    return id;
+                }
+            }
+        }
+
+        return null;
     }
 
     /**

@@ -2,6 +2,7 @@ export const launchers = [
   { id: 'steam', name: 'Steam', shortName: 'STEAM', accent: '#1b7cd5' },
   { id: 'gog', name: 'GOG', shortName: 'GOG', accent: '#8f5dff' },
   { id: 'itch', name: 'Itch.io', shortName: 'ITCH', accent: '#ff5a5f' },
+  { id: 'pirate', name: 'Pirate', shortName: 'PIRATE', accent: '#f97316' },
 ];
 
 export const games = [

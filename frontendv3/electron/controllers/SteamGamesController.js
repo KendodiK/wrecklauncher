@@ -25,34 +25,206 @@ class SteamGamesController extends GamesController {
     this.#serverUrl = normalizeBaseUrl(serverUrl, { defaultProtocol: 'https:' });
     this.#platformID = '';
   }
-
-  /**
-   * Lazily fetches and caches the Steam platform ID from the backend.
-   * @returns {Promise<string>}
-   */
-  async #resolvePlatformID() {
-    if (this.#platformID) return this.#platformID;
-    const url = joinUrl(this.#serverUrl, 'api', 'platforms', 'steam');
-    const { ok, json } = await fetchJsonSafe(url, {
-      method: 'GET',
-      headers: { 'Accept': 'application/json' },
-    });
-    if (ok && json && typeof json === 'object' && json.id) {
-      this.#platformID = String(json.id);
-    }
-    return this.#platformID;
-  }
-
   static #agent = new https.Agent({
     keepAlive: true,
     maxSockets: 2,
     maxFreeSockets: 2,
     timeout: 30_000,
   });
-
   /** @param {number} ms */
   static #sleep(ms) {
     return new Promise((r) => setTimeout(r, ms));
+  }
+
+  /** @type {Set<string>} */
+  static #zeroDecimalCurrencies = new Set([
+    'BIF',
+    'CLP',
+    'DJF',
+    'GNF',
+    'ISK',
+    'JPY',
+    'KMF',
+    'KRW',
+    'PYG',
+    'RWF',
+    'UGX',
+    'VND',
+    'VUV',
+    'XAF',
+    'XOF',
+    'XPF',
+  ]);
+
+  /**
+   * @param {unknown} rawValue
+   * @returns {number|null}
+   */
+  static #parsePriceFromFormattedText(rawValue) {
+    const text = String(rawValue || '').trim();
+    if (!text) return null;
+    if (/^free$/i.test(text)) return 0;
+
+    const compact = text.replace(/\s+/g, '');
+    const numericLike = compact.replace(/[^0-9,.-]/g, '');
+    if (!/[0-9]/.test(numericLike)) return null;
+
+    const lastDot = numericLike.lastIndexOf('.');
+    const lastComma = numericLike.lastIndexOf(',');
+    const decimalSep = lastDot > lastComma ? '.' : (lastComma > -1 ? ',' : '');
+
+    let normalized = numericLike;
+    if (decimalSep) {
+      const sepPattern = decimalSep === '.' ? /,/g : /\./g;
+      normalized = normalized.replace(sepPattern, '');
+
+      const lastDecimalIndex = normalized.lastIndexOf(decimalSep);
+      if (lastDecimalIndex >= 0) {
+        const left = normalized.slice(0, lastDecimalIndex).replace(new RegExp(`\\${decimalSep}`, 'g'), '');
+        const right = normalized.slice(lastDecimalIndex + 1);
+        if (right.length === 0) {
+          normalized = left;
+        } else if (right.length > 2 && left.length > 0) {
+          normalized = `${left}${right}`;
+        } else {
+          normalized = `${left}.${right}`;
+        }
+      }
+    } else {
+      normalized = normalized.replace(/[.,]/g, '');
+    }
+
+    const parsed = Number(normalized);
+    if (!Number.isFinite(parsed) || parsed < 0) return null;
+    return Number(parsed.toFixed(2));
+  }
+
+  /**
+   * @param {any} priceOverview
+   * @returns {number|null}
+   */
+  static #normalizeSteamCost(priceOverview) {
+    if (!priceOverview || typeof priceOverview !== 'object') return null;
+
+    const formattedPrice = SteamGamesController.#parsePriceFromFormattedText(
+      priceOverview.final_formatted || priceOverview.initial_formatted || ''
+    );
+    if (formattedPrice !== null) return formattedPrice;
+
+    const finalNumeric = Number(priceOverview.final);
+    if (!Number.isFinite(finalNumeric) || finalNumeric < 0) return null;
+
+    const currency = String(priceOverview.currency || '').trim().toUpperCase();
+    if (SteamGamesController.#zeroDecimalCurrencies.has(currency)) {
+      return Number(finalNumeric.toFixed(2));
+    }
+
+    if (Number.isInteger(finalNumeric)) {
+      if (finalNumeric >= 100) return Number((finalNumeric / 100).toFixed(2));
+      return Number(finalNumeric.toFixed(2));
+    }
+
+    return Number(finalNumeric.toFixed(2));
+  }
+
+  /**
+   * Search Steam store app IDs by game title.
+   *
+   * @param {string} title
+   * @param {string} [cc]
+   * @param {number} [limit]
+   * @returns {Promise<Array<{ appid: number, title: string, score: number, url: string|null }>>}
+   */
+  async searchGameByTitle(title, cc = 'us', limit = 40) {
+    const needle = String(title || '').trim();
+    if (!needle) return [];
+
+    const countryCode = String(cc || 'us').trim().toLowerCase() || 'us';
+    const url =
+      `https://store.steampowered.com/api/storesearch/?` +
+      `term=${encodeURIComponent(needle)}` +
+      `&l=${encodeURIComponent('english')}` +
+      `&cc=${encodeURIComponent(countryCode)}`;
+
+    const { ok, status, json, text } = await fetchJsonSafe(url, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'WreckLauncher/1.0 (+steam title lookup)',
+      },
+    });
+
+    if (!ok) {
+      const snippet = String((json && (json.error || json.message)) || text || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+      throw new Error(`Steam title search failed (HTTP ${status}): ${snippet}`);
+    }
+
+    const items = Array.isArray(json?.items) ? json.items : [];
+    const matches = items
+      .map((/** @type {any} */ item) => {
+        const appid = Number(item?.id);
+        const candidateTitle = String(item?.name || '').trim();
+        if (!Number.isFinite(appid) || appid <= 0 || !candidateTitle) return null;
+
+        return {
+          appid,
+          title: candidateTitle,
+          score: this._titleMatchScore(needle, candidateTitle),
+          url: `https://store.steampowered.com/app/${appid}`,
+        };
+      })
+      .filter((/** @type {any} */ item) => !!item)
+      .sort((/** @type {any} */ a, /** @type {any} */ b) => b.score - a.score)
+      .slice(0, Math.max(1, Number(limit) || 40));
+
+    return matches;
+  }
+
+  /**
+   * Resolve Steam details by title by searching first, then loading app details for the best match.
+   *
+   * @param {string} token
+   * @param {string} title
+   * @param {string} [cc]
+   * @returns {Promise<import('../models').SteamGameDetails|null>}
+   */
+  async getGameDetailsByTitle(token, title, cc = 'de') {
+    const matches = await this.searchGameByTitle(title, cc, 40);
+    if (matches.length < 1) return null;
+
+    let bestDetails = null;
+    let bestScore = 0;
+
+    for (const match of matches.slice(0, 12)) {
+      const details = await this.getGameDetails(token, match.appid, cc);
+      if (!details) continue;
+
+      const candidateTitle = String(details.name || match.title || '').trim();
+      const detailScore = this._titleMatchScore(title, candidateTitle);
+      const mergedScore = Math.max(match.score, detailScore);
+
+      const enrichedDetails = {
+        ...details,
+        raw: {
+          ...(details.raw || {}),
+          search_match: {
+            ...match,
+            score: mergedScore,
+          },
+        },
+      };
+
+      if (!bestDetails || mergedScore > bestScore) {
+        bestDetails = enrichedDetails;
+        bestScore = mergedScore;
+      }
+
+      if (mergedScore >= 0.98) {
+        return enrichedDetails;
+      }
+    }
+
+    return bestDetails;
   }
   /**
    * @param {string} url
@@ -121,13 +293,9 @@ class SteamGamesController extends GamesController {
    * @param {string} [cc]
    * @returns {Promise<import('../models').SteamGameDetails|null>}
    */
-  async getGamesDetails(token, appID, cc = 'de') {
+  async getGameDetails(token, appID, cc = 'de') {
     const appIdNum = Number(appID);
     if (!Number.isFinite(appIdNum) || appIdNum <= 0) throw new Error(`Invalid Steam AppID: ${String(appID)}`);
-
-    // Resolve platform ID once before fetching game details.
-    await this.#resolvePlatformID();
-
     const lang = 'en';
     const timeoutMs = 8000;
     const retries = 5;
@@ -188,11 +356,17 @@ class SteamGamesController extends GamesController {
         (data.mac_requirements && typeof data.mac_requirements === 'object' ? data.mac_requirements.minimum : null) ||
         (data.linux_requirements && typeof data.linux_requirements === 'object' ? data.linux_requirements.minimum : null) ||
         null;
+      const rawPriceOverview = data?.price_overview && typeof data.price_overview === 'object'
+        ? data.price_overview
+        : null;
 
       const priceOverviewFinal =
-        typeof data?.price_overview?.final === 'number'
-          ? data.price_overview.final
+        typeof rawPriceOverview?.final === 'number'
+          ? rawPriceOverview.final
           : (data?.is_free === true ? 0 : null);
+      const normalizedCost = data?.is_free === true
+        ? 0
+        : SteamGamesController.#normalizeSteamCost(rawPriceOverview);
 
       let gameDetails = {
         appid: data.steam_appid ?? appIdNum,
@@ -200,6 +374,7 @@ class SteamGamesController extends GamesController {
         bannerimg: data.header_image ?? data.capsule_image ?? null,
         genres: Array.isArray(data.genres) ? data.genres : [],
         price_overview: priceOverviewFinal,
+        cost: normalizedCost,
         minimum_requirements: typeof minimumRequirements === 'string' && minimumRequirements.trim() ? minimumRequirements : null,
         cc: ccToUse ?? null,
         lang,
@@ -216,43 +391,20 @@ class SteamGamesController extends GamesController {
             .filter((s) => typeof s === 'string' && s.trim())
         : [];
 
-      const cost = typeof priceOverviewFinal === 'number' ? priceOverviewFinal / 100 : null;
-      try{
-
-        const uploadResult = await super.uploadGame(token, {
+      const cost = normalizedCost;
+      try {
+        const syncCountryCode = String(ccToUse || requestedCc || 'DE').trim().toUpperCase() || 'DE';
+        await super.syncScrapedGameWithServer(token, {
           app_id: String(gameDetails.appid ?? appIdNum),
           platform_name: 'steam',
           name: gameDetails.name || `steam:${String(gameDetails.appid ?? appIdNum)}`,
           banner_img: gameDetails.bannerimg || '',
           description: typeof data.short_description === 'string' && data.short_description.trim() ? data.short_description : null,
           minimum_requirements: gameDetails.minimum_requirements,
-          //minimum_requirements: gameDetails.minimum_requirements,
           cost,
           genre_names: genreNames,
+          country_code: syncCountryCode,
         });
-      if (!uploadResult.ok) {
-        if (uploadResult.statusCode === 401) {
-          const msg =
-            uploadResult.rawText ||
-            uploadResult.response?.error ||
-            uploadResult.response?.message ||
-            'Unauthorized';
-          const e = new Error(`Unauthorized (token invalid/expired): ${String(msg).slice(0, 300)}`);
-          // @ts-ignore
-          e.code = 'WRECK_INVALID_TOKEN';
-          throw e;
-        }
-
-        // 400 is a "already exists" type case for uploads; treat it as non-fatal.
-        if (uploadResult.statusCode !== 400) {
-          const msg =
-            uploadResult.rawText ||
-            uploadResult.response?.error ||
-            uploadResult.response?.message ||
-            'Unknown error';
-          throw new Error(`Game upload failed (HTTP ${uploadResult.statusCode}): ${String(msg).slice(0, 300)}`);
-        }
-      }
       } catch (err) {
         // Let the IPC layer handle token rotation/refresh.
         if (err && typeof err === 'object' && /** @type {any} */ (err).code === 'WRECK_INVALID_TOKEN') {
@@ -260,7 +412,7 @@ class SteamGamesController extends GamesController {
         }
 
         const msg = err instanceof Error ? err.message : String(err);
-        console.error(`Failed to upload game details for appID ${appIdNum}: ${msg}`);
+        console.error(`Failed to sync game details for appID ${appIdNum}: ${msg}`);
         return { ...gameDetails, raw };
       }
       return { ...gameDetails, raw };
@@ -281,6 +433,18 @@ class SteamGamesController extends GamesController {
 
     return null;
   }
+
+  /**
+   * Backward-compatible alias for older call sites.
+   * @param {string} token
+   * @param {number} appID
+   * @param {string} [cc]
+   * @returns {Promise<import('../models').SteamGameDetails|null>}
+   */
+  async getGamesDetails(token, appID, cc = 'de') {
+    return this.getGameDetails(token, appID, cc);
+  }
+
   /**
    * Runs, installs, deletes or opens the store page for a steam game via the steam:// URL scheme. Note: this requires the user to have the Steam client installed and properly registered to handle steam:// links.
    * 
@@ -288,7 +452,7 @@ class SteamGamesController extends GamesController {
    * @param {string} action install/store/run/uninstall
    * @returns 
    */
-  async clientGameControllUtil(appID, action) {
+  async clientGameControlUtil(appID, action) {
     const appIdNum = Number(appID);
     if (!Number.isFinite(appIdNum) || appIdNum <= 0) throw new Error(`Invalid Steam AppID: ${String(appID)}`);
 
@@ -300,6 +464,16 @@ class SteamGamesController extends GamesController {
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(`Failed to open Steam client URL (${url}): ${msg}`);
     }
+  }
+
+  /**
+   * Backward-compatible alias for the legacy misspelled method name.
+   * @param {string} appID
+   * @param {string} action
+   * @returns {Promise<{ ok: boolean, url: string }>}
+   */
+  async clientGameControllUtil(appID, action) {
+    return this.clientGameControlUtil(appID, action);
   }
 
 async getInstalledGames() {

@@ -48,31 +48,121 @@ class TokenController {
   }
 
   /**
-   * POST /api/login/:username/:password
+   * Clears all in-memory auth state used by this controller.
+   * Use this for explicit user-initiated logout.
+   */
+  async clearSession() {
+    this.#token = null;
+    this.#username = '';
+    this.#password = '';
+    this.#email = '';
+  }
+
+  /**
+   * @param {any} json
+   * @param {string|null|undefined} text
+   * @returns {AuthToken|null}
+   */
+  _extractTokenFromResponse(json, text) {
+    if (typeof json === 'string' && json.trim()) {
+      return /** @type {AuthToken} */ (json.trim());
+    }
+
+    if (json && typeof json === 'object') {
+      const tokenField = typeof json.token === 'string' ? json.token.trim() : '';
+      const idField = typeof json.id === 'string' ? json.id.trim() : '';
+      if (idField && tokenField) {
+        return /** @type {AuthToken} */ (`${idField}.${tokenField}`);
+      }
+      if (tokenField) {
+        return /** @type {AuthToken} */ (tokenField);
+      }
+      if (json.newUser && typeof json.newUser === 'object') {
+        const userId = typeof json.newUser.id === 'string' ? json.newUser.id.trim() : '';
+        const userToken = typeof json.newUser.token === 'string' ? json.newUser.token.trim() : '';
+        if (userId && userToken) {
+          return /** @type {AuthToken} */ (`${userId}.${userToken}`);
+        }
+      }
+    }
+
+    if (typeof text === 'string') {
+      const cleaned = text.trim().replace(/^"(.*)"$/, '$1');
+      if (cleaned) {
+        return /** @type {AuthToken} */ (cleaned);
+      }
+    }
+
+    return null;
+  }
+
+  /**
+    * Tries known PUT login variants and returns an auth token when available.
    * @returns {Promise<AuthToken|null>}
    */
   async login(username = this.#username, password = this.#password) {
-    const url = joinUrl(this._serverUrl, 'api', 'login', enc(username), enc(password));
-    const { ok, status, json, text } = await fetchJsonSafe(url, { method: 'POST' });
-    if (!ok) throw new Error(`Login failed: HTTP ${status}${text ? ` - ${String(text).slice(0, 200)}` : ''}`);
+    const user = String(username || '').trim();
+    const pass = String(password || '').trim();
+    if (!user || !pass) return null;
 
-    if (typeof json === 'string' && json.trim()) {
-      const t = json.trim();
-      this.#username = username;
-      this.#password = password;
-      this.#email = '';
-      this.#token = /** @type {AuthToken} */ (t);
-      return /** @type {AuthToken} */ (t);
+    /** @type {Error|null} */
+    let lastMeaningfulError = null;
+
+    /** @type {{ method: 'PUT', url: string, headers: Record<string, string>, body?: string }[]} */
+    const attempts = [
+      {
+        method: 'PUT',
+        url: joinUrl(this._serverUrl, 'api', 'login'),
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify({ username: user, password: pass }),
+      },
+      {
+        method: 'PUT',
+        url: joinUrl(this._serverUrl, 'api', 'login', enc(user), enc(pass)),
+        headers: { accept: 'application/json' },
+      },
+    ];
+
+    if (this.#token) {
+      attempts.push({
+        method: 'PUT',
+        url: joinUrl(this._serverUrl, 'api', 'login'),
+        headers: { accept: 'application/json', Authorization: `Bearer ${this.#token}` },
+      });
     }
-    if (typeof text === 'string') {
-      const t = text.trim().replace(/^"(.*)"$/, '$1');      
-      if (t) {
-        this.#username = username;
-        this.#password = password;
-        this.#email = '';
-        this.#token = t;
-        return /** @type {AuthToken} */ (t)};
+
+    for (const attempt of attempts) {
+      const { ok, status, json, text } = await fetchJsonSafe(attempt.url, {
+        method: attempt.method,
+        headers: attempt.headers,
+        body: attempt.body,
+      });
+
+      if (ok) {
+        const token = this._extractTokenFromResponse(json, text);
+        if (token) {
+          this.#username = user;
+          this.#password = pass;
+          this.#email = '';
+          this.#token = token;
+          return token;
+        }
+        continue;
+      }
+
+      const responseText = String((json && (json.error || json.message)) || text || '').toLowerCase();
+      if (status === 404 || status === 405) {
+        // Endpoint variant not available; try next known variant.
+        continue;
+      }
+
+      lastMeaningfulError = new Error(`Login failed: HTTP ${status}${responseText ? ` - ${String(responseText).slice(0, 200)}` : ''}`);
     }
+
+    if (lastMeaningfulError) {
+      throw lastMeaningfulError;
+    }
+
     return null;
   }
 
@@ -84,19 +174,34 @@ class TokenController {
    * @returns token on success, null on failure (e.g. username taken)
     * @throws on HTTP errors or unexpected responses
    */
-  async register(username, password, email) {
-    const url = joinUrl(this._serverUrl, 'api', 'signup');
+  async register(username, password, email, profile = null) {
+    /** @type {{ avatarUrl?: string, pfp?: string, bio?: string }} */
+    const normalizedProfile = profile && typeof profile === 'object' ? profile : {};
+    const avatarUrl = String(normalizedProfile.avatarUrl || normalizedProfile.pfp || '').trim();
+    const bio = String(normalizedProfile.bio || '').trim();
+
+    /** @type {{ username: string, password: string, email: string, pfp?: string, avatarUrl?: string, bio?: string }} */
+    const payload = {
+      username,
+      password,
+      email,
+    };
+    if (avatarUrl) {
+      payload.pfp = avatarUrl;
+      payload.avatarUrl = avatarUrl;
+    }
+    if (bio) {
+      payload.bio = bio;
+    }
+
+    const url = joinUrl(this._serverUrl, 'api', 'native-users');
     const { ok, status, json, text } = await fetchJsonSafe(url, { 
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         accept: 'application/json',
       },
-      body: JSON.stringify({
-        username,
-        password,
-        email
-      })
+      body: JSON.stringify(payload)
     });
     if (!ok) throw new Error(`Registration failed: HTTP ${status}${text ? ` - ${String(text).slice(0, 200)}` : ''}`);
     if (json && typeof json === 'object') {

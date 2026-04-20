@@ -1,9 +1,8 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Storeslider from '../store/Storeslider.jsx';
-import GameGrid from '../store/GameGrid.jsx';
 import FilteredGamesSection from '../store/FilteredGamesSection.jsx';
 import LauncherSelector from '../store/LauncherSelector.jsx';
-import { combineFilters, hasActiveFilters as checkActiveFilters } from '../../utils/gameUtils.js';
+import { resolveStorePlatformFromGame } from '../../utils/storeRouting.js';
 //import { runSmokeControllers } from '../../smokeControllers.js';
 
 /**
@@ -47,10 +46,21 @@ async function fetchSpecialsChunk(apiCall, from, take = CAROUSEL_CHUNK_SIZE) {
 	const payload = await apiCall(from);
 	const items = pickSpecialsArray(payload);
 	const pageItems = items.slice(0, take);
+	const nextFromCandidate = Number(
+		payload?.nextFrom ??
+		payload?.next_from ??
+		payload?.nextOffset ??
+		payload?.next_offset
+	);
+	const hasMoreCandidate = payload?.hasMore ?? payload?.has_more;
 	return {
 		items: pageItems,
-		nextFrom: from + take,
-		hasMore: pageItems.length >= BATCH_SIZE,
+		nextFrom: Number.isFinite(nextFromCandidate) && nextFromCandidate >= 0
+			? nextFromCandidate
+			: from + pageItems.length,
+		hasMore: typeof hasMoreCandidate === 'boolean'
+			? hasMoreCandidate
+			: pageItems.length === take,
 	};
 }
 
@@ -70,6 +80,16 @@ function appendUniqueGames(prev, incoming) {
 		next.push(game);
 	}
 	return next;
+}
+
+function hasUniqueIncoming(existing, incoming) {
+	if (!Array.isArray(incoming) || incoming.length === 0) return false;
+	const seen = new Set((existing || []).map((game) => getGameIdentity(game)).filter(Boolean));
+	for (const game of incoming) {
+		const key = getGameIdentity(game);
+		if (key && !seen.has(key)) return true;
+	}
+	return false;
 }
 
 function pickSpecialsArray(payload) {
@@ -103,26 +123,114 @@ function parseDiscountPercent(game) {
 	return 0;
 }
 
+function normalizePriceValue(raw, platformHint = '') {
+	const numeric = Number(raw);
+	if (!Number.isFinite(numeric) || numeric <= 0) return 0;
+
+	const normalizedPlatform = String(platformHint || '').trim().toLowerCase();
+	const looksLikeMinorUnits = Number.isInteger(numeric)
+		&& (
+			(normalizedPlatform === 'gog' || normalizedPlatform === 'gog.com')
+				? numeric >= 100
+				: numeric >= 1000
+		);
+
+	// Some backends store cents; normalize to major currency unit for UI filters.
+	if (looksLikeMinorUnits) {
+		return Number((numeric / 100).toFixed(2));
+	}
+
+	return Number(numeric.toFixed(2));
+}
+
+function extractNamedValue(value) {
+	if (value == null) return '';
+
+	if (typeof value === 'object') {
+		const fields = [
+			value.name,
+			value.genre,
+			value.description,
+			value.tag,
+			value.title,
+			value.label,
+		];
+		for (const field of fields) {
+			if (typeof field === 'string' && field.trim()) {
+				return field.trim();
+			}
+		}
+		return '';
+	}
+
+	if (typeof value === 'string') {
+		return value.trim();
+	}
+
+	return '';
+}
+
+function normalizeNamedList(input) {
+	const source = Array.isArray(input) ? input : [input];
+	const seen = new Set();
+	const out = [];
+
+	for (const entry of source) {
+		const label = extractNamedValue(entry);
+		if (!label) continue;
+
+		const parts = label.includes(',')
+			? label.split(',').map((part) => part.trim()).filter(Boolean)
+			: [label];
+
+		for (const part of parts) {
+			if (!part || /^\d+$/.test(part)) continue;
+			const key = part.toLowerCase();
+			if (seen.has(key)) continue;
+			seen.add(key);
+			out.push(part);
+		}
+	}
+
+	return out;
+}
+
 function mapGameCard(game, fallbackTag = '') {
+	const normalizedPlatform = resolveStorePlatformFromGame(game, 'steam');
+	const resolvedImage = game.banner_img || game.image || steamPoster(game.app_id || game.appid || game.id);
+	const normalizedPrice = normalizePriceValue(game.cost ?? game.price, normalizedPlatform);
+	const normalizedGenres = normalizeNamedList(game.genre_names ?? game.genreNames ?? game.genres);
+	const normalizedTags = normalizeNamedList(game.tag_names ?? game.tagNames ?? game.tags);
+	const baseTags = normalizedTags.length > 0 ? normalizedTags : normalizedGenres;
+	const tagSet = new Set(baseTags.map((tag) => String(tag).toLowerCase()));
+	const dbGameId = Number(game?.id);
+	const resolvedDbId = Number.isFinite(dbGameId) && dbGameId > 0 ? dbGameId : null;
+	const appIdCandidate = Number(game?.app_id ?? game?.appid ?? game?.id);
+	const resolvedAppId = Number.isFinite(appIdCandidate) && appIdCandidate > 0
+		? appIdCandidate
+		: resolvedDbId;
+	if (fallbackTag && !tagSet.has(String(fallbackTag).toLowerCase())) {
+		baseTags.push(fallbackTag);
+	}
+
 	return {
-		id: game.app_id || game.appid || game.id,
-		app_id: game.app_id || game.appid || game.id,
-		appid: game.app_id || game.appid || game.id,
+		id: resolvedDbId ?? resolvedAppId,
+		db_id: resolvedDbId,
+		app_id: resolvedAppId,
+		appid: resolvedAppId,
 		name: game.name,
 		title: game.name || game.title,
-		image: game.banner_img || game.image || steamPoster(game.app_id || game.appid || game.id),
+		image: resolvedImage,
 		banner_img: game.banner_img || game.image || null,
-		cost: game.cost || game.price || 0,
-		price: game.cost || game.price || 0,
+		preferContainImage: !game.banner_img,
+		cost: normalizedPrice,
+		price: normalizedPrice,
 		discountPercent: parseDiscountPercent(game),
 		description: game.description || '',
-		platform_name: game.platform_name || game.platform || 'steam',
+		platform_name: normalizedPlatform,
 		minimum_requirements: game.minimum_requirements || '',
-		genres: Array.isArray(game.genres) ? game.genres : [],
-		tags: [
-			...(Array.isArray(game.tags) ? game.tags : []),
-			...(fallbackTag ? [fallbackTag] : []),
-		],
+		genres: normalizedGenres,
+		tags: baseTags,
 	};
 }
 
@@ -137,11 +245,6 @@ const Shopveiw = ({ items }) => {
 //         });
 //     }, []);
 	const [allGames, setAllGames] = useState([]);
-	const [filters, setFilters] = useState({
-		query: '',
-		genres: [],
-		priceRange: { min: 0, max: 100 },
-	});
 	const [isLoading, setIsLoading] = useState(true);
 	const [featuredGames, setFeaturedGames] = useState([]);
 	const [discountedGames, setDiscountedGames] = useState([]);
@@ -170,19 +273,6 @@ const Shopveiw = ({ items }) => {
 		return allGames;
 	}, [allGames, featuredGames, discountedGames, upcomingGames]);
 
-	const filteredGames = useMemo(() => {
-		return combineFilters(browseSectionGames, filters);
-	}, [browseSectionGames, filters]);
-
-	// Check if any filters are active
-	const hasFilters = useMemo(() => {
-		return checkActiveFilters(filters);
-	}, [filters]);
-
-	// Handle filter changes from sidebar
-	const handleFiltersChange = (newFilters) => {
-		setFilters(newFilters);
-	};
 const ensureFullBrowsePages = async () => {
 	if (isLoadingMoreBrowse || !hasMoreBrowse) return;
 
@@ -289,7 +379,7 @@ const ensureFullBrowsePages = async () => {
 			});
 
 
-			if (batch.length <= 1) {
+			if (batch.length < BATCH_SIZE) {
 				setHasMoreBrowse(false);
 			}
 
@@ -309,15 +399,23 @@ const ensureFullBrowsePages = async () => {
 		}
 	};
 
+	const handleRemoteResultsUpdate = useCallback((rows) => {
+		if (!Array.isArray(rows) || rows.length < 1) return;
+		const mapped = rows.map((row) => mapGameCard(row)).filter(Boolean);
+		if (mapped.length < 1) return;
+		setAllGames((prev) => appendUniqueGames(prev, mapped));
+	}, []);
+
 	const loadMoreFeatured = async () => {
 		if (isLoadingFeaturedMore || !hasMoreFeatured) return;
 		setIsLoadingFeaturedMore(true);
 		try {
 			const chunk = await fetchSpecialsChunk((from) => window.electronAPI.FeaturedGames(from), featuredOffset, CAROUSEL_CHUNK_SIZE);
 			const mapped = chunk.items.map((game) => mapGameCard(game, 'featured'));
+			const hasNew = hasUniqueIncoming(featuredGames, mapped);
 			setFeaturedGames((prev) => appendUniqueGames(prev, mapped));
 			setFeaturedOffset(chunk.nextFrom);
-			setHasMoreFeatured(chunk.hasMore);
+			setHasMoreFeatured(chunk.hasMore && hasNew);
 		} catch (error) {
 			console.error('Failed to load more featured games:', error);
 			setHasMoreFeatured(false);
@@ -332,9 +430,10 @@ const ensureFullBrowsePages = async () => {
 		try {
 			const chunk = await fetchSpecialsChunk((from) => window.electronAPI.DiscountedGames(from), discountedOffset, CAROUSEL_CHUNK_SIZE);
 			const mapped = chunk.items.map((game) => mapGameCard(game, 'discount'));
+			const hasNew = hasUniqueIncoming(discountedGames, mapped);
 			setDiscountedGames((prev) => appendUniqueGames(prev, mapped));
 			setDiscountedOffset(chunk.nextFrom);
-			setHasMoreDiscounted(chunk.hasMore);
+			setHasMoreDiscounted(chunk.hasMore && hasNew);
 		} catch (error) {
 			console.error('Failed to load more discounted games:', error);
 			setHasMoreDiscounted(false);
@@ -349,9 +448,10 @@ const ensureFullBrowsePages = async () => {
 		try {
 			const chunk = await fetchSpecialsChunk((from) => window.electronAPI.ComingSoonGames(from), upcomingOffset, CAROUSEL_CHUNK_SIZE);
 			const mapped = chunk.items.map((game) => mapGameCard(game, 'upcoming'));
+			const hasNew = hasUniqueIncoming(upcomingGames, mapped);
 			setUpcomingGames((prev) => appendUniqueGames(prev, mapped));
 			setUpcomingOffset(chunk.nextFrom);
-			setHasMoreUpcoming(chunk.hasMore);
+			setHasMoreUpcoming(chunk.hasMore && hasNew);
 		} catch (error) {
 			console.error('Failed to load more upcoming games:', error);
 			setHasMoreUpcoming(false);
@@ -372,6 +472,7 @@ const ensureFullBrowsePages = async () => {
 			try {
 				const [
 					firstGamesPage,
+					secondGamesPage,
 					featuredPage1,
 					featuredPage2,
 					discountedPage1,
@@ -380,6 +481,7 @@ const ensureFullBrowsePages = async () => {
 					upcomingPage2,
 				] = await Promise.allSettled([
 					fetchGamesPage(window.electronAPI, 0),
+					fetchGamesPage(window.electronAPI, BATCH_SIZE),
 					fetchSpecialsChunk((from) => window.electronAPI.FeaturedGames(from), 0, BATCH_SIZE),
 					fetchSpecialsChunk((from) => window.electronAPI.FeaturedGames(from), BATCH_SIZE, BATCH_SIZE),
 					fetchSpecialsChunk((from) => window.electronAPI.DiscountedGames(from), 0, BATCH_SIZE),
@@ -392,8 +494,13 @@ const ensureFullBrowsePages = async () => {
 					throw firstGamesPage.reason;
 				}
 
+				const firstGames = Array.isArray(firstGamesPage.value) ? firstGamesPage.value : [];
+				const secondGames = secondGamesPage.status === 'fulfilled' && Array.isArray(secondGamesPage.value)
+					? secondGamesPage.value
+					: [];
 				const gamesData = [
-					...(Array.isArray(firstGamesPage.value) ? firstGamesPage.value : []),
+					...firstGames,
+					...secondGames,
 				];
 				console.log('Fetched initial games data:', gamesData);
 				const featuredChunk1 = featuredPage1.status === 'fulfilled' ? featuredPage1.value : { items: [], nextFrom: BATCH_SIZE, hasMore: false };
@@ -402,7 +509,9 @@ const ensureFullBrowsePages = async () => {
 				const discountedChunk2 = discountedPage2.status === 'fulfilled' ? discountedPage2.value : { items: [], nextFrom: CAROUSEL_INITIAL_ITEMS, hasMore: false };
 				const upcomingChunk1 = upcomingPage1.status === 'fulfilled' ? upcomingPage1.value : { items: [], nextFrom: BATCH_SIZE, hasMore: false };
 				const upcomingChunk2 = upcomingPage2.status === 'fulfilled' ? upcomingPage2.value : { items: [], nextFrom: CAROUSEL_INITIAL_ITEMS, hasMore: false };
-				const canLoadMore = firstGamesPage.status === 'fulfilled' && Array.isArray(firstGamesPage.value) && firstGamesPage.value.length === BATCH_SIZE;
+				const canLoadMore =
+					(secondGamesPage.status === 'fulfilled' && secondGames.length === BATCH_SIZE) ||
+					(secondGamesPage.status !== 'fulfilled' && firstGames.length === BATCH_SIZE);
 				
 				
 				// Transform the data to match our component's expected format
@@ -411,42 +520,53 @@ const ensureFullBrowsePages = async () => {
 				// window.electronAPI.getAllDetailsByID(id) to fetch full scraped data
 				const transformedGames = (gamesData || []).map((game) => mapGameCard(game));
 
-				let featuredCards = [...featuredChunk1.items, ...featuredChunk2.items]
-					.map((game) => mapGameCard(game, 'featured'))
-					.slice(0, CAROUSEL_INITIAL_ITEMS);
-				let discountedCards = [...discountedChunk1.items, ...discountedChunk2.items]
-					.map((game) => mapGameCard(game, 'discount'))
-					.slice(0, CAROUSEL_INITIAL_ITEMS);
-				let upcomingCards = [...upcomingChunk1.items, ...upcomingChunk2.items]
-					.map((game) => mapGameCard(game, 'upcoming'))
-					.slice(0, CAROUSEL_INITIAL_ITEMS);
-
-				// Put Left 4 Dead (app_id 500) first in shop lists.
-				// const prioritizedGames = transformedGames.sort((a, b) => {
-				// 	const aIsL4D = Number(a?.app_id ?? a?.appid ?? a?.id) === 500;
-				// 	const bIsL4D = Number(b?.app_id ?? b?.appid ?? b?.id) === 500;
-				// 	if (aIsL4D && !bIsL4D) return -1;
-				// 	if (bIsL4D && !aIsL4D) return 1;
-				// 	return 0;
-				// });
-
-				if (!featuredCards.length) {
-					featuredCards = prioritizedGames.slice(0, CAROUSEL_INITIAL_ITEMS).map((game) => mapGameCard(game, 'featured'));
-				}
-
-				if (!discountedCards.length) {
-					discountedCards = prioritizedGames
-						.filter((game) => Number(game.discountPercent) > 0)
+				let featuredCards = appendUniqueGames(
+					[],
+					[...featuredChunk1.items, ...featuredChunk2.items]
+						.map((game) => mapGameCard(game, 'featured'))
 						.slice(0, CAROUSEL_INITIAL_ITEMS)
-						.map((game) => mapGameCard(game, 'discount'));
-				}
+				);
+				let discountedCards = appendUniqueGames(
+					[],
+					[...discountedChunk1.items, ...discountedChunk2.items]
+						.map((game) => mapGameCard(game, 'discount'))
+						.slice(0, CAROUSEL_INITIAL_ITEMS)
+				);
+				let upcomingCards = appendUniqueGames(
+					[],
+					[...upcomingChunk1.items, ...upcomingChunk2.items]
+						.map((game) => mapGameCard(game, 'upcoming'))
+						.slice(0, CAROUSEL_INITIAL_ITEMS)
+				);
 
-				if (!discountedCards.length) {
-					discountedCards = prioritizedGames.slice(5, 5 + CAROUSEL_INITIAL_ITEMS).map((game) => mapGameCard(game, 'discount'));
-				}
+				const featuredNextOffset = featuredPage2.status === 'fulfilled'
+					? featuredChunk2.nextFrom
+					: (featuredPage1.status === 'fulfilled' ? featuredChunk1.nextFrom : 0);
+				const discountedNextOffset = discountedPage2.status === 'fulfilled'
+					? discountedChunk2.nextFrom
+					: (discountedPage1.status === 'fulfilled' ? discountedChunk1.nextFrom : 0);
+				const upcomingNextOffset = upcomingPage2.status === 'fulfilled'
+					? upcomingChunk2.nextFrom
+					: (upcomingPage1.status === 'fulfilled' ? upcomingChunk1.nextFrom : 0);
 
-				if (!upcomingCards.length) {
-					upcomingCards = prioritizedGames.slice(10, 10 + CAROUSEL_INITIAL_ITEMS).map((game) => mapGameCard(game, 'upcoming'));
+				let featuredHasMore = featuredPage2.status === 'fulfilled'
+					? featuredChunk2.hasMore
+					: (featuredPage1.status === 'fulfilled' ? featuredChunk1.hasMore : false);
+				let discountedHasMore = discountedPage2.status === 'fulfilled'
+					? discountedChunk2.hasMore
+					: (discountedPage1.status === 'fulfilled' ? discountedChunk1.hasMore : false);
+				let upcomingHasMore = upcomingPage2.status === 'fulfilled'
+					? upcomingChunk2.hasMore
+					: (upcomingPage1.status === 'fulfilled' ? upcomingChunk1.hasMore : false);
+
+				if (featuredChunk1.items.length + featuredChunk2.items.length < 1) {
+					featuredHasMore = false;
+				}
+				if (discountedChunk1.items.length + discountedChunk2.items.length < 1) {
+					discountedHasMore = false;
+				}
+				if (upcomingChunk1.items.length + upcomingChunk2.items.length < 1) {
+					upcomingHasMore = false;
 				}
 
 				console.log('Setting all games:', transformedGames);
@@ -456,12 +576,12 @@ const ensureFullBrowsePages = async () => {
 				setFeaturedGames(featuredCards);
 				setDiscountedGames(discountedCards);
 				setUpcomingGames(upcomingCards);
-				setFeaturedOffset(CAROUSEL_INITIAL_ITEMS);
-				setDiscountedOffset(CAROUSEL_INITIAL_ITEMS);
-				setUpcomingOffset(CAROUSEL_INITIAL_ITEMS);
-				setHasMoreFeatured(featuredChunk2.hasMore);
-				setHasMoreDiscounted(discountedChunk2.hasMore);
-				setHasMoreUpcoming(upcomingChunk2.hasMore);
+				setFeaturedOffset(featuredNextOffset);
+				setDiscountedOffset(discountedNextOffset);
+				setUpcomingOffset(upcomingNextOffset);
+				setHasMoreFeatured(featuredHasMore);
+				setHasMoreDiscounted(discountedHasMore);
+				setHasMoreUpcoming(upcomingHasMore);
 			} catch (error) {
 				console.error('Failed to fetch games data:', error);
 				setAllGames([]);
@@ -494,65 +614,55 @@ const ensureFullBrowsePages = async () => {
 			<div className="h-full px-3 py-4 overflow-y-auto">
 				<h1 className="text-2xl font-semibold mb-6 text-slate-100 text-center">Store</h1>
 
-				{/* Show carousels when no filters are active */}
-				{!hasFilters && (
+				{/* Show carousels before browse selection */}
 				<div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
 					{/* Featured Games */}
-					{featuredGames.length > 0 && (
-						<section ref={featuredRef}>
-							<h2 className="text-2xl font-semibold mb-4 text-slate-100 text-center">Featured</h2>
+					<section ref={featuredRef}>
+						<h2 className="text-2xl font-semibold mb-4 text-slate-100 text-center">Featured</h2>
+						{featuredGames.length > 0 ? (
 							<Storeslider 
 								items={featuredGames} 
 								onNearEnd={loadMoreFeatured}
 								onCardClick={() => scrollToCarousel(featuredRef)}
 							/>
-						</section>
-					)}
+						) : (
+							<p className="text-sm text-slate-400 text-center">No featured games from endpoint.</p>
+						)}
+					</section>
 
 					{/* Discounted Games */}
-					{discountedGames.length > 0 && (
-						<section ref={discountedRef}>
-							<h2 className="text-2xl font-semibold mb-4 text-slate-100 text-center">Deals & Discounts</h2>
+					<section ref={discountedRef}>
+						<h2 className="text-2xl font-semibold mb-4 text-slate-100 text-center">Deals & Discounts</h2>
+						{discountedGames.length > 0 ? (
 							<Storeslider 
 								items={discountedGames}
 								onNearEnd={loadMoreDiscounted}
 								onCardClick={() => scrollToCarousel(discountedRef)}
 							/>
-						</section>
-					)}
+						) : (
+							<p className="text-sm text-slate-400 text-center">No discounted games from endpoint.</p>
+						)}
+					</section>
 
 					{/* Upcoming Games */}
-					{upcomingGames.length > 0 && (
-						<section ref={upcomingRef}>
-							<h2 className="text-2xl font-semibold mb-4 text-slate-100 text-center">Coming Soon</h2>
+					<section ref={upcomingRef}>
+						<h2 className="text-2xl font-semibold mb-4 text-slate-100 text-center">Coming Soon</h2>
+						{upcomingGames.length > 0 ? (
 							<Storeslider 
 								items={upcomingGames}
 								onNearEnd={loadMoreUpcoming}
 								onCardClick={() => scrollToCarousel(upcomingRef)}
 							/>
-						</section>
-					)}
+						) : (
+							<p className="text-sm text-slate-400 text-center">No upcoming games from endpoint.</p>
+						)}
+					</section>
 
 					{/* Launcher Selection */}
 					<section>
 						<LauncherSelector />
 					</section>
 				</div>
-			)}
-
-			{/* Show grid when filters are active */}
-			{hasFilters && (
-				<section className="animate-in fade-in slide-in-from-top-4 duration-500">
-					<h2 className="text-2xl font-semibold mb-4 text-slate-100">
-						Search Results ({filteredGames.length})
-					</h2>
-					<GameGrid 
-						games={filteredGames} 
-						isLoading={isLoading}
-						emptyMessage="No games found matching your filters"
-					/>
-				</section>
-			)}
 
 			{/* Filtered games section with compact filters sidebar */}
 			<section className="mt-8 mb-6">
@@ -562,6 +672,7 @@ const ensureFullBrowsePages = async () => {
 					onRequestNextPage={loadNextBrowsePage}
 					canLoadMore={hasMoreBrowse}
 					isLoadingMore={isLoadingMoreBrowse}
+					onRemoteResultsUpdate={handleRemoteResultsUpdate}
 				/>
 			</section>
 		</div>

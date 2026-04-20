@@ -10,11 +10,14 @@ server.js
 certs/README.md
 /frontend/my-electron-app/csharp/LocalApi/bin/Release/net8.0
 /frontend/my-electron-app/csharp/LocalApi/obj/Release
-/frontend/my-electron-app/csharp/Tools/EpicInstalledScanner/bin
-/frontend/my-electron-app/csharp/Tools/EpicInstalledScanner/obj
 /frontend/my-electron-app/dist
 /frontend/my-electron-app/node_modules
 frontendv3/src/components/pages/shopveiw.jsx
 frontendv3/src/components/pages/gamepage.jsx
 
 .env
+frontend/my-electron-app/csharp/LocalApi/obj/Debug/net8.0/WreckLauncher.LocalApi.AssemblyInfoInputs.cache
+frontend/my-electron-app/csharp/LocalApi/obj/Debug/net8.0/WreckLauncher.LocalApi.AssemblyInfo.cs
+frontend/my-electron-app/csharp/LocalApi/obj/Debug/net8.0/WreckLauncher.LocalApi.AssemblyInfo.cs
+frontend/my-electron-app/csharp/LocalApi/obj/Debug/net8.0/WreckLauncher.LocalApi.AssemblyInfo.cs
+frontend/my-electron-app/csharp/LocalApi/obj/Debug/net8.0/WreckLauncher.LocalApi.AssemblyInfoInputs.cache

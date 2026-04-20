@@ -1,29 +1,64 @@
 {
-  "name": "frontendv3",
+  "name": "anchor-launcher",
   "version": "1.0.0",
   "description": "Electron + React + Tailwind frontend",
   "main": "electron/main.js",
   "scripts": {
     "dev": "vite",
-    "dev:electron": "concurrently -k -n VITE,ELECTRON -c green,blue \"vite\" \"cross-env NODE_ENV=development OPEN_DEVTOOLS=1 electron .\"",
+    "dev:electron": "cross-env OPEN_DEVTOOLS=1 node scripts/electron-dev.cjs",
     "build": "vite build",
     "preview": "vite preview",
     "electron:dev": "cross-env NODE_ENV=development electron .",
     "electron:dev:only": "cross-env NODE_ENV=development electron .",
     "electron": "cross-env NODE_ENV=production electron .",
-    "start": "npm run electron",
+    "start": "electron-forge start",
     "electron:dev:3000": "cross-env NODE_ENV=development WRECK_BACKEND_URL=http://127.0.0.1:3000 electron .",
-    "electron:dev:3000:insecure": "cross-env NODE_ENV=development WRECK_BACKEND_URL=http://127.0.0.1:3000 electron ."
+    "electron:dev:3000:insecure": "cross-env NODE_ENV=development WRECK_BACKEND_URL=http://127.0.0.1:3000 electron .",
+    "package": "electron-forge package",
+    "make": "electron-forge make",
+    "dist": "npm run build && electron-builder",
+    "dist:nsis": "npm run build && electron-builder --win nsis"
+  },
+  "build": {
+    "appId": "com.AnchorLauncher.app",
+    "productName": "Anchor Launcher",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "preload.js",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   },
   "keywords": [],
-  "author": "",
+  "author": "WreckLauncher Team",
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
+    "@electron-forge/cli": "^7.11.1",
+    "@electron-forge/maker-deb": "^7.11.1",
+    "@electron-forge/maker-rpm": "^7.11.1",
+    "@electron-forge/maker-squirrel": "^7.11.1",
+    "@electron-forge/maker-zip": "^7.11.1",
+    "@electron-forge/plugin-auto-unpack-natives": "^7.11.1",
+    "@electron-forge/plugin-fuses": "^7.11.1",
+    "@electron/fuses": "^1.8.0",
     "@vitejs/plugin-react": "^5.1.2",
     "autoprefixer": "^10.4.20",
     "concurrently": "^9.2.1",
     "cross-env": "^7.0.3",
+    "electron": "^32.3.3",
+    "electron-builder": "^26.8.1",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
     "vite": "^7.3.1",
@@ -31,7 +66,7 @@
   },
   "dependencies": {
     "cloudscraper": "^4.6.0",
-    "electron": "^32.2.3",
+    "electron-squirrel-startup": "^1.0.1",
     "motion": "^12.31.0",
     "puppeteer": "^24.38.0",
     "puppeteer-extra": "^3.3.6",
@@ -39,6 +74,7 @@
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "react-router-dom": "^7.13.0",
+    "request": "^2.88.2",
     "vdf": "^0.0.2",
     "webtorrent": "^2.8.5",
     "winreg": "^1.2.5"

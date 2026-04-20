@@ -16,7 +16,7 @@ class GenresTableMaker extends DatabaseHandler {
         const query = `
             CREATE TABLE IF NOT EXISTS genres(
                 id SMALLINT AUTO_INCREMENT PRIMARY KEY,
-                genre VARCHAR(32) UNIQUE NOT NULL,
+                genre VARCHAR(64) UNIQUE NOT NULL,
                 UNIQUE (genre)
             );
         `;

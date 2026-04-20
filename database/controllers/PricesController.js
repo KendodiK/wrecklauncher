@@ -52,14 +52,14 @@ class PricesController extends Controller {
     async update(id, data) {
         await super.update();
 
-        const old = this.show(id);
+        const old = await this.show(id);
         if(!old || old instanceof Error) {
             console.error(`Error while checking old element for update in ${this.tableName}`);
             throw new Error({message: "There is no element in the table with given id", id: id});
         }
 
         try {
-            const query = 'UPDATE `prices` SET gameId = ?, countyId = ?, price = ? WHERE id = ?;';
+            const query = 'UPDATE `prices` SET game_id = ?, county_id = ?, price = ? WHERE id = ?;';
             const values = [data.gameId ?? old.game_id, data.countyId ?? old.county_id, data.price ?? old.price, id];
             const [result] = await this.dbConnection.execute(query, values);
             return { message: `${id} Updated successfully in table ${this.tableName}` };

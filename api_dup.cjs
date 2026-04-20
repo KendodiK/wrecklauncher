@@ -45,8 +45,17 @@ server.on('listening', async () => {
   } catch (err) {
     console.error('Error creating database tables on startup:', err);
   }
+<<<<<<< HEAD
+  await apiFunctions.fetchInitialShopSpecialsData();
+  setInterval(() => {
+    apiFunctions.fetchInitialShopSpecialsData().catch((err) => {
+      console.error('Error refreshing shop specials data:', err);
+    });
+  }, 24 * 60 * 60 * 1000); // Refresh shop specials data every day
+=======
   //await apiFunctions.fetchInitialShopSpecialsData();
   //setInterval(apiFunctions.fetchInitialShopSpecialsData, 24 * 60 * 60 * 1000); // Refresh shop specials data every day
+>>>>>>> develop
 });
 //#endregion
 
@@ -147,8 +156,34 @@ app.post("/api/shop-specials/:gameId", tokenValidate(), apiFunctions.POSTNewShop
 // -------------------      PUT       ------------------ //
 
 app.put("/api/native-users", tokenValidate(), apiFunctions.PUTNativeUserProfileInfo); // totally new path
+<<<<<<< HEAD
+/*
+  route: /api/login/
+  params: -
+  headers: optional auth token
+  body: either {username,password} or token-based refresh
+
+  returns: 
+    {
+      native_user.id,
+      native_user.token,
+      native_user.name
+      native_user.user_password,
+      native_user.email,
+      native_user.bio,
+      native_user.pfp
+    }
+*/
+app.put("/api/login", apiFunctions.PUTNativeUserLogin);
+/*
+  route: /api/games/:id
+  params: game id
+  headers: -
+  body: app_id, platform_id, name, banner_img, description || null, minimum_requirements || null
+=======
 
 app.put("/api/login", tokenValidate(), apiFunctions.PUTNativeUserLogin);
+>>>>>>> develop
 
 app.put("/api/games/:gameId", tokenValidate(), apiFunctions.PUTGames); //old path: /api/games/:id no tokenValidate()
 

@@ -74,6 +74,26 @@ function shouldRun() {
   }
 }
 
+function readSmokeMultiTorrentConfig() {
+  try {
+    const enabled = localStorage.getItem('wreck_smoke_multi_torrent') === '1';
+    if (!enabled) return { enabled: false, magnets: [] };
+
+    const raw = localStorage.getItem('wreck_smoke_multi_torrent_magnets') || '[]';
+    const parsed = JSON.parse(raw);
+    const magnets = Array.isArray(parsed)
+      ? parsed
+          .map((value) => String(value || '').trim())
+          .filter((value) => value.toLowerCase().startsWith('magnet:?'))
+      : [];
+
+    return { enabled: true, magnets };
+  } catch {
+    return { enabled: false, magnets: [] };
+  }
+}
+
+
 export async function runSmokeControllers() {
   try {
     const hasApi = typeof window !== 'undefined' && !!window.electronAPI;
@@ -193,7 +213,7 @@ export async function runSmokeControllers() {
   try{
     console.log('Testing getAllDetailsByAppIDAndPlatform with appId=271590 (GTA V) and platform=steam');
     console.log(token)
-    const details = await api.getAllDetailsByAppIDAndPlatform('271590', 'steam', token);
+    const details = await api.getAllDetailsByAppIDAndPlatform('271590', 'steam', 'DE');
     log('getAllDetailsByAppIDAndPlatform', details);
     
   } catch (e) {
@@ -392,15 +412,6 @@ export async function runSmokeControllers() {
   // } catch (e) {
   //   warn('runSteamGame 2193490', e);
   // }
-
-
-  // try {
-  //   const epic = await api.getEpicInstalledGames();
-  //   log('epicInstalledGames (first 5)', Array.isArray(epic) ? epic.slice(0, 5) : epic);
-  // } catch (e) {
-  //   warn('getEpicInstalledGames', e);
-  // }
-
   // Steam details (safe sample)
   // const appIds = [730, 570, 440];
   // for (const appId of appIds) {
@@ -539,6 +550,43 @@ export async function runSmokeControllers() {
     // To pause:         api.torrentPause(infoHash);
     // To resume:        api.torrentResume(infoHash);
     // To remove:        api.torrentRemove(infoHash, deleteFiles);
+  }
+
+  if (typeof api.torrentStart === 'function' && typeof api.torrentGetStatus === 'function') {
+    const multiTorrentCfg = readSmokeMultiTorrentConfig();
+    if (multiTorrentCfg.enabled) {
+      try {
+        if (multiTorrentCfg.magnets.length < 2) {
+          lines.push('== multiTorrentSmoke ==\nEnabled, but fewer than 2 valid magnet URIs were provided.');
+        } else {
+          const started = await Promise.allSettled(
+            multiTorrentCfg.magnets.map((magnet) => api.torrentStart(magnet))
+          );
+          const summary = started.map((entry, index) => {
+            if (entry.status === 'fulfilled') {
+              return {
+                index,
+                ok: true,
+                infoHash: entry.value?.infoHash || null,
+                name: entry.value?.name || null,
+              };
+            }
+            return {
+              index,
+              ok: false,
+              error: String(entry.reason?.message || entry.reason || 'unknown error'),
+            };
+          });
+          log('multiTorrentSmoke:start', summary);
+
+          const status = await api.torrentGetStatus();
+          const activeCount = Array.isArray(status) ? status.length : 0;
+          log('multiTorrentSmoke:status', { activeCount, status });
+        }
+      } catch (e) {
+        warn('multiTorrentSmoke', e);
+      }
+    }
   }
 
   // ── Itch.io scrape test ──────────────────────────────────────────────────

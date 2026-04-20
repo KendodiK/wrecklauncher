@@ -31,6 +31,15 @@ nav ul li button {
     margin-right: 1vw;
 }
 
+.corner-logo {
+    position: fixed;
+    top: 1vh;
+    left: 1vw;
+    width: clamp(36px, 2.2vw, 48px);
+    height: auto;
+    z-index: 30;
+}
+
 a {
     color: var(--text-color);
 }

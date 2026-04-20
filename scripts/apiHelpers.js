@@ -75,10 +75,15 @@ async function fetchWith429Retries(url, opts = {}, options = {}) {
 
 module.exports.getCountryIdByCode = async function (countyCode) {
   try {
+    const normalizedCode = String(countyCode || '').trim().toUpperCase();
+    if (!/^[A-Z]{2}$/.test(normalizedCode)) {
+      throw new Error(`Invalid country code: ${String(countyCode)}`);
+    }
+
     const countryCtrl = new CountriesController();
-    let country = await countryCtrl.getByCode(countyCode);
+    let country = await countryCtrl.getByCode(normalizedCode);
     if(country instanceof Error || !country) {
-      const resp = await fetch(`https://restcountries.com/v3.1/alpha/${countyCode.toLowerCase()}`);
+      const resp = await fetch(`https://restcountries.com/v3.1/alpha/${normalizedCode.toLowerCase()}`);
       if (!resp.ok) {
         throw new Error(`restcountries API ${resp.status}: ${await resp.text()}`);
       }
@@ -94,7 +99,7 @@ module.exports.getCountryIdByCode = async function (countyCode) {
         currencySymbol = first?.symbol ?? null;
       }
 
-      country = await countryCtrl.create({ name, code: countyCode, currency: currencySymbol });
+      country = await countryCtrl.create({ name, code: normalizedCode, currency: currencySymbol });
     }
     return country?.id ?? null;
   } catch (err) {
@@ -282,28 +287,34 @@ async function getSteamHeaderImageUrl(appId) {
 async function fetchGogCoverUrl(appId) {
   // if (!Number.isFinite(numericAppId) || numericAppId <= 0) return null;
 
-  const response = await fetch(`https://api.gog.com/v2/games/${appId}?locale=en-US`, {
-    method: 'GET',
-    headers: {
-      'Accept': 'application/json',
-      'User-Agent': 'WreckLauncher/1.0 (+gog scraper)',
-    },
-  });
-  if (!response.ok) {
-    console.warn('Failed to fetch GOG cover URL:', { appId: appId, status: response.status });
-    return null;
-  }
-  const data = await response.json();
-  const imageFormatterUrl = String(String(data?._embedded?.product?._links?.image?.href).split('{formatter}.png')[0] ?? '');
-  const imageUrl = `${String(data?._embedded?.product?._links?.image?.href).split('{formatter}.png')[0] ?? ''}glx_vertical_cover.webp`;
-  const isValidImage = await fetch(imageUrl, { method: 'HEAD' })
-    .then(res => res.ok && res.status === 200)
-    .catch(() => false);
-  if (isValidImage) {
-    return imageUrl;
-  }
-  const fallback = `${imageFormatterUrl}1600.png`;
-  return fallback;
+    const response = await fetch(`https://api.gog.com/v2/games/${appId}?locale=en-US`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'WreckLauncher/1.0 (+gog scraper)',
+      },
+    });
+    if (!response.ok) {
+      console.warn('Failed to fetch GOG cover URL:', { appId: appId, status: response.status });
+      return null;
+    }
+    const data = await response.json();
+    const galaxyBackgroundImageUrl = String(data?._links?.galaxyBackgroundImage?.href ?? '').trim();
+    const isGalaxyBackgroundImageValid = await fetch(galaxyBackgroundImageUrl, { method: 'HEAD' })
+      .then(res => res.ok && res.status === 200)
+      .catch(() => false);
+    if (isGalaxyBackgroundImageValid) {
+      return galaxyBackgroundImageUrl;
+    }
+    const imageFormatterUrl = String(String(data?._embedded?.product?._links?.image?.href).split('_{formatter}.png')[0] ?? '');
+    const imageUrl = `${imageFormatterUrl}.jpg`;
+    const isValidImage = await fetch(imageUrl, { method: 'HEAD' })
+      .then(res => res.ok && res.status === 200)
+      .catch(() => false);
+    if (isValidImage) {
+      return imageUrl;
+    }
+    return `${imageFormatterUrl}_1600.png`;
 }
 /**
  * Fetches the URL of the cover image for an Itch game.
