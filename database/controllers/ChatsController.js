@@ -31,7 +31,7 @@ class ChatsController extends Controller {
         const query = 'INSERT INTO `chats` (friends_id, message, sender_id) VALUES (?,?,?)'
         try {
             const [result] = await this.dbConnection.execute(query, [friends_id, message, sender_id]);
-            return { message: `${result.id} Element created in table ${this.tableName}` };
+            return { message: `${result.insertId} Element created in table ${this.tableName}`, id: result.insertId };
         }
         catch (err) {
             console.error(`Error while adding new element to table ${this.tableName}: ${err}`);
