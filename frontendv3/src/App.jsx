@@ -140,6 +140,7 @@ function App() {
             <Routes>
               <Route path="/login" element={<Login onLogin={setUser} />} />
               <Route path="/store" element={<Store />} />
+              <Route path="/search" element={<AllGamesPage />} />
               <Route path="/store/game/:platform/:id" element={<StoreGamePage />} />
               <Route path="/library" element={<LibraryPage />} />
               <Route path="/all-games" element={<AllGamesPage />} />

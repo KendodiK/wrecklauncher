@@ -1,5 +1,6 @@
 import React from 'react';
 import { AnimatePresence, motion } from 'motion/react';
+import PlatformBadge from './PlatformBadge.jsx';
 
 const AllGamesDrawer = ({
   open,
@@ -57,7 +58,13 @@ const AllGamesDrawer = ({
                     }}
                     className={`lib-drawer-item ${isActive ? 'lib-drawer-item-active' : ''} ${game.cracked ? 'lib-drawer-item-cracked' : ''}`}
                   >
-                    <img src={game.coverUrl} alt="" className="lib-drawer-item-img" />
+                    <div className="lib-drawer-item-img-wrap">
+                      <img src={game.coverUrl} alt="" className="lib-drawer-item-img" />
+                      <PlatformBadge
+                        platform={game?.launcherId || game?.platform_name || game?.platform}
+                        className="lib-platform-badge-drawer"
+                      />
+                    </div>
                     <div className="min-w-0">
                       <div className="lib-drawer-item-title">{game.title}</div>
                       <div className="lib-drawer-item-meta">

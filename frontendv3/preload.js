@@ -197,6 +197,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   close: () => ipcRenderer.send('window:close'),
   toggleDevTools: () => ipcRenderer.send('window:toggle-devtools'),
   invoke: (channel, ...args) => invokeWithTokenSync(channel, ...args),
+  openExternalUrl: (url) => ipcRenderer.invoke('shell:open-external-url', url),
 
   // Controller helpers (serverless modules in Electron main)
   getToken: async () => {
@@ -239,8 +240,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     if (typeof token === 'string' && token.trim()) setAuthToken(token);
     return token;
   },
-  register: async (username, password, email) => {
-    const token = await ipcRenderer.invoke('user:register', username, password, email);
+  register: async (username, password, email, profile) => {
+    const token = await ipcRenderer.invoke('user:register', username, password, email, profile);
     if (typeof token === 'string' && token.trim()) setAuthToken(token);
     return token;
   },
@@ -371,6 +372,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
   /** @returns {Promise<import('./electron/models').TorrentProgress[]>} */
   torrentGetStatus: () => ipcRenderer.invoke('torrent:get-status'),
   /**
+   * Persistent no-TTL torrent cache stored in main process userData.
+   * @param {string} key
+   * @returns {Promise<{ value: any, updatedAt: number }|null>}
+   */
+  torrentCacheGet: (key) => ipcRenderer.invoke('torrent-cache:get', key),
+  /**
+   * @param {string} key
+   * @param {any} value
+   * @returns {Promise<boolean>}
+   */
+  torrentCacheSet: (key, value) => ipcRenderer.invoke('torrent-cache:set', key, value),
+  /**
+   * @param {string} [key]
+   * @returns {Promise<boolean>}
+   */
+  torrentCacheInvalidate: (key) => ipcRenderer.invoke('torrent-cache:invalidate', key),
+  /**
    * Open the download folder/path for a torrent.
    * @param {string} infoHash
    * @param {string} [savePath]
@@ -430,6 +448,28 @@ contextBridge.exposeInMainWorld('electronAPI', {
       appId,
       platform,
       price,
+      countryCode: resolvedCountryCode,
+      token: token || undefined,
+    });
+  },
+  syncScrapedGameDetailsByAppIdAndPlatform: async (payload) => {
+    const incoming = payload && typeof payload === 'object' ? payload : {};
+    const resolvedCountryCode = await resolvePreferredCountryCode(incoming.countryCode);
+
+    let token = typeof incoming.token === 'string' ? incoming.token.trim() : '';
+    if (!token) {
+      token = getAuthToken() || '';
+    }
+    if (!token) {
+      try {
+        token = await resolveAuthToken();
+      } catch {
+        token = '';
+      }
+    }
+
+    return ipcRenderer.invoke('games:sync-scraped-details', {
+      ...incoming,
       countryCode: resolvedCountryCode,
       token: token || undefined,
     });

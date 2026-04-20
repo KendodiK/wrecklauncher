@@ -25,16 +25,49 @@ let showMainWindowFromTray = () => {
   mainWindow.focus();
 };
 
+const ALLOWED_EXTERNAL_PROTOCOLS = new Set([
+  'http:',
+  'https:',
+  'mailto:',
+  'steam:',
+  'goggalaxy:',
+  'itch:',
+  'magnet:',
+]);
+
+/**
+ * @param {unknown} value
+ * @returns {string|null}
+ */
+function normalizeOpenExternalUrl(value) {
+  const rawUrl = String(value || '').trim();
+  if (!rawUrl) return null;
+
+  let parsed;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+
+  if (!ALLOWED_EXTERNAL_PROTOCOLS.has(parsed.protocol)) return null;
+  return parsed.toString();
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1024,
     height: 768,
+    minWidth: 1024,
+    minHeight: 700,
     frame: false,
     webPreferences: {
       // preload.js lives at the project root, one level up from this file
       preload: path.join(__dirname, '..', 'preload.js'),
     },
   });
+
+  mainWindow.setMinimumSize(1024, 700);
 
   mainWindow.webContents.on(
     'did-fail-load',
@@ -59,6 +92,16 @@ function createWindow() {
   mainWindow.webContents.on('did-finish-load', () => {
     const currentUrl = mainWindow?.webContents.getURL();
     console.log('[electron] did-finish-load:', currentUrl);
+  });
+
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    const normalizedUrl = normalizeOpenExternalUrl(url);
+    if (normalizedUrl) {
+      void shell.openExternal(normalizedUrl).catch((error) => {
+        console.warn('[electron] Failed to open external URL from renderer:', normalizedUrl, error);
+      });
+    }
+    return { action: 'deny' };
   });
 
   mainWindow.on('close', (event) => {
@@ -246,6 +289,10 @@ app.whenReady().then(() => {
   let settingsCtrl = null;
   /** @type {import('./controllers/PirateLibraryController')|null} */
   let pirateLibraryCtrl = null;
+  /** @type {import('./controllers/LibraryCacheController')|null} */
+  let libraryCacheCtrl = null;
+  /** @type {import('./controllers/TorrentStateCacheController')|null} */
+  let torrentStateCacheCtrl = null;
 
   function getUserCtrl() {
     if (!userCtrl) {
@@ -348,6 +395,22 @@ function getShopSpecialsCtrl() {
       pirateLibraryCtrl = new PirateLibraryController();
     }
     return pirateLibraryCtrl;
+  }
+
+  function getLibraryCacheCtrl() {
+    if (!libraryCacheCtrl) {
+      const LibraryCacheController = require('./controllers/LibraryCacheController');
+      libraryCacheCtrl = new LibraryCacheController();
+    }
+    return libraryCacheCtrl;
+  }
+
+  function getTorrentStateCacheCtrl() {
+    if (!torrentStateCacheCtrl) {
+      const TorrentStateCacheController = require('./controllers/TorrentStateCacheController');
+      torrentStateCacheCtrl = new TorrentStateCacheController();
+    }
+    return torrentStateCacheCtrl;
   }
 
   const bootToken = readPersistedAuthToken();
@@ -473,6 +536,16 @@ function getShopSpecialsCtrl() {
       }
     });
   }
+
+  handle('shell:open-external-url', async (_event, rawUrl) => {
+    const normalizedUrl = normalizeOpenExternalUrl(rawUrl);
+    if (!normalizedUrl) {
+      throw new Error(`Invalid external URL: ${String(rawUrl || '')}`);
+    }
+
+    await shell.openExternal(normalizedUrl);
+    return { ok: true, url: normalizedUrl };
+  });
 
   // Compatibility: still expose token fetch endpoint for legacy client-side flows.
   handle('user:get-token', async () => {
@@ -652,6 +725,30 @@ function getShopSpecialsCtrl() {
   // Settings (global app settings)
   handle('settings:get', async () => {
     return await getSettingsCtrl().getSettings();
+  });
+
+  handle('library-cache:get', async (_event, keyRaw) => {
+    return getLibraryCacheCtrl().get(keyRaw);
+  });
+
+  handle('library-cache:set', async (_event, keyRaw, value, expiresAtRaw) => {
+    return getLibraryCacheCtrl().set(keyRaw, value, expiresAtRaw);
+  });
+
+  handle('library-cache:invalidate', async (_event, keyRaw) => {
+    return getLibraryCacheCtrl().invalidate(keyRaw);
+  });
+
+  handle('torrent-cache:get', async (_event, keyRaw) => {
+    return getTorrentStateCacheCtrl().get(keyRaw);
+  });
+
+  handle('torrent-cache:set', async (_event, keyRaw, value) => {
+    return getTorrentStateCacheCtrl().set(keyRaw, value);
+  });
+
+  handle('torrent-cache:invalidate', async (_event, keyRaw) => {
+    return getTorrentStateCacheCtrl().invalidate(keyRaw);
   });
 
   handle('settings:update', async (_event, category, key, value) => {
@@ -1233,7 +1330,23 @@ handle('steam:get-installed-games', async () => {
 
     if (!gameDetails) return null;
     console.log('Fetched game details:', gameDetails);
-    const backendPirateSites = Array.isArray(gameDetails.pirate_sites) ? gameDetails.pirate_sites : [];
+    let backendPirateSites = Array.isArray(gameDetails.pirate_sites) ? gameDetails.pirate_sites : [];
+    if (backendPirateSites.length < 1) {
+      const gameId = Number(gameDetails.id);
+      if (Number.isFinite(gameId) && gameId > 0) {
+        try {
+          const byIdDetails = await getGamesCtrl().getAllDetailsByID(gameId, countryCode);
+          const byIdPirateSites = Array.isArray(byIdDetails?.pirate_sites) ? byIdDetails.pirate_sites : [];
+          if (byIdPirateSites.length > 0) {
+            backendPirateSites = byIdPirateSites;
+            gameDetails.pirate_sites = byIdPirateSites;
+            console.log('Pirate sites loaded from game-id fallback endpoint:', byIdPirateSites);
+          }
+        } catch (error) {
+          console.warn('Pirate sites game-id fallback failed:', error);
+        }
+      }
+    }
     console.log('Pirate sites from backend:', backendPirateSites);
 
     const scrapedPiratePromise = getPirateSitesForGame(gameDetails.name || '');
@@ -1396,6 +1509,98 @@ handle('steam:get-installed-games', async () => {
       cost: requestedPrice,
       countryCode,
     };
+  });
+
+  handle('games:sync-scraped-details', async (_event, payload) => {
+    const incoming = payload && typeof payload === 'object' ? payload : {};
+    const appId = Number(incoming.app_id ?? incoming.appId);
+    const rawPlatform = String(incoming.platform_name ?? incoming.platform ?? '').trim();
+    const normalizedPlatform = rawPlatform.toLowerCase() === 'gog.com'
+      ? 'gog'
+      : (rawPlatform.toLowerCase() === 'itch.io' ? 'itchio' : rawPlatform);
+    const countryCode = await resolvePreferredCountryCode(incoming.countryCode ?? incoming.country_code);
+
+    if (!Number.isFinite(appId) || appId <= 0) {
+      return { ok: false, action: 'skipped', changedFields: [], gameId: null, reason: 'invalid-app-id', countryCode };
+    }
+    if (!normalizedPlatform) {
+      return { ok: false, action: 'skipped', changedFields: [], gameId: null, reason: 'invalid-platform', countryCode };
+    }
+
+    let token = typeof incoming.token === 'string' ? incoming.token.trim() : '';
+    if (!token) {
+      try {
+        const persistedToken = await getUserCtrl().getToken();
+        token = typeof persistedToken === 'string' ? persistedToken.trim() : '';
+      } catch {
+        token = '';
+      }
+    }
+
+    if (!token) {
+      return { ok: false, action: 'skipped', changedFields: [], gameId: null, reason: 'missing-token', countryCode };
+    }
+
+    try {
+      getUserCtrl().setToken(token);
+    } catch {
+      // ignore
+    }
+
+    const toOptionalString = (value) => {
+      if (value === null || value === undefined) return null;
+      const text = String(value).trim();
+      return text ? text : null;
+    };
+
+    const normalizedGenreNames = (
+      Array.isArray(incoming.genre_names)
+        ? incoming.genre_names
+        : (Array.isArray(incoming.genreNames) ? incoming.genreNames : [])
+    )
+      .map((entry) => String(entry || '').trim())
+      .filter((entry) => !!entry);
+
+    const costValue = incoming.cost === null || incoming.cost === undefined || incoming.cost === ''
+      ? null
+      : Number(incoming.cost);
+
+    const scrapedPayload = {
+      app_id: appId,
+      platform_name: normalizedPlatform,
+      name: toOptionalString(incoming.name ?? incoming.title),
+      banner_img: toOptionalString(incoming.banner_img ?? incoming.bannerImg ?? incoming.coverImage ?? incoming.heroImage),
+      description: toOptionalString(incoming.description ?? incoming.longDescription),
+      minimum_requirements: toOptionalString(incoming.minimum_requirements ?? incoming.minimumRequirements),
+      genre_names: normalizedGenreNames,
+      country_code: countryCode,
+    };
+
+    if (Number.isFinite(costValue) && costValue >= 0) {
+      scrapedPayload.cost = costValue;
+    }
+
+    try {
+      const syncResult = await getGamesCtrl().syncScrapedGameWithServer(token, scrapedPayload);
+      return {
+        ok: true,
+        countryCode,
+        ...syncResult,
+      };
+    } catch (error) {
+      const reason = error && typeof error === 'object' && error.code === 'WRECK_INVALID_TOKEN'
+        ? 'invalid-token'
+        : 'sync-failed';
+      return {
+        ok: false,
+        action: 'skipped',
+        changedFields: [],
+        gameId: null,
+        reason,
+        countryCode,
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
   });
 
   handle('games:scrape', async (_event, gameUrl) => {
@@ -1993,15 +2198,6 @@ handle('steam:get-installed-games', async () => {
     const requestedSavePath = String(savePath || '').trim();
     const requestedDisplayName = String(displayName || '').trim();
 
-    /** @param {string} value */
-    const sanitizeFolderName = (value) => {
-      return String(value || '')
-        .replace(/[<>:"/\\|?*\u0000-\u001f]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .slice(0, 120);
-    };
-
     let configuredDefaultSavePath = '';
     if (!requestedSavePath) {
       try {
@@ -2016,24 +2212,17 @@ handle('steam:get-installed-games', async () => {
       }
     }
 
-    const baseSavePath = requestedSavePath || configuredDefaultSavePath || app.getPath('downloads');
-    const safeDisplayName = sanitizeFolderName(requestedDisplayName);
-    let sPath = baseSavePath;
-
-    if (safeDisplayName) {
-      const currentFolder = String(path.basename(baseSavePath || '') || '').trim().toLowerCase();
-      const targetFolder = safeDisplayName.toLowerCase();
-      if (currentFolder !== targetFolder) {
-        sPath = path.join(baseSavePath, safeDisplayName);
-      }
-    }
+    // Keep torrent save path stable and aligned with settings/requested path.
+    // Do not append displayName folders here because that can create nested paths
+    // on resume when the display name changes after metadata resolution.
+    let sPath = requestedSavePath || configuredDefaultSavePath || app.getPath('downloads');
 
     try {
       fs.mkdirSync(sPath, { recursive: true });
     } catch (mkdirError) {
       console.warn('[torrent:start] failed to prepare save path, falling back to downloads:', mkdirError);
       const fallbackRoot = app.getPath('downloads');
-      sPath = safeDisplayName ? path.join(fallbackRoot, safeDisplayName) : fallbackRoot;
+      sPath = fallbackRoot;
       try {
         fs.mkdirSync(sPath, { recursive: true });
       } catch {

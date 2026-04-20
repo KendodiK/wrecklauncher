@@ -36,6 +36,97 @@ class SteamGamesController extends GamesController {
     return new Promise((r) => setTimeout(r, ms));
   }
 
+  /** @type {Set<string>} */
+  static #zeroDecimalCurrencies = new Set([
+    'BIF',
+    'CLP',
+    'DJF',
+    'GNF',
+    'ISK',
+    'JPY',
+    'KMF',
+    'KRW',
+    'PYG',
+    'RWF',
+    'UGX',
+    'VND',
+    'VUV',
+    'XAF',
+    'XOF',
+    'XPF',
+  ]);
+
+  /**
+   * @param {unknown} rawValue
+   * @returns {number|null}
+   */
+  static #parsePriceFromFormattedText(rawValue) {
+    const text = String(rawValue || '').trim();
+    if (!text) return null;
+    if (/^free$/i.test(text)) return 0;
+
+    const compact = text.replace(/\s+/g, '');
+    const numericLike = compact.replace(/[^0-9,.-]/g, '');
+    if (!/[0-9]/.test(numericLike)) return null;
+
+    const lastDot = numericLike.lastIndexOf('.');
+    const lastComma = numericLike.lastIndexOf(',');
+    const decimalSep = lastDot > lastComma ? '.' : (lastComma > -1 ? ',' : '');
+
+    let normalized = numericLike;
+    if (decimalSep) {
+      const sepPattern = decimalSep === '.' ? /,/g : /\./g;
+      normalized = normalized.replace(sepPattern, '');
+
+      const lastDecimalIndex = normalized.lastIndexOf(decimalSep);
+      if (lastDecimalIndex >= 0) {
+        const left = normalized.slice(0, lastDecimalIndex).replace(new RegExp(`\\${decimalSep}`, 'g'), '');
+        const right = normalized.slice(lastDecimalIndex + 1);
+        if (right.length === 0) {
+          normalized = left;
+        } else if (right.length > 2 && left.length > 0) {
+          normalized = `${left}${right}`;
+        } else {
+          normalized = `${left}.${right}`;
+        }
+      }
+    } else {
+      normalized = normalized.replace(/[.,]/g, '');
+    }
+
+    const parsed = Number(normalized);
+    if (!Number.isFinite(parsed) || parsed < 0) return null;
+    return Number(parsed.toFixed(2));
+  }
+
+  /**
+   * @param {any} priceOverview
+   * @returns {number|null}
+   */
+  static #normalizeSteamCost(priceOverview) {
+    if (!priceOverview || typeof priceOverview !== 'object') return null;
+
+    const formattedPrice = SteamGamesController.#parsePriceFromFormattedText(
+      priceOverview.final_formatted || priceOverview.initial_formatted || ''
+    );
+    if (formattedPrice !== null) return formattedPrice;
+
+    const finalNumeric = Number(priceOverview.final);
+    if (!Number.isFinite(finalNumeric) || finalNumeric < 0) return null;
+
+    const currency = String(priceOverview.currency || '').trim().toUpperCase();
+    if (SteamGamesController.#zeroDecimalCurrencies.has(currency)) {
+      return Number(finalNumeric.toFixed(2));
+    }
+
+    if (Number.isInteger(finalNumeric)) {
+      if (finalNumeric >= 100) return Number((finalNumeric / 100).toFixed(2));
+      return Number(finalNumeric.toFixed(2));
+    }
+
+    return Number(finalNumeric.toFixed(2));
+  }
+
   /**
    * Search Steam store app IDs by game title.
    *
@@ -265,11 +356,17 @@ class SteamGamesController extends GamesController {
         (data.mac_requirements && typeof data.mac_requirements === 'object' ? data.mac_requirements.minimum : null) ||
         (data.linux_requirements && typeof data.linux_requirements === 'object' ? data.linux_requirements.minimum : null) ||
         null;
+      const rawPriceOverview = data?.price_overview && typeof data.price_overview === 'object'
+        ? data.price_overview
+        : null;
 
       const priceOverviewFinal =
-        typeof data?.price_overview?.final === 'number'
-          ? data.price_overview.final
+        typeof rawPriceOverview?.final === 'number'
+          ? rawPriceOverview.final
           : (data?.is_free === true ? 0 : null);
+      const normalizedCost = data?.is_free === true
+        ? 0
+        : SteamGamesController.#normalizeSteamCost(rawPriceOverview);
 
       let gameDetails = {
         appid: data.steam_appid ?? appIdNum,
@@ -277,6 +374,7 @@ class SteamGamesController extends GamesController {
         bannerimg: data.header_image ?? data.capsule_image ?? null,
         genres: Array.isArray(data.genres) ? data.genres : [],
         price_overview: priceOverviewFinal,
+        cost: normalizedCost,
         minimum_requirements: typeof minimumRequirements === 'string' && minimumRequirements.trim() ? minimumRequirements : null,
         cc: ccToUse ?? null,
         lang,
@@ -293,7 +391,7 @@ class SteamGamesController extends GamesController {
             .filter((s) => typeof s === 'string' && s.trim())
         : [];
 
-      const cost = typeof priceOverviewFinal === 'number' ? priceOverviewFinal / 100 : null;
+      const cost = normalizedCost;
       try {
         const syncCountryCode = String(ccToUse || requestedCc || 'DE').trim().toUpperCase() || 'DE';
         await super.syncScrapedGameWithServer(token, {

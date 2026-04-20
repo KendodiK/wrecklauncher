@@ -104,7 +104,17 @@ const ProfilePage = ({ user }) => {
 			if (!window?.electronAPI?.getSettings) return;
 			try {
 				const settings = await window.electronAPI.getSettings();
-				const profile = settings?.account?.profile || {};
+				const profileMap =
+					settings?.account?.profilesByUserId && typeof settings.account.profilesByUserId === 'object'
+						? settings.account.profilesByUserId
+						: null;
+				const scopedProfile =
+					viewerUserId && profileMap && typeof profileMap[viewerUserId] === 'object'
+						? profileMap[viewerUserId]
+						: null;
+				const profile = viewerUserId
+					? (scopedProfile || {})
+					: (settings?.account?.profile || {});
 				if (!cancelled) {
 					setSettingsProfile({
 						bio: typeof profile.bio === 'string' ? profile.bio : '',
@@ -121,7 +131,7 @@ const ProfilePage = ({ user }) => {
 		return () => {
 			cancelled = true;
 		};
-	}, []);
+	}, [viewerUserId]);
 
 	useEffect(() => {
 		let cancelled = false;

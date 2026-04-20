@@ -285,12 +285,12 @@ const GameGrid = ({ games = [], isLoading = false, emptyMessage = 'No games foun
 							{(tags.length > 0 || genres.length > 0) ? (
 								<div className="mb-2 flex flex-wrap gap-1">
 									{tags.map((tag) => (
-										<span key={`tag-${gameId}-${tag}`} className="text-[10px] px-1.5 py-0.5 bg-slate-900/70 text-slate-300 rounded">
+										<span key={`tag-${gameId}-${tag}`} className="store-universal-tag store-universal-tag-sm">
 											{tag}
 										</span>
 									))}
 									{genres.map((genre) => (
-										<span key={`genre-${gameId}-${genre}`} className="text-[10px] px-1.5 py-0.5 bg-sky-900/35 text-sky-200 rounded">
+										<span key={`genre-${gameId}-${genre}`} className="store-universal-tag store-universal-tag-sm">
 											{genre}
 										</span>
 									))}

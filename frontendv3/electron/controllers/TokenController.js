@@ -108,6 +108,7 @@ class TokenController {
     /** @type {Error|null} */
     let lastMeaningfulError = null;
 
+    /** @type {{ method: 'PUT', url: string, headers: Record<string, string>, body?: string }[]} */
     const attempts = [
       {
         method: 'PUT',
@@ -173,7 +174,26 @@ class TokenController {
    * @returns token on success, null on failure (e.g. username taken)
     * @throws on HTTP errors or unexpected responses
    */
-  async register(username, password, email) {
+  async register(username, password, email, profile = null) {
+    /** @type {{ avatarUrl?: string, pfp?: string, bio?: string }} */
+    const normalizedProfile = profile && typeof profile === 'object' ? profile : {};
+    const avatarUrl = String(normalizedProfile.avatarUrl || normalizedProfile.pfp || '').trim();
+    const bio = String(normalizedProfile.bio || '').trim();
+
+    /** @type {{ username: string, password: string, email: string, pfp?: string, avatarUrl?: string, bio?: string }} */
+    const payload = {
+      username,
+      password,
+      email,
+    };
+    if (avatarUrl) {
+      payload.pfp = avatarUrl;
+      payload.avatarUrl = avatarUrl;
+    }
+    if (bio) {
+      payload.bio = bio;
+    }
+
     const url = joinUrl(this._serverUrl, 'api', 'native-users');
     const { ok, status, json, text } = await fetchJsonSafe(url, { 
       method: 'POST',
@@ -181,11 +201,7 @@ class TokenController {
         'content-type': 'application/json',
         accept: 'application/json',
       },
-      body: JSON.stringify({
-        username,
-        password,
-        email
-      })
+      body: JSON.stringify(payload)
     });
     if (!ok) throw new Error(`Registration failed: HTTP ${status}${text ? ` - ${String(text).slice(0, 200)}` : ''}`);
     if (json && typeof json === 'object') {

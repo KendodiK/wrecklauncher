@@ -1,9 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Storeslider from '../store/Storeslider.jsx';
-import GameGrid from '../store/GameGrid.jsx';
 import FilteredGamesSection from '../store/FilteredGamesSection.jsx';
 import LauncherSelector from '../store/LauncherSelector.jsx';
-import { combineFilters, hasActiveFilters as checkActiveFilters } from '../../utils/gameUtils.js';
 import { resolveStorePlatformFromGame } from '../../utils/storeRouting.js';
 //import { runSmokeControllers } from '../../smokeControllers.js';
 
@@ -247,11 +245,6 @@ const Shopveiw = ({ items }) => {
 //         });
 //     }, []);
 	const [allGames, setAllGames] = useState([]);
-	const [filters, setFilters] = useState({
-		query: '',
-		genres: [],
-		priceRange: { min: 0, max: 100 },
-	});
 	const [isLoading, setIsLoading] = useState(true);
 	const [featuredGames, setFeaturedGames] = useState([]);
 	const [discountedGames, setDiscountedGames] = useState([]);
@@ -280,19 +273,6 @@ const Shopveiw = ({ items }) => {
 		return allGames;
 	}, [allGames, featuredGames, discountedGames, upcomingGames]);
 
-	const filteredGames = useMemo(() => {
-		return combineFilters(browseSectionGames, filters);
-	}, [browseSectionGames, filters]);
-
-	// Check if any filters are active
-	const hasFilters = useMemo(() => {
-		return checkActiveFilters(filters);
-	}, [filters]);
-
-	// Handle filter changes from sidebar
-	const handleFiltersChange = (newFilters) => {
-		setFilters(newFilters);
-	};
 const ensureFullBrowsePages = async () => {
 	if (isLoadingMoreBrowse || !hasMoreBrowse) return;
 
@@ -634,8 +614,7 @@ const ensureFullBrowsePages = async () => {
 			<div className="h-full px-3 py-4 overflow-y-auto">
 				<h1 className="text-2xl font-semibold mb-6 text-slate-100 text-center">Store</h1>
 
-				{/* Show carousels when no filters are active */}
-				{!hasFilters && (
+				{/* Show carousels before browse selection */}
 				<div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
 					{/* Featured Games */}
 					<section ref={featuredRef}>
@@ -684,21 +663,6 @@ const ensureFullBrowsePages = async () => {
 						<LauncherSelector />
 					</section>
 				</div>
-			)}
-
-			{/* Show grid when filters are active */}
-			{hasFilters && (
-				<section className="animate-in fade-in slide-in-from-top-4 duration-500">
-					<h2 className="text-2xl font-semibold mb-4 text-slate-100">
-						Search Results ({filteredGames.length})
-					</h2>
-					<GameGrid 
-						games={filteredGames} 
-						isLoading={isLoading}
-						emptyMessage="No games found matching your filters"
-					/>
-				</section>
-			)}
 
 			{/* Filtered games section with compact filters sidebar */}
 			<section className="mt-8 mb-6">
