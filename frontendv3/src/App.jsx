@@ -117,15 +117,25 @@ function App() {
     const patch = profilePatch && typeof profilePatch === 'object' ? profilePatch : {};
     const hasBio = Object.prototype.hasOwnProperty.call(patch, 'bio');
     const hasAvatar = Object.prototype.hasOwnProperty.call(patch, 'avatarUrl');
+    const hasUsername = Object.prototype.hasOwnProperty.call(patch, 'username');
+    const hasProfileUpdatedAt = Object.prototype.hasOwnProperty.call(patch, 'profileUpdatedAt');
 
-    if (!hasBio && !hasAvatar) return;
+    if (!hasBio && !hasAvatar && !hasUsername && !hasProfileUpdatedAt) return;
+
+    const incomingUsername = typeof patch.username === 'string' ? patch.username.trim() : '';
+    const profileUpdatedAt = Number(patch.profileUpdatedAt);
+    const nextProfileUpdatedAt = Number.isFinite(profileUpdatedAt) && profileUpdatedAt > 0
+      ? profileUpdatedAt
+      : Date.now();
 
     setUser((previous) => {
       if (!previous) return previous;
       return {
         ...previous,
+        username: hasUsername && incomingUsername ? incomingUsername : previous.username,
         bio: hasBio ? (patch.bio ?? null) : previous.bio,
         avatarUrl: hasAvatar ? (patch.avatarUrl ?? null) : previous.avatarUrl,
+        profileUpdatedAt: nextProfileUpdatedAt,
       };
     });
   }, []);

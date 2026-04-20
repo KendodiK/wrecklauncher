@@ -1896,8 +1896,6 @@ const StoreGamePage = () => {
 	const lastDbScrapeSyncKeyRef = useRef('');
 	const lastDbPriceSyncKeyRef = useRef('');
 	const lastDbBannerSyncKeyRef = useRef('');
-	const lastDbGogBannerSyncKeyRef = useRef('');
-	const lastDbItchBannerSyncKeyRef = useRef('');
 
 	const routeState = useMemo(() => normalizeLocationState(location?.state), [location?.state]);
 	const requestedPlatform = useMemo(() => normalizePlatformName(platform || routeState.platform_name), [platform, routeState.platform_name]);
@@ -2357,7 +2355,7 @@ const StoreGamePage = () => {
 			|| platformDetails?.__resolved_platform
 			|| requestedPlatform
 		);
-		if (currentPlatform !== 'steam') return;
+		if (!['steam', 'gog', 'itchio'].includes(currentPlatform)) return;
 
 		const currentAppId = pickFirstPositiveNumber(
 			dbDetails?.app_id,
@@ -2366,7 +2364,7 @@ const StoreGamePage = () => {
 		);
 		if (!currentAppId) return;
 
-		const parsedSteam = parsePlatformDetails('steam', platformDetails, currentAppId);
+		const parsedCurrentPlatform = parsePlatformDetails(currentPlatform, platformDetails, currentAppId);
 		const dbBanner = pickFirstFilledText(
 			dbDetails?.banner_img,
 			dbDetails?.bannerImg,
@@ -2375,28 +2373,33 @@ const StoreGamePage = () => {
 			dbDetails?.coverUrl,
 		);
 
+		const platformSpecificCandidates = currentPlatform === 'steam'
+			? [
+				...buildSteamHeroCandidates(currentAppId),
+				...buildSteamCoverCandidates(currentAppId),
+			]
+			: [];
+
 		const coverCandidates = uniqueImageCandidates([
-			parsedSteam?.heroImage,
-			parsedSteam?.coverImage,
+			parsedCurrentPlatform?.heroImage,
+			parsedCurrentPlatform?.coverImage,
 			routeState?.heroImage,
 			routeState?.coverImage,
 			model?.heroImage,
 			model?.coverImage,
-			...buildSteamHeroCandidates(currentAppId),
-			...buildSteamCoverCandidates(currentAppId),
+			...platformSpecificCandidates,
 			dbBanner,
 		]);
 		if (coverCandidates.length < 1) return;
 
 		const heroCandidates = uniqueImageCandidates([
-			parsedSteam?.heroImage,
-			parsedSteam?.coverImage,
+			parsedCurrentPlatform?.heroImage,
+			parsedCurrentPlatform?.coverImage,
 			routeState?.heroImage,
 			routeState?.coverImage,
 			model?.heroImage,
 			model?.coverImage,
-			...buildSteamHeroCandidates(currentAppId),
-			...buildSteamCoverCandidates(currentAppId),
+			...platformSpecificCandidates,
 			dbBanner,
 		]);
 
@@ -2433,18 +2436,18 @@ const StoreGamePage = () => {
 					});
 				}
 
-				const resolvedTitle = pickFirstFilledText(dbDetails?.name, parsedSteam?.title, model?.title, routeState?.title);
+				const resolvedTitle = pickFirstFilledText(dbDetails?.name, parsedCurrentPlatform?.title, model?.title, routeState?.title);
 				if (!resolvedTitle || isPlaceholderTitle(resolvedTitle)) return;
 
 				const knownCountryCode = normalizeCountryCode(dbDetails?.country_code) || null;
-				const syncKey = `${currentAppId}|steam|${nextBanner}|${String(knownCountryCode || '').toUpperCase()}`;
+				const syncKey = `${currentAppId}|${currentPlatform}|${nextBanner}|${String(knownCountryCode || '').toUpperCase()}`;
 				if (lastDbBannerSyncKeyRef.current === syncKey) return;
 				lastDbBannerSyncKeyRef.current = syncKey;
 
 				const countryCode = knownCountryCode || await resolvePreferredCountryCode(api);
 				const result = await api.syncScrapedGameDetailsByAppIdAndPlatform({
 					appId: currentAppId,
-					platform: 'steam',
+					platform: currentPlatform,
 					name: resolvedTitle,
 					banner_img: finalBanner,
 					countryCode,
@@ -2452,281 +2455,13 @@ const StoreGamePage = () => {
 
 				if (!result || result.ok !== true || result.action === 'skipped') return;
 
-				const refreshed = await api.getAllDetailsByAppIDAndPlatform(currentAppId, 'steam', countryCode);
+				const refreshed = await api.getAllDetailsByAppIDAndPlatform(currentAppId, currentPlatform, countryCode);
 				if (!cancelled && refreshed) {
 					setDbDetails(refreshed);
 				}
 			} catch (err) {
 				if (!cancelled) {
-					console.warn('Failed to validate and sync Steam store image in background:', err);
-				}
-			}
-		})();
-
-		return () => {
-			cancelled = true;
-		};
-	}, [
-		appId,
-		dbDetails?.app_id,
-		dbDetails?.banner_img,
-		dbDetails?.bannerImg,
-		dbDetails?.country_code,
-		dbDetails?.cover_url,
-		dbDetails?.name,
-		model?.appid,
-		model?.coverImage,
-		model?.heroImage,
-		model?.title,
-		platformDetails,
-		requestedPlatform,
-		routeState?.coverImage,
-		routeState?.heroImage,
-		routeState?.title,
-	]);
-
-	useEffect(() => {
-		let cancelled = false;
-		const api = typeof window !== 'undefined' ? window.electronAPI : null;
-		if (!api || typeof api.syncScrapedGameDetailsByAppIdAndPlatform !== 'function') return;
-
-		const currentPlatform = normalizePlatformName(
-			dbDetails?.platform_name
-			|| platformDetails?.__resolved_platform
-			|| requestedPlatform
-		);
-		if (currentPlatform !== 'itchio') return;
-
-		const currentAppId = pickFirstPositiveNumber(
-			dbDetails?.app_id,
-			model?.appid,
-			appId,
-		);
-		if (!currentAppId) return;
-
-		const parsedItch = parsePlatformDetails('itchio', platformDetails, currentAppId);
-		const dbBanner = pickFirstFilledText(
-			dbDetails?.banner_img,
-			dbDetails?.bannerImg,
-			dbDetails?.db_banner_img,
-			dbDetails?.cover_url,
-			dbDetails?.coverUrl,
-		);
-
-		const coverCandidates = uniqueImageCandidates([
-			parsedItch?.heroImage,
-			parsedItch?.coverImage,
-			routeState?.heroImage,
-			routeState?.coverImage,
-			model?.heroImage,
-			model?.coverImage,
-			dbBanner,
-		]);
-		if (coverCandidates.length < 1) return;
-
-		const heroCandidates = uniqueImageCandidates([
-			parsedItch?.heroImage,
-			parsedItch?.coverImage,
-			routeState?.heroImage,
-			routeState?.coverImage,
-			model?.heroImage,
-			model?.coverImage,
-			dbBanner,
-		]);
-
-		void (async () => {
-			try {
-				const resolvedCover = await resolveFirstLoadableImageUrl(coverCandidates);
-				const resolvedHero = await resolveFirstLoadableImageUrl([
-					resolvedCover,
-					...heroCandidates,
-				]);
-
-				if (cancelled) return;
-
-				const finalBanner = pickFirstFilledText(resolvedCover, resolvedHero);
-				if (!finalBanner) return;
-
-				const previousDbBanner = String(dbBanner || '').trim().toLowerCase();
-				const nextBanner = finalBanner.toLowerCase();
-				if (previousDbBanner !== nextBanner) {
-					setDbDetails((previous) => {
-						if (!previous || typeof previous !== 'object') return previous;
-						const current = pickFirstFilledText(
-							previous.banner_img,
-							previous.bannerImg,
-							previous.db_banner_img,
-							previous.cover_url,
-							previous.coverUrl,
-						).toLowerCase();
-						if (current === nextBanner) return previous;
-						return {
-							...previous,
-							banner_img: finalBanner,
-						};
-					});
-				}
-
-				const resolvedTitle = pickFirstFilledText(dbDetails?.name, parsedItch?.title, model?.title, routeState?.title);
-				if (!resolvedTitle || isPlaceholderTitle(resolvedTitle)) return;
-
-				const knownCountryCode = normalizeCountryCode(dbDetails?.country_code) || null;
-				const syncKey = `${currentAppId}|itchio|${nextBanner}|${String(knownCountryCode || '').toUpperCase()}`;
-				if (lastDbItchBannerSyncKeyRef.current === syncKey) return;
-				lastDbItchBannerSyncKeyRef.current = syncKey;
-
-				const countryCode = knownCountryCode || await resolvePreferredCountryCode(api);
-				const result = await api.syncScrapedGameDetailsByAppIdAndPlatform({
-					appId: currentAppId,
-					platform: 'itchio',
-					name: resolvedTitle,
-					banner_img: finalBanner,
-					countryCode,
-				});
-
-				if (!result || result.ok !== true || result.action === 'skipped') return;
-
-				const refreshed = await api.getAllDetailsByAppIDAndPlatform(currentAppId, 'itchio', countryCode);
-				if (!cancelled && refreshed) {
-					setDbDetails(refreshed);
-				}
-			} catch (err) {
-				if (!cancelled) {
-					console.warn('Failed to validate and sync Itch store image in background:', err);
-				}
-			}
-		})();
-
-		return () => {
-			cancelled = true;
-		};
-	}, [
-		appId,
-		dbDetails?.app_id,
-		dbDetails?.banner_img,
-		dbDetails?.bannerImg,
-		dbDetails?.country_code,
-		dbDetails?.cover_url,
-		dbDetails?.name,
-		model?.appid,
-		model?.coverImage,
-		model?.heroImage,
-		model?.title,
-		platformDetails,
-		requestedPlatform,
-		routeState?.coverImage,
-		routeState?.heroImage,
-		routeState?.title,
-	]);
-
-	useEffect(() => {
-		let cancelled = false;
-		const api = typeof window !== 'undefined' ? window.electronAPI : null;
-		if (!api || typeof api.syncScrapedGameDetailsByAppIdAndPlatform !== 'function') return;
-
-		const currentPlatform = normalizePlatformName(
-			dbDetails?.platform_name
-			|| platformDetails?.__resolved_platform
-			|| requestedPlatform
-		);
-		if (currentPlatform !== 'gog') return;
-
-		const currentAppId = pickFirstPositiveNumber(
-			dbDetails?.app_id,
-			model?.appid,
-			appId,
-		);
-		if (!currentAppId) return;
-
-		const parsedGog = parsePlatformDetails('gog', platformDetails, currentAppId);
-		const dbBanner = pickFirstFilledText(
-			dbDetails?.banner_img,
-			dbDetails?.bannerImg,
-			dbDetails?.db_banner_img,
-			dbDetails?.cover_url,
-			dbDetails?.coverUrl,
-		);
-
-		const coverCandidates = uniqueImageCandidates([
-			parsedGog?.heroImage,
-			parsedGog?.coverImage,
-			routeState?.heroImage,
-			routeState?.coverImage,
-			model?.heroImage,
-			model?.coverImage,
-			dbBanner,
-		]);
-		if (coverCandidates.length < 1) return;
-
-		const heroCandidates = uniqueImageCandidates([
-			parsedGog?.heroImage,
-			parsedGog?.coverImage,
-			routeState?.heroImage,
-			routeState?.coverImage,
-			model?.heroImage,
-			model?.coverImage,
-			dbBanner,
-		]);
-
-		void (async () => {
-			try {
-				const resolvedCover = await resolveFirstLoadableImageUrl(coverCandidates);
-				const resolvedHero = await resolveFirstLoadableImageUrl([
-					resolvedCover,
-					...heroCandidates,
-				]);
-
-				if (cancelled) return;
-
-				const finalBanner = pickFirstFilledText(resolvedCover, resolvedHero);
-				if (!finalBanner) return;
-
-				const previousDbBanner = String(dbBanner || '').trim().toLowerCase();
-				const nextBanner = finalBanner.toLowerCase();
-				if (previousDbBanner !== nextBanner) {
-					setDbDetails((previous) => {
-						if (!previous || typeof previous !== 'object') return previous;
-						const current = pickFirstFilledText(
-							previous.banner_img,
-							previous.bannerImg,
-							previous.db_banner_img,
-							previous.cover_url,
-							previous.coverUrl,
-						).toLowerCase();
-						if (current === nextBanner) return previous;
-						return {
-							...previous,
-							banner_img: finalBanner,
-						};
-					});
-				}
-
-				const resolvedTitle = pickFirstFilledText(dbDetails?.name, parsedGog?.title, model?.title, routeState?.title);
-				if (!resolvedTitle || isPlaceholderTitle(resolvedTitle)) return;
-
-				const knownCountryCode = normalizeCountryCode(dbDetails?.country_code) || null;
-				const syncKey = `${currentAppId}|gog|${nextBanner}|${String(knownCountryCode || '').toUpperCase()}`;
-				if (lastDbGogBannerSyncKeyRef.current === syncKey) return;
-				lastDbGogBannerSyncKeyRef.current = syncKey;
-
-				const countryCode = knownCountryCode || await resolvePreferredCountryCode(api);
-				const result = await api.syncScrapedGameDetailsByAppIdAndPlatform({
-					appId: currentAppId,
-					platform: 'gog',
-					name: resolvedTitle,
-					banner_img: finalBanner,
-					countryCode,
-				});
-
-				if (!result || result.ok !== true || result.action === 'skipped') return;
-
-				const refreshed = await api.getAllDetailsByAppIDAndPlatform(currentAppId, 'gog', countryCode);
-				if (!cancelled && refreshed) {
-					setDbDetails(refreshed);
-				}
-			} catch (err) {
-				if (!cancelled) {
-					console.warn('Failed to validate and sync GOG store image in background:', err);
+					console.warn(`Failed to validate and sync ${String(currentPlatform).toUpperCase()} store image in background:`, err);
 				}
 			}
 		})();

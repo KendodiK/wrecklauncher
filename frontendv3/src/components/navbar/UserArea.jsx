@@ -22,6 +22,8 @@ const UserArea = ({ user, onLogout }) => {
         user?.pfp)) ||
     '';
   const avatarUrl = typeof avatarCandidate === 'string' ? avatarCandidate.trim() : '';
+  const avatarRenderVersion = Number(user?.profileUpdatedAt || 0);
+  const avatarRenderKey = `${avatarUrl}|${Number.isFinite(avatarRenderVersion) && avatarRenderVersion > 0 ? avatarRenderVersion : 'static'}`;
 
   useEffect(() => {
     setAvatarFailed(false);
@@ -95,9 +97,11 @@ const UserArea = ({ user, onLogout }) => {
       >
         {avatarUrl && !avatarFailed ? (
           <img
+            key={avatarRenderKey}
             src={avatarUrl}
             alt={`${username} avatar`}
             className="w-5 h-5 rounded-full object-cover border border-slate-500"
+            onLoad={() => setAvatarFailed(false)}
             onError={() => setAvatarFailed(true)}
           />
         ) : (
