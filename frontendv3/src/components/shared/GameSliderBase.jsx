@@ -184,7 +184,30 @@ const GameSliderBase = ({
 		if (!baseCards.length) return [];
 
 		if (useProceduralLoop) {
-			if (streamCards.length > 0) return streamCards;
+			if (streamCards.length > 0) {
+				// Keep stream ordinals/keys stable for infinite-loop behavior,
+				// but always hydrate visual fields (image/title/metadata) from
+				// the latest base card data so background image refreshes also
+				// update the smaller strip cards immediately.
+				return streamCards.map((entry) => {
+					const baseIndex = Number(entry?._baseIndex);
+					if (!Number.isFinite(baseIndex) || baseIndex < 0 || baseIndex >= baseCards.length) {
+						return entry;
+					}
+
+					const latestBaseCard = baseCards[baseIndex];
+					if (!latestBaseCard || typeof latestBaseCard !== 'object') {
+						return entry;
+					}
+
+					return {
+						...latestBaseCard,
+						_key: entry._key,
+						_baseIndex: entry._baseIndex,
+						_streamOrdinal: entry._streamOrdinal,
+					};
+				});
+			}
 
 			const side = Math.max(1, effectiveLoopCloneCount);
 			const startOrdinal = -side;

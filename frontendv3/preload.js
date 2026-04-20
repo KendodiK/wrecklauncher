@@ -51,6 +51,7 @@ function setAuthToken(token) {
 // Keep renderer localStorage in sync if main refreshes token.
 ipcRenderer.on('auth:token-updated', (_event, token) => {
   setAuthToken(typeof token === 'string' ? token : null);
+  void refreshSettingsCache();
 });
 
 function notifyAuthExpired() {
@@ -105,7 +106,12 @@ async function invokeWithTokenSync(channel, ...args) {
   if (ch === 'user:login' || ch === 'user:register' || ch === 'user:get-token') {
     if (typeof result === 'string' && result.trim()) {
       setAuthToken(result);
+      await refreshSettingsCache();
     }
+  }
+
+  if (ch === 'user:clear-token') {
+    invalidateCountryCodeCache();
   }
 
   return result;
@@ -149,9 +155,80 @@ const COUNTRY_CACHE_TTL_MS = 30_000;
 let cachedCountryCode = null;
 let cachedCountryCodeExpiresAt = 0;
 
+function logSettingsCacheEvent(event, details = null) {
+  if (details && typeof details === 'object') {
+    console.info(`[preload/settings-cache] ${String(event || 'event')}`, details);
+    return;
+  }
+  console.info(`[preload/settings-cache] ${String(event || 'event')}`);
+}
+
 function invalidateCountryCodeCache() {
+  const previousCountryCode = cachedCountryCode;
+  const previousExpiresAt = cachedCountryCodeExpiresAt;
   cachedCountryCode = null;
   cachedCountryCodeExpiresAt = 0;
+  if (previousCountryCode || previousExpiresAt > 0) {
+    logSettingsCacheEvent('country cache invalidated', {
+      previousCountryCode,
+      previousExpiresAt,
+    });
+  }
+}
+
+function updateCountryCodeCacheFromSettings(settings) {
+  const now = Date.now();
+  const previousCountryCode = cachedCountryCode;
+  const previousExpiresAt = cachedCountryCodeExpiresAt;
+  const candidates = [
+    settings?.store?.countryCode,
+    settings?.display?.countryCode,
+    settings?.account?.countryCode,
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeCountryCode(candidate);
+    if (!normalized) continue;
+    cachedCountryCode = normalized;
+    cachedCountryCodeExpiresAt = now + COUNTRY_CACHE_TTL_MS;
+
+    if (previousCountryCode !== normalized) {
+      logSettingsCacheEvent('country cache changed', {
+        previousCountryCode,
+        nextCountryCode: normalized,
+        previousExpiresAt,
+        nextExpiresAt: cachedCountryCodeExpiresAt,
+      });
+    }
+
+    return normalized;
+  }
+
+  if (previousCountryCode) {
+    logSettingsCacheEvent('country cache source missing in settings payload', {
+      previousCountryCode,
+    });
+  }
+
+  return null;
+}
+
+async function refreshSettingsCache() {
+  try {
+    const settings = await ipcRenderer.invoke('settings:get');
+    const refreshedCode = updateCountryCodeCacheFromSettings(settings);
+    logSettingsCacheEvent('settings cache refreshed', {
+      countryCode: refreshedCode || null,
+      hasStoreCountryCode: normalizeCountryCode(settings?.store?.countryCode) || null,
+    });
+    return settings;
+  } catch (error) {
+    logSettingsCacheEvent('settings cache refresh failed', {
+      message: String(error?.message || error || ''),
+    });
+    invalidateCountryCodeCache();
+    return null;
+  }
 }
 
 async function resolvePreferredCountryCode(preferred) {
@@ -165,18 +242,8 @@ async function resolvePreferredCountryCode(preferred) {
 
   try {
     const settings = await ipcRenderer.invoke('settings:get');
-    const candidates = [
-      settings?.store?.countryCode,
-      settings?.display?.countryCode,
-      settings?.account?.countryCode,
-    ];
-    for (const candidate of candidates) {
-      const normalized = normalizeCountryCode(candidate);
-      if (!normalized) continue;
-      cachedCountryCode = normalized;
-      cachedCountryCodeExpiresAt = now + COUNTRY_CACHE_TTL_MS;
-      return normalized;
-    }
+    const normalized = updateCountryCodeCacheFromSettings(settings);
+    if (normalized) return normalized;
   } catch {
     // ignore and use locale fallback
   }
@@ -228,6 +295,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   clearToken: async () => {
     setAuthToken(null);
+    invalidateCountryCodeCache();
     try {
       await ipcRenderer.invoke('user:clear-token');
     } catch {
@@ -237,12 +305,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   login: async (username, password) => {
     const token = await ipcRenderer.invoke('user:login', username, password);
-    if (typeof token === 'string' && token.trim()) setAuthToken(token);
+    if (typeof token === 'string' && token.trim()) {
+      setAuthToken(token);
+      await refreshSettingsCache();
+    } else {
+      invalidateCountryCodeCache();
+    }
     return token;
   },
   register: async (username, password, email, profile) => {
     const token = await ipcRenderer.invoke('user:register', username, password, email, profile);
-    if (typeof token === 'string' && token.trim()) setAuthToken(token);
+    if (typeof token === 'string' && token.trim()) {
+      setAuthToken(token);
+      await refreshSettingsCache();
+    } else {
+      invalidateCountryCodeCache();
+    }
     return token;
   },
   getPlatformUserId: (platformName, platformUsername) => {
@@ -475,23 +553,36 @@ contextBridge.exposeInMainWorld('electronAPI', {
     });
   },
   // SettingsController
-  getSettings: () => ipcRenderer.invoke('settings:get'),
+  getSettings: async () => {
+    const settings = await ipcRenderer.invoke('settings:get');
+    updateCountryCodeCacheFromSettings(settings);
+    return settings;
+  },
   updateSetting: async (category, key, value) => {
     const updated = await ipcRenderer.invoke('settings:update', category, key, value);
-    invalidateCountryCodeCache();
+    if (!updateCountryCodeCacheFromSettings(updated)) {
+      invalidateCountryCodeCache();
+    }
     return updated;
   },
   updateSettings: async (newSettings) => {
     const updated = await ipcRenderer.invoke('settings:update-bulk', newSettings);
-    invalidateCountryCodeCache();
+    if (!updateCountryCodeCacheFromSettings(updated)) {
+      invalidateCountryCodeCache();
+    }
     return updated;
   },
   resetSettings: async () => {
     const defaults = await ipcRenderer.invoke('settings:reset');
-    invalidateCountryCodeCache();
+    if (!updateCountryCodeCacheFromSettings(defaults)) {
+      invalidateCountryCodeCache();
+    }
     return defaults;
   },
-  clearCache: () => ipcRenderer.invoke('settings:clear-cache'),
+  clearCache: async () => {
+    invalidateCountryCodeCache();
+    return ipcRenderer.invoke('settings:clear-cache');
+  },
   updatePlatformConnection: (platform, connected, username) => 
     ipcRenderer.invoke('settings:update-platform', platform, connected, username),
 });

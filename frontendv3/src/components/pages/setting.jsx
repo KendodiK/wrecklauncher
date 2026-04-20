@@ -140,6 +140,149 @@ function normalizeSettings(data) {
 	return mergeWithDefaults(DEFAULT_SETTINGS, data);
 }
 
+const PROFILE_BIO_MAX_LENGTH = 500;
+const PROFILE_IMAGE_HEALTHCHECK_TIMEOUT_MS = 9_000;
+
+function sanitizeProfileBio(value) {
+	return String(value ?? '')
+		.replace(/\r\n?/g, '\n')
+		.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+		.trim()
+		.slice(0, PROFILE_BIO_MAX_LENGTH);
+}
+
+function normalizeHttpAvatarUrl(value) {
+	const raw = String(value ?? '').trim();
+	if (!raw) return '';
+
+	try {
+		const parsed = new URL(raw);
+		const protocol = String(parsed.protocol || '').toLowerCase();
+		if (protocol !== 'http:' && protocol !== 'https:') return null;
+		return parsed.toString();
+	} catch {
+		return null;
+	}
+}
+
+function normalizeEditableProfile(raw) {
+	const source = raw && typeof raw === 'object' ? raw : {};
+	const avatarCandidate = source.avatarUrl ?? source.avatar_url ?? source.avatarURL ?? source.profilePicture ?? source.pfp ?? '';
+	const normalizedAvatarUrl = normalizeHttpAvatarUrl(avatarCandidate);
+
+	return {
+		bio: sanitizeProfileBio(source.bio),
+		avatarUrl: normalizedAvatarUrl || '',
+	};
+}
+
+async function healthCheckAvatarUrl(url, timeoutMs = PROFILE_IMAGE_HEALTHCHECK_TIMEOUT_MS) {
+	const normalizedUrl = normalizeHttpAvatarUrl(url);
+	if (normalizedUrl == null) {
+		return {
+			ok: false,
+			reason: 'Profile picture URL must start with http:// or https://.',
+			url: '',
+		};
+	}
+
+	if (!normalizedUrl) {
+		return { ok: true, reason: '', url: '' };
+	}
+
+	if (typeof window !== 'undefined') {
+		const cloudscraperFetch = window?.electronAPI?.cloudscraperFetch;
+		if (typeof cloudscraperFetch === 'function') {
+			try {
+				const timeout = Math.max(1200, Number(timeoutMs) || PROFILE_IMAGE_HEALTHCHECK_TIMEOUT_MS);
+				const payload = await new Promise((resolve, reject) => {
+					let settled = false;
+					const timer = window.setTimeout(() => {
+						if (settled) return;
+						settled = true;
+						reject(new Error('Avatar URL health check timed out'));
+					}, timeout);
+
+					Promise.resolve(
+						cloudscraperFetch(normalizedUrl, {
+							method: 'GET',
+							headers: {
+								Accept: 'image/*,*/*;q=0.8',
+							},
+						})
+					)
+						.then((value) => {
+							if (settled) return;
+							settled = true;
+							window.clearTimeout(timer);
+							resolve(value);
+						})
+						.catch((error) => {
+							if (settled) return;
+							settled = true;
+							window.clearTimeout(timer);
+							reject(error);
+						});
+				});
+
+				const statusCode = Number(payload?.statusCode || 0);
+				const ok = payload?.ok === true || (statusCode >= 200 && statusCode < 400);
+				if (ok) {
+					return { ok: true, reason: '', url: normalizedUrl };
+				}
+			} catch {
+				// Fall through to browser image probe.
+			}
+		}
+	}
+
+	if (typeof Image === 'undefined' || typeof window === 'undefined') {
+		return { ok: true, reason: '', url: normalizedUrl };
+	}
+
+	const reachable = await new Promise((resolve) => {
+		let settled = false;
+		const image = new Image();
+
+		const finish = (value) => {
+			if (settled) return;
+			settled = true;
+			image.onload = null;
+			image.onerror = null;
+			resolve(value === true);
+		};
+
+		const timer = window.setTimeout(() => {
+			finish(false);
+		}, Math.max(1200, Number(timeoutMs) || PROFILE_IMAGE_HEALTHCHECK_TIMEOUT_MS));
+
+		image.onload = () => {
+			window.clearTimeout(timer);
+			finish(true);
+		};
+
+		image.onerror = () => {
+			window.clearTimeout(timer);
+			finish(false);
+		};
+
+		image.decoding = 'async';
+		image.loading = 'eager';
+		image.referrerPolicy = 'no-referrer';
+		image.src = normalizedUrl;
+	});
+
+	if (!reachable) {
+		return {
+			ok: false,
+			reason: 'Profile picture URL health check failed. Make sure this image is reachable.',
+			url: normalizedUrl,
+		};
+	}
+
+	return { ok: true, reason: '', url: normalizedUrl };
+}
+
 function normalizeCurrentUserId(value) {
 	return String(value ?? '').trim();
 }
@@ -159,10 +302,7 @@ function resolveProfileForUser(settings, userId) {
 		? (scopedProfile || {})
 		: (settings?.account?.profile || {});
 
-	return {
-		bio: typeof profile?.bio === 'string' ? profile.bio : '',
-		avatarUrl: typeof profile?.avatarUrl === 'string' ? profile.avatarUrl : '',
-	};
+	return normalizeEditableProfile(profile);
 }
 
 async function resolveCurrentUserId(api) {
@@ -237,6 +377,7 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 	const [platformRuntime, setPlatformRuntime] = useState(() => createEmptyPlatformRuntimeState());
 	const [currentUserId, setCurrentUserId] = useState('');
 	const [profileForm, setProfileForm] = useState({ bio: '', avatarUrl: '' });
+	const [profileBaseline, setProfileBaseline] = useState({ bio: '', avatarUrl: '' });
 	const [downloadPathsForm, setDownloadPathsForm] = useState({ path: '', pirateTorrentsPath: '' });
 	const [message, setMessage] = useState({ type: '', text: '' });
 
@@ -335,7 +476,22 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 			const data = await fetchSettingsWithRetry(window.electronAPI, 8, 150);
 			const normalized = normalizeSettings(data);
 			setSettings(normalized);
-			setProfileForm(resolveProfileForUser(normalized, resolvedCurrentUserId));
+			const fallbackProfile = resolveProfileForUser(normalized, resolvedCurrentUserId);
+			let resolvedCurrentProfile = fallbackProfile;
+
+			if (typeof window?.electronAPI?.getCurrentUser === 'function') {
+				try {
+					const currentUser = await window.electronAPI.getCurrentUser();
+					if (currentUser && typeof currentUser === 'object') {
+						resolvedCurrentProfile = normalizeEditableProfile(currentUser);
+					}
+				} catch {
+					// Keep settings-backed fallback profile.
+				}
+			}
+
+			setProfileForm(resolvedCurrentProfile);
+			setProfileBaseline(resolvedCurrentProfile);
 			setDownloadPathsForm({
 				path: normalized?.downloads?.path || '',
 				pirateTorrentsPath: normalized?.downloads?.pirateTorrentsPath || normalized?.downloads?.path || '',
@@ -369,7 +525,9 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 			setCurrentUserId(resolvedCurrentUserId);
 			const fallbackSettings = normalizeSettings(null);
 			setSettings(fallbackSettings);
-			setProfileForm(resolveProfileForUser(fallbackSettings, resolvedCurrentUserId));
+			const fallbackProfile = resolveProfileForUser(fallbackSettings, resolvedCurrentUserId);
+			setProfileForm(fallbackProfile);
+			setProfileBaseline(fallbackProfile);
 			setDownloadPathsForm({
 				path: fallbackSettings.downloads.path,
 				pirateTorrentsPath: fallbackSettings.downloads.pirateTorrentsPath || fallbackSettings.downloads.path,
@@ -818,8 +976,21 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 	};
 
 	const handleSaveProfile = async () => {
-		const normalizedBio = profileForm.bio.trim();
-		const normalizedAvatarUrl = profileForm.avatarUrl.trim();
+		const normalizedBio = sanitizeProfileBio(profileForm.bio);
+		const normalizedAvatarUrl = normalizeHttpAvatarUrl(profileForm.avatarUrl);
+		if (normalizedAvatarUrl == null) {
+			setMessage({ type: 'error', text: 'Profile picture URL must start with http:// or https://.' });
+			return;
+		}
+
+		const baselineAvatarNormalized = normalizeHttpAvatarUrl(profileBaseline.avatarUrl);
+		const baselineAvatarUrl = baselineAvatarNormalized == null ? '' : baselineAvatarNormalized;
+		const avatarChanged = baselineAvatarUrl !== normalizedAvatarUrl;
+
+		const localProfile = {
+			bio: normalizedBio,
+			avatarUrl: normalizedAvatarUrl,
+		};
 		const normalizedCurrentUserId = normalizeCurrentUserId(currentUserId);
 		let remoteProfile = null;
 		let remoteError = null;
@@ -827,11 +998,26 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 		try {
 			setSaving(true);
 
+			let avatarHealth = { ok: true, reason: '', url: normalizedAvatarUrl };
+			if (avatarChanged && normalizedAvatarUrl) {
+				avatarHealth = await healthCheckAvatarUrl(normalizedAvatarUrl, PROFILE_IMAGE_HEALTHCHECK_TIMEOUT_MS);
+				if (!avatarHealth.ok) {
+					setMessage({ type: 'error', text: avatarHealth.reason || 'Profile picture URL health check failed.' });
+					return;
+				}
+			}
+
+			const safeAvatarUrl = String(avatarHealth.url ?? normalizedAvatarUrl ?? '').trim();
+			const safeProfile = {
+				bio: localProfile.bio,
+				avatarUrl: safeAvatarUrl,
+			};
+
 			if (typeof window?.electronAPI?.updateCurrentUserProfile === 'function') {
 				try {
 					remoteProfile = await window.electronAPI.updateCurrentUserProfile({
-						bio: normalizedBio,
-						avatarUrl: normalizedAvatarUrl,
+						bio: safeProfile.bio,
+						avatarUrl: safeProfile.avatarUrl,
 					});
 				} catch (error) {
 					remoteError = error;
@@ -847,8 +1033,8 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 				? {
 					...existingProfilesByUserId,
 					[normalizedCurrentUserId]: {
-						bio: normalizedBio,
-						avatarUrl: normalizedAvatarUrl,
+						bio: safeProfile.bio,
+						avatarUrl: safeProfile.avatarUrl,
 					},
 				}
 				: existingProfilesByUserId;
@@ -856,34 +1042,28 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 			const updated = await window.electronAPI.updateSettings({
 				account: {
 					profile: {
-						bio: normalizedBio,
-						avatarUrl: normalizedAvatarUrl,
+						bio: safeProfile.bio,
+						avatarUrl: safeProfile.avatarUrl,
 					},
 					profilesByUserId: nextProfilesByUserId,
 				},
 			});
 			const normalized = normalizeSettings(updated);
 			setSettings(normalized);
-			const resolvedProfile = resolveProfileForUser(normalized, normalizedCurrentUserId);
 
-			const resolvedBio =
-				typeof remoteProfile?.bio === 'string'
-					? remoteProfile.bio
-					: resolvedProfile.bio;
-			const resolvedAvatar =
-				typeof remoteProfile?.avatarUrl === 'string'
-					? remoteProfile.avatarUrl
-					: resolvedProfile.avatarUrl;
+			// Keep renderer UI in sync with what the user just saved, even if backend returns stale fields.
+			const resolvedProfile = {
+				bio: safeProfile.bio,
+				avatarUrl: safeProfile.avatarUrl,
+			};
 
-			setProfileForm({
-				bio: resolvedBio,
-				avatarUrl: resolvedAvatar,
-			});
+			setProfileForm(resolvedProfile);
+			setProfileBaseline(resolvedProfile);
 
 			if (typeof onProfileLocalUpdate === 'function') {
 				onProfileLocalUpdate({
-					bio: resolvedBio,
-					avatarUrl: resolvedAvatar,
+					...resolvedProfile,
+					profileUpdatedAt: Date.now(),
 				});
 			}
 
@@ -912,8 +1092,8 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 					? {
 						...existingProfilesByUserId,
 						[normalizedCurrentUserId]: {
-							bio: normalizedBio,
-							avatarUrl: normalizedAvatarUrl,
+							bio: localProfile.bio,
+							avatarUrl: localProfile.avatarUrl,
 						},
 					}
 					: existingProfilesByUserId;
@@ -923,18 +1103,20 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 					account: {
 						...(settings?.account || {}),
 						profile: {
-							bio: normalizedBio,
-							avatarUrl: normalizedAvatarUrl,
+							bio: localProfile.bio,
+							avatarUrl: localProfile.avatarUrl,
 						},
 						profilesByUserId: nextProfilesByUserId,
 					},
 				});
 				setSettings(localUpdated);
+				setProfileForm(localProfile);
+				setProfileBaseline(localProfile);
 
 				if (typeof onProfileLocalUpdate === 'function') {
 					onProfileLocalUpdate({
-						bio: normalizedBio,
-						avatarUrl: normalizedAvatarUrl,
+						...localProfile,
+						profileUpdatedAt: Date.now(),
 					});
 				}
 
@@ -986,6 +1168,11 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 	const canSaveDownloadPaths =
 		downloadPathsForm.path.trim().length > 0
 		&& downloadPathsForm.pirateTorrentsPath.trim().length > 0;
+	const normalizedAvatarInput = normalizeHttpAvatarUrl(profileForm.avatarUrl);
+	const profileAvatarUrlError = normalizedAvatarInput === null
+		? 'Profile picture URL must start with http:// or https://.'
+		: '';
+	const canSaveProfile = !saving && !profileAvatarUrlError;
 	const searchParams = new URLSearchParams(location.search || '');
 	const rawSection = String(searchParams.get('section') || '').trim().toLowerCase();
 	const selectedSection = ['display', 'library', 'advanced'].includes(rawSection) ? rawSection : '';
@@ -1471,6 +1658,11 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 								placeholder="https://example.com/avatar.png"
 								className="mt-2 w-full bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
 							/>
+							{profileAvatarUrlError ? (
+								<p className="mt-2 text-xs text-rose-300">{profileAvatarUrlError}</p>
+							) : (
+								<p className="mt-2 text-xs text-slate-400">Only http:// or https:// links are accepted, and a reachability health check runs before save.</p>
+							)}
 						</div>
 
 						<div>
@@ -1483,15 +1675,16 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 								placeholder="Write a short bio"
 								className="mt-2 w-full bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500 resize-none"
 							/>
+							<p className="mt-2 text-xs text-slate-400">Bio is stored and rendered as plain text.</p>
 						</div>
 
 						<div className="flex justify-end">
 							<button
 								onClick={handleSaveProfile}
-								disabled={saving}
+								disabled={!canSaveProfile}
 								className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-60"
 							>
-								Save profile
+								{saving ? 'Saving...' : 'Save profile'}
 							</button>
 						</div>
 					</div>
