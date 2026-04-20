@@ -4,6 +4,7 @@ require('dotenv').config({ path: path.resolve(__dirname, '..', '.env') });
 const express = require('express');
 const { WebSocketServer, WebSocket } = require('ws');
 const middleware = require('./middleware/auth.js');
+const msgStoreingManager = require('./manageMsgStore.js');
 
 const app = express();
 const port = process.env.WS_PORT || 8080;
@@ -87,6 +88,7 @@ wss.on('connection', (ws, req) => {
                 const target = clients.get(to);
                 if (target && target.readyState === ws.OPEN) {
                     target.send(JSON.stringify({ from: userId, text }));
+                    msgStoringManager.storeInDB(userId, to, text);
                 } else {
                     ws.send(JSON.stringify({ error: 'User offline' }));
                 }
