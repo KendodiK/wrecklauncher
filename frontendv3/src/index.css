@@ -392,7 +392,6 @@ body {
   position: relative;
   min-height: 100vh;
   color: #e2e8f0;
-  overflow: hidden;
 }
 
 /* Dynamic hero background — blurred game art */
