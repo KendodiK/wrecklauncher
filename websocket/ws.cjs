@@ -4,7 +4,8 @@ require('dotenv').config({ path: path.resolve(__dirname, '..', '.env') });
 const express = require('express');
 const { WebSocketServer, WebSocket } = require('ws');
 const middleware = require('./middleware/auth.js');
-const msgStoreingManager = require('./manageMsgStore.js');
+const msgStoringManager = require('./manageMsgStoring.js');
+const { json } = require('body-parser');
 
 const app = express();
 const port = process.env.WS_PORT || 8080;
@@ -85,12 +86,16 @@ wss.on('connection', (ws, req) => {
                 const data = JSON.parse(msg);
                 const { to, text } = data;
 
-                const target = clients.get(to);
-                if (target && target.readyState === ws.OPEN) {
-                    target.send(JSON.stringify({ from: userId, text }));
-                    msgStoringManager.storeInDB(userId, to, text);
+                if(!msgStoringManager.areFriends(userId, to)) {
+                    ws.send(JSON.stringify({ warning: 'No friendship between users, cant send message' }));
                 } else {
-                    ws.send(JSON.stringify({ error: 'User offline' }));
+                    const target = clients.get(to);
+                    if (target && target.readyState === ws.OPEN) {
+                        target.send(JSON.stringify({ from: userId, text }));
+                        msgStoringManager.storeInDB(userId, to, text);
+                    } else {
+                        ws.send(JSON.stringify({ error: 'User offline' }));
+                    } 
                 }
             } catch (err) {
                 console.error('Error processing message:', err);
