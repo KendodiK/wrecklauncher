@@ -1,0 +1,79 @@
+# 🎯 DO THIS NOW - 3 Steps to Your Chat App
+
+## Step 1: Open PowerShell as Administrator
+
+1. Press: **Windows Key** ⊞
+2. Type: `PowerShell`
+3. Right-click: **"Windows PowerShell"**
+4. Click: **"Run as administrator"**
+
+---
+
+## Step 2: Copy & Paste This Command
+
+Copy the ENTIRE thing below:
+
+```
+cd "D:\sulis cucok\12\portfolio\wreckchat\wreckchat" ; dotnet workload restore ; dotnet clean ; dotnet build ; dotnet run -f net10.0-desktop
+```
+
+Paste it into PowerShell.
+
+Press: **ENTER**
+
+---
+
+## Step 3: Wait
+
+You'll see progress like:
+
+```
+Installing workload: android
+████░░░░░░░░░░ 25%
+
+Installing workload: ios
+████████░░░░░░ 50%
+
+Building project...
+████████████░░ 75%
+
+App launching...
+```
+
+**5-30 minutes total.**
+
+Don't close the window!
+
+---
+
+## 🎉 When Done
+
+Your chat app launches showing:
+
+- 📱 **LoginPage** (username/password)
+- Click 💬 → **ChatPage** (messages)
+- Click 🔔 → **NotificationsPage** (alerts)
+- Click 👥 → **FriendsPage** (friends + Add Friend ➕)
+- Click 👤 → **ProfilePage** (profile)
+
+---
+
+## ✨ That's It!
+
+Your chat app is now running! 🎊
+
+---
+
+## OR: Even Easier - Use the Script
+
+1. Open File Explorer
+2. Go to: `D:\sulis cucok\12\portfolio\wreckchat\wreckchat`
+3. Find: `RUN_ME.bat`
+4. Right-click it
+5. Click: "Run as administrator"
+6. Wait...
+7. Done! App launches! 🎉
+
+---
+
+**Congratulations!** You now have a complete chat app frontend! 🚀

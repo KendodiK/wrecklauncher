@@ -1,0 +1,80 @@
+# 🎯 WHERE CAN I CHECK THE SITE - SIMPLE ANSWER
+
+## Your Question: "Where can i check the site"
+
+---
+
+## ✅ THE ANSWER
+
+When you run your chat app, **it opens on your screen automatically!**
+
+---
+
+## 📍 Three Places It Can Open:
+
+### **1. Desktop Window** ⭐ (Best)
+```powershell
+dotnet run -f net10.0-desktop
+```
+→ A **new window appears** on your desktop  
+→ Looks like a regular Windows app  
+→ Click and interact with it  
+→ Find it in taskbar at bottom  
+
+### **2. Web Browser**
+```powershell
+dotnet run -f net10.0-browserwasm
+```
+→ Opens in **Chrome/Edge/Firefox**  
+→ URL: `http://localhost:5000`  
+→ Type that in address bar if it doesn't open  
+
+### **3. Mobile Phone (Emulator)**
+```powershell
+dotnet run -f net10.0-android
+```
+→ Opens in **Android Emulator**  
+→ Simulates a phone  
+
+---
+
+## 🚀 QUICK START
+
+1. Open PowerShell as Administrator
+2. Copy & Paste:
+```
+cd "D:\sulis cucok\12\portfolio\wreckchat\wreckchat"
+dotnet run -f net10.0-desktop
+```
+3. Press ENTER
+4. Wait 1-2 minutes
+5. **Your app window opens on your screen!** ← You'll see it here!
+
+---
+
+## 🎨 WHAT YOU'LL SEE
+
+A window appears showing:
+- **LoginPage** (first - with login form)
+- **Tabs at bottom:** 💬 🔔 👥 👤
+- **Click tabs** to see other pages
+- **Dark theme** UI
+- **Sample data** already loaded
+
+---
+
+## 🎯 Where Exactly?
+
+| Location | Method |
+|----------|--------|
+| **Your desktop** | `net10.0-desktop` ⭐ |
+| **Browser tab** | `net10.0-browserwasm` |
+| **Emulator window** | `net10.0-android` |
+
+---
+
+## ✨ THAT'S IT!
+
+Your app is on your screen! 🎉
+
+Click the tabs and explore! 🚀

@@ -1,0 +1,338 @@
+﻿<!-- Main chat frontend page -->
+<Page x:Class="wreckchat.Presentation.MainPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:utu="using:Uno.Toolkit.UI"
+      NavigationCacheMode="Required"
+      Background="#0F172A">
+  <Grid utu:SafeArea.Insets="VisibleBounds" Background="#0F172A">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="*" />
+      <RowDefinition Height="Auto" />
+    </Grid.RowDefinitions>
+
+    <Grid x:Name="LoginView" Grid.Row="0" Padding="24">
+      <StackPanel MaxWidth="420"
+                  HorizontalAlignment="Center"
+                  VerticalAlignment="Center"
+                  Spacing="14">
+        <TextBlock Text="WreckChat"
+                   FontSize="42"
+                   FontWeight="Bold"
+                   Foreground="#E2E8F0"
+                   TextAlignment="Center" />
+        <TextBlock Text="Welcome Back"
+                   FontSize="20"
+                   Foreground="#94A3B8"
+                   TextAlignment="Center" />
+
+        <TextBox PlaceholderText="Username"
+                 Background="#1E293B"
+                 Foreground="#E2E8F0"
+                 BorderBrush="#334155"
+                 Padding="12"
+                 CornerRadius="8" />
+        <PasswordBox PlaceholderText="Password"
+                     Background="#1E293B"
+                     Foreground="#E2E8F0"
+                     BorderBrush="#334155"
+                     Padding="12"
+                     CornerRadius="8" />
+
+        <Button Content="Login"
+                Click="Login_Click"
+                Background="#10B981"
+                Foreground="White"
+                FontWeight="SemiBold"
+                CornerRadius="8"
+                Height="44" />
+      </StackPanel>
+    </Grid>
+
+    <Grid x:Name="AppView" Grid.Row="0" Visibility="Collapsed">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="*" />
+      </Grid.RowDefinitions>
+
+      <Border x:Name="TopHeader"
+              Background="#1E293B"
+              BorderBrush="#334155"
+              BorderThickness="0,0,0,1"
+              Padding="16">
+        <TextBlock x:Name="HeaderTitle"
+                   Text="Chats"
+                   FontSize="24"
+                   FontWeight="Bold"
+                   Foreground="#E2E8F0" />
+      </Border>
+
+      <Grid Grid.Row="1" Background="#0F172A">
+        <Grid x:Name="ChatsTab" Padding="16">
+          <Grid x:Name="ChatListView">
+            <StackPanel Spacing="10" HorizontalAlignment="Center" MaxWidth="520">
+              <Button Click="OpenChat_Alex"
+                      HorizontalAlignment="Stretch"
+                      HorizontalContentAlignment="Stretch"
+                      Background="#1E293B"
+                      BorderBrush="#334155"
+                      BorderThickness="1"
+                      CornerRadius="10"
+                      Padding="12">
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <Border Width="38" Height="38" CornerRadius="19" Background="#334155" VerticalAlignment="Center">
+                    <TextBlock Text="A" Foreground="#E2E8F0" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold" />
+                  </Border>
+                  <StackPanel Grid.Column="1" Margin="12,0,0,0">
+                    <TextBlock Text="Alex" Foreground="#E2E8F0" FontWeight="SemiBold" />
+                    <TextBlock Text="Yo bro you there?" Foreground="#94A3B8" FontSize="12" />
+                  </StackPanel>
+                </Grid>
+              </Button>
+
+              <Button Click="OpenChat_Mia"
+                      HorizontalAlignment="Stretch"
+                      HorizontalContentAlignment="Stretch"
+                      Background="#1E293B"
+                      BorderBrush="#334155"
+                      BorderThickness="1"
+                      CornerRadius="10"
+                      Padding="12">
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <Border Width="38" Height="38" CornerRadius="19" Background="#334155" VerticalAlignment="Center">
+                    <TextBlock Text="M" Foreground="#E2E8F0" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold" />
+                  </Border>
+                  <StackPanel Grid.Column="1" Margin="12,0,0,0">
+                    <TextBlock Text="Mia" Foreground="#E2E8F0" FontWeight="SemiBold" />
+                    <TextBlock Text="Sent you the files" Foreground="#94A3B8" FontSize="12" />
+                  </StackPanel>
+                </Grid>
+              </Button>
+
+              <Button Click="OpenChat_Noah"
+                      HorizontalAlignment="Stretch"
+                      HorizontalContentAlignment="Stretch"
+                      Background="#1E293B"
+                      BorderBrush="#334155"
+                      BorderThickness="1"
+                      CornerRadius="10"
+                      Padding="12">
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <Border Width="38" Height="38" CornerRadius="19" Background="#334155" VerticalAlignment="Center">
+                    <TextBlock Text="N" Foreground="#E2E8F0" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold" />
+                  </Border>
+                  <StackPanel Grid.Column="1" Margin="12,0,0,0">
+                    <TextBlock Text="Noah" Foreground="#E2E8F0" FontWeight="SemiBold" />
+                    <TextBlock Text="See you tomorrow" Foreground="#94A3B8" FontSize="12" />
+                  </StackPanel>
+                </Grid>
+              </Button>
+            </StackPanel>
+          </Grid>
+
+          <Grid x:Name="ChatRoomView" Visibility="Collapsed">
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="*" />
+              <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <Button Content="←"
+                    Click="BackToChats_Click"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Top"
+                    Background="Transparent"
+                    Foreground="#94A3B8"
+                    FontSize="20"
+                    Padding="0" />
+
+            <StackPanel Grid.Row="1" Margin="0,12,0,12" Spacing="8">
+              <Border HorizontalAlignment="Left" Background="#1E293B" BorderBrush="#334155" BorderThickness="1" CornerRadius="8" Padding="10">
+                <TextBlock x:Name="ChatRoomIncoming" Text="Hey!" Foreground="#E2E8F0" />
+              </Border>
+              <Border HorizontalAlignment="Right" Background="#0B5E46" BorderBrush="#10B981" BorderThickness="1" CornerRadius="8" Padding="10">
+                <TextBlock Text="Nice to hear from you." Foreground="#E2E8F0" />
+              </Border>
+            </StackPanel>
+
+            <Grid Grid.Row="2">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+              </Grid.ColumnDefinitions>
+              <TextBox PlaceholderText="Type message..."
+                       Background="#1E293B"
+                       BorderBrush="#334155"
+                       Foreground="#E2E8F0"
+                       CornerRadius="8"
+                       Padding="10" />
+              <Button Grid.Column="1"
+                      Content="Send"
+                      Margin="8,0,0,0"
+                      Width="56"
+                      Height="44"
+                      FontSize="14"
+                      Background="#1E293B"
+                      BorderBrush="#334155"
+                      BorderThickness="1"
+                      Foreground="#E2E8F0"
+                      CornerRadius="8" />
+            </Grid>
+          </Grid>
+        </Grid>
+
+        <StackPanel x:Name="NotificationsTab" Visibility="Collapsed" Spacing="8" Padding="16">
+          <Border Background="#1E293B" BorderBrush="#334155" BorderThickness="1" CornerRadius="10" Padding="12">
+            <TextBlock Text="• John sent you a friend request" Foreground="#E2E8F0" />
+          </Border>
+          <Border Background="#1E293B" BorderBrush="#334155" BorderThickness="1" CornerRadius="10" Padding="12">
+            <TextBlock Text="• New message from Mia" Foreground="#E2E8F0" />
+          </Border>
+        </StackPanel>
+
+        <ScrollViewer x:Name="ProfileTab" Visibility="Collapsed" Padding="8">
+          <StackPanel Spacing="12">
+            <Border Background="#101A33" BorderBrush="#2A3F66" BorderThickness="1" CornerRadius="8" Padding="12">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="Auto" />
+                  <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Border Width="90" Height="90" CornerRadius="8" Background="#2A3F66">
+                  <TextBlock Text="◎" Foreground="#E2E8F0" FontSize="32" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
+                <StackPanel Grid.Column="1" Margin="12,0,0,0" Spacing="6">
+                  <TextBlock Text="teszt" FontSize="30" FontWeight="Bold" Foreground="#E2E8F0" />
+                  <TextBox Text="ads"
+                           Background="#0B152A"
+                           Foreground="#E2E8F0"
+                           BorderBrush="#2A3F66"
+                           BorderThickness="1"
+                           Padding="8"
+                           CornerRadius="6" />
+                </StackPanel>
+              </Grid>
+            </Border>
+
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="360" />
+                <ColumnDefinition Width="12" />
+                <ColumnDefinition Width="*" />
+              </Grid.ColumnDefinitions>
+
+              <Border Grid.Column="0" Background="#101A33" BorderBrush="#2A3F66" BorderThickness="1" CornerRadius="8" Padding="12" MinHeight="440">
+                <StackPanel Spacing="8">
+                  <TextBlock Text="Friends" FontSize="28" FontWeight="SemiBold" Foreground="#E2E8F0" />
+
+                  <Border Background="#0B152A" BorderBrush="#2A3F66" BorderThickness="1" CornerRadius="8" Padding="10">
+                    <Grid>
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                      </Grid.ColumnDefinitions>
+                      <StackPanel>
+                        <TextBlock Text="Anya" FontWeight="SemiBold" Foreground="#E2E8F0" />
+                        <TextBlock Text="Offline" FontSize="12" Foreground="#94A3B8" />
+                      </StackPanel>
+                      <Button Grid.Column="1" Content="Profile" Margin="8,0,0,0" Background="#101A33" Foreground="#E2E8F0" BorderBrush="#2A3F66" />
+                      <Button Grid.Column="2" Content="MSG" Margin="8,0,0,0" Background="#101A33" Foreground="#E2E8F0" BorderBrush="#2A3F66" />
+                    </Grid>
+                  </Border>
+
+                  <Border Background="#0B152A" BorderBrush="#2A3F66" BorderThickness="1" CornerRadius="8" Padding="10">
+                    <Grid>
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                      </Grid.ColumnDefinitions>
+                      <StackPanel>
+                        <TextBlock Text="Kopii19s" FontWeight="SemiBold" Foreground="#E2E8F0" />
+                        <TextBlock Text="Offline" FontSize="12" Foreground="#94A3B8" />
+                      </StackPanel>
+                      <Button Grid.Column="1" Content="Profile" Margin="8,0,0,0" Background="#101A33" Foreground="#E2E8F0" BorderBrush="#2A3F66" />
+                      <Button Grid.Column="2" Content="MSG" Margin="8,0,0,0" Background="#101A33" Foreground="#E2E8F0" BorderBrush="#2A3F66" />
+                    </Grid>
+                  </Border>
+                </StackPanel>
+              </Border>
+
+              <Border Grid.Column="2" Background="#101A33" BorderBrush="#2A3F66" BorderThickness="1" CornerRadius="8" Padding="12" MinHeight="380">
+                <StackPanel Spacing="10">
+                  <TextBlock Text="Your games" FontSize="28" FontWeight="SemiBold" Foreground="#E2E8F0" />
+                  <Grid>
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="*" />
+                      <ColumnDefinition Width="8" />
+                      <ColumnDefinition Width="*" />
+                      <ColumnDefinition Width="8" />
+                      <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Border Grid.Column="0" Background="#0B152A" BorderBrush="#2A3F66" BorderThickness="1" CornerRadius="6" Padding="10">
+                      <StackPanel><TextBlock Text="GAME COUNT" Foreground="#94A3B8" /><TextBlock Text="0" FontSize="22" FontWeight="Bold" Foreground="#E2E8F0" /></StackPanel>
+                    </Border>
+                    <Border Grid.Column="2" Background="#0B152A" BorderBrush="#2A3F66" BorderThickness="1" CornerRadius="6" Padding="10">
+                      <StackPanel><TextBlock Text="YOUR GAMES" Foreground="#94A3B8" /><TextBlock Text="0" FontSize="22" FontWeight="Bold" Foreground="#E2E8F0" /></StackPanel>
+                    </Border>
+                    <Border Grid.Column="4" Background="#0B152A" BorderBrush="#2A3F66" BorderThickness="1" CornerRadius="6" Padding="10">
+                      <StackPanel><TextBlock Text="COMMON COUNT" Foreground="#94A3B8" /><TextBlock Text="0" FontSize="22" FontWeight="Bold" Foreground="#E2E8F0" /></StackPanel>
+                    </Border>
+                  </Grid>
+
+                  <TextBlock Text="No owned games found yet." Foreground="#E2E8F0" />
+
+                  <Border Background="#2D1A14" BorderBrush="#C07A1A" BorderThickness="1" CornerRadius="6" Padding="8">
+                    <TextBlock Text="Error invoking remote method 'user:get-owned-games-from-steam-by-native-userid': Error: Invalid token"
+                               Foreground="#F59E0B"
+                               TextWrapping="Wrap" />
+                  </Border>
+                </StackPanel>
+              </Border>
+            </Grid>
+          </StackPanel>
+        </ScrollViewer>
+      </Grid>
+    </Grid>
+
+    <Border x:Name="BottomNav"
+            Grid.Row="1"
+            Visibility="Collapsed"
+            Background="#1E293B"
+            BorderBrush="#334155"
+            BorderThickness="0,1,0,0"
+            Padding="0"
+            Height="70">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <Button x:Name="ChatsNav" Grid.Column="0" Click="ChatsNav_Click" FontSize="22" Padding="0" Background="Transparent" Foreground="#E2E8F0" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
+          <TextBlock Text="✉" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center" />
+        </Button>
+        <Button x:Name="NotificationsNav" Grid.Column="1" Click="NotificationsNav_Click" FontSize="22" Padding="0" Background="Transparent" Foreground="#94A3B8" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
+          <TextBlock Text="◷" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center" />
+        </Button>
+        <Button x:Name="ProfileNav" Grid.Column="2" Click="ProfileNav_Click" FontSize="22" Padding="0" Background="Transparent" Foreground="#94A3B8" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
+          <TextBlock Text="◎" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center" />
+        </Button>
+      </Grid>
+    </Border>
+  </Grid>
+</Page>

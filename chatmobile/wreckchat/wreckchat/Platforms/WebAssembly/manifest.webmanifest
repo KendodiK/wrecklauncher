@@ -1,0 +1,10 @@
+{
+  "background_color": "#ffffff",
+  "description": "wreckchat",
+  "display": "standalone",
+  "name": "wreckchat",
+  "short_name": "wreckchat",
+  "start_url": "/index.html",
+  "theme_color": "#ffffff",
+  "scope": "/"
+}
