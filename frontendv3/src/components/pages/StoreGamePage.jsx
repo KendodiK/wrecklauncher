@@ -1804,6 +1804,26 @@ function parseSteamDetails(details) {
 
 	const raw = details.raw && typeof details.raw === 'object' ? details.raw : {};
 	const steamImageSet = steamImages(appid);
+	const stableSteamBanner = pickFirstFilledText(
+		details.bannerimg,
+		details.banner_img,
+		raw.header_image,
+		raw.capsule_image,
+		steamImageSet?.header,
+		steamImageSet?.capsule,
+	);
+	const stableSteamHero = pickFirstFilledText(
+		raw.background_raw,
+		raw.background,
+		stableSteamBanner,
+		steamImageSet?.hero,
+		steamImageSet?.header,
+	);
+	const stableSteamCover = pickFirstFilledText(
+		stableSteamBanner,
+		steamImageSet?.capsule,
+		steamImageSet?.cover,
+	);
 	const tags = normalizeTagList(details.genre_names ?? details.genreNames ?? details.genres);
 	const screenshots = Array.isArray(raw.screenshots)
 		? raw.screenshots
@@ -1822,8 +1842,8 @@ function parseSteamDetails(details) {
 		minimumRequirements: sanitizeHtml(raw?.pc_requirements?.minimum || details.minimum_requirements || ''),
 		price: resolveSteamPriceValue(details),
 		priceLabel: resolveSteamPriceLabel(details),
-		coverImage: steamImageSet?.cover || steamImageSet?.capsule || '',
-		heroImage: steamImageSet?.hero || steamImageSet?.header || '',
+		coverImage: stableSteamCover || '',
+		heroImage: stableSteamHero || '',
 	};
 }
 
@@ -2266,6 +2286,9 @@ const StoreGamePage = () => {
 			routeState?.screenshots
 		);
 		const normalizedScreenshots = normalizeScreenshotList(screenshots);
+		const resolvedTitle = normalizeUtf8Text(
+			pickFirstFilledText(parsedPlatform?.title, parsedDb?.title, routeState?.title, routeState?.name, fallback.title)
+		);
 		const siteCandidates = pickFirstNonEmptyArray(
 			parsedPlatform?.sites,
 			parsedDb?.sites,
@@ -2338,7 +2361,7 @@ const StoreGamePage = () => {
 			...fallback,
 			id: pickFirstPositiveNumber(parsedDb?.id, routeState?.id, resolvedAppId, appId),
 			appid: resolvedAppId,
-			title: normalizeUtf8Text(pickFirstFilledText(parsedPlatform?.title, parsedDb?.title, routeState?.title, routeState?.name, fallback.title)),
+			title: resolvedTitle,
 			description: normalizedDescription,
 			longDescription: normalizedLongDescription,
 			minimumRequirements: normalizedMinimumRequirements,
