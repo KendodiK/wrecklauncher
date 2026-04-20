@@ -9,6 +9,9 @@ const LIBRARY_SORT_MODES = ['alphabetical', 'appid', 'platform', 'playtime'];
 const MAX_LIBRARY_STRIP_GAMES = 180;
 const STRIP_WINDOW_EDGE_BUFFER = 40;
 const INSTALLED_SCAN_CACHE_TTL_MS = 60 * 60 * 1000;
+const LIBRARY_PLATFORM_TASK_TIMEOUT_MS = 12 * 1000;
+const LIBRARY_SNAPSHOT_CACHE_KEY = 'library-snapshot-v1';
+const LIBRARY_SNAPSHOT_CACHE_TTL_MS = 10 * 60 * 1000;
 const STEAM_IMAGE_PROBE_TIMEOUT_MS = 5500;
 const STEAM_IMAGE_PROBE_CONCURRENCY = 4;
 const STEAM_CDN_HOSTS = [
@@ -72,6 +75,35 @@ function invalidateInstalledScanCache(platform = '') {
 	}
 	installedScanCache.delete(normalized);
 	invalidateInstalledScanCacheOnDisk(normalized);
+}
+
+async function readLibrarySnapshotCacheFromDisk() {
+	if (typeof window?.electronAPI?.invoke !== 'function') return null;
+
+	try {
+		const payload = await window.electronAPI.invoke('library-cache:get', LIBRARY_SNAPSHOT_CACHE_KEY);
+		if (!payload || !Array.isArray(payload?.value)) return null;
+		return {
+			value: payload.value,
+			expiresAt: Number(payload.expiresAt) || 0,
+		};
+	} catch (error) {
+		console.warn('Failed to read library snapshot cache from disk:', error);
+		return null;
+	}
+}
+
+function writeLibrarySnapshotCacheToDisk(games, ttlMs = LIBRARY_SNAPSHOT_CACHE_TTL_MS) {
+	if (typeof window?.electronAPI?.invoke !== 'function') return;
+
+	const value = Array.isArray(games) ? games : [];
+	const expiresAt = Date.now() + Math.max(0, Number(ttlMs) || LIBRARY_SNAPSHOT_CACHE_TTL_MS);
+
+	void window.electronAPI
+		.invoke('library-cache:set', LIBRARY_SNAPSHOT_CACHE_KEY, value, expiresAt)
+		.catch((error) => {
+			console.warn('Failed to persist library snapshot cache to disk:', error);
+		});
 }
 
 async function readInstalledGamesWithCache(platform, fetcher, { force = false, ttlMs = INSTALLED_SCAN_CACHE_TTL_MS } = {}) {
@@ -175,6 +207,51 @@ async function readItchInstalledGames({ force = false } = {}) {
 
 function delay(ms) {
 	return new Promise((resolve) => setTimeout(resolve, Number(ms) || 0));
+}
+
+function withTimeoutFallback(promise, timeoutMs, fallbackValue, onTimeout) {
+	return new Promise((resolve, reject) => {
+		let settled = false;
+		const timer = setTimeout(() => {
+			if (settled) return;
+			settled = true;
+			if (typeof onTimeout === 'function') {
+				onTimeout();
+			}
+			resolve(fallbackValue);
+		}, Math.max(1, Number(timeoutMs) || 0));
+
+		Promise.resolve(promise)
+			.then((value) => {
+				if (settled) return;
+				settled = true;
+				clearTimeout(timer);
+				resolve(value);
+			})
+			.catch((error) => {
+				if (settled) return;
+				settled = true;
+				clearTimeout(timer);
+				reject(error);
+			});
+	});
+}
+
+function wrapLibraryPlatformTask(taskPromise, label) {
+	const name = String(label || 'Library task').trim() || 'Library task';
+	const fallback = { games: [], error: `${name} timed out` };
+
+	return withTimeoutFallback(
+		taskPromise,
+		LIBRARY_PLATFORM_TASK_TIMEOUT_MS,
+		fallback,
+		() => {
+			console.warn(`${name} timed out while loading library.`);
+		},
+	).catch((error) => ({
+		games: [],
+		error: error instanceof Error ? error.message : `${name} failed`,
+	}));
 }
 
 function getLibrarySortLabel(sortMode) {
@@ -1106,18 +1183,144 @@ const LibraryPage = () => {
 		return dedupeLibraryGames(libraryGames.filter((g) => g.owned === true));
 	}, [libraryGames]);
 
+	// Prevent scrolling on library page (vertical scroll, keyboard navigation, wheel)
+	useEffect(() => {
+		const handleWheel = (event) => {
+			event.preventDefault();
+		};
+
+		const handleKeyDown = (event) => {
+			const keyCode = event.keyCode || event.which;
+			// Prevent: Up, Down, Page Up, Page Down, Space
+			if ([38, 40, 33, 34, 32].includes(keyCode)) {
+				// Allow if target is an input or textarea that should receive the key
+				const target = event.target;
+				if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) {
+					event.preventDefault();
+				}
+			}
+		};
+
+		const libraryPage = document.querySelector('.library-page');
+		if (libraryPage) {
+			libraryPage.addEventListener('wheel', handleWheel, { passive: false });
+			libraryPage.addEventListener('keydown', handleKeyDown, false);
+
+			return () => {
+				libraryPage.removeEventListener('wheel', handleWheel);
+				libraryPage.removeEventListener('keydown', handleKeyDown);
+			};
+		}
+	}, []);
+
 	useEffect(() => {
 		let cancelled = false;
 
 		const loadLibrary = async () => {
+			let hasShownCachedLibrary = false;
+			let cachedLibraryGames = [];
+
+			const runSteamImageEnrichmentInBackground = (baseGamesSnapshot) => {
+				const snapshot = Array.isArray(baseGamesSnapshot) ? baseGamesSnapshot : [];
+				const hasSteamGames = snapshot.some((game) => {
+					const launcher = String(game?.launcherId || game?.platform_name || '').trim().toLowerCase();
+					return launcher === 'steam';
+				});
+
+				if (!hasSteamGames) return;
+
+				void (async () => {
+					try {
+						const enrichedSteamGames = await enrichSteamLibraryGamesWithFallbackAndDbSync(snapshot);
+						if (cancelled) return;
+
+						const baseById = new Map(
+							snapshot.map((game) => [String(game?.id || '').trim(), game]),
+						);
+						const updatesById = new Map();
+
+						for (const enrichedGame of enrichedSteamGames) {
+							const launcher = String(enrichedGame?.launcherId || enrichedGame?.platform_name || '').trim().toLowerCase();
+							if (launcher !== 'steam') continue;
+
+							const gameId = String(enrichedGame?.id || '').trim();
+							if (!gameId) continue;
+
+							const baseGame = baseById.get(gameId);
+							if (!baseGame) continue;
+
+							const nextCover = String(enrichedGame?.coverUrl || '').trim();
+							const nextHero = String(enrichedGame?.heroUrl || '').trim();
+							const prevCover = String(baseGame?.coverUrl || '').trim();
+							const prevHero = String(baseGame?.heroUrl || '').trim();
+
+							const coverChanged = nextCover && nextCover !== prevCover;
+							const heroChanged = nextHero && nextHero !== prevHero;
+							if (!coverChanged && !heroChanged) continue;
+
+							updatesById.set(gameId, {
+								coverUrl: coverChanged ? nextCover : '',
+								heroUrl: heroChanged ? nextHero : '',
+								coverFallbacks: Array.isArray(enrichedGame?.coverFallbacks) ? enrichedGame.coverFallbacks : null,
+								heroFallbacks: Array.isArray(enrichedGame?.heroFallbacks) ? enrichedGame.heroFallbacks : null,
+							});
+						}
+
+						if (updatesById.size < 1) return;
+
+						setLibraryGames((previous) =>
+							previous.map((game) => {
+								const update = updatesById.get(String(game?.id || '').trim());
+								if (!update) return game;
+
+								return {
+									...game,
+									coverUrl: update.coverUrl || game?.coverUrl,
+									heroUrl: update.heroUrl || game?.heroUrl,
+									coverFallbacks: Array.isArray(update.coverFallbacks)
+										? update.coverFallbacks
+										: game?.coverFallbacks,
+									heroFallbacks: Array.isArray(update.heroFallbacks)
+										? update.heroFallbacks
+										: game?.heroFallbacks,
+								};
+							}),
+						);
+					} catch (error) {
+						console.warn('Failed to enrich Steam library images in background:', error);
+					}
+				})();
+			};
+
 			setIsLoading(true);
 			setErrorMessage('');
 
 			try {
+				const cachedSnapshot = await readLibrarySnapshotCacheFromDisk();
+				cachedLibraryGames = dedupeLibraryGames(
+					Array.isArray(cachedSnapshot?.value) ? cachedSnapshot.value : [],
+				);
+
+				if (!cancelled && cachedLibraryGames.length > 0) {
+					hasShownCachedLibrary = true;
+					setLibraryGames(cachedLibraryGames);
+					setScope('all');
+					setActiveLauncherId('all');
+					setActiveGameId(cachedLibraryGames[0]?.id ?? '');
+					setIsLoading(false);
+				}
+
 				if (typeof window?.electronAPI?.getSettings === 'function') {
 					await window.electronAPI.getSettings();
 				}
-				const runtimePlatforms = await fetchRuntimePlatformConnections(window.electronAPI).catch((error) => {
+				const runtimePlatforms = await withTimeoutFallback(
+					fetchRuntimePlatformConnections(window.electronAPI),
+					LIBRARY_PLATFORM_TASK_TIMEOUT_MS,
+					createEmptyPlatformConnectionState(),
+					() => {
+						console.warn('Runtime platform connections timed out while loading library.');
+					},
+				).catch((error) => {
 					console.warn('Failed to load runtime platform connections for library:', error);
 					return createEmptyPlatformConnectionState();
 				});
@@ -1131,7 +1334,7 @@ const LibraryPage = () => {
 				const platformTasks = [];
 
 				if (steamSettings?.connected) {
-					platformTasks.push((async () => {
+					platformTasks.push(wrapLibraryPlatformTask((async () => {
 						try {
 							const installedSteamGamesPromise = readSteamInstalledGames({ force: true });
 
@@ -1152,9 +1355,8 @@ const LibraryPage = () => {
 							const normalizedSteamGames = (ownedSteamGames || [])
 								.map((game) => toSteamLibraryGame(game, installedAppIds))
 								.filter(Boolean);
-							const enrichedSteamGames = await enrichSteamLibraryGamesWithFallbackAndDbSync(normalizedSteamGames);
 
-							return { games: enrichedSteamGames, error: '' };
+							return { games: normalizedSteamGames, error: '' };
 						} catch (error) {
 							console.error('Failed to load Steam library:', error);
 							return {
@@ -1162,11 +1364,11 @@ const LibraryPage = () => {
 								error: error instanceof Error ? error.message : 'Failed to load Steam library',
 							};
 						}
-					})());
+					})(), 'Steam library load'));
 				}
 
 				if (itchSettings?.connected) {
-					platformTasks.push((async () => {
+					platformTasks.push(wrapLibraryPlatformTask((async () => {
 						try {
 							const installedItchGamesPromise = readItchInstalledGames({ force: true });
 
@@ -1226,11 +1428,11 @@ const LibraryPage = () => {
 								error: error instanceof Error ? error.message : 'Failed to load itch library',
 							};
 						}
-					})());
+					})(), 'Itch library load'));
 				}
 
 				if (gogSettings?.connected) {
-					platformTasks.push((async () => {
+					platformTasks.push(wrapLibraryPlatformTask((async () => {
 						try {
 							const installedGogGamesPromise = readGogInstalledGames({ force: true });
 
@@ -1302,27 +1504,8 @@ const LibraryPage = () => {
 								error: error instanceof Error ? error.message : 'Failed to load GOG library',
 							};
 						}
-					})());
+					})(), 'GOG library load'));
 				}
-
-				platformTasks.push((async () => {
-					try {
-						const localLibraryPayload =
-							typeof window.electronAPI.getPirateLibraryGames === 'function'
-								? await window.electronAPI.getPirateLibraryGames()
-								: await window.electronAPI.invoke('pirate-library:get-games');
-
-						const localLibraryEntries = Array.isArray(localLibraryPayload) ? localLibraryPayload : [];
-						const normalizedLocalGames = localLibraryEntries
-							.map((entry) => toLocalLibraryGame(entry))
-							.filter(Boolean);
-
-						return { games: normalizedLocalGames, error: '' };
-					} catch (error) {
-						console.warn('Failed to load local library:', error);
-						return { games: [], error: '' };
-					}
-				})());
 
 				const platformResults = await Promise.all(platformTasks);
 				for (const result of platformResults) {
@@ -1337,19 +1520,36 @@ const LibraryPage = () => {
 				const uniqueGames = dedupeLibraryGames(mergedLibraryGames);
 
 				if (!cancelled) {
-					setLibraryGames(uniqueGames);
-					setScope('all');
-					setActiveLauncherId('all');
-					setActiveGameId(uniqueGames[0]?.id ?? '');
+					const hasFreshGames = uniqueGames.length > 0;
+					const shouldReplaceVisibleGames = hasFreshGames || !hasShownCachedLibrary;
+
+					if (shouldReplaceVisibleGames) {
+						setLibraryGames(uniqueGames);
+						setScope('all');
+						setActiveLauncherId('all');
+						setActiveGameId(uniqueGames[0]?.id ?? '');
+					}
+
+					if (hasFreshGames) {
+						writeLibrarySnapshotCacheToDisk(uniqueGames);
+					}
+
 					if (!uniqueGames.length && loadErrors.length) {
 						setErrorMessage(loadErrors.join(' | '));
 					}
+
+					const steamImageSource = uniqueGames.length > 0
+						? uniqueGames
+						: (hasShownCachedLibrary ? cachedLibraryGames : []);
+					runSteamImageEnrichmentInBackground(steamImageSource);
 				}
 			} catch (error) {
 				console.error('Failed to load library:', error);
 				if (!cancelled) {
-					setLibraryGames([]);
-					setActiveGameId('');
+					if (!hasShownCachedLibrary) {
+						setLibraryGames([]);
+						setActiveGameId('');
+					}
 					setErrorMessage(error instanceof Error ? error.message : 'Failed to load library');
 				}
 			} finally {
