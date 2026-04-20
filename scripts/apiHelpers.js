@@ -2,6 +2,7 @@
 const fetch = require('node-fetch');
 const CountriesController = require('../database/controllers/CountiesController.js');
 const PricesController = require('../database/controllers/PricesController.js');
+const NativeUsersController = require('../database/controllers/NativeUsersController.js');
 const { disconnect } = require('process');
 // Read itch API key from environment when available to avoid relying on caller files
 let itchApiKey = process.env.ITCH_API_KEY || null;
@@ -12,7 +13,7 @@ function sleep(ms) {
 }
 
 module.exports.tokenValidate = function (req) {
-  return async (req, res, next) => {
+    return async (req, res, next) => {
     try {
       const auth = req.headers?.authorization;
       if (!auth || !auth.toLowerCase().startsWith('bearer ')) {
@@ -27,7 +28,7 @@ module.exports.tokenValidate = function (req) {
 
       const [userId, userUniqueToken] = parts;
 
-      const nativeUserCtrl = new nativeUserController();
+      const nativeUserCtrl = new NativeUsersController();
       const user = await nativeUserCtrl.show(userId);
       if (!user || user.token !== userUniqueToken) {
         return res.status(401).json({ error: 'Invalid token' });

@@ -1,7 +1,10 @@
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '..', '.env') });
+
 const express = require('express');
 const { WebSocketServer, WebSocket } = require('ws');
 const nativeUserController = require('../database/controllers/NativeUsersController.js');
-const apiHelpers = require('../scripts/apiHelpers.js');
+const middleware = require('./middleware/auth.js');
 
 const app = express();
 const port = process.env.WS_PORT || 8080;
@@ -34,20 +37,23 @@ s.on('listening', async () => {
 });
 
 const wss = new WebSocketServer({ noServer: true });
+const clients = new Map();
 
-s.on('upgrade', (req, socket, head) => {
-    console.log('WebSocket upgrade request received:', req.Authorization);
+s.on('upgrade', async (req, socket, head) => {
     socket.on('error', onSocketPreError);
 
     // perform auth
-    const auth = apiHelpers.tokenValidate(req);
+    const auth = await middleware.tokenValidate(req);
+
     try {
-        if (auth.status) {
+        if (auth.status !== 200) {
             socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
             socket.destroy();
             return;
         }
     } catch {}
+
+    req.user = auth.user;
 
     wss.handleUpgrade(req, socket, head, (ws) => {
         socket.removeListener('error', onSocketPreError);
@@ -58,15 +64,29 @@ s.on('upgrade', (req, socket, head) => {
 wss.on('connection', (ws, req) => {
     ws.on('error', onSocketPostError);
 
-    ws.on('message', (msg, isBinary) => {
-        wss.clients.forEach((client) => {
-            if (client.readyState === WebSocket.OPEN) {
-                client.send(msg, { binary: isBinary });
+    const userId = req.user.id;
+    
+    clients.set(userId, ws);
+    console.log(`User ${userId} connected`);
+
+    ws.on('message', (msg) => {
+        try {
+            const data = JSON.parse(msg);
+            const { to, text } = data;
+    
+            const target = clients.get(to);
+            if (target && target.readyState === ws.OPEN) {
+                target.send(JSON.stringify({ from: userId, text }));
+            } else {
+                ws.send(JSON.stringify({ error: 'User offline' }));
             }
-        });
+        } catch (err) {
+            console.error('Error processing message:', err);
+        }
     });
 
     ws.on('close', () => {
-        console.log('Connection closed');
+        console.log('User disconnected:', userId);
+        clients.delete(userId);
     });
 });
