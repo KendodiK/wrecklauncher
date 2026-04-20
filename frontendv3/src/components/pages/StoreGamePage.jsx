@@ -21,6 +21,8 @@ const fallback = {
 	pirate_links: [],
 };
 
+const SCREENSHOT_AUTOSTEP_MS = 3000;
+
 function normalizeCountryCode(value) {
 	const raw = String(value || '').trim().toUpperCase();
 	return /^[A-Z]{2}$/.test(raw) ? raw : null;
@@ -110,6 +112,113 @@ function normalizePlatformName(value) {
 
 function hasFilledText(value) {
 	return typeof value === 'string' && value.trim().length > 0;
+}
+
+function normalizeUtf8Text(value) {
+	if (typeof value !== 'string') return '';
+	const input = value.replace(/\u0000/g, '').trim();
+	if (!input) return '';
+
+	if (/[ÃÂâ]/.test(input)) {
+		try {
+			const bytes = Uint8Array.from([...input].map((char) => char.charCodeAt(0) & 0xff));
+			const decoded = new TextDecoder('utf-8', { fatal: false }).decode(bytes).trim();
+			if (decoded && !decoded.includes('\uFFFD')) {
+				return decoded.normalize('NFC');
+			}
+		} catch {
+			// keep original
+		}
+	}
+
+	return input.normalize('NFC');
+}
+
+function decodeHtmlEntities(value) {
+	const normalized = normalizeUtf8Text(String(value ?? ''));
+	if (!normalized) return '';
+	if (typeof window === 'undefined' || typeof window.DOMParser !== 'function') return normalized;
+	try {
+		const parser = new window.DOMParser();
+		const doc = parser.parseFromString(`<!doctype html><body>${normalized}`, 'text/html');
+		return normalizeUtf8Text(doc?.body?.textContent || normalized);
+	} catch {
+		return normalized;
+	}
+}
+
+function stripTagArtifacts(value) {
+	const normalized = normalizeUtf8Text(String(value ?? ''));
+	if (!normalized) return '';
+	return normalizeUtf8Text(
+		normalized
+			.replace(/<\/?[^>]+>/g, ' ')
+			.replace(/\s{2,}/g, ' ')
+			.trim()
+	);
+}
+
+function htmlToText(value) {
+	const normalized = normalizeUtf8Text(String(value ?? ''));
+	if (!normalized) return '';
+	if (typeof window === 'undefined' || typeof window.DOMParser !== 'function') {
+		return stripTagArtifacts(normalized);
+	}
+
+	try {
+		const parser = new window.DOMParser();
+		const doc = parser.parseFromString(normalized, 'text/html');
+		const firstPass = normalizeUtf8Text(doc?.body?.textContent || normalized);
+		const decoded = decodeHtmlEntities(firstPass);
+
+		if (decoded.includes('<') && decoded.includes('>')) {
+			const secondDoc = parser.parseFromString(decoded, 'text/html');
+			const secondPass = normalizeUtf8Text(secondDoc?.body?.textContent || decoded);
+			return stripTagArtifacts(secondPass);
+		}
+
+		return stripTagArtifacts(decoded);
+	} catch {
+		return stripTagArtifacts(normalized);
+	}
+}
+
+function sanitizeHtml(value) {
+	const normalized = normalizeUtf8Text(String(value ?? ''));
+	if (!normalized) return '';
+	if (typeof window === 'undefined' || typeof window.DOMParser !== 'function') return normalized;
+
+	try {
+		const parser = new window.DOMParser();
+		const doc = parser.parseFromString(normalized, 'text/html');
+		doc.querySelectorAll('script, style, iframe, object, embed').forEach((node) => node.remove());
+		doc.querySelectorAll('*').forEach((node) => {
+			for (const attr of [...node.attributes]) {
+				const key = String(attr.name || '').toLowerCase();
+				if (key.startsWith('on')) node.removeAttribute(attr.name);
+			}
+		});
+		return normalizeUtf8Text(doc?.body?.innerHTML || normalized);
+	} catch {
+		return normalized;
+	}
+}
+
+function normalizeScreenshotList(values) {
+	const source = Array.isArray(values) ? values : [values];
+	const out = [];
+	const seen = new Set();
+
+	for (const value of source) {
+		const href = normalizeUtf8Text(String(value ?? ''));
+		if (!href) continue;
+		const key = href.toLowerCase();
+		if (seen.has(key)) continue;
+		seen.add(key);
+		out.push(href);
+	}
+
+	return out;
 }
 
 function pickFirstFilledText(...values) {
@@ -1143,12 +1252,12 @@ function parseSteamDetails(details) {
 	return {
 		id: appid,
 		appid,
-		title: details.name || fallback.title,
-		description: raw.short_description || '',
-		longDescription: raw.detailed_description || raw.about_the_game || raw.short_description || '',
+		title: normalizeUtf8Text(details.name || fallback.title),
+		description: htmlToText(raw.short_description || ''),
+		longDescription: sanitizeHtml(raw.detailed_description || raw.about_the_game || raw.short_description || ''),
 		tags,
-		screenshots,
-		minimumRequirements: details.minimum_requirements || '',
+		screenshots: normalizeScreenshotList(screenshots),
+		minimumRequirements: sanitizeHtml(raw?.pc_requirements?.minimum || details.minimum_requirements || ''),
 		price: resolveSteamPriceValue(details),
 		priceLabel: resolveSteamPriceLabel(details),
 	};
@@ -1212,12 +1321,12 @@ function parsePlatformDetails(platform, details, appId) {
 		return {
 			id: parsedAppId,
 			appid: parsedAppId,
-			title: details.title || fallback.title,
-			description: details.description || details.shortText || details.short_text || '',
-			longDescription: details.description || details.shortText || details.short_text || '',
+			title: normalizeUtf8Text(details.title || fallback.title),
+			description: htmlToText(details.description || details.shortText || details.short_text || ''),
+			longDescription: sanitizeHtml(details.description || details.shortText || details.short_text || ''),
 			tags: genres,
 			screenshots: [],
-			minimumRequirements,
+			minimumRequirements: sanitizeHtml(minimumRequirements),
 			price,
 			coverImage: banner,
 			heroImage: boxArt || banner,
@@ -1237,12 +1346,12 @@ function parsePlatformDetails(platform, details, appId) {
 		return {
 			id: parsedAppId,
 			appid: parsedAppId,
-			title: details.title || fallback.title,
-			description: details.shortText || details.short_text || details.description || '',
-			longDescription: details.description || details.shortText || details.short_text || '',
+			title: normalizeUtf8Text(details.title || fallback.title),
+			description: htmlToText(details.shortText || details.short_text || details.description || ''),
+			longDescription: sanitizeHtml(details.description || details.shortText || details.short_text || ''),
 			tags: genres,
 			screenshots: [],
-			minimumRequirements: details.minimum_requirements || details.minimumRequirements || '',
+			minimumRequirements: sanitizeHtml(details.minimum_requirements || details.minimumRequirements || ''),
 			price,
 			coverImage: banner,
 			heroImage: banner,
@@ -1260,13 +1369,14 @@ function normalizeLocationState(locationState) {
 	return {
 		...fallback,
 		...game,
-		title: game?.title || game?.name || fallback.title,
-		coverImage: game?.coverImage || game?.coverUrl || game?.image || fallback.coverImage,
-		heroImage: game?.heroImage || game?.heroUrl || fallback.heroImage,
-		longDescription: game?.longDescription || fallback.longDescription,
+		title: normalizeUtf8Text(game?.title || game?.name || fallback.title),
+		coverImage: normalizeUtf8Text(game?.coverImage || game?.coverUrl || game?.image || fallback.coverImage),
+		heroImage: normalizeUtf8Text(game?.heroImage || game?.heroUrl || fallback.heroImage),
+		description: htmlToText(game?.description || fallback.description),
+		longDescription: sanitizeHtml(game?.longDescription || game?.description || fallback.longDescription),
 		tags: Array.isArray(game?.tags) ? game.tags : fallback.tags,
 		sites: normalizeSiteLinksFromAny(game?.sites),
-		screenshots: Array.isArray(game?.screenshots) ? game.screenshots : fallback.screenshots,
+		screenshots: normalizeScreenshotList(Array.isArray(game?.screenshots) ? game.screenshots : fallback.screenshots),
 		price: typeof game?.price === 'number' ? game.price : fallback.price,
 		platform_name: normalizePlatformName(game?.platform_name || game?.platform || fallback.platform_name),
 	};
@@ -1337,10 +1447,13 @@ const StoreGamePage = () => {
 			 */
 			const applyScrapeProgress = () => {
 				const selection = selectBestScrapeCandidate(scrapedCandidates, expectedTitles);
+				const steamCandidate = selection.accepted.find(
+					(candidate) => normalizePlatformName(candidate.platform) === 'steam'
+				) || null;
 				const preferredCandidate = selection.accepted.find(
 					(candidate) => normalizePlatformName(candidate.platform) === effectivePlatform
 				) || null;
-				const chosenCandidate = preferredCandidate || selection.best;
+				const chosenCandidate = steamCandidate || preferredCandidate || selection.best;
 
 				if (!cancelled) {
 					setScrapedTargets(
@@ -1429,10 +1542,13 @@ const StoreGamePage = () => {
 				}
 
 				const finalSelection = selectBestScrapeCandidate(scrapedCandidates, expectedTitles);
+				const steamCandidate = finalSelection.accepted.find(
+					(candidate) => normalizePlatformName(candidate.platform) === 'steam'
+				) || null;
 				const preferredCandidate = finalSelection.accepted.find(
 					(candidate) => normalizePlatformName(candidate.platform) === effectivePlatform
 				) || null;
-				const chosenCandidate = preferredCandidate || finalSelection.best;
+				const chosenCandidate = steamCandidate || preferredCandidate || finalSelection.best;
 
 				if (!cancelled && chosenCandidate) {
 					effectivePlatform = normalizePlatformName(chosenCandidate.platform || effectivePlatform);
@@ -1476,11 +1592,11 @@ const StoreGamePage = () => {
 			? {
 				id: Number(dbDetails.app_id) || null,
 				appid: Number(dbDetails.app_id) || null,
-				title: dbDetails.name || routeState.title,
-				description: dbDetails.description || '',
-				longDescription: dbDetails.description || routeState.longDescription,
+				title: normalizeUtf8Text(dbDetails.name || routeState.title),
+				description: htmlToText(dbDetails.description || ''),
+				longDescription: sanitizeHtml(dbDetails.description || routeState.longDescription),
 				tags: normalizeTagList(dbDetails.genre_names ?? dbDetails.genres),
-				minimumRequirements: dbDetails.minimum_requirements || '',
+				minimumRequirements: sanitizeHtml(dbDetails.minimum_requirements || ''),
 				price: normalizePriceValue(pickFirstFiniteNumber(dbDetails.cost, routeState.price), dbPlatformName),
 				priceLabel:
 					dbPlatformName !== 'gog' && dbPlatformName !== 'steam' && typeof dbDetails.formated_price === 'string' && dbDetails.formated_price.trim()
@@ -1506,12 +1622,14 @@ const StoreGamePage = () => {
 			parsedDb?.description,
 			routeState?.description
 		);
+		const normalizedDescription = htmlToText(description);
 		const longDescription = pickFirstFilledText(
 			parsedPlatform?.longDescription,
 			parsedDb?.longDescription,
 			routeState?.longDescription,
-			description
+			normalizedDescription
 		);
+		const normalizedLongDescription = sanitizeHtml(longDescription);
 		const tags = mergeTagLists(
 			parsedDb?.tags,
 			parsedPlatform?.tags,
@@ -1521,6 +1639,7 @@ const StoreGamePage = () => {
 			parsedPlatform?.screenshots,
 			routeState?.screenshots
 		);
+		const normalizedScreenshots = normalizeScreenshotList(screenshots);
 		const siteCandidates = pickFirstNonEmptyArray(
 			parsedPlatform?.sites,
 			parsedDb?.sites,
@@ -1575,6 +1694,7 @@ const StoreGamePage = () => {
 			parsedDb?.minimumRequirements,
 			routeState?.minimumRequirements
 		);
+		const normalizedMinimumRequirements = sanitizeHtml(minimumRequirements);
 		const pirateLinks = normalizePirateLinksFromAny([
 			...(Array.isArray(dbDetails?.pirate_sites) ? dbDetails.pirate_sites : []),
 			...(Array.isArray(dbDetails?.pirateSites) ? dbDetails.pirateSites : []),
@@ -1587,21 +1707,53 @@ const StoreGamePage = () => {
 			...fallback,
 			id: pickFirstPositiveNumber(parsedDb?.id, routeState?.id, resolvedAppId, appId),
 			appid: resolvedAppId,
-			title: pickFirstFilledText(parsedPlatform?.title, parsedDb?.title, routeState?.title, routeState?.name, fallback.title),
-			description,
-			longDescription,
-			minimumRequirements,
+			title: normalizeUtf8Text(pickFirstFilledText(parsedPlatform?.title, parsedDb?.title, routeState?.title, routeState?.name, fallback.title)),
+			description: normalizedDescription,
+			longDescription: normalizedLongDescription,
+			minimumRequirements: normalizedMinimumRequirements,
 			platform_name: routePlatform,
-			coverImage,
-			heroImage,
+			coverImage: normalizeUtf8Text(coverImage),
+			heroImage: normalizeUtf8Text(heroImage),
 			tags,
-			screenshots,
+			screenshots: normalizedScreenshots,
 			price,
 			priceLabel: priceLabel || null,
 			sites: links,
 			pirate_links: pirateLinks,
 		};
 	}, [appId, dbDetails, platformDetails, requestedPlatform, routeState, scrapedTargets]);
+
+	const screenshotSources = useMemo(() => {
+		return normalizeScreenshotList([
+			...(Array.isArray(model.screenshots) ? model.screenshots : []),
+			model.heroImage,
+			model.coverImage,
+		]);
+	}, [model.coverImage, model.heroImage, model.screenshots]);
+
+	useEffect(() => {
+		if (currentScreenshot >= screenshotSources.length) {
+			setCurrentScreenshot(0);
+		}
+	}, [currentScreenshot, screenshotSources.length]);
+
+	const goPrevScreenshot = useCallback(() => {
+		if (screenshotSources.length < 2) return;
+		setCurrentScreenshot((prev) => (prev - 1 + screenshotSources.length) % screenshotSources.length);
+	}, [screenshotSources.length]);
+
+	const goNextScreenshot = useCallback(() => {
+		if (screenshotSources.length < 2) return;
+		setCurrentScreenshot((prev) => (prev + 1) % screenshotSources.length);
+	}, [screenshotSources.length]);
+
+	useEffect(() => {
+		if (loading || screenshotSources.length < 2) return;
+		const intervalId = window.setInterval(() => {
+			setCurrentScreenshot((prev) => (prev + 1) % screenshotSources.length);
+		}, SCREENSHOT_AUTOSTEP_MS);
+		return () => window.clearInterval(intervalId);
+	}, [loading, screenshotSources.length]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -1845,12 +1997,9 @@ const StoreGamePage = () => {
 	}, [dbDetails, model.platform_name, platformDetails]);
 
 	const activePlatform = normalizePlatformName(model.platform_name);
-	const topBackdropImage = activePlatform === 'gog'
-		? (model.heroImage || model.coverImage || model.screenshots[currentScreenshot] || '')
-		: (model.screenshots[currentScreenshot] || model.heroImage || model.coverImage);
-	const showcaseImage = activePlatform === 'gog'
-		? (model.coverImage || model.screenshots[currentScreenshot] || model.heroImage || '')
-		: (model.screenshots[currentScreenshot] || model.heroImage || model.coverImage || '');
+	const activeShot = screenshotSources[currentScreenshot] || '';
+	const topBackdropImage = model.heroImage || model.coverImage || screenshotSources[0] || '';
+	const showcaseImage = activeShot || model.heroImage || model.coverImage || '';
 
 	const platformActionTargets = useMemo(() => {
 		const byPlatform = new Map();
@@ -2313,12 +2462,33 @@ const StoreGamePage = () => {
 							</div>
 
 							<div className="overflow-hidden rounded-3xl border border-slate-700/60 bg-slate-900/45 backdrop-blur-sm">
-								<div className="aspect-video bg-slate-800/30">
+								<div className="relative aspect-video bg-slate-800/30">
 									{showcaseImage ? <img src={showcaseImage} alt={`${model.title} screenshot`} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-slate-500">No screenshot available</div>}
+
+									{loading ? null : (
+										<>
+											<button
+												type="button"
+												onClick={goPrevScreenshot}
+												disabled={screenshotSources.length < 2}
+												className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full border border-slate-600/80 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 transition-colors hover:bg-slate-800/85 disabled:cursor-not-allowed disabled:opacity-45"
+											>
+												‹
+											</button>
+											<button
+												type="button"
+												onClick={goNextScreenshot}
+												disabled={screenshotSources.length < 2}
+												className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full border border-slate-600/80 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 transition-colors hover:bg-slate-800/85 disabled:cursor-not-allowed disabled:opacity-45"
+											>
+												›
+											</button>
+										</>
+									)}
 								</div>
-								{model.screenshots.length > 1 ? (
+								{screenshotSources.length > 1 ? (
 									<div className="grid grid-cols-4 gap-2 border-t border-slate-800/80 p-3 md:grid-cols-6">
-										{model.screenshots.slice(0, 6).map((shot, index) => (
+										{screenshotSources.slice(0, 6).map((shot, index) => (
 											<button
 												key={`${shot}-${index}`}
 												type="button"

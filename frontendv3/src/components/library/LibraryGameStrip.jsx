@@ -66,6 +66,50 @@ const LibraryGameStrip = React.memo(({ games, activeGameId, onSelect, onOpenStor
       classNameCardActive="lib-strip-card-active"
       advanceOnActiveClick
       transitionMs={300}
+      renderBeforeContainer={({ move, focusCarousel }) => (
+        <button
+          type="button"
+          className="lib-strip-nav lib-strip-nav-prev"
+          tabIndex={-1}
+          onMouseDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            focusCarousel?.();
+            move(-1);
+          }}
+          aria-label="Previous game"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+            <path d="m15 6-6 6 6 6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      )}
+      renderAfterContainer={({ move, focusCarousel }) => (
+        <button
+          type="button"
+          className="lib-strip-nav lib-strip-nav-next"
+          tabIndex={-1}
+          onMouseDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            focusCarousel?.();
+            move(1);
+          }}
+          aria-label="Next game"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+            <path d="m9 6 6 6-6 6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      )}
       onCurrentCardChange={handleCurrentCardChange}
       onCardClick={handleCardClick}
       renderCard={({ card, index, currentIndex }) => {

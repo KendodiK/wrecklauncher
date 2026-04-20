@@ -58,12 +58,16 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1024,
     height: 768,
+    minWidth: 1024,
+    minHeight: 700,
     frame: false,
     webPreferences: {
       // preload.js lives at the project root, one level up from this file
       preload: path.join(__dirname, '..', 'preload.js'),
     },
   });
+
+  mainWindow.setMinimumSize(1024, 700);
 
   mainWindow.webContents.on(
     'did-fail-load',

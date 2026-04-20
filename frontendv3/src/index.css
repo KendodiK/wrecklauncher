@@ -47,6 +47,11 @@ body {
   height: 100%;
 }
 
+.user-area-dropdown {
+  -webkit-app-region: no-drag;
+  pointer-events: auto;
+}
+
 /* ============================================
    LIBRARY PAGE - GAME SLIDER CAROUSEL
    Steam-like carousel for game selection
@@ -246,6 +251,36 @@ body {
    Custom scrollbar styling for consistency
    ============================================ */
 
+/* Global scrollbar theme for the whole app */
+html,
+body {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(71, 85, 105, 0.95) rgba(15, 23, 42, 0.6);
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.6);
+}
+
+*::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(100, 116, 139, 0.92), rgba(71, 85, 105, 0.96));
+  border-radius: 10px;
+  border: 2px solid rgba(15, 23, 42, 0.75);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(148, 163, 184, 0.95), rgba(100, 116, 139, 0.98));
+}
+
+*::-webkit-scrollbar-corner {
+  background: rgba(15, 23, 42, 0.6);
+}
+
 /* Thin scrollbar for sidebars and lists */
 .scrollbar-thin {
   scrollbar-width: thin;
@@ -273,6 +308,31 @@ body {
 /* Utility class for scrollbar thumb color */
 .scrollbar-thumb-slate-700 {
   scrollbar-color: rgb(51, 65, 85) rgba(30, 41, 59, 0.5);
+}
+
+/* Store-wide tag chip style to keep tag colors universal across pages. */
+.store-universal-tag {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(100, 116, 139, 0.55);
+  background: rgba(15, 23, 42, 0.62);
+  color: rgba(226, 232, 240, 0.92);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 1.2;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.store-universal-tag-sm {
+  font-size: 10px;
+  padding: 2px 6px;
+}
+
+.store-universal-tag-muted {
+  color: rgba(148, 163, 184, 0.78);
+  border-color: rgba(100, 116, 139, 0.4);
 }
 
 /* ============================================
@@ -969,6 +1029,12 @@ body {
   width: 100%;
   overflow: visible;
   outline: none;
+  position: relative;
+}
+
+.lib-strip-carousel:focus-visible {
+  box-shadow: 0 0 0 2px rgba(125, 211, 252, 0.45);
+  border-radius: 12px;
 }
 
 .lib-strip-cards {
@@ -991,6 +1057,7 @@ body {
   user-select: none;
   opacity: 1;
   background: rgba(15, 23, 42, 0.35);
+  will-change: transform, width, height;
 }
 
 .lib-strip-card:hover {
@@ -1005,6 +1072,64 @@ body {
   object-position: center center;
   display: block;
   transform: scale(1);
+  transition: transform 240ms ease;
+}
+
+.lib-strip-card-active .lib-strip-card-image {
+  transform: scale(1.03);
+}
+
+.lib-strip-nav {
+  position: absolute;
+  top: 50%;
+  z-index: 12;
+  width: 36px;
+  height: 36px;
+  margin-top: -18px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.42);
+  background: rgba(2, 6, 23, 0.78);
+  color: rgba(226, 232, 240, 0.96);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 10px 22px rgba(2, 6, 23, 0.45);
+  backdrop-filter: blur(8px);
+  transition: border-color 0.2s ease, background-color 0.2s ease, transform 0.2s ease;
+}
+
+.lib-strip-nav svg {
+  width: 18px;
+  height: 18px;
+}
+
+.lib-strip-nav:hover {
+  border-color: rgba(125, 211, 252, 0.68);
+  background: rgba(15, 23, 42, 0.94);
+  transform: translateY(-1px);
+}
+
+.lib-strip-nav:active {
+  transform: translateY(0);
+}
+
+.lib-strip-nav-prev {
+  left: -6px;
+}
+
+.lib-strip-nav-next {
+  right: -6px;
+}
+
+.lib-strip-wrapper:hover .lib-strip-nav,
+.lib-strip-wrapper:focus-within .lib-strip-nav {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.lib-strip-nav {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .lib-strip-card-active {
@@ -1049,6 +1174,11 @@ body {
   width: 14px;
   height: 14px;
   display: block;
+}
+
+.lib-platform-badge-icon-steam {
+  width: 12px;
+  height: 12px;
 }
 
 .lib-platform-badge-label {
@@ -1356,6 +1486,22 @@ body {
     transform: none !important;
     flex-basis: 196px;
     height: 110px;
+  }
+
+  .lib-strip-nav {
+    opacity: 1;
+    pointer-events: auto;
+    width: 32px;
+    height: 32px;
+    margin-top: -16px;
+  }
+
+  .lib-strip-nav-prev {
+    left: 2px;
+  }
+
+  .lib-strip-nav-next {
+    right: 2px;
   }
 
   .library-status-right {

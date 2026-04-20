@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 
 const fallback = {
@@ -18,6 +18,8 @@ const fallback = {
 	achievementCount: null,
 };
 
+const SCREENSHOT_AUTOSTEP_MS = 3000;
+
 function steamImages(appid) {
 	const id = Number(appid);
 	if (!Number.isFinite(id) || id <= 0) return null;
@@ -29,29 +31,163 @@ function steamImages(appid) {
 	};
 }
 
+function normalizeUtf8Text(value) {
+	if (typeof value !== 'string') return '';
+	const input = value.replace(/\u0000/g, '').trim();
+	if (!input) return '';
+
+	// Attempt to recover common mojibake where UTF-8 text was interpreted as Latin-1.
+	if (/[ÃÂâ]/.test(input)) {
+		try {
+			const bytes = Uint8Array.from([...input].map((char) => char.charCodeAt(0) & 0xff));
+			const decoded = new TextDecoder('utf-8', { fatal: false }).decode(bytes).trim();
+			if (decoded && !decoded.includes('\uFFFD')) {
+				return decoded.normalize('NFC');
+			}
+		} catch {
+			// Keep original if decoding fails.
+		}
+	}
+
+	return input.normalize('NFC');
+}
+
+function decodeHtmlEntities(value) {
+	const normalized = normalizeUtf8Text(String(value ?? ''));
+	if (!normalized) return '';
+	if (typeof window === 'undefined' || typeof window.DOMParser !== 'function') {
+		return normalized;
+	}
+	try {
+		const parser = new window.DOMParser();
+		const doc = parser.parseFromString(`<!doctype html><body>${normalized}`, 'text/html');
+		return normalizeUtf8Text(doc?.body?.textContent || normalized);
+	} catch {
+		return normalized;
+	}
+}
+
+function stripTagArtifacts(value) {
+	const normalized = normalizeUtf8Text(String(value ?? ''));
+	if (!normalized) return '';
+	return normalizeUtf8Text(
+		normalized
+			.replace(/<\/?[^>]+>/g, ' ')
+			.replace(/\s{2,}/g, ' ')
+			.trim()
+	);
+}
+
+function htmlToText(value) {
+	const normalized = normalizeUtf8Text(String(value ?? ''));
+	if (!normalized) return '';
+	if (typeof window === 'undefined' || typeof window.DOMParser !== 'function') {
+		return stripTagArtifacts(normalized);
+	}
+	try {
+		const parser = new window.DOMParser();
+		const doc = parser.parseFromString(normalized, 'text/html');
+		const firstPass = normalizeUtf8Text(doc?.body?.textContent || normalized);
+		const decoded = decodeHtmlEntities(firstPass);
+
+		// Some providers send escaped HTML as text (&lt;p&gt;...), so parse once more after decode.
+		if (decoded.includes('<') && decoded.includes('>')) {
+			const secondDoc = parser.parseFromString(decoded, 'text/html');
+			const secondPass = normalizeUtf8Text(secondDoc?.body?.textContent || decoded);
+			return stripTagArtifacts(secondPass);
+		}
+
+		return stripTagArtifacts(decoded);
+	} catch {
+		return stripTagArtifacts(normalized);
+	}
+}
+
+function sanitizeHtml(value) {
+	const normalized = normalizeUtf8Text(String(value ?? ''));
+	if (!normalized) return '';
+	if (typeof window === 'undefined' || typeof window.DOMParser !== 'function') {
+		return normalized;
+	}
+	try {
+		const parser = new window.DOMParser();
+		const doc = parser.parseFromString(normalized, 'text/html');
+		doc.querySelectorAll('script, style, iframe, object, embed').forEach((node) => node.remove());
+		doc.querySelectorAll('*').forEach((node) => {
+			for (const attr of [...node.attributes]) {
+				const key = String(attr.name || '').toLowerCase();
+				if (key.startsWith('on')) node.removeAttribute(attr.name);
+			}
+		});
+		return normalizeUtf8Text(doc?.body?.innerHTML || normalized);
+	} catch {
+		return normalized;
+	}
+}
+
+function normalizeTextList(values) {
+	const source = Array.isArray(values) ? values : [values];
+	const out = [];
+	const seen = new Set();
+
+	for (const value of source) {
+		const text = htmlToText(value);
+		if (!text) continue;
+		const key = text.toLowerCase();
+		if (seen.has(key)) continue;
+		seen.add(key);
+		out.push(text);
+	}
+
+	return out;
+}
+
+function normalizeScreenshotList(values) {
+	const source = Array.isArray(values) ? values : [values];
+	const out = [];
+	const seen = new Set();
+
+	for (const value of source) {
+		const href = normalizeUtf8Text(String(value ?? ''));
+		if (!href) continue;
+		const key = href.toLowerCase();
+		if (seen.has(key)) continue;
+		seen.add(key);
+		out.push(href);
+	}
+
+	return out;
+}
+
 function parseSteamDetails(details) {
 	if (!details || typeof details !== 'object') return null;
 	const appid = Number(details.appid);
 	if (!Number.isFinite(appid) || appid <= 0) return null;
 
 	const raw = details.raw && typeof details.raw === 'object' ? details.raw : {};
-	const title = typeof details.name === 'string' && details.name.trim() ? details.name.trim() : `Steam App ${appid}`;
-	const description = typeof raw.short_description === 'string' && raw.short_description.trim()
-		? raw.short_description.trim()
-		: '';
-	const minimumRequirements = typeof details.minimum_requirements === 'string' && details.minimum_requirements.trim()
-		? details.minimum_requirements.trim()
-		: '';
-	const tags = Array.isArray(details.genres)
+	const title = normalizeUtf8Text(
+		typeof details.name === 'string' && details.name.trim() ? details.name : `Steam App ${appid}`
+	);
+	const description = htmlToText(raw.detailed_description || raw.short_description || details.description || '');
+	const minimumRequirements = sanitizeHtml(
+		raw?.pc_requirements?.minimum
+		|| details.minimum_requirements
+		|| ''
+	);
+	const tags = normalizeTextList(
+		Array.isArray(details.genres)
 		? details.genres
 			.map((genre) => (genre && typeof genre === 'object' ? genre.description : null))
 			.filter((value) => typeof value === 'string' && value.trim())
-		: [];
-	const screenshots = Array.isArray(raw.screenshots)
+		: []
+	);
+	const screenshots = normalizeScreenshotList(
+		Array.isArray(raw.screenshots)
 		? raw.screenshots
 			.map((shot) => (shot && typeof shot === 'object' ? shot.path_full || shot.path_thumbnail : null))
 			.filter((value) => typeof value === 'string' && value.trim())
-		: [];
+		: []
+	);
 
 	return {
 		id: appid,
@@ -71,14 +207,14 @@ function normalizeLocationState(locationState) {
 	return {
 		...fallback,
 		...game,
-		title: game?.title || game?.name || fallback.title,
-		coverImage: game?.coverImage || game?.coverUrl || game?.image || fallback.coverImage,
-		heroImage: game?.heroImage || game?.heroUrl || fallback.heroImage,
-		playtime: game?.playtime || fallback.playtime,
+		title: normalizeUtf8Text(game?.title || game?.name || fallback.title),
+		coverImage: normalizeUtf8Text(game?.coverImage || game?.coverUrl || game?.image || fallback.coverImage),
+		heroImage: normalizeUtf8Text(game?.heroImage || game?.heroUrl || fallback.heroImage),
+		playtime: normalizeUtf8Text(game?.playtime || fallback.playtime),
 		achievementCount: Number(game?.achievementCount) || fallback.achievementCount,
-		tags: Array.isArray(game?.tags) ? game.tags : fallback.tags,
+		tags: normalizeTextList(Array.isArray(game?.tags) ? game.tags : fallback.tags),
 		sites: Array.isArray(game?.sites) ? game.sites : fallback.sites,
-		screenshots: Array.isArray(game?.screenshots) ? game.screenshots : fallback.screenshots,
+		screenshots: normalizeScreenshotList(Array.isArray(game?.screenshots) ? game.screenshots : fallback.screenshots),
 	};
 }
 
@@ -129,7 +265,13 @@ const GamePage = () => {
 
 			const dbTask = (async () => {
 				try {
-					const dbData = await api.getAllDetailsByID(appId);
+					let dbData = null;
+					if (typeof api.getAllDetailsByAppIDAndPlatform === 'function') {
+						dbData = await api.getAllDetailsByAppIDAndPlatform(appId, 'steam');
+					}
+					if (!dbData && typeof api.getAllDetailsByID === 'function') {
+						dbData = await api.getAllDetailsByID(appId);
+					}
 					if (!cancelled && dbData) setDbDetails(dbData);
 				} catch (error) {
 					console.warn('[GamePage] DB details unavailable:', error);
@@ -160,10 +302,12 @@ const GamePage = () => {
 			? {
 				id: Number(dbDetails.app_id) || null,
 				appid: Number(dbDetails.app_id) || null,
-				title: dbDetails.name || routeState.title,
-				description: dbDetails.description || '',
-				tags: Array.isArray(dbDetails.genre_names) ? dbDetails.genre_names : [],
-				minimumRequirements: dbDetails.minimum_requirements || '',
+				title: normalizeUtf8Text(dbDetails.name || routeState.title),
+				description: htmlToText(dbDetails.description || ''),
+				tags: normalizeTextList(
+					Array.isArray(dbDetails.genre_names) ? dbDetails.genre_names : dbDetails.genres
+				),
+				minimumRequirements: sanitizeHtml(dbDetails.minimum_requirements || ''),
 				achievementCount: routeState.achievementCount,
 			}
 			: null;
@@ -186,20 +330,53 @@ const GamePage = () => {
 			...merged,
 			id: merged.id ?? appId ?? null,
 			appid: merged.appid ?? appId ?? null,
-			title: merged.title || fallback.title,
-			coverImage: merged.coverImage || steam?.cover || steam?.capsule || fallback.coverImage,
-			heroImage: merged.heroImage || steam?.hero || steam?.header || fallback.heroImage,
-			description: merged.description || '',
-			tags: Array.isArray(merged.tags) ? merged.tags : [],
-			screenshots: Array.isArray(merged.screenshots) ? merged.screenshots : [],
-			minimumRequirements: merged.minimumRequirements || '',
-			playtime: merged.playtime || '',
+			title: normalizeUtf8Text(merged.title || fallback.title),
+			coverImage: normalizeUtf8Text(merged.coverImage || steam?.cover || steam?.capsule || fallback.coverImage),
+			heroImage: normalizeUtf8Text(merged.heroImage || steam?.hero || steam?.header || fallback.heroImage),
+			description: htmlToText(merged.description || ''),
+			tags: normalizeTextList(Array.isArray(merged.tags) ? merged.tags : []),
+			screenshots: normalizeScreenshotList(Array.isArray(merged.screenshots) ? merged.screenshots : []),
+			minimumRequirements: sanitizeHtml(merged.minimumRequirements || ''),
+			playtime: normalizeUtf8Text(merged.playtime || ''),
 			achievementCount: Number(merged.achievementCount) || null,
 			sites,
 		};
 	}, [appId, dbDetails, routeState, steamDetails]);
 
-	const screenshot = model.screenshots[currentScreenshot] || model.heroImage || model.coverImage;
+	const screenshotSources = useMemo(() => {
+		return normalizeScreenshotList([
+			...(Array.isArray(model.screenshots) ? model.screenshots : []),
+			model.heroImage,
+			model.coverImage,
+		]);
+	}, [model.coverImage, model.heroImage, model.screenshots]);
+
+	useEffect(() => {
+		if (currentScreenshot >= screenshotSources.length) {
+			setCurrentScreenshot(0);
+		}
+	}, [currentScreenshot, screenshotSources.length]);
+
+	const goPrevScreenshot = useCallback(() => {
+		if (screenshotSources.length < 2) return;
+		setCurrentScreenshot((prev) => (prev - 1 + screenshotSources.length) % screenshotSources.length);
+	}, [screenshotSources.length]);
+
+	const goNextScreenshot = useCallback(() => {
+		if (screenshotSources.length < 2) return;
+		setCurrentScreenshot((prev) => (prev + 1) % screenshotSources.length);
+	}, [screenshotSources.length]);
+
+	useEffect(() => {
+		if (loading || screenshotSources.length < 2) return;
+		const intervalId = window.setInterval(() => {
+			setCurrentScreenshot((prev) => (prev + 1) % screenshotSources.length);
+		}, SCREENSHOT_AUTOSTEP_MS);
+		return () => window.clearInterval(intervalId);
+	}, [loading, screenshotSources.length]);
+
+	const screenshot = screenshotSources[currentScreenshot] || '';
+	const fixedBackdropImage = model.heroImage || model.coverImage || screenshotSources[0] || '';
 
 	const handleLaunch = async () => {
 		if (!appId) return;
@@ -224,7 +401,7 @@ const GamePage = () => {
 			<div className="relative min-h-full">
 				<div
 					className="absolute inset-x-0 top-0 h-[320px] bg-cover bg-center opacity-25"
-					style={{ backgroundImage: screenshot ? `url(${screenshot})` : undefined }}
+					style={{ backgroundImage: fixedBackdropImage ? `url(${fixedBackdropImage})` : undefined }}
 				/>
 				<div className="absolute inset-x-0 top-0 h-[320px] bg-gradient-to-b from-slate-950/20 via-slate-950/75 to-slate-950" />
 
@@ -351,7 +528,7 @@ const GamePage = () => {
 							</div>
 
 							<div className="overflow-hidden rounded-3xl border border-slate-700/60 bg-slate-900/45 backdrop-blur-sm">
-								<div className="aspect-video bg-slate-800/30">
+								<div className="relative aspect-video bg-slate-800/30">
 									{screenshot ? (
 										<img
 											src={screenshot}
@@ -361,11 +538,32 @@ const GamePage = () => {
 									) : (
 										<div className="flex h-full items-center justify-center text-slate-500">No screenshot available</div>
 									)}
+
+									{loading ? null : (
+										<>
+											<button
+												type="button"
+												onClick={goPrevScreenshot}
+												disabled={screenshotSources.length < 2}
+												className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full border border-slate-600/80 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 transition-colors hover:bg-slate-800/85 disabled:cursor-not-allowed disabled:opacity-45"
+											>
+												‹
+											</button>
+											<button
+												type="button"
+												onClick={goNextScreenshot}
+												disabled={screenshotSources.length < 2}
+												className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full border border-slate-600/80 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 transition-colors hover:bg-slate-800/85 disabled:cursor-not-allowed disabled:opacity-45"
+											>
+												›
+											</button>
+										</>
+									)}
 								</div>
 
-								{model.screenshots.length > 1 ? (
+								{screenshotSources.length > 1 ? (
 									<div className="grid grid-cols-4 gap-2 border-t border-slate-800/80 p-3 md:grid-cols-6">
-										{model.screenshots.slice(0, 6).map((shot, index) => (
+										{screenshotSources.slice(0, 6).map((shot, index) => (
 											<button
 												key={`${shot}-${index}`}
 												type="button"

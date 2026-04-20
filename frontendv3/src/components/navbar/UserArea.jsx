@@ -86,12 +86,15 @@ const UserArea = ({ user, onLogout }) => {
   return (
     <div
       ref={containerRef}
-      className="relative no-drag text-xs text-slate-300 flex items-center cursor-pointer select-none"
+      className="relative no-drag text-xs text-slate-300 flex items-center select-none"
     >
       <button
         type="button"
-        className="flex items-center gap-2 px-2 py-0.5 rounded hover:bg-neutral-800"
+        className="no-drag flex items-center gap-2 px-2 py-0.5 rounded hover:bg-neutral-800"
         onClick={toggleDropdown}
+        onMouseDown={(event) => {
+          event.stopPropagation();
+        }}
       >
         {avatarUrl && !avatarFailed ? (
           <img
@@ -110,17 +113,22 @@ const UserArea = ({ user, onLogout }) => {
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full mt-1 min-w-[180px] bg-neutral-800 text-xs shadow-lg z-50">
+        <div
+          className="user-area-dropdown no-drag absolute right-0 top-full mt-2 min-w-[180px] overflow-hidden rounded-md border border-slate-700/70 bg-neutral-800 text-xs shadow-lg z-[10000]"
+          onMouseDown={(event) => {
+            event.stopPropagation();
+          }}
+        >
           <button
             type="button"
-            className="w-full text-left px-3 py-1.5 hover:bg-neutral-700"
+            className="no-drag w-full text-left px-3 py-1.5 hover:bg-neutral-700"
             onClick={handleProfileClick}
           >
             Profile
           </button>
           <button
             type="button"
-            className="w-full text-left px-3 py-1.5 hover:bg-neutral-700"
+            className="no-drag w-full text-left px-3 py-1.5 hover:bg-neutral-700"
             onClick={handleSettingsClick}
           >
             Settings
@@ -128,7 +136,7 @@ const UserArea = ({ user, onLogout }) => {
           <div className="mx-2 h-px bg-slate-600/70" />
           <button
             type="button"
-            className="w-full text-left px-3 py-1.5 hover:bg-neutral-700"
+            className="no-drag w-full text-left px-3 py-1.5 hover:bg-neutral-700"
             onClick={handleAuthClick}
           >
             {isLoggedIn ? 'Logout' : 'Login'}

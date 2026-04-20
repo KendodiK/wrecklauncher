@@ -95,18 +95,46 @@ function getPlatformIconMeta(platform) {
 	};
 }
 
+function normalizePlatformDefaults(input) {
+	if (!Array.isArray(input)) return [];
+	const seen = new Set();
+	const out = [];
+	for (const value of input) {
+		const normalized = String(value || '').trim().toLowerCase();
+		if (!normalized || seen.has(normalized)) continue;
+		seen.add(normalized);
+		out.push(normalized);
+	}
+	return out;
+}
+
+function areStringArraysEqual(a, b) {
+	if (a === b) return true;
+	if (!Array.isArray(a) || !Array.isArray(b)) return false;
+	if (a.length !== b.length) return false;
+	for (let i = 0; i < a.length; i += 1) {
+		if (a[i] !== b[i]) return false;
+	}
+	return true;
+}
+
 const FilteredGamesSection = ({
 	games = [],
 	title = "Browse Games",
+	defaultSelectedPlatforms,
 	onRequestNextPage,
 	canLoadMore = false,
 	isLoadingMore = false,
 	onRemoteResultsUpdate,
 }) => {
+	const normalizedDefaultPlatforms = useMemo(
+		() => normalizePlatformDefaults(defaultSelectedPlatforms),
+		[defaultSelectedPlatforms],
+	);
 	const navigate = useNavigate();
 	const [searchQuery, setSearchQuery] = useState('');
 	const [selectedTags, setSelectedTags] = useState([]);
-	const [selectedPlatforms, setSelectedPlatforms] = useState([]);
+	const [selectedPlatforms, setSelectedPlatforms] = useState(() => normalizedDefaultPlatforms);
 	const [priceRange, setPriceRange] = useState({ min: 0, max: 100 });
 	const [selectedGame, setSelectedGame] = useState(null);
 	const [resolvedGenresByGameId, setResolvedGenresByGameId] = useState({});
@@ -116,6 +144,12 @@ const FilteredGamesSection = ({
 	const gamesPerPage = 20;
 	const normalizedSearchQuery = String(searchQuery || '').trim();
 	const hasSearchFilters = normalizedSearchQuery.length > 0 || selectedTags.length > 0;
+
+	useEffect(() => {
+		setSelectedPlatforms((prev) => (
+			areStringArraysEqual(prev, normalizedDefaultPlatforms) ? prev : normalizedDefaultPlatforms
+		));
+	}, [normalizedDefaultPlatforms]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -420,7 +454,7 @@ useEffect(() => {
 	const handleResetFilters = () => {
 		setSearchQuery('');
 		setSelectedTags([]);
-		setSelectedPlatforms([]);
+		setSelectedPlatforms(normalizedDefaultPlatforms);
 		setPriceRange({ min: 0, max: 100 });
 		setCurrentPage(1);
 	};
@@ -470,6 +504,7 @@ useEffect(() => {
 									isSelected ? 'bg-slate-700/50' : 'hover:bg-slate-700/30'
 								}`}
 								onClick={() => setSelectedGame(game)}
+								onDoubleClick={() => navigate(toStoreGameUrl(game), { state: { game } })}
 							>
 								<div className="w-20 h-11 flex-shrink-0 rounded overflow-hidden bg-slate-900/50">
 									<img
@@ -501,13 +536,13 @@ useEffect(() => {
 									</div>
 									<div className="flex flex-wrap gap-1">
 										{visibleTags.map((tag) => (
-											<span key={`tag-${tag}`} className="text-xs px-2 py-0.5 bg-slate-900/50 text-slate-300 rounded">{tag}</span>
+											<span key={`tag-${tag}`} className="store-universal-tag">{tag}</span>
 										))}
 										{visibleGenres.map((genre) => (
-											<span key={`genre-${genre}`} className="text-xs px-2 py-0.5 bg-slate-900/50 text-slate-300 rounded">{genre}</span>
+											<span key={`genre-${genre}`} className="store-universal-tag">{genre}</span>
 										))}
 										{visibleTags.length === 0 && visibleGenres.length === 0 ? (
-											<span className="text-xs px-2 py-0.5 bg-slate-900/50 text-slate-500 rounded">No tags</span>
+											<span className="store-universal-tag store-universal-tag-muted">No tags</span>
 										) : null}
 									</div>
 								</div>
@@ -553,13 +588,13 @@ useEffect(() => {
 							</div>
 							<div className="mb-3 flex flex-wrap gap-1">
 								{displayGameMetadata.tags.slice(0, 4).map((tag) => (
-									<span key={`preview-tag-${tag}`} className="text-xs px-2 py-0.5 bg-slate-900/50 text-slate-300 rounded">{tag}</span>
+									<span key={`preview-tag-${tag}`} className="store-universal-tag">{tag}</span>
 								))}
 								{displayGameMetadata.genres
 									.filter((genre) => !displayGameMetadata.tags.some((tag) => tag.toLowerCase() === String(genre || '').toLowerCase()))
 									.slice(0, 4)
 									.map((genre) => (
-										<span key={`preview-genre-${genre}`} className="text-xs px-2 py-0.5 bg-slate-900/50 text-slate-300 rounded">{genre}</span>
+										<span key={`preview-genre-${genre}`} className="store-universal-tag">{genre}</span>
 									))}
 							</div>
 							<p className="text-xs text-slate-300 leading-relaxed mb-3">{displayGame.description || 'No description available.'}</p>

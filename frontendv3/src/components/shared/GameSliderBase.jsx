@@ -41,6 +41,7 @@ const GameSliderBase = ({
 	onActivateCard,
 	onCardClick,
 	onCurrentCardChange,
+	advanceOnActiveClick = false,
 	// Styling hooks (wrapper supplies CSS classnames)
 	classNameWrapper = '',
 	classNameCarousel = '',
@@ -55,6 +56,7 @@ const GameSliderBase = ({
 	getStackMotion,
 	stackMotionTransition,
 	// Animation hooks (wrapper supplies timing; easing is controlled here)
+	transition,
 	transitionMs = 300,
 }) => {
 	const carouselRef = useRef(null);
@@ -73,6 +75,9 @@ const GameSliderBase = ({
 	const dragStartX = useRef(0);
 	const dragCurrentX = useRef(0);
 	const isDragging = useRef(false);
+	const touchStartXRef = useRef(0);
+	const touchCurrentXRef = useRef(0);
+	const isTouchDraggingRef = useRef(false);
 
 	const baseCards = useMemo(() => {
 		const fallbackCards = showFallbackCards
@@ -303,9 +308,20 @@ const GameSliderBase = ({
 		setCurrentIndex((prev) => prev + dir);
 	};
 
+	const focusCarousel = useCallback(() => {
+		const node = carouselRef.current;
+		if (!node || typeof node.focus !== 'function') return;
+		node.focus({ preventScroll: true });
+	}, []);
+
 	const handleCardClick = (index) => {
 		if (isMoving) return;
-		if (index === currentIndex) return;
+		if (index === currentIndex) {
+			if (advanceOnActiveClick) {
+				move(1);
+			}
+			return;
+		}
 		// Call onCardClick callback if provided (e.g., for scroll-into-view)
 		if (typeof onCardClick === 'function') {
 			onCardClick(cards[index], { index });
@@ -337,8 +353,10 @@ const GameSliderBase = ({
 				if (xRef.current !== offset) {
 					xRef.current = offset;
 					const shouldAnimate = animate && !shouldReduceMotion && !skipAnimationRef.current && transitionMs > 0;
+					const transitionValue = String(transition || '').trim();
+					const resolvedTransition = transitionValue || `transform ${Math.max(0, transitionMs)}ms cubic-bezier(0.2, 0.8, 0.2, 1)`;
 					container.style.transition = shouldAnimate
-						? `transform ${Math.max(0, transitionMs)}ms cubic-bezier(0.2, 0.8, 0.2, 1)`
+						? resolvedTransition
 						: 'none';
 					container.style.transform = `translate3d(${offset}px, 0, 0)`;
 				}
@@ -358,13 +376,15 @@ const GameSliderBase = ({
 			if (xRef.current !== offset) {
 				xRef.current = offset;
 				const shouldAnimate = animate && !shouldReduceMotion && !skipAnimationRef.current && transitionMs > 0;
+				const transitionValue = String(transition || '').trim();
+				const resolvedTransition = transitionValue || `transform ${Math.max(0, transitionMs)}ms cubic-bezier(0.2, 0.8, 0.2, 1)`;
 				container.style.transition = shouldAnimate
-					? `transform ${Math.max(0, transitionMs)}ms cubic-bezier(0.2, 0.8, 0.2, 1)`
+					? resolvedTransition
 					: 'none';
 				container.style.transform = `translate3d(${offset}px, 0, 0)`;
 			}
 		},
-		[activeOffsetPx, cards.length, currentIndex, mode, shouldReduceMotion, transitionMs]
+		[activeOffsetPx, cards.length, currentIndex, mode, shouldReduceMotion, transition, transitionMs]
 	);
 
 	// Layout update: place active card + toggle active class
@@ -555,16 +575,31 @@ const GameSliderBase = ({
 	}, [cards, currentIndex, onCurrentCardChange, selectedCardId]);
 
 	const onKeyDown = (e) => {
-		if (e.key === 'ArrowRight') move(1);
-		if (e.key === 'ArrowLeft') move(-1);
+		if (e.key === 'ArrowRight') {
+			e.preventDefault();
+			e.stopPropagation?.();
+			focusCarousel();
+			move(1);
+			return;
+		}
+		if (e.key === 'ArrowLeft') {
+			e.preventDefault();
+			e.stopPropagation?.();
+			focusCarousel();
+			move(-1);
+			return;
+		}
 		if (e.key === 'Tab') {
+			if (e.ctrlKey || e.metaKey || e.altKey) return;
+			e.preventDefault();
+			e.stopPropagation?.();
+			focusCarousel();
 			if (e.shiftKey) {
-				e.preventDefault();
 				move(-1);
 			} else {
-				e.preventDefault();
 				move(1);
 			}
+			return;
 		}
 		if (e.key === 'Enter') {
 			if (typeof onActivateCard !== 'function') return;
@@ -574,6 +609,13 @@ const GameSliderBase = ({
 			e.stopPropagation?.();
 			onActivateCard(card, { index: currentIndex });
 		}
+	};
+
+	const onKeyUp = (e) => {
+		if (e.key !== 'Tab') return;
+		if (e.ctrlKey || e.metaKey || e.altKey) return;
+		e.preventDefault();
+		e.stopPropagation?.();
 	};
 
 	// Native non-passive wheel handler to reliably block vertical page scroll while hovering.
@@ -586,6 +628,7 @@ const GameSliderBase = ({
 			// Prevent page scroll while the cursor is over the carousel.
 			if (e.cancelable) e.preventDefault();
 			e.stopPropagation();
+			focusCarousel();
 			if (wheelLockRef.current) return;
 			if (isMoving) return;
 
@@ -603,7 +646,7 @@ const GameSliderBase = ({
 
 		el.addEventListener('wheel', handler, { passive: false });
 		return () => el.removeEventListener('wheel', handler, { passive: false });
-	}, [isMoving]);
+	}, [focusCarousel, isMoving]);
 
 	// Drag handlers for mouse drag navigation
 	useEffect(() => {
@@ -611,6 +654,7 @@ const GameSliderBase = ({
 		if (!el) return;
 
 		const handleMouseDown = (e) => {
+			focusCarousel();
 			isDragging.current = true;
 			dragStartX.current = e.clientX;
 			dragCurrentX.current = e.clientX;
@@ -655,7 +699,51 @@ const GameSliderBase = ({
 			window.removeEventListener('mouseup', handleMouseUp);
 			el.removeEventListener('mouseleave', handleMouseLeave);
 		};
-	}, [isMoving]);
+	}, [focusCarousel, isMoving]);
+
+	// Touch swipe navigation for mobile/tablet.
+	useEffect(() => {
+		const el = carouselRef.current;
+		if (!el) return;
+
+		const handleTouchStart = (event) => {
+			if (!event.touches || event.touches.length < 1) return;
+			const touch = event.touches[0];
+			focusCarousel();
+			isTouchDraggingRef.current = true;
+			touchStartXRef.current = touch.clientX;
+			touchCurrentXRef.current = touch.clientX;
+		};
+
+		const handleTouchMove = (event) => {
+			if (!isTouchDraggingRef.current || !event.touches || event.touches.length < 1) return;
+			touchCurrentXRef.current = event.touches[0].clientX;
+		};
+
+		const handleTouchEnd = () => {
+			if (!isTouchDraggingRef.current) return;
+			isTouchDraggingRef.current = false;
+
+			const dragDistance = touchStartXRef.current - touchCurrentXRef.current;
+			const threshold = 34;
+
+			if (Math.abs(dragDistance) > threshold && !isMoving) {
+				move(dragDistance > 0 ? 1 : -1);
+			}
+		};
+
+		el.addEventListener('touchstart', handleTouchStart, { passive: true });
+		el.addEventListener('touchmove', handleTouchMove, { passive: true });
+		el.addEventListener('touchend', handleTouchEnd, { passive: true });
+		el.addEventListener('touchcancel', handleTouchEnd, { passive: true });
+
+		return () => {
+			el.removeEventListener('touchstart', handleTouchStart);
+			el.removeEventListener('touchmove', handleTouchMove);
+			el.removeEventListener('touchend', handleTouchEnd);
+			el.removeEventListener('touchcancel', handleTouchEnd);
+		};
+	}, [focusCarousel, isMoving]);
 
 	const effectiveRenderCard = renderCard
 		? renderCard
@@ -680,10 +768,16 @@ const GameSliderBase = ({
 				ref={carouselRef}
 				className={classNameCarousel}
 				tabIndex={0}
+				role="region"
+				aria-keyshortcuts="ArrowLeft ArrowRight Tab Shift+Tab"
 				aria-label={ariaLabel}
+				onMouseEnter={focusCarousel}
+				onTouchStart={focusCarousel}
+				onMouseDown={focusCarousel}
 				onKeyDown={onKeyDown}
+				onKeyUp={onKeyUp}
 			>
-				{typeof renderBeforeContainer === 'function' ? renderBeforeContainer({ move }) : null}
+				{typeof renderBeforeContainer === 'function' ? renderBeforeContainer({ move, focusCarousel }) : null}
 
 				{mode === 'stack' ? (
 					<ul ref={containerRef} className={classNameContainer}>
@@ -754,7 +848,7 @@ const GameSliderBase = ({
 					</ul>
 				)}
 
-				{typeof renderAfterContainer === 'function' ? renderAfterContainer({ move }) : null}
+				{typeof renderAfterContainer === 'function' ? renderAfterContainer({ move, focusCarousel }) : null}
 			</div>
 		</div>
 	);
