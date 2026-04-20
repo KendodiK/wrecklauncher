@@ -2266,6 +2266,13 @@ const StoreGamePage = () => {
 			routeState?.screenshots
 		);
 		const normalizedScreenshots = normalizeScreenshotList(screenshots);
+		const resolvedTitle = pickFirstFilledText(
+			parsedPlatform?.title,
+			parsedDb?.title,
+			routeState?.title,
+			routeState?.name,
+			fallback.title
+		);
 		const siteCandidates = pickFirstNonEmptyArray(
 			parsedPlatform?.sites,
 			parsedDb?.sites,
@@ -2338,7 +2345,7 @@ const StoreGamePage = () => {
 			...fallback,
 			id: pickFirstPositiveNumber(parsedDb?.id, routeState?.id, resolvedAppId, appId),
 			appid: resolvedAppId,
-			title: normalizeUtf8Text(pickFirstFilledText(parsedPlatform?.title, parsedDb?.title, routeState?.title, routeState?.name, fallback.title)),
+			title: normalizeUtf8Text(resolvedTitle),
 			description: normalizedDescription,
 			longDescription: normalizedLongDescription,
 			minimumRequirements: normalizedMinimumRequirements,
