@@ -200,6 +200,30 @@ function isMissingSettingsHandlerError(error, channel) {
 	return message.includes(`No handler registered for '${channel}'`);
 }
 
+function resolveThemeSelection(rawTheme) {
+	const normalized = String(rawTheme || '').trim().toLowerCase();
+	if (normalized === 'purple-black') return 'purple-black';
+	if (normalized === 'light-green') return 'light-green';
+	if (normalized === 'light') return 'light';
+	if (normalized === 'system') {
+		try {
+			if (typeof window !== 'undefined' && window.matchMedia) {
+				return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+			}
+		} catch {
+			// ignore and fall back to dark
+		}
+	}
+	return 'dark';
+}
+
+function applyDocumentTheme(rawTheme) {
+	const theme = resolveThemeSelection(rawTheme);
+	if (typeof document === 'undefined') return;
+	document.documentElement.setAttribute('data-theme', theme);
+	document.body?.setAttribute('data-theme', theme);
+}
+
 async function fetchSettingsWithRetry(api, attempts = 8, delayMs = 150) {
 	let lastError = null;
 
@@ -244,6 +268,10 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 	useEffect(() => {
 		loadSettings();
 	}, []);
+
+	useEffect(() => {
+		applyDocumentTheme(settings?.display?.theme || 'dark');
+	}, [settings?.display?.theme]);
 
 	const fetchPlatformRuntimeState = async () => {
 		const empty = createEmptyPlatformRuntimeState();
@@ -1001,7 +1029,7 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 		: 'Customize your WreckLauncher experience';
 
 	return (
-		<div className="flex-1 px-6 py-4 text-slate-100 overflow-y-auto">
+		<div className="settings-page flex-1 px-6 py-4 text-slate-100 overflow-y-auto">
 			<div className="max-w-4xl mx-auto">
 				<h1 className="text-3xl font-bold mb-2">{pageTitle}</h1>
 				<p className="text-slate-400 mb-6">{pageSubtitle}</p>
@@ -1029,7 +1057,7 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 				)}
 
 				{/* Display Settings */}
-				{selectedSection === 'display' && (
+				{(selectedSection === 'display' || !showingMovedSection) && (
 				<section className="mb-8 bg-slate-800/50 rounded-lg p-6 border border-slate-700">
 					<h2 className="text-xl font-semibold mb-4 flex items-center">
 						<svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1043,7 +1071,7 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 						<div className="flex items-center justify-between">
 							<div>
 								<label className="text-sm font-medium">Theme</label>
-								<p className="text-xs text-slate-400">Choose your preferred color scheme</p>
+								<p className="text-xs text-slate-400">Choose your preferred color scheme (includes Purple Black)</p>
 							</div>
 							<select
 								value={settings.display.theme}
@@ -1051,7 +1079,9 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 								disabled={saving}
 								className="bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
 							>
-								<option value="dark">Dark</option>
+								<option value="dark">Default (Dark)</option>
+								<option value="purple-black">Purple Black</option>
+								<option value="light-green">Light Green</option>
 								<option value="light">Light</option>
 								<option value="system">System</option>
 							</select>

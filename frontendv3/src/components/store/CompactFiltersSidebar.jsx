@@ -51,7 +51,7 @@ const CompactFiltersSidebar = ({
 		priceRange.max < 100;
 
 	return (
-		<div className="w-80 bg-slate-800/40 backdrop-blur-sm rounded-lg border border-slate-700/50 sticky top-20 overflow-hidden flex flex-col max-h-[calc(100vh-100px)]">
+		<div className="compact-filters-sidebar w-80 bg-slate-800/40 backdrop-blur-sm rounded-lg border border-slate-700/50 sticky top-20 overflow-hidden flex flex-col max-h-[calc(100vh-100px)]">
 			{/* Search bar */}
 			<div className="p-4 border-b border-slate-700/50">
 				<input

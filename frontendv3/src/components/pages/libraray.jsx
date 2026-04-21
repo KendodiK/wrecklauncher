@@ -16,6 +16,11 @@ const STEAM_CDN_HOSTS = [
 	'https://cdn.akamai.steamstatic.com',
 ];
 
+function normalizeLibraryViewMode(value) {
+	const normalized = String(value || '').trim().toLowerCase();
+	return normalized === 'list' ? 'list' : 'carousel';
+}
+
 const installedScanCache = new Map();
 const steamImageProbeCache = new Map();
 const steamDbBannerSyncCache = new Set();
@@ -1065,6 +1070,7 @@ const LibraryPage = () => {
 	const deferredSearch = useDeferredValue(search);
 	const [sortBy, setSortBy] = useState('alphabetical');
 	const [sortDirection, setSortDirection] = useState('asc');
+	const [libraryViewMode, setLibraryViewMode] = useState('carousel');
 	const [hideZeroPlaytime, setHideZeroPlaytime] = useState(false);
 	const [showAllGames, setShowAllGames] = useState(false);
 	const [stripWindowStart, setStripWindowStart] = useState(0);
@@ -1115,7 +1121,10 @@ const LibraryPage = () => {
 
 			try {
 				if (typeof window?.electronAPI?.getSettings === 'function') {
-					await window.electronAPI.getSettings();
+					const settingsPayload = await window.electronAPI.getSettings();
+					if (!cancelled) {
+						setLibraryViewMode(normalizeLibraryViewMode(settingsPayload?.library?.viewMode));
+					}
 				}
 				const runtimePlatforms = await fetchRuntimePlatformConnections(window.electronAPI).catch((error) => {
 					console.warn('Failed to load runtime platform connections for library:', error);
@@ -1525,6 +1534,8 @@ const LibraryPage = () => {
 		let start = Math.min(Math.max(stripWindowStart, 0), maxStart);
 		return filteredGames.slice(start, start + MAX_LIBRARY_STRIP_GAMES);
 	}, [filteredGames, stripWindowStart]);
+
+	const isListView = libraryViewMode === 'list';
 
 	const activeGameAppId = Number(activeGame?.appid);
 	const activeGogProductId = normalizeGogProductId(
@@ -2339,12 +2350,53 @@ const LibraryPage = () => {
 					{filteredGames.length > 0 ? (
 						<>
 							<div className="library-dock-strip-area group">
-								<LibraryGameStrip
-									games={stripGames}
-									activeGameId={activeGame?.id ?? ''}
-									onSelect={setActiveGameId}
-									onOpenStore={handleOpenStorePage}
-								/>
+								{isListView ? (
+									<div className="w-full max-w-none max-h-[58vh] overflow-y-auto pr-1 scrollbar-thin">
+										<div className="flex flex-col gap-2">
+											{filteredGames.map((game) => {
+												const isActive = game.id === (activeGame?.id ?? '');
+												const gameThumb = game.coverUrl || game.heroUrl || '';
+												return (
+													<button
+														type="button"
+														key={game.id}
+														onClick={() => setActiveGameId(game.id)}
+														onDoubleClick={() => handleOpenStorePage(game)}
+														className={`w-full border px-3 py-3 text-left transition-colors ${
+															isActive
+																? 'border-sky-500/60 bg-sky-500/10 text-white'
+																: 'border-slate-700/70 bg-slate-900/45 text-slate-200 hover:bg-slate-800/70'
+														}`}
+													>
+														<div className="flex items-center gap-3">
+															<div className="h-10 w-16 flex-shrink-0 overflow-hidden border border-slate-700/70 bg-slate-900/60">
+																{gameThumb ? (
+																	<img src={gameThumb} alt={game.title || 'game'} className="h-full w-full object-cover object-center" />
+																) : (
+																	<div className="flex h-full w-full items-center justify-center text-[10px] text-slate-500">No image</div>
+																)}
+															</div>
+															<div className="min-w-0 flex-1">
+																<div className="flex items-center justify-between gap-2">
+																	<p className="truncate text-sm font-medium">{game.title}</p>
+																	<p className="text-xs text-slate-400">{formatLibraryLauncherLabel(game.launcherId)}</p>
+																</div>
+																<p className="mt-1 text-xs text-slate-400">{game.playtime || '0h'}</p>
+															</div>
+														</div>
+													</button>
+												);
+											})}
+										</div>
+									</div>
+								) : (
+									<LibraryGameStrip
+										games={stripGames}
+										activeGameId={activeGame?.id ?? ''}
+										onSelect={setActiveGameId}
+										onOpenStore={handleOpenStorePage}
+									/>
+								)}
 							</div>
 
 							{/* Status bar */}

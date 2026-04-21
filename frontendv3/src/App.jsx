@@ -14,6 +14,30 @@ import LibraryPage from "./components/pages/libraray.jsx";
 import AllGamesPage from "./components/pages/AllGamesPage.jsx";
 import { DownloadManagerProvider } from './context/DownloadManagerContext.jsx';
 
+function resolveThemeSelection(rawTheme) {
+  const normalized = String(rawTheme || '').trim().toLowerCase();
+  if (normalized === 'purple-black') return 'purple-black';
+  if (normalized === 'light-green') return 'light-green';
+  if (normalized === 'light') return 'light';
+  if (normalized === 'system') {
+    try {
+      if (typeof window !== 'undefined' && window.matchMedia) {
+        return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      }
+    } catch {
+      // ignore and fall back to dark
+    }
+  }
+  return 'dark';
+}
+
+function applyDocumentTheme(rawTheme) {
+  const theme = resolveThemeSelection(rawTheme);
+  if (typeof document === 'undefined') return;
+  document.documentElement.setAttribute('data-theme', theme);
+  document.body?.setAttribute('data-theme', theme);
+}
+
 // Listens for auth-expired events and redirects to the login page.
 function AuthExpiredGuard({ onLogout }) {
   const navigate = useNavigate();
@@ -93,6 +117,31 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const bootstrapTheme = async () => {
+      try {
+        const api = window?.electronAPI;
+        if (!api || typeof api.getSettings !== 'function') {
+          applyDocumentTheme('dark');
+          return;
+        }
+
+        const settings = await api.getSettings();
+        if (cancelled) return;
+        applyDocumentTheme(settings?.display?.theme || 'dark');
+      } catch {
+        if (!cancelled) applyDocumentTheme('dark');
+      }
+    };
+
+    bootstrapTheme();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Kijelentkezés: egyszerűen null-ra állítjuk a user állapotot
   const handleLogout = useCallback(() => {
     try {
@@ -133,7 +182,7 @@ function App() {
   return (
     <DownloadManagerProvider>
       <HashRouter>
-        <div className="min-h-screen flex flex-col bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+        <div className="app-shell min-h-screen flex flex-col bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
           <AuthExpiredGuard onLogout={handleLogout} />
           <MainNavbar user={user} onLogout={handleLogout} />
           <main className="flex-1 pt-14">
