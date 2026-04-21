@@ -8,6 +8,21 @@ const { randomUUID } = require('node:crypto');
 const cloudscraper = require('cloudscraper');
 const CloudscraperController = require('./CloudscraperController');
 
+// Puppeteer (and puppeteer-extra stealth) are used as a fallback to solve Cloudflare JS challenges
+let _puppeteer = null;
+try {
+  const pptrExtra = require('puppeteer-extra');
+  const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+  pptrExtra.use(StealthPlugin());
+  _puppeteer = pptrExtra;
+} catch (err) {
+  try {
+    _puppeteer = require('puppeteer');
+  } catch (err2) {
+    _puppeteer = null;
+  }
+}
+
 class XatabController {
   /** @type {CloudscraperController} */
   #scraper;
@@ -286,7 +301,7 @@ class XatabController {
     if (start <= 0) start = 1;
     for (let p = start; p <= maxPages; p++) {
       const pageUrl = p === 1 ? 'https://byxatab.com/' : `https://byxatab.com/page/${p}/`;
-      const res = await this.#scraper.fetch(pageUrl, { method: 'GET', headers: this.#buildHeaders() });
+      const res = await this.#fetchWithCookieRetry(pageUrl, { method: 'GET', extraHeaders: {} });
       if (res.statusCode === 404) {
         cache.lastPage = p - 1;
         await this.#savePagesCache(cache);
@@ -435,6 +450,75 @@ class XatabController {
   }
 
   /**
+   * Use Puppeteer (with stealth plugin when available) to visit a URL and capture
+   * cookies set by Cloudflare/site so subsequent HTTP requests can reuse them.
+   * @param {string} targetUrl
+   * @returns {Promise<string|null>} cookie header string or null
+   */
+  async #getClearanceCookiesWithPuppeteer(targetUrl) {
+    if (!_puppeteer) return null;
+
+    let browser = null;
+    try {
+      const launchArgs = ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'];
+      browser = await _puppeteer.launch({ headless: true, args: launchArgs, defaultViewport: null });
+      const page = await browser.newPage();
+      await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:149.0) Gecko/20100101 Firefox/149.0');
+      await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: this.#timeoutMs });
+      // delay for cookies to be set (some puppeteer versions/platforms lack waitForTimeout)
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const cookies = await page.cookies();
+      if (!Array.isArray(cookies) || cookies.length === 0) return null;
+
+      const relevant = cookies.filter(c => c && c.name && c.value && (String(c.domain || '').includes('byxatab.com') || String(c.domain || '').includes('byxatab')));
+      if (!relevant || relevant.length === 0) return null;
+
+      const cookieHeader = relevant.map(c => `${c.name}=${c.value}`).join('; ');
+      return cookieHeader || null;
+    } catch (err) {
+      console.warn('[Xatab] puppeteer cookie fetch failed:', err?.message || err);
+      return null;
+    } finally {
+      if (browser) await browser.close().catch(() => {});
+    }
+  }
+
+  /**
+   * Fetch via this.#scraper, trying the configured cookie first and using Puppeteer to
+   * obtain a fresh cookie and retry once on Cloudflare/401 failures.
+   * @param {string} url
+   * @param {{ method?: string, extraHeaders?: Record<string,string>, qs?: any, body?: any }} [opts]
+   */
+  async #fetchWithCookieRetry(url, opts = {}) {
+    const method = String(opts.method || 'GET').toUpperCase();
+    const extraHeaders = opts.extraHeaders || {};
+
+    let headers = this.#buildHeaders(extraHeaders);
+    let response = await this.#scraper.fetch(url, { method, headers, qs: opts.qs, body: opts.body });
+
+    const bodyText = String(response?.body || '');
+    const looksLikeCF = /window\.__CF\$cv|challenge-platform\/scripts\/jsd|401 Authorization Required/i.test(bodyText)
+      || /cloudflare/i.test(String(response?.headers?.server || ''))
+      || Number(response?.statusCode) === 401;
+
+    if (looksLikeCF && _puppeteer) {
+      try {
+        const cookie = await this.#getClearanceCookiesWithPuppeteer(url);
+        if (cookie) {
+          this.#cookieHeader = cookie;
+          process.env.WRECK_XATAB_COOKIE = cookie;
+          headers = this.#buildHeaders(extraHeaders);
+          response = await this.#scraper.fetch(url, { method, headers, qs: opts.qs, body: opts.body });
+        }
+      } catch (err) {
+        console.warn('[Xatab] Puppeteer fallback failed:', err?.message || err);
+      }
+    }
+
+    return response;
+  }
+
+  /**
    * @param {Buffer} torrentBuffer
    * @returns {Promise<string|null>}
    */
@@ -478,9 +562,9 @@ class XatabController {
       return null;
     }
 
-    const gamePageResponse = await this.#scraper.fetch(gamePageUrl, {
+    const gamePageResponse = await this.#fetchWithCookieRetry(gamePageUrl, {
       method: 'GET',
-      headers: this.#buildHeaders({ 'Referer': 'https://byxatab.com/' }),
+      extraHeaders: { 'Referer': 'https://byxatab.com/' },
     });
 
     if (!gamePageResponse.ok) {

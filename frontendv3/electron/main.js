@@ -286,6 +286,8 @@ app.whenReady().then(() => {
   let pcGamesTorrentCtrl = null;
   /** @type {import('./controllers/XatabController')|null} */
   let xatabCtrl = null;
+  /** @type {import('./controllers/OnlineFixMeController')|null} */
+  let onlineFixMeCtrl = null;
   /** @type {import('./controllers/TorrentController')|null} */
   let torrentCtrl = null;
   /** @type {import('./controllers/ItchioController')|null} */
@@ -365,6 +367,14 @@ app.whenReady().then(() => {
       xatabCtrl = new XatabController({ timeoutMs: 20_000 });
     }
     return xatabCtrl;
+  }
+
+  function getOnlineFixMeCtrl() {
+    if (!onlineFixMeCtrl) {
+      const OnlineFixMeController = require('./controllers/OnlineFixMeController');
+      onlineFixMeCtrl = new OnlineFixMeController({ timeoutMs: 20_000 });
+    }
+    return onlineFixMeCtrl;
   }
 
   function getTorrentCtrl() {
@@ -1637,7 +1647,20 @@ handle('steam:get-installed-games', async () => {
         }
       })();
 
-      const settled = await Promise.allSettled([fitGirlTask, pcGamesTask, xatabTask]);
+      const onlineFixMeTask = (async () => {
+        try {
+          // Online-Fix expects a space-encoded title segment (e.g. "Night%20Shippers").
+          const onlineFixSlug = encodeURIComponent(String(name || '').trim());
+          console.log('Attempting to fetch OnlineFixMe link for game (encoded):', onlineFixSlug);
+          const link = await getOnlineFixMeCtrl().onlineFixMeMagnetLink(onlineFixSlug);
+          return link ? { name: 'Online-Fix.me', url: link } : null;
+        } catch (error) {
+          console.warn('Failed to fetch OnlineFixMe link:', error);
+          return null;
+        }
+      })();
+
+      const settled = await Promise.allSettled([fitGirlTask, pcGamesTask, xatabTask, onlineFixMeTask]);
       const sites = settled
         .filter((result) => result.status === 'fulfilled' && result.value)
         .map((result) => result.value);
@@ -2769,6 +2792,10 @@ handle('steam:get-installed-games', async () => {
 
   handle('xatab:magnet-link', async (_event, gameName) => {
     return await getXatabCtrl().xatabMagnetLink(String(gameName));
+  });
+
+  handle('onlinefixme:magnet-link', async (_event, gameName) => {
+    return await getOnlineFixMeCtrl().onlineFixMeMagnetLink(String(gameName));
   });
 
   // Resolve byxatab game page URL (returns full game page URL or null)

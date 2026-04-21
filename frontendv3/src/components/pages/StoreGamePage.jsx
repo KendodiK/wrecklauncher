@@ -2102,8 +2102,10 @@ function resolvePirateSitePageHref(entry, gameTitle = '') {
 		if (!slug) {
 			return encodedTitle ? `https://fitgirl-repacks.site/?s=${encodedTitle}` : 'https://fitgirl-repacks.site/';
 		}
-		console.log('[resolvePirateSitePageHref] Resolved FitGirl slug:', slug);
-		return `https://fitgirl-repacks.site/${slug}/`;
+		// FitGirl expects space-encoded slugs (e.g. "Night%20Shippers") rather than
+		// our slugified hyphen form — use the encoded title to preserve spaces.
+		console.log('[resolvePirateSitePageHref] Resolved FitGirl encoded title:', encodedTitle);
+		return `https://fitgirl-repacks.site/${encodedTitle}/`;
 	}
 
 	if (
@@ -3074,55 +3076,6 @@ const StoreGamePage = () => {
 		}, SCREENSHOT_AUTOSTEP_MS);
 		return () => window.clearInterval(intervalId);
 	}, [loading, screenshotSources.length]);
-
-	// Showcase keyboard and wheel navigation
-	const showcaseRef = useRef(null);
-	const isShowcaseHoveredRef = useRef(false);
-	const lastWheelAtRef = useRef(0);
-
-	const handleShowcaseWheel = useCallback((event) => {
-		try {
-			const delta = Number(event?.deltaY || 0);
-			if (!isFinite(delta) || Math.abs(delta) < 10) return;
-			const now = Date.now();
-			if (now - lastWheelAtRef.current < 180) return; // simple debounce
-			lastWheelAtRef.current = now;
-			if (delta > 0) {
-				goNextScreenshot();
-			} else {
-				goPrevScreenshot();
-			}
-			// prevent page scroll when interacting with the showcase
-			event.preventDefault();
-		} catch (err) {
-			// ignore
-		}
-	}, [goNextScreenshot, goPrevScreenshot]);
-
-	useEffect(() => {
-		const onKey = (e) => {
-			try {
-				if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-				const active = document && document.activeElement;
-				const tag = active && active.tagName ? String(active.tagName).toLowerCase() : '';
-				if (tag === 'input' || tag === 'textarea' || active?.isContentEditable) return;
-				// Only respond if user is hovering over the showcase or the showcase is focused
-				if (!isShowcaseHoveredRef.current && document.activeElement !== showcaseRef.current) return;
-				if (e.key === 'ArrowLeft') {
-					goPrevScreenshot();
-					e.preventDefault();
-				} else if (e.key === 'ArrowRight') {
-					goNextScreenshot();
-					e.preventDefault();
-				}
-			} catch (err) {
-				// ignore
-			}
-		};
-
-		window.addEventListener('keydown', onKey);
-		return () => window.removeEventListener('keydown', onKey);
-	}, [goPrevScreenshot, goNextScreenshot]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -4114,6 +4067,15 @@ const StoreGamePage = () => {
 					if (hasFilledText(resolved)) {
 						torrentId = decodeHtmlAmpersands(resolved);
 					}
+				} else if ((/online-fix\.me/.test(lowerHref) || /uploads\.online-fix\.me/.test(lowerHref) || label.includes('online-fix')) && slug && typeof api?.onlineFixMeMagnetLink === 'function') {
+					const resolved = await withTimeout(
+						api.onlineFixMeMagnetLink(slug),
+						PIRATE_LINK_RESOLVE_TIMEOUT_MS,
+						'Timed out while resolving Online-Fix download link.'
+					);
+					if (hasFilledText(resolved)) {
+						torrentId = decodeHtmlAmpersands(resolved);
+					}
 				} else if ((/byxatab\.com/.test(lowerHref) || label.includes('xatab') || label.includes('byxatab')) && typeof api?.xatabMagnetLink === 'function') {
 					const xatabLookupValue = /byxatab\.com\/games\//.test(lowerHref)
 						? torrentId
@@ -4168,7 +4130,7 @@ const StoreGamePage = () => {
 	};
 
 	return (
-		<div className="flex-1 overflow-y-auto text-slate-100">
+		<div className="store-game-page flex-1 overflow-y-auto text-slate-100">
 			<div className="relative min-h-full">
 				<div className="absolute inset-x-0 top-0 h-[340px] bg-cover bg-center opacity-30" style={{ backgroundImage: topBackdropImage ? `url(${topBackdropImage})` : undefined }} />
 				<div className="absolute inset-x-0 top-0 h-[340px] bg-gradient-to-b from-slate-950/10 via-slate-950/75 to-slate-950" />
@@ -4180,7 +4142,7 @@ const StoreGamePage = () => {
 							onClick={() => navigate(-1)}
 							className="rounded-lg border border-slate-700/70 bg-slate-900/60 px-4 py-2 text-sm text-slate-200 transition-colors hover:bg-slate-800/70"
 						>
-							Back To Store
+							Back
 						</button>
 						<div className="text-right text-xs uppercase tracking-[0.18em] text-slate-400">Store Page</div>
 					</div>
@@ -4203,7 +4165,28 @@ const StoreGamePage = () => {
 												: ((activePlatform !== 'gog' && model.priceLabel) || formatCurrencyPrice(model.price, activePlatform) || 'Check Store')}
 										</p>
 									</div>
-
+									{availableOnTargets.length > 0 ? (
+										<div className="rounded-xl border border-slate-700/70 bg-slate-950/40 p-3">
+											<p className="text-[11px] uppercase tracking-[0.18em] text-slate-300">Available On</p>
+											<div className="mt-2 flex flex-col gap-2">
+												{availableOnTargets.map((site, index) => (
+													<a
+														key={site.id ?? `${site.label}-${index}`}
+														href={site.href ?? '#'}
+														target="_blank"
+														rel="noreferrer"
+														onClick={(event) => {
+															event.preventDefault();
+															void handleOpenAvailableSite(site);
+														}}
+														className="rounded-lg border border-slate-700/70 bg-slate-950/45 px-3 py-2 text-xs text-slate-200 transition-colors hover:bg-slate-800/80"
+													>
+														{site.label ?? 'Store'}
+													</a>
+												))}
+											</div>
+										</div>
+									) : null}
 									{platformActionTargets.map((target) => {
 										const platformRating = ratingDisplayRows.find((r) => r.platform === target.platform);
 										const openDisabled = !target?.href && !(Number.isFinite(Number(target?.appId)) && Number(target?.appId) > 0);
