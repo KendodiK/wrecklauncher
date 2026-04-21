@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo } from 'react';
 import GameSliderBase from '../shared/GameSliderBase.jsx';
 import PlatformBadge from './PlatformBadge.jsx';
+import { getSteamImageUrl } from '../../utils/gameUtils.js';
 
 // Library game strip — wrapper around GameSliderBase in translate mode.
 // Renders game cover cards with active card highlight.
@@ -14,6 +15,8 @@ const LibraryGameStrip = React.memo(({ games, activeGameId, onSelect, onOpenStor
         id: game.id,
         image: game.heroUrl || game.coverUrl,
         title: game.title,
+        appid: game.appid,
+        launcherId: game.launcherId,
         _origGame: game,
       })),
     [games],
@@ -115,10 +118,15 @@ const LibraryGameStrip = React.memo(({ games, activeGameId, onSelect, onOpenStor
       renderCard={({ card, index, currentIndex }) => {
         const isActive = index === currentIndex;
         const game = card._origGame;
+        // If active and Steam, use library_600x900.jpg
+        let imageUrl = card.image;
+        if (isActive && (card.launcherId === 'steam' || game?.launcherId === 'steam') && card.appid) {
+          imageUrl = getSteamImageUrl(card.appid, 'library_600x900');
+        }
         return (
           <>
             <img
-              src={card.image}
+              src={imageUrl}
               alt={card.title}
               className="lib-strip-card-image"
               decoding="async"

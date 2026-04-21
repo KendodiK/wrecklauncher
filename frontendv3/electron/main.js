@@ -1,5 +1,7 @@
 const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, shell } = require('electron');
+const { execFile } = require('node:child_process');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('path');
 
 const isDev = process.env.NODE_ENV === 'development';
@@ -129,6 +131,11 @@ app.whenReady().then(() => {
   // Serverless controller modules (no LocalApi web server).
   const backendUrl = 'https://api.anchorlauncher.hu';
   const persistedAuthPath = path.join(app.getPath('userData'), 'auth.json');
+  const HARDWARE_PROFILE_CACHE_TTL_MS = 2 * 60_000;
+  /** @type {{ value: any, expiresAt: number }} */
+  let hardwareProfileCache = { value: null, expiresAt: 0 };
+  /** @type {Promise<any>|null} */
+  let hardwareProfileInFlight = null;
 
   /**
    * @returns {string|null}
@@ -277,6 +284,8 @@ app.whenReady().then(() => {
   let fitGirlCtrl = null;
   /** @type {import('./controllers/PcGamesTorrentController')|null} */
   let pcGamesTorrentCtrl = null;
+  /** @type {import('./controllers/XatabController')|null} */
+  let xatabCtrl = null;
   /** @type {import('./controllers/TorrentController')|null} */
   let torrentCtrl = null;
   /** @type {import('./controllers/ItchioController')|null} */
@@ -348,6 +357,14 @@ app.whenReady().then(() => {
       pcGamesTorrentCtrl = new PcGamesTorrentController({ timeoutMs: 20_000, redirectTimeoutMs: 25_000 });
     }
     return pcGamesTorrentCtrl;
+  }
+
+  function getXatabCtrl() {
+    if (!xatabCtrl) {
+      const XatabController = require('./controllers/XatabController');
+      xatabCtrl = new XatabController({ timeoutMs: 20_000 });
+    }
+    return xatabCtrl;
   }
 
   function getTorrentCtrl() {
@@ -545,6 +562,567 @@ function getShopSpecialsCtrl() {
 
     await shell.openExternal(normalizedUrl);
     return { ok: true, url: normalizedUrl };
+  });
+
+  handle('system:get-local-hardware-profile', async () => {
+    const now = Date.now();
+    if (hardwareProfileCache.value && hardwareProfileCache.expiresAt > now) {
+      return hardwareProfileCache.value;
+    }
+
+    if (hardwareProfileInFlight) {
+      return await hardwareProfileInFlight;
+    }
+
+    hardwareProfileInFlight = (async () => {
+    const cpus = os.cpus();
+    const cpuModel = String(cpus?.[0]?.model || '').trim();
+    const cpuLogicalCores = Number(cpus?.length || 0);
+    const cpuSpeedMhz = Number(cpus?.[0]?.speed || 0);
+    const cpuSpeedGhz = cpuSpeedMhz > 0
+      ? Number((cpuSpeedMhz / 1000).toFixed(2))
+      : 0;
+    const totalMemoryBytes = Number(os.totalmem() || 0);
+    const totalMemoryGb = totalMemoryBytes > 0
+      ? Number((totalMemoryBytes / (1024 ** 3)).toFixed(2))
+      : 0;
+
+    /** @type {string[]} */
+    const gpuModels = [];
+    /** @type {number[]} */
+    const gpuMemoryMbCandidates = [];
+    /** @type {number[]} */
+    const freeDiskBytesCandidates = [];
+
+    /** @param {string} value */
+    const isLikelySoftwareGpu = (value) => (
+      /swiftshader|microsoft basic render driver|software rasterizer|llvmpipe|virtualbox|vmware/i.test(String(value || ''))
+    );
+
+    /** @param {string} value */
+    const isLikelyVirtualGpu = (value) => (
+      /virtual\s*display|parsec|usb\s*mobile\s*monitor|displaylink|indirect\s*display|remote\s*display|mirage/i.test(String(value || ''))
+    );
+
+    /** @param {string} value */
+    const pushGpuModel = (value) => {
+      const normalized = String(value || '').trim();
+      if (!normalized) return;
+      if (/^name$/i.test(normalized)) return;
+      if (/^unknown$/i.test(normalized)) return;
+      if (/^0x[0-9a-f]+$/i.test(normalized)) return;
+
+      if (!gpuModels.some((entry) => entry.toLowerCase() === normalized.toLowerCase())) {
+        gpuModels.push(normalized);
+      }
+    };
+
+    /** @param {number} value */
+    const pushGpuMemoryMb = (value) => {
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric) || numeric <= 0) return;
+      const normalized = Math.round(numeric);
+      if (normalized <= 0) return;
+      if (!gpuMemoryMbCandidates.includes(normalized)) {
+        gpuMemoryMbCandidates.push(normalized);
+      }
+    };
+
+    /** @param {number} value */
+    const pushFreeDiskBytes = (value) => {
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric) || numeric <= 0) return;
+      const normalized = Math.floor(numeric);
+      if (normalized <= 0) return;
+      if (!freeDiskBytesCandidates.includes(normalized)) {
+        freeDiskBytesCandidates.push(normalized);
+      }
+    };
+
+    const hasOnlySoftwareGpu = () => (
+      gpuModels.length > 0 && gpuModels.every((entry) => isLikelySoftwareGpu(entry))
+    );
+
+    const hasLikelyRealGpu = () => (
+      gpuModels.some((entry) => !isLikelySoftwareGpu(entry) && !isLikelyVirtualGpu(entry))
+    );
+
+    const hasLikelyNvidiaGpu = () => (
+      gpuModels.some((entry) => {
+        const lower = String(entry || '').toLowerCase();
+        if (!lower) return false;
+        if (isLikelySoftwareGpu(lower) || isLikelyVirtualGpu(lower)) return false;
+        return /nvidia|geforce|gtx|rtx/.test(lower);
+      })
+    );
+
+    const isAdapterRamCapLike = () => {
+      const currentMax = gpuMemoryMbCandidates.length > 0
+        ? Math.max(...gpuMemoryMbCandidates)
+        : 0;
+      return currentMax >= 4000 && currentMax <= 4096 && hasLikelyRealGpu();
+    };
+
+    /**
+     * @param {string} file
+     * @param {string[]} args
+     * @param {number} timeoutMs
+     * @returns {Promise<string>}
+     */
+    const runCommand = async (file, args, timeoutMs = 8_000) => {
+      return await new Promise((resolve, reject) => {
+        execFile(
+          file,
+          args,
+          {
+            windowsHide: true,
+            timeout: timeoutMs,
+            maxBuffer: 1024 * 1024,
+          },
+          (err, stdout) => {
+            if (err) {
+              reject(err);
+              return;
+            }
+            resolve(String(stdout || ''));
+          },
+        );
+      });
+    };
+
+    /** @param {string} text */
+    const parseGpuNamesFromText = (text) => {
+      const lines = String(text || '')
+        .split(/\r?\n/g)
+        .map((line) => String(line || '').trim())
+        .filter(Boolean);
+
+      for (const line of lines) {
+        pushGpuModel(line);
+      }
+    };
+
+    /** @param {string} text */
+    const parseUnsignedIntegerLines = (text) => {
+      const lines = String(text || '')
+        .split(/\r?\n/g)
+        .map((line) => String(line || '').trim())
+        .filter(Boolean);
+
+      /** @type {number[]} */
+      const out = [];
+      for (const line of lines) {
+        if (!/^\d+$/.test(line)) continue;
+        const parsed = Number(line);
+        if (!Number.isFinite(parsed) || parsed <= 0) continue;
+        out.push(parsed);
+      }
+      return out;
+    };
+
+    /** @param {number[]} values */
+    const pushGpuMemoryBytesValues = (values) => {
+      for (const bytesValue of values || []) {
+        const numeric = Number(bytesValue);
+        if (!Number.isFinite(numeric) || numeric <= 0) continue;
+        const mb = numeric / (1024 ** 2);
+        pushGpuMemoryMb(mb);
+      }
+    };
+
+    /** @param {string} value */
+    const parseMemoryTextToMb = (value) => {
+      const normalized = String(value || '').trim();
+      if (!normalized) return null;
+
+      const numericMatch = normalized.match(/(\d+(?:[.,]\d+)?)\s*(tb|gb|mb|kb|bytes|byte|b)?/i);
+      if (!numericMatch || !numericMatch[1]) return null;
+
+      let numericText = String(numericMatch[1]).replace(/\s+/g, '');
+      if (numericText.includes(',') && numericText.includes('.')) {
+        const lastComma = numericText.lastIndexOf(',');
+        const lastDot = numericText.lastIndexOf('.');
+        if (lastComma > lastDot) {
+          numericText = numericText.replace(/\./g, '').replace(',', '.');
+        } else {
+          numericText = numericText.replace(/,/g, '');
+        }
+      } else if (numericText.includes(',')) {
+        if (/^\d{1,3}(,\d{3})+$/.test(numericText)) {
+          numericText = numericText.replace(/,/g, '');
+        } else {
+          numericText = numericText.replace(',', '.');
+        }
+      } else if (numericText.includes('.')) {
+        if (/^\d{1,3}(\.\d{3})+$/.test(numericText)) {
+          numericText = numericText.replace(/\./g, '');
+        }
+      }
+
+      const numeric = Number(numericText);
+      if (!Number.isFinite(numeric) || numeric <= 0) return null;
+
+      const unit = String(numericMatch[2] || '').toLowerCase();
+      if (unit === 'tb') return numeric * 1024 * 1024;
+      if (unit === 'gb') return numeric * 1024;
+      if (unit === 'mb') return numeric;
+      if (unit === 'kb') return numeric / 1024;
+      if (unit === 'bytes' || unit === 'byte' || unit === 'b') return numeric / (1024 ** 2);
+
+      // Heuristic for numeric-only values: treat large values as bytes.
+      if (numeric > 1024 * 1024) return numeric / (1024 ** 2);
+      if (numeric > 1024) return numeric / 1024;
+      return numeric;
+    };
+
+    /**
+     * @param {string} text
+     * @param {string} tagName
+     * @returns {string}
+     */
+    const extractXmlTag = (text, tagName) => {
+      const match = String(text || '').match(new RegExp(`<${tagName}>([\\s\\S]*?)<\\/${tagName}>`, 'i'));
+      return match && match[1] ? String(match[1]).trim() : '';
+    };
+
+    /** @param {string} filePath */
+    const readTextFileBestEffort = async (filePath) => {
+      const data = await fs.promises.readFile(filePath);
+      if (data.length >= 2 && data[0] === 0xff && data[1] === 0xfe) {
+        return data.toString('utf16le');
+      }
+      return data.toString('utf8');
+    };
+
+    /** @param {number[]} values */
+    const pushFreeDiskBytesValues = (values) => {
+      for (const bytesValue of values || []) {
+        pushFreeDiskBytes(bytesValue);
+      }
+    };
+
+    const loadWindowsGpuHardware = async () => {
+      if (process.platform !== 'win32') return;
+
+      try {
+        const wmicOutput = await runCommand('wmic', ['path', 'win32_VideoController', 'get', 'Name'], 8_000);
+        parseGpuNamesFromText(wmicOutput);
+      } catch {
+        // Ignore WMIC availability/runtime errors and fall back to PowerShell.
+      }
+
+      try {
+        const wmicRamOutput = await runCommand('wmic', ['path', 'win32_VideoController', 'get', 'AdapterRAM'], 8_000);
+        pushGpuMemoryBytesValues(parseUnsignedIntegerLines(wmicRamOutput));
+      } catch {
+        // Ignore WMIC memory probing errors and continue to PowerShell fallback.
+      }
+
+      if (gpuModels.length < 1 || hasOnlySoftwareGpu()) {
+        try {
+          const psOutput = await runCommand(
+            'powershell.exe',
+            [
+              '-NoProfile',
+              '-NonInteractive',
+              '-ExecutionPolicy',
+              'Bypass',
+              '-Command',
+              'Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name',
+            ],
+            10_000,
+          );
+          parseGpuNamesFromText(psOutput);
+        } catch {
+          // Ignore fallback errors and keep whatever we already detected.
+        }
+      }
+
+      if (gpuMemoryMbCandidates.length < 1) {
+        try {
+          const psRamOutput = await runCommand(
+            'powershell.exe',
+            [
+              '-NoProfile',
+              '-NonInteractive',
+              '-ExecutionPolicy',
+              'Bypass',
+              '-Command',
+              'Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty AdapterRAM',
+            ],
+            10_000,
+          );
+          pushGpuMemoryBytesValues(parseUnsignedIntegerLines(psRamOutput));
+        } catch {
+          // Ignore fallback errors and keep whatever we already detected.
+        }
+      }
+    };
+
+    const loadWindowsGpuMemoryViaNvidiaSmi = async () => {
+      if (process.platform !== 'win32') return;
+
+      try {
+        const output = await runCommand(
+          'nvidia-smi',
+          ['--query-gpu=name,memory.total', '--format=csv,noheader,nounits'],
+          8_000,
+        );
+
+        const lines = String(output || '')
+          .split(/\r?\n/g)
+          .map((line) => String(line || '').trim())
+          .filter(Boolean);
+
+        for (const line of lines) {
+          const parts = line.split(',');
+          if (parts.length < 2) continue;
+
+          const name = String(parts[0] || '').trim();
+          const memoryText = String(parts[1] || '').trim();
+          const memoryMb = parseMemoryTextToMb(memoryText);
+
+          if (name) {
+            pushGpuModel(name);
+          }
+          if (memoryMb != null && Number.isFinite(memoryMb) && memoryMb > 0) {
+            pushGpuMemoryMb(memoryMb);
+          }
+        }
+      } catch {
+        // nvidia-smi is optional; ignore if unavailable.
+      }
+    };
+
+    const loadWindowsGpuMemoryViaRegistry = async () => {
+      if (process.platform !== 'win32') return;
+
+      try {
+        const output = await runCommand(
+          'powershell.exe',
+          [
+            '-NoProfile',
+            '-NonInteractive',
+            '-ExecutionPolicy',
+            'Bypass',
+            '-Command',
+            "$items = Get-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Video\\*\\0000' -ErrorAction SilentlyContinue; foreach ($i in $items) { $name = [string]$i.DriverDesc; $mem = $i.'HardwareInformation.qwMemorySize'; if (-not $mem) { $mem = $i.'HardwareInformation.MemorySize' }; if ($name -and $mem) { Write-Output ($name + '|' + [string]$mem) } }",
+          ],
+          8_000,
+        );
+
+        const lines = String(output || '')
+          .split(/\r?\n/g)
+          .map((line) => String(line || '').trim())
+          .filter(Boolean);
+
+        for (const line of lines) {
+          const sep = line.lastIndexOf('|');
+          if (sep <= 0) continue;
+
+          const name = String(line.slice(0, sep) || '').trim();
+          const rawBytes = String(line.slice(sep + 1) || '').trim();
+          const bytes = Number(rawBytes);
+
+          if (name) {
+            pushGpuModel(name);
+          }
+
+          if (!name || isLikelySoftwareGpu(name) || isLikelyVirtualGpu(name)) continue;
+          if (!Number.isFinite(bytes) || bytes <= 0) continue;
+
+          pushGpuMemoryBytesValues([bytes]);
+        }
+      } catch {
+        // Registry probing may fail in restricted environments; ignore.
+      }
+    };
+
+    const loadWindowsGpuMemoryViaDxDiag = async () => {
+      if (process.platform !== 'win32') return;
+
+      const xmlPath = path.join(
+        os.tmpdir(),
+        `wreck-dxdiag-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}.xml`,
+      );
+
+      try {
+        await runCommand('dxdiag', ['/whql:off', '/x', xmlPath], 25_000);
+
+        const xml = await readTextFileBestEffort(xmlPath);
+        const blocks = String(xml || '').match(/<DisplayDevice>[\s\S]*?<\/DisplayDevice>/gi) || [];
+
+        for (const block of blocks) {
+          const cardName = extractXmlTag(block, 'CardName') || extractXmlTag(block, 'Description');
+          if (cardName) {
+            pushGpuModel(cardName);
+          }
+
+          const skipVirtual = isLikelySoftwareGpu(cardName) || isLikelyVirtualGpu(cardName);
+          if (skipVirtual) continue;
+
+          const dedicated = extractXmlTag(block, 'DedicatedMemory');
+          const adapterRam = extractXmlTag(block, 'AdapterRAM');
+          const displayMemory = extractXmlTag(block, 'DisplayMemory');
+
+          const dedicatedMb = parseMemoryTextToMb(dedicated);
+          if (dedicatedMb != null && dedicatedMb > 0) {
+            pushGpuMemoryMb(dedicatedMb);
+            continue;
+          }
+
+          const adapterMb = parseMemoryTextToMb(adapterRam);
+          if (adapterMb != null && adapterMb > 0) {
+            pushGpuMemoryMb(adapterMb);
+            continue;
+          }
+
+          const displayMb = parseMemoryTextToMb(displayMemory);
+          if (displayMb != null && displayMb > 0) {
+            pushGpuMemoryMb(displayMb);
+          }
+        }
+      } catch {
+        // dxdiag can be unavailable or blocked; ignore and keep detected values.
+      } finally {
+        await fs.promises.unlink(xmlPath).catch(() => {});
+      }
+    };
+
+    const loadWindowsFreeDiskSpace = async () => {
+      if (process.platform !== 'win32') return;
+
+      try {
+        const wmicDiskOutput = await runCommand(
+          'wmic',
+          ['logicaldisk', 'where', 'DriveType=3', 'get', 'FreeSpace'],
+          8_000,
+        );
+        pushFreeDiskBytesValues(parseUnsignedIntegerLines(wmicDiskOutput));
+      } catch {
+        // Ignore WMIC disk probing errors and continue to PowerShell fallback.
+      }
+
+      if (freeDiskBytesCandidates.length > 0) return;
+
+      try {
+        const psDiskOutput = await runCommand(
+          'powershell.exe',
+          [
+            '-NoProfile',
+            '-NonInteractive',
+            '-ExecutionPolicy',
+            'Bypass',
+            '-Command',
+            'Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" | Select-Object -ExpandProperty FreeSpace',
+          ],
+          10_000,
+        );
+        pushFreeDiskBytesValues(parseUnsignedIntegerLines(psDiskOutput));
+      } catch {
+        // Ignore fallback errors and keep defaults.
+      }
+    };
+
+    try {
+      const gpuInfo = await app.getGPUInfo('basic');
+      const devices = Array.isArray(gpuInfo?.gpuDevice) ? gpuInfo.gpuDevice : [];
+      for (const device of devices) {
+        const deviceName = String(device?.deviceString || '').trim();
+        const vendorName = String(device?.vendorString || '').trim();
+        pushGpuModel(deviceName);
+        pushGpuModel(vendorName);
+      }
+    } catch {
+      // Ignore GPU probing errors and return CPU/RAM only.
+    }
+
+    if (gpuModels.length < 1 || hasOnlySoftwareGpu()) {
+      await loadWindowsGpuHardware();
+    } else if (gpuMemoryMbCandidates.length < 1) {
+      await loadWindowsGpuHardware();
+    }
+
+    const getGpuMemoryMbMax = () => (
+      gpuMemoryMbCandidates.length > 0 ? Math.max(...gpuMemoryMbCandidates) : 0
+    );
+
+    const shouldProbeGpuMemoryViaNvidiaSmi = () => {
+      if (process.platform !== 'win32') return false;
+
+      const currentMax = getGpuMemoryMbMax();
+      if (currentMax < 1) return hasLikelyNvidiaGpu();
+
+      // Win32 AdapterRAM is often capped around 4GB for larger cards.
+      const adapterRamCapLike = isAdapterRamCapLike();
+      return adapterRamCapLike && hasLikelyNvidiaGpu();
+    };
+
+    const shouldProbeGpuMemoryViaRegistry = () => {
+      if (process.platform !== 'win32') return false;
+
+      const currentMax = getGpuMemoryMbMax();
+      if (currentMax < 1 && hasLikelyRealGpu()) return true;
+      return isAdapterRamCapLike();
+    };
+
+    const shouldProbeGpuMemoryViaDxDiag = () => {
+      if (process.platform !== 'win32') return false;
+
+      // dxdiag is expensive; use it only when VRAM is still unknown.
+      return getGpuMemoryMbMax() < 1 && hasLikelyRealGpu();
+    };
+
+    if (shouldProbeGpuMemoryViaNvidiaSmi()) {
+      await loadWindowsGpuMemoryViaNvidiaSmi();
+    }
+
+    if (shouldProbeGpuMemoryViaRegistry()) {
+      await loadWindowsGpuMemoryViaRegistry();
+    }
+
+    if (shouldProbeGpuMemoryViaDxDiag()) {
+      await loadWindowsGpuMemoryViaDxDiag();
+    }
+
+    await loadWindowsFreeDiskSpace();
+
+    const gpuMemoryMbMax = getGpuMemoryMbMax();
+    const freeDiskBytesMax = freeDiskBytesCandidates.length > 0
+      ? Math.max(...freeDiskBytesCandidates)
+      : 0;
+    const freeDiskGbMax = freeDiskBytesMax > 0
+      ? Number((freeDiskBytesMax / (1024 ** 3)).toFixed(2))
+      : 0;
+
+    const profile = {
+      platform: process.platform,
+      arch: process.arch,
+      cpuModel,
+      cpuLogicalCores,
+      cpuSpeedMhz,
+      cpuSpeedGhz,
+      totalMemoryBytes,
+      totalMemoryGb,
+      gpuModels,
+      gpuMemoryMbMax,
+      freeDiskBytesMax,
+      freeDiskGbMax,
+    };
+
+    hardwareProfileCache = {
+      value: profile,
+      expiresAt: Date.now() + HARDWARE_PROFILE_CACHE_TTL_MS,
+    };
+
+    return profile;
+    })();
+
+    try {
+      return await hardwareProfileInFlight;
+    } finally {
+      hardwareProfileInFlight = null;
+    }
   });
 
   // Compatibility: still expose token fetch endpoint for legacy client-side flows.
@@ -1048,7 +1626,18 @@ handle('steam:get-installed-games', async () => {
         }
       })();
 
-      const settled = await Promise.allSettled([fitGirlTask, pcGamesTask]);
+      const xatabTask = (async () => {
+        try {
+          console.log('Attempting to fetch Xatab link for game:', slug);
+          const xatabLink = await getXatabCtrl().xatabMagnetLink(slug);
+          return xatabLink ? { name: 'Xatab', url: xatabLink } : null;
+        } catch (error) {
+          console.warn('Failed to fetch Xatab link:', error);
+          return null;
+        }
+      })();
+
+      const settled = await Promise.allSettled([fitGirlTask, pcGamesTask, xatabTask]);
       const sites = settled
         .filter((result) => result.status === 'fulfilled' && result.value)
         .map((result) => result.value);
@@ -1074,6 +1663,7 @@ handle('steam:get-installed-games', async () => {
     if (!raw) return '';
     if (raw.includes('fitgirl')) return 'fitgirl';
     if (raw.includes('pcgames')) return 'pcgames';
+    if (raw.includes('xatab') || raw.includes('byxatab')) return 'xatab';
     return raw.replace(/[^a-z0-9]+/g, '');
   }
 
@@ -1253,6 +1843,20 @@ handle('steam:get-installed-games', async () => {
     }
   }
 
+  /**
+   * @param {Electron.WebContents|null|undefined} target
+   * @param {{ appId: number, platform: string, pirate_sites: Array<{ site_name: string, link: string }>, source?: string }} payload
+   */
+  function emitPirateSitesUpdated(target, payload) {
+    if (!target || typeof target.send !== 'function') return;
+    if (typeof target.isDestroyed === 'function' && target.isDestroyed()) return;
+    try {
+      target.send('games:pirate-sites-updated', payload);
+    } catch {
+      // Ignore renderer teardown races.
+    }
+  }
+
   function isNotFoundLikeError(err) {
     const message = String(err instanceof Error ? err.message : err || '').toLowerCase();
     return message.includes('http 404') || message.includes('not found');
@@ -1329,7 +1933,6 @@ handle('steam:get-installed-games', async () => {
     }
 
     if (!gameDetails) return null;
-    console.log('Fetched game details:', gameDetails);
     let backendPirateSites = Array.isArray(gameDetails.pirate_sites) ? gameDetails.pirate_sites : [];
     if (backendPirateSites.length < 1) {
       const gameId = Number(gameDetails.id);
@@ -1340,61 +1943,50 @@ handle('steam:get-installed-games', async () => {
           if (byIdPirateSites.length > 0) {
             backendPirateSites = byIdPirateSites;
             gameDetails.pirate_sites = byIdPirateSites;
-            console.log('Pirate sites loaded from game-id fallback endpoint:', byIdPirateSites);
+            console.log('Pirate sites loaded from game-id fallback endpoint:', byIdPirateSites.length);
           }
         } catch (error) {
           console.warn('Pirate sites game-id fallback failed:', error);
         }
       }
     }
-    console.log('Pirate sites from backend:', backendPirateSites);
+    console.log('Pirate sites from backend:', backendPirateSites.length);
+    // Always return DB state first, then scrape and push updates asynchronously.
+    gameDetails.pirate_sites = backendPirateSites;
 
-    const scrapedPiratePromise = getPirateSitesForGame(gameDetails.name || '');
-    const scrapeResult = await withSoftTimeout(scrapedPiratePromise, PIRATE_SCRAPE_TIMEOUT_MS);
-    if (scrapeResult.timedOut) {
-      console.log(`Pirate scrape timed out after ${PIRATE_SCRAPE_TIMEOUT_MS}ms; returning DB details immediately.`);
-      gameDetails.pirate_sites = backendPirateSites;
+    const senderWebContents = event?.sender || null;
+    const resolvedAppIdForPush = Number(gameDetails.app_id ?? appId);
+    const resolvedPlatformForPush = String(gameDetails.platform_name ?? platform ?? '').trim();
 
-      void scrapedPiratePromise
-        .then(async (scrapedPirateSites) => {
-          const syncPlan = buildPirateSiteSyncPlan(backendPirateSites, scrapedPirateSites);
-          await uploadPirateSiteSyncPlan({
-            token,
-            appId: gameDetails.app_id ?? appId,
-            platform: gameDetails.platform_name ?? platform,
-            countryCode,
-            syncPlan,
-            logPrefix: '[background] ',
-            rethrowInvalidToken: false,
-          });
-        })
-        .catch((error) => {
-          console.warn('Background pirate scrape failed:', error);
+    void (async () => {
+      try {
+        const scrapedPirateSites = await getPirateSitesForGame(gameDetails.name || '');
+        const syncPlan = buildPirateSiteSyncPlan(backendPirateSites, scrapedPirateSites);
+
+        console.log('Fetched pirate sites (background):', scrapedPirateSites.length);
+
+        await uploadPirateSiteSyncPlan({
+          token,
+          appId: gameDetails.app_id ?? appId,
+          platform: gameDetails.platform_name ?? platform,
+          countryCode,
+          syncPlan,
+          logPrefix: '[background] ',
+          rethrowInvalidToken: false,
         });
 
-      return gameDetails;
-    }
-
-    if (scrapeResult.error) {
-      console.warn('Pirate scrape failed; returning backend pirate links only:', scrapeResult.error);
-      gameDetails.pirate_sites = backendPirateSites;
-      return gameDetails;
-    }
-
-    const scrapedPirateSites = Array.isArray(scrapeResult.value) ? scrapeResult.value : [];
-    const syncPlan = buildPirateSiteSyncPlan(backendPirateSites, scrapedPirateSites);
-
-    // Always expose the freshest scrape output while preserving DB-only entries.
-    gameDetails.pirate_sites = syncPlan.mergedSites;
-    console.log('Fetched pirate sites:', scrapedPirateSites);
-
-    await uploadPirateSiteSyncPlan({
-      token,
-      appId: gameDetails.app_id ?? appId,
-      platform: gameDetails.platform_name ?? platform,
-      countryCode,
-      syncPlan,
-    });
+        if (Number.isFinite(resolvedAppIdForPush) && resolvedAppIdForPush > 0) {
+          emitPirateSitesUpdated(senderWebContents, {
+            appId: resolvedAppIdForPush,
+            platform: resolvedPlatformForPush,
+            pirate_sites: Array.isArray(syncPlan.mergedSites) ? syncPlan.mergedSites : [],
+            source: 'scrape',
+          });
+        }
+      } catch (error) {
+        console.warn('Background pirate scrape failed:', error);
+      }
+    })();
 
     return gameDetails;
   });
@@ -1629,7 +2221,6 @@ handle('steam:get-installed-games', async () => {
     const id = String(clientId || ITCH_OAUTH_CLIENT_ID || '').trim();
     if (!id) throw new Error('itch.io OAuth client ID is required. Provide it as argument or set ITCH_OAUTH_CLIENT_ID in main.js.');
     const loginResult = await getItchCtrl().login(id);
-    console.log(loginResult);
     return loginResult;
   });
 
@@ -1696,14 +2287,6 @@ handle('steam:get-installed-games', async () => {
       url: typeof profile?.url === 'string' ? profile.url : null,
       cover_url: typeof profile?.cover_url === 'string' ? profile.cover_url : null,
     };
-
-    console.log('Resolved itch.io profile:', {
-      rawProfile: profile,
-      loginResult,
-      generatedUsername,
-      resolvedProfile,
-      oauthToken,
-    });
 
     if (!oauthToken) throw new Error('itch.io OAuth token is missing after login');
 
@@ -1867,7 +2450,6 @@ handle('steam:get-installed-games', async () => {
       throw new Error('GOG OAuth client ID is required. Provide it as argument or set GOG_OAUTH_CLIENT_ID in main.js.');
     }
     const loginResult = await getGogCtrl().login(id);
-    console.log(loginResult);
     return loginResult;
   });
 
@@ -2185,6 +2767,15 @@ handle('steam:get-installed-games', async () => {
     return await getPcGamesTorrentCtrl().pcGamesTorrentMagnetLink(String(gameName));
   });
 
+  handle('xatab:magnet-link', async (_event, gameName) => {
+    return await getXatabCtrl().xatabMagnetLink(String(gameName));
+  });
+
+  // Resolve byxatab game page URL (returns full game page URL or null)
+  handle('xatab:game-page', async (_event, gameName) => {
+    return await getXatabCtrl().xatabGamePageUrl(String(gameName));
+  });
+
   
   // ── Torrent controller ────────────────────────────────────────────────────
   // progress events are pushed to the renderer via webContents.send so the
@@ -2230,7 +2821,6 @@ handle('steam:get-installed-games', async () => {
       }
     }
 
-    console.log('[torrent:start] mUri (full):', mUri);
     console.log('[torrent:start] sPath:', sPath);
     if (requestedDisplayName) console.log('[torrent:start] displayName:', requestedDisplayName);
     console.log('[torrent:start] tracker count:', (mUri.match(/&tr=/g) || []).length);

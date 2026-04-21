@@ -397,7 +397,7 @@ const GamePage = () => {
 	};
 
 	return (
-		<div className="flex-1 overflow-y-auto text-slate-100">
+		<div className="flex-1 text-slate-100">
 			<div className="relative min-h-full">
 				<div
 					className="absolute inset-x-0 top-0 h-[320px] bg-cover bg-center opacity-25"
@@ -480,10 +480,10 @@ const GamePage = () => {
 						<div className="space-y-5">
 							<div className="rounded-3xl border border-slate-700/60 bg-slate-900/45 p-5 backdrop-blur-sm">
 								<div className="flex flex-wrap items-start justify-between gap-4">
-									<div>
+									<div className="min-w-0 flex-1">
 										<p className="text-xs uppercase tracking-[0.2em] text-sky-300">Game Page</p>
 										<h1 className="mt-2 text-3xl font-semibold text-white md:text-5xl">{model.title}</h1>
-										<p className="mt-3 max-w-3xl text-sm leading-7 text-slate-300 md:text-base">
+										<p className="mt-3 w-full text-sm leading-7 text-slate-300 md:text-base">
 											{loading ? 'Loading game details...' : model.description || 'No description available for this game yet.'}
 										</p>
 									</div>

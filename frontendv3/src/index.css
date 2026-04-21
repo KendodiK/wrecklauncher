@@ -624,7 +624,6 @@ body {
   position: relative;
   min-height: 100vh;
   color: #e2e8f0;
-  overflow: hidden;
 }
 
 /* Dynamic hero background — blurred game art */
@@ -1593,9 +1592,14 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  overflow-y: auto;
   padding-right: 4px;
   max-height: calc(100vh - 92px);
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.lib-drawer-list::-webkit-scrollbar {
+  display: none;
 }
 
 .lib-drawer-item {

@@ -1,10 +1,28 @@
 {
+  "name": "ws",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "ts": "tsc -p .",
+    "start": "npm run ts && npm run start:server",
+    "start:server": "node index.js",
+    "dev": "tsc-watch -p tsconfig.json --onSuccess \"npm run start:server\"",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
   "source": {
-    "include": ["src", "docs"]
+    "include": [
+      "src",
+      "docs"
+    ]
   },
   "dependencies": {
     "18": "^0.0.0",
+    "@types/body-parser": "^1.19.2",
+    "@types/express": "^4.17.13",
+    "@types/ws": "^8.5.4",
     "axios": "^1.13.2",
+    "body-parser": "^1.20.0",
     "cheerio": "^1.1.2",
     "cloudscraper": "^4.6.0",
     "cors": "^2.8.5",
@@ -20,8 +38,8 @@
     "process": "^0.11.10",
     "puppeteer": "^24.19.0",
     "querystring": "^0.2.1",
-    "selfsigned": "^2.4.1",
     "winreg": "^1.2.5",
+    "ws": "^8.20.0",
     "zlib": "^1.0.5"
   }
 }
