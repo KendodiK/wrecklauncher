@@ -1273,84 +1273,6 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 								<option value="system">System</option>
 							</select>
 						</div>
-
-						{/* Language */}
-						<div className="flex items-center justify-between">
-							<div>
-								<label className="text-sm font-medium">Language</label>
-								<p className="text-xs text-slate-400">Select your language</p>
-							</div>
-							<select
-								value={settings.display.language}
-								onChange={(e) => updateSetting('display', 'language', e.target.value)}
-								disabled={saving}
-								className="bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
-							>
-								<option value="en">English</option>
-								<option value="hu">Hungarian</option>
-							</select>
-						</div>
-
-						<div className="flex items-center justify-between">
-							<div>
-								<label className="text-sm font-medium">Store country</label>
-								<p className="text-xs text-slate-400">Used for regional prices and availability lookups</p>
-							</div>
-							<select
-								value={selectedStoreCountryCode}
-								onChange={(e) => updateSetting('store', 'countryCode', e.target.value)}
-								disabled={saving}
-								className="bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
-							>
-								{!hasSelectedStoreCountryOption ? (
-									<option value={selectedStoreCountryCode}>{`Custom - ${selectedStoreCountryCode}`}</option>
-								) : null}
-								{STORE_COUNTRY_OPTIONS.map((country) => (
-									<option key={country.code} value={country.code}>
-										{`${country.name} - ${country.code}`}
-									</option>
-								))}
-							</select>
-						</div>
-
-						{/* UI Scale */}
-						<div className="flex items-center justify-between">
-							<div>
-								<label className="text-sm font-medium">UI Scale: {settings.display.uiScale}%</label>
-								<p className="text-xs text-slate-400">Adjust interface size</p>
-							</div>
-							<select
-								value={settings.display.uiScale}
-								onChange={(e) => updateSetting('display', 'uiScale', parseInt(e.target.value))}
-								disabled={saving}
-								className="bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
-							>
-								<option value="100">100%</option>
-								<option value="125">125%</option>
-								<option value="150">150%</option>
-							</select>
-						</div>
-
-						{/* Animations */}
-						<div className="flex items-center justify-between">
-							<div>
-								<label className="text-sm font-medium">Animations</label>
-								<p className="text-xs text-slate-400">Enable or disable UI animations</p>
-							</div>
-							<button
-								onClick={() => updateSetting('display', 'animations', !settings.display.animations)}
-								disabled={saving}
-								className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-									settings.display.animations ? 'bg-blue-600' : 'bg-slate-600'
-								}`}
-							>
-								<span
-									className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-										settings.display.animations ? 'translate-x-6' : 'translate-x-1'
-									}`}
-								/>
-							</button>
-						</div>
 					</div>
 				</section>
 				)}
@@ -1366,25 +1288,6 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 					</h2>
 
 					<div className="space-y-4">
-						{/* Auto-refresh */}
-						<div className="flex items-center justify-between">
-							<div>
-								<label className="text-sm font-medium">Auto-refresh interval</label>
-								<p className="text-xs text-slate-400">How often to sync your library</p>
-							</div>
-							<select
-								value={settings.library.autoRefreshHours}
-								onChange={(e) => updateSetting('library', 'autoRefreshHours', parseInt(e.target.value))}
-								disabled={saving}
-								className="bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
-							>
-								<option value="6">Every 6 hours</option>
-								<option value="12">Every 12 hours</option>
-								<option value="24">Every 24 hours</option>
-								<option value="48">Every 2 days</option>
-							</select>
-						</div>
-
 						{/* View Mode */}
 						<div className="flex items-center justify-between">
 							<div>
@@ -1401,32 +1304,14 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 								<option value="list">List</option>
 							</select>
 						</div>
-
-						{/* Games per page */}
-						<div className="flex items-center justify-between">
-							<div>
-								<label className="text-sm font-medium">Games per page</label>
-								<p className="text-xs text-slate-400">Number of games to load at once</p>
-							</div>
-							<select
-								value={settings.library.gamesPerPage}
-								onChange={(e) => updateSetting('library', 'gamesPerPage', parseInt(e.target.value))}
-								disabled={saving}
-								className="bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
-							>
-								<option value="20">20</option>
-								<option value="50">50</option>
-								<option value="100">100</option>
-							</select>
-						</div>
 					</div>
 				</section>
 				)}
 
 				{!showingMovedSection && (
-				<>
+				<div className="flex flex-col">
 				{/* Store Settings */}
-				<section className="mb-8 bg-slate-800/50 rounded-lg p-6 border border-slate-700">
+				<section className="order-2 mb-8 bg-slate-800/50 rounded-lg p-6 border border-slate-700">
 					<h2 className="text-xl font-semibold mb-4 flex items-center">
 						<svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7h18M6 7V5a2 2 0 012-2h8a2 2 0 012 2v2m-9 4h6m-7 4h8" />
@@ -1460,7 +1345,7 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 				</section>
 
 				{/* Downloads Settings */}
-				<section className="mb-8 bg-slate-800/50 rounded-lg p-6 border border-slate-700">
+				<section className="order-3 mb-8 bg-slate-800/50 rounded-lg p-6 border border-slate-700">
 					<h2 className="text-xl font-semibold mb-4 flex items-center">
 						<svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -1506,7 +1391,7 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 				</section>
 
 				{/* Account Settings */}
-				<section className="mb-8 bg-slate-800/50 rounded-lg p-6 border border-slate-700">
+				<section className="order-1 mb-8 bg-slate-800/50 rounded-lg p-6 border border-slate-700">
 					<h2 className="text-xl font-semibold mb-4 flex items-center">
 						<svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
@@ -1669,7 +1554,7 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 					</div>
 				</section>
 
-				<section className="mb-8 bg-slate-800/50 rounded-lg p-6 border border-slate-700">
+				<section className="order-4 mb-8 bg-slate-800/50 rounded-lg p-6 border border-slate-700">
 					<h2 className="text-xl font-semibold mb-4 flex items-center">
 						<svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.121 17.804A13.937 13.937 0 0112 16c2.634 0 5.09.73 7.121 2.004M15 10a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -1719,7 +1604,7 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 						</div>
 					</div>
 				</section>
-				</>
+				</div>
 				)}
 
 				{/* Advanced Settings */}

@@ -12,6 +12,7 @@ const INSTALLED_SCAN_CACHE_TTL_MS = 60 * 60 * 1000;
 const LIBRARY_PLATFORM_TASK_TIMEOUT_MS = 12 * 1000;
 const LIBRARY_SNAPSHOT_CACHE_KEY = 'library-snapshot-v1';
 const LIBRARY_SNAPSHOT_CACHE_TTL_MS = 10 * 60 * 1000;
+const LIBRARY_SILENT_REFRESH_INTERVAL_MS = 90 * 1000;
 const STEAM_IMAGE_PROBE_TIMEOUT_MS = 5500;
 const STEAM_IMAGE_PROBE_CONCURRENCY = 4;
 const STEAM_CDN_HOSTS = [
@@ -1221,8 +1222,12 @@ const LibraryPage = () => {
 
 	useEffect(() => {
 		let cancelled = false;
+		let loadInFlight = false;
 
-		const loadLibrary = async () => {
+		const loadLibrary = async ({ silent = false } = {}) => {
+			if (loadInFlight) return;
+			loadInFlight = true;
+
 			let hasShownCachedLibrary = false;
 			let cachedLibraryGames = [];
 
@@ -1298,8 +1303,9 @@ const LibraryPage = () => {
 				})();
 			};
 
-			setIsLoading(true);
-			setErrorMessage('');
+			if (!silent) {
+				setErrorMessage('');
+			}
 
 			try {
 				const cachedSnapshot = await readLibrarySnapshotCacheFromDisk();
@@ -1309,11 +1315,20 @@ const LibraryPage = () => {
 
 				if (!cancelled && cachedLibraryGames.length > 0) {
 					hasShownCachedLibrary = true;
-					setLibraryGames(cachedLibraryGames);
-					setScope('all');
-					setActiveLauncherId('all');
-					setActiveGameId(cachedLibraryGames[0]?.id ?? '');
+					setLibraryGames((previous) => (previous.length > 0 ? previous : cachedLibraryGames));
+					setActiveGameId((previous) => {
+						if (previous && cachedLibraryGames.some((game) => game?.id === previous)) {
+							return previous;
+						}
+						return cachedLibraryGames[0]?.id ?? '';
+					});
+					if (!silent) {
+						setScope('all');
+						setActiveLauncherId('all');
+					}
 					setIsLoading(false);
+				} else if (!silent && !cancelled) {
+					setIsLoading(true);
 				}
 
 				if (typeof window?.electronAPI?.getSettings === 'function') {
@@ -1534,9 +1549,17 @@ const LibraryPage = () => {
 
 					if (shouldReplaceVisibleGames) {
 						setLibraryGames(uniqueGames);
-						setScope('all');
-						setActiveLauncherId('all');
-						setActiveGameId(uniqueGames[0]?.id ?? '');
+						setActiveGameId((previous) => {
+							if (previous && uniqueGames.some((game) => game?.id === previous)) {
+								return previous;
+							}
+							return uniqueGames[0]?.id ?? '';
+						});
+
+						if (!silent && !hasShownCachedLibrary) {
+							setScope('all');
+							setActiveLauncherId('all');
+						}
 					}
 
 					if (hasFreshGames) {
@@ -1559,17 +1582,34 @@ const LibraryPage = () => {
 						setLibraryGames([]);
 						setActiveGameId('');
 					}
-					setErrorMessage(error instanceof Error ? error.message : 'Failed to load library');
+					if (!silent) {
+						setErrorMessage(error instanceof Error ? error.message : 'Failed to load library');
+					}
 				}
 			} finally {
-				if (!cancelled) setIsLoading(false);
+				if (!cancelled && !silent) setIsLoading(false);
+				loadInFlight = false;
 			}
 		};
 
-		loadLibrary();
+		void loadLibrary();
+
+		const refreshIntervalId = window.setInterval(() => {
+			void loadLibrary({ silent: true });
+		}, LIBRARY_SILENT_REFRESH_INTERVAL_MS);
+
+		const handleVisibilityChange = () => {
+			if (document.visibilityState === 'visible') {
+				void loadLibrary({ silent: true });
+			}
+		};
+
+		document.addEventListener('visibilitychange', handleVisibilityChange);
 
 		return () => {
 			cancelled = true;
+			window.clearInterval(refreshIntervalId);
+			document.removeEventListener('visibilitychange', handleVisibilityChange);
 		};
 	}, []);
 
