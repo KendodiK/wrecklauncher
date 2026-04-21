@@ -4130,7 +4130,7 @@ const StoreGamePage = () => {
 	};
 
 	return (
-		<div className="flex-1 overflow-y-auto text-slate-100">
+		<div className="store-game-page flex-1 overflow-y-auto text-slate-100">
 			<div className="relative min-h-full">
 				<div className="absolute inset-x-0 top-0 h-[340px] bg-cover bg-center opacity-30" style={{ backgroundImage: topBackdropImage ? `url(${topBackdropImage})` : undefined }} />
 				<div className="absolute inset-x-0 top-0 h-[340px] bg-gradient-to-b from-slate-950/10 via-slate-950/75 to-slate-950" />
@@ -4142,7 +4142,7 @@ const StoreGamePage = () => {
 							onClick={() => navigate(-1)}
 							className="rounded-lg border border-slate-700/70 bg-slate-900/60 px-4 py-2 text-sm text-slate-200 transition-colors hover:bg-slate-800/70"
 						>
-							Back To Store
+							Back
 						</button>
 						<div className="text-right text-xs uppercase tracking-[0.18em] text-slate-400">Store Page</div>
 					</div>
@@ -4165,7 +4165,28 @@ const StoreGamePage = () => {
 												: ((activePlatform !== 'gog' && model.priceLabel) || formatCurrencyPrice(model.price, activePlatform) || 'Check Store')}
 										</p>
 									</div>
-
+									{availableOnTargets.length > 0 ? (
+										<div className="rounded-xl border border-slate-700/70 bg-slate-950/40 p-3">
+											<p className="text-[11px] uppercase tracking-[0.18em] text-slate-300">Available On</p>
+											<div className="mt-2 flex flex-col gap-2">
+												{availableOnTargets.map((site, index) => (
+													<a
+														key={site.id ?? `${site.label}-${index}`}
+														href={site.href ?? '#'}
+														target="_blank"
+														rel="noreferrer"
+														onClick={(event) => {
+															event.preventDefault();
+															void handleOpenAvailableSite(site);
+														}}
+														className="rounded-lg border border-slate-700/70 bg-slate-950/45 px-3 py-2 text-xs text-slate-200 transition-colors hover:bg-slate-800/80"
+													>
+														{site.label ?? 'Store'}
+													</a>
+												))}
+											</div>
+										</div>
+									) : null}
 									{platformActionTargets.map((target) => {
 										const platformRating = ratingDisplayRows.find((r) => r.platform === target.platform);
 										const openDisabled = !target?.href && !(Number.isFinite(Number(target?.appId)) && Number(target?.appId) > 0);

@@ -609,7 +609,7 @@ const ensureFullBrowsePages = async () => {
 	return (
 
 		
-		<div className="flex-1">
+		<div className="store-page flex-1">
 			{/* Main content area */}
 			<div className="h-full px-3 py-4 overflow-y-auto">
 				<h1 className="text-2xl font-semibold mb-6 text-slate-100 text-center">Store</h1>

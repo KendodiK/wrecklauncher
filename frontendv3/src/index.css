@@ -11,6 +11,17 @@ body {
   font-family: "Funnel Display", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
+[data-theme='purple-black'] body,
+body[data-theme='purple-black'] {
+  background: #06040d;
+  color: #e2e8f0;
+}
+
+[data-theme='purple-black'] .app-shell,
+body[data-theme='purple-black'] .app-shell {
+  background: linear-gradient(135deg, #05030a 0%, #10091f 46%, #06040d 100%) !important;
+}
+
 
 .funnel-display {
   font-family: "Funnel Display", sans-serif;
@@ -34,6 +45,227 @@ body {
   padding: 4px 10px;
   background: #0f172af2;
   border-bottom: 1px solid rgba(51, 65, 85, 0.9);
+}
+
+[data-theme='purple-black'] .main-navbar,
+body[data-theme='purple-black'] .main-navbar {
+  background: rgba(44, 16, 74, 0.96);
+  border-bottom: 1px solid rgba(125, 211, 252, 0.38);
+}
+
+[data-theme='purple-black'] .main-navbar .nav-item,
+[data-theme='purple-black'] .main-navbar .nav-arrow-btn,
+[data-theme='purple-black'] .main-navbar .text-slate-300,
+[data-theme='purple-black'] .main-navbar .text-slate-400,
+body[data-theme='purple-black'] .main-navbar .nav-item,
+body[data-theme='purple-black'] .main-navbar .nav-arrow-btn,
+body[data-theme='purple-black'] .main-navbar .text-slate-300,
+body[data-theme='purple-black'] .main-navbar .text-slate-400 {
+  color: #e2e8f0 !important;
+}
+
+[data-theme='purple-black'] .main-navbar .nav-item:hover,
+[data-theme='purple-black'] .main-navbar .nav-arrow-btn:hover,
+[data-theme='purple-black'] .main-navbar .window-controls button:hover,
+body[data-theme='purple-black'] .main-navbar .nav-item:hover,
+body[data-theme='purple-black'] .main-navbar .nav-arrow-btn:hover,
+body[data-theme='purple-black'] .main-navbar .window-controls button:hover {
+  background-color: rgba(56, 189, 248, 0.22) !important;
+}
+
+[data-theme='purple-black'] .main-navbar .window-controls #close-btn:hover,
+body[data-theme='purple-black'] .main-navbar .window-controls #close-btn:hover {
+  background-color: rgba(239, 68, 68, 0.86) !important;
+}
+
+[data-theme='purple-black'] .bg-blue-600,
+body[data-theme='purple-black'] .bg-blue-600 {
+  background-color: #38bdf8 !important;
+  color: #0b1220 !important;
+}
+
+[data-theme='purple-black'] .hover\:bg-blue-700:hover,
+body[data-theme='purple-black'] .hover\:bg-blue-700:hover {
+  background-color: #0ea5e9 !important;
+}
+
+[data-theme='purple-black'] .text-slate-400,
+body[data-theme='purple-black'] .text-slate-400 {
+  color: #cbd5e1 !important;
+}
+
+[data-theme='light-green'] body,
+body[data-theme='light-green'] {
+  background: #07110b;
+  color: #d1fae5;
+}
+
+[data-theme='light-green'] .app-shell,
+body[data-theme='light-green'] .app-shell {
+  background: linear-gradient(135deg, #07110b 0%, #0f2a1d 46%, #08130d 100%) !important;
+}
+
+[data-theme='light-green'] .main-navbar,
+body[data-theme='light-green'] .main-navbar {
+  background: rgba(8, 54, 33, 0.96);
+  border-bottom: 1px solid rgba(110, 231, 183, 0.42);
+}
+
+[data-theme='light-green'] .main-navbar .nav-item,
+[data-theme='light-green'] .main-navbar .nav-arrow-btn,
+[data-theme='light-green'] .main-navbar .text-slate-300,
+[data-theme='light-green'] .main-navbar .text-slate-400,
+body[data-theme='light-green'] .main-navbar .nav-item,
+body[data-theme='light-green'] .main-navbar .nav-arrow-btn,
+body[data-theme='light-green'] .main-navbar .text-slate-300,
+body[data-theme='light-green'] .main-navbar .text-slate-400 {
+  color: #d1fae5 !important;
+}
+
+[data-theme='light-green'] .main-navbar .nav-item:hover,
+[data-theme='light-green'] .main-navbar .nav-arrow-btn:hover,
+[data-theme='light-green'] .main-navbar .window-controls button:hover,
+body[data-theme='light-green'] .main-navbar .nav-item:hover,
+body[data-theme='light-green'] .main-navbar .nav-arrow-btn:hover,
+body[data-theme='light-green'] .main-navbar .window-controls button:hover {
+  background-color: rgba(52, 211, 153, 0.24) !important;
+}
+
+[data-theme='light-green'] .store-page .carousel,
+body[data-theme='light-green'] .store-page .carousel {
+  border-color: rgba(110, 231, 183, 0.35);
+  background: rgba(10, 35, 24, 0.55);
+}
+
+[data-theme='light-green'] .store-page .carousel .shop-card,
+body[data-theme='light-green'] .store-page .carousel .shop-card {
+  border-color: rgba(110, 231, 183, 0.38);
+  background: rgba(9, 26, 19, 0.7);
+  box-shadow: 0 14px 34px rgba(6, 20, 14, 0.5);
+}
+
+[data-theme='light-green'] .store-page .carousel .shop-card.shop-card-active,
+body[data-theme='light-green'] .store-page .carousel .shop-card.shop-card-active {
+  border-color: rgba(167, 243, 208, 0.82);
+  box-shadow: 0 0 0 2px rgba(52, 211, 153, 0.24), 0 22px 40px rgba(6, 20, 14, 0.56);
+}
+
+[data-theme='light-green'] .filtered-games-main-panel,
+[data-theme='light-green'] .filtered-games-preview-panel,
+[data-theme='light-green'] .compact-filters-sidebar,
+body[data-theme='light-green'] .filtered-games-main-panel,
+body[data-theme='light-green'] .filtered-games-preview-panel,
+body[data-theme='light-green'] .compact-filters-sidebar {
+  background: rgba(10, 32, 22, 0.72) !important;
+  border-color: rgba(110, 231, 183, 0.28) !important;
+}
+
+[data-theme='light-green'] .store-universal-tag,
+body[data-theme='light-green'] .store-universal-tag {
+  background: rgba(6, 24, 17, 0.78);
+  border-color: rgba(110, 231, 183, 0.36);
+  color: rgba(209, 250, 229, 0.96);
+}
+
+[data-theme='light-green'] .store-universal-tag-muted,
+body[data-theme='light-green'] .store-universal-tag-muted {
+  color: rgba(187, 247, 208, 0.78);
+  border-color: rgba(74, 222, 128, 0.3);
+}
+
+[data-theme='light-green'] .compact-filters-sidebar input,
+[data-theme='light-green'] .compact-filters-sidebar select,
+[data-theme='light-green'] .compact-filters-sidebar textarea,
+[data-theme='light-green'] .settings-page input,
+[data-theme='light-green'] .settings-page select,
+[data-theme='light-green'] .settings-page textarea,
+body[data-theme='light-green'] .compact-filters-sidebar input,
+body[data-theme='light-green'] .compact-filters-sidebar select,
+body[data-theme='light-green'] .compact-filters-sidebar textarea,
+body[data-theme='light-green'] .settings-page input,
+body[data-theme='light-green'] .settings-page select,
+body[data-theme='light-green'] .settings-page textarea {
+  background: rgba(7, 20, 14, 0.9) !important;
+  border-color: rgba(110, 231, 183, 0.34) !important;
+  color: #d1fae5 !important;
+}
+
+[data-theme='light-green'] .compact-filters-sidebar button.bg-blue-600,
+[data-theme='light-green'] .settings-page .bg-blue-600,
+body[data-theme='light-green'] .compact-filters-sidebar button.bg-blue-600,
+body[data-theme='light-green'] .settings-page .bg-blue-600 {
+  background-color: #34d399 !important;
+  color: #052e21 !important;
+}
+
+[data-theme='light-green'] .compact-filters-sidebar .hover\:bg-blue-700:hover,
+[data-theme='light-green'] .settings-page .hover\:bg-blue-700:hover,
+body[data-theme='light-green'] .compact-filters-sidebar .hover\:bg-blue-700:hover,
+body[data-theme='light-green'] .settings-page .hover\:bg-blue-700:hover {
+  background-color: #10b981 !important;
+}
+
+[data-theme='purple-black'] .store-page .carousel,
+[data-theme='purple-black'] .store-game-page,
+body[data-theme='purple-black'] .store-page .carousel,
+body[data-theme='purple-black'] .store-game-page {
+  --shop-card-w: 360px;
+  --shop-card-h: 216px;
+}
+
+[data-theme='purple-black'] .store-page .carousel .shop-card,
+body[data-theme='purple-black'] .store-page .carousel .shop-card {
+  border-color: rgba(167, 139, 250, 0.42);
+  box-shadow: 0 16px 28px rgba(15, 8, 31, 0.52);
+  background: rgba(20, 13, 38, 0.62);
+}
+
+[data-theme='purple-black'] .store-page .carousel .shop-card::after,
+body[data-theme='purple-black'] .store-page .carousel .shop-card::after {
+  background: linear-gradient(to top, rgba(12, 8, 24, 0.92), rgba(12, 8, 24, 0.18) 45%, transparent 70%);
+}
+
+[data-theme='purple-black'] .store-page .carousel .shop-card.shop-card-active,
+body[data-theme='purple-black'] .store-page .carousel .shop-card.shop-card-active {
+  border-color: rgba(125, 211, 252, 0.82);
+  box-shadow:
+    0 0 0 2px rgba(125, 211, 252, 0.28),
+    0 22px 40px rgba(15, 8, 31, 0.62);
+}
+
+[data-theme='purple-black'] .store-game-page .rounded-2xl,
+[data-theme='purple-black'] .store-game-page .rounded-3xl,
+body[data-theme='purple-black'] .store-game-page .rounded-2xl,
+body[data-theme='purple-black'] .store-game-page .rounded-3xl {
+  background: rgba(27, 17, 47, 0.68) !important;
+  border-color: rgba(167, 139, 250, 0.34) !important;
+}
+
+[data-theme='purple-black'] .settings-page section,
+body[data-theme='purple-black'] .settings-page section {
+  background: rgba(29, 19, 52, 0.72) !important;
+  border-color: rgba(167, 139, 250, 0.32) !important;
+}
+
+[data-theme='purple-black'] .settings-page input,
+[data-theme='purple-black'] .settings-page select,
+[data-theme='purple-black'] .settings-page textarea,
+body[data-theme='purple-black'] .settings-page input,
+body[data-theme='purple-black'] .settings-page select,
+body[data-theme='purple-black'] .settings-page textarea {
+  background: rgba(11, 8, 21, 0.9) !important;
+  border-color: rgba(148, 163, 184, 0.32) !important;
+  color: #e2e8f0 !important;
+}
+
+[data-theme='purple-black'] .settings-page input:focus,
+[data-theme='purple-black'] .settings-page select:focus,
+[data-theme='purple-black'] .settings-page textarea:focus,
+body[data-theme='purple-black'] .settings-page input:focus,
+body[data-theme='purple-black'] .settings-page select:focus,
+body[data-theme='purple-black'] .settings-page textarea:focus {
+  border-color: rgba(125, 211, 252, 0.72) !important;
+  box-shadow: 0 0 0 1px rgba(125, 211, 252, 0.45);
 }
 
 /* Allow interaction with navbar elements */
@@ -1056,7 +1288,14 @@ body {
   user-select: none;
   opacity: 1;
   background: rgba(15, 23, 42, 0.35);
-  will-change: transform, width, height;
+  will-change: transform;
+  transition:
+    flex-basis 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    height 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    border-color 220ms ease,
+    border-radius 220ms ease,
+    box-shadow 260ms ease;
 }
 
 .lib-strip-card:hover {
@@ -1147,6 +1386,7 @@ body {
   inset: 0;
   background: linear-gradient(to top, rgba(15, 23, 42, 0.92) 0%, rgba(15, 23, 42, 0.2) 40%, transparent 100%);
   pointer-events: none;
+  transition: background 220ms ease;
 }
 
 .lib-strip-card-active .lib-strip-card-overlay {

@@ -1,6 +1,6 @@
 # WreckLauncher Frontend - Fejlesztoi Dokumentacio
 
-Utolso ellenorzes: 2026-04-18
+Utolso ellenorzes: 2026-04-21
 Scope: frontend (React) + preload IPC boundary
 
 ## Dokumentum celja es olvasasi modja
@@ -113,6 +113,60 @@ Ez a sorrend azert praktikus, mert a szerzodesi stabilitas adja a regressziobizt
 ## Vizualis dokumentacio: diagramok es screenshot terv
 
 A dokumentaciot erdemes kiegesziteni route-tree, IPC adatfolyam es DownloadManager allapotatmeneti diagramokkal, mert ezek a szoveges leirast konkret rendszerkepekre forditjak. A screenshot alapcsomagban legalabb a login, store (szurokkel), game detail, library (ures es feltoltott), downloads aktiv torrenttel, valamint a settings platformkapcsolati allapotai szerepeljenek. Ezek kesobb regresszios referenciakent is hasznalhatok.
+
+### Mappastruktura kivonat (frontend + dokumentacio)
+
+Az alabbi reszlet mutatja, hol vannak a dokumentacios assetek es a screenshothoz kapcsolodo fo UI komponensek.
+
+```text
+frontendv3/
+├─ docs/
+│  ├─ developer-frontend.md
+│  ├─ user-guide.md
+│  ├─ README.md
+│  └─ assets/
+│     ├─ screenshots/
+│     └─ diagrams/
+└─ src/
+	├─ App.jsx
+	├─ index.css
+	└─ components/
+		├─ mainnavbar.jsx
+		├─ pages/
+		│  ├─ login.jsx
+		│  ├─ shopveiw.jsx
+		│  ├─ StoreGamePage.jsx
+		│  ├─ libraray.jsx
+		│  ├─ download.jsx
+		│  └─ setting.jsx
+		├─ library/
+		│  ├─ LibraryGameStrip.jsx
+		│  ├─ AllGamesDrawer.jsx
+		│  └─ PlatformBadge.jsx
+		├─ store/
+		├─ navbar/
+		└─ shared/
+```
+
+### Screenshot terv: mit kell fotozni es honnan
+
+| Nezet | Kod/komponens kiindulopont | Mit fotozz | Javasolt fajlnev |
+| --- | --- | --- | --- |
+| Login oldal | `src/App.jsx` route + `src/components/pages/login.jsx` | Teljes login UI (inputok + CTA) | `screenshot-login-main-v1.png` |
+| Store fo nezet | `src/components/pages/shopveiw.jsx` | Kiemelt kartya + szurok + lista kezdo allapot | `screenshot-store-main-v1.png` |
+| Game detail | `src/components/pages/StoreGamePage.jsx` | Hero blokk + ar/reszletek + launcher action | `screenshot-game-detail-v1.png` |
+| Library ures | `src/components/pages/libraray.jsx` | Ures allapot uzenet/action gombok | `screenshot-library-empty-v1.png` |
+| Library feltoltott | `src/components/pages/libraray.jsx` + `src/components/library/LibraryGameStrip.jsx` | Carousel + aktiv kartya + platform badge | `screenshot-library-filled-v1.png` |
+| Library osszes jatek drawer | `src/components/library/AllGamesDrawer.jsx` | Oldalsav lista + badge + aktiv elem | `screenshot-library-drawer-v1.png` |
+| Downloads | `src/components/pages/download.jsx` | Aktiv letoltes/progress + allapot | `screenshot-downloads-active-v1.png` |
+| Settings kapcsolatok | `src/components/pages/setting.jsx` | Platform kapcsolat blokkok + mentesi allapot | `screenshot-settings-platforms-v1.png` |
+
+### Mentési szabaly
+
+- A screenshotok helye: `docs/assets/screenshots/`
+- A diagramok helye: `docs/assets/diagrams/`
+- Egy nezet tobb allapota kulon fajlba keruljon (`-v1`, `-v2`, stb.).
+- Dokumentumban relativ hivatkozas hasznalando (pelda: `assets/screenshots/screenshot-library-filled-v1.png`).
 
 ## Zaro elvek
 

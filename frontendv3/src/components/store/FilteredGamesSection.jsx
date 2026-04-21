@@ -89,7 +89,7 @@ function getPlatformIconMeta(platform) {
 		return PLATFORM_ICON_META[normalized];
 	}
 
-	return {
+ 	return {
 		short: String(getStorePlatformLabel(normalized || 'steam')).slice(0, 1).toUpperCase() || '?',
 		tone: 'bg-slate-700/60 text-slate-200 border-slate-500/40',
 	};
@@ -464,9 +464,9 @@ useEffect(() => {
 	};
 
 	return (
-		<div className="w-full flex gap-4">
+		<div className="filtered-games-section w-full flex gap-4">
 			{/* Game list */}
-			<div className="w-[50%] bg-slate-800/40 backdrop-blur-sm rounded-lg border border-slate-700/50 flex flex-col overflow-hidden">
+			<div className="filtered-games-main-panel w-[50%] bg-slate-800/40 backdrop-blur-sm rounded-lg border border-slate-700/50 flex flex-col overflow-hidden">
 				<div className="px-4 py-3 border-b border-slate-700/50 flex items-center justify-between">
 					<div>
 						<h3 className="text-lg font-semibold text-slate-100">{title}</h3>
@@ -576,7 +576,7 @@ useEffect(() => {
 			</div>
 
 			{/* Game preview */}
-			<div className="w-[30%] bg-slate-800/40 backdrop-blur-sm rounded-lg border border-slate-700/50 overflow-hidden flex flex-col">
+			<div className="filtered-games-preview-panel w-[30%] bg-slate-800/40 backdrop-blur-sm rounded-lg border border-slate-700/50 overflow-hidden flex flex-col">
 				{displayGame ? (
 					<>
 						<div className="px-3 py-2 border-b border-slate-700/50">
