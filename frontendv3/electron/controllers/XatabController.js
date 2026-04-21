@@ -82,6 +82,12 @@ class XatabController {
    */
   #buildHeaders(extra = {}) {
     const headers = {
+      "Cookie": "dle_user_id=346916; dle_password=c02c0d85a9f103c4aa74c8591407a48b; dle_newpm=0",
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+      "Encoding": "gzip, deflate, br",
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
       ...extra,
     };
 
@@ -157,7 +163,7 @@ class XatabController {
     const candidates = [];
     const seen = new Set();
 
-    const anchorRegex = /<a\b[^>]*href=["']([^"']+)["'][^>]*class=["'][^"']*\brelease2\b[^"']*["'][^>]*>([\s\S]*?)<\/a>/gi;
+    const anchorRegex = /<a\b[^>]*href=["']([^"']+)["'][^>]*class=["'][^"']*\brelease\b[^"']*["'][^>]*>([\s\S]*?)<\/a>/gi;
     for (const match of html.matchAll(anchorRegex)) {
       const hrefRaw = this.#decodeHtmlAmpersands(match[1]);
       const block = String(match[2] || '');
@@ -186,33 +192,176 @@ class XatabController {
   }
 
   /**
+   * @returns {string}
+   */
+  #cacheFilePath() {
+    return path.join(__dirname, 'xatab_pages_cache.json');
+  }
+
+  /**
+   * @returns {Promise<{ lastPage: number, items: Array<{title:string,url:string,page?:number}> }>}
+   */
+  async #loadPagesCache() {
+    try {
+      const txt = await fs.readFile(this.#cacheFilePath(), 'utf8');
+      const parsed = JSON.parse(txt);
+      return {
+        lastPage: Number(parsed?.lastPage) || 0,
+        items: Array.isArray(parsed?.items) ? parsed.items : [],
+      };
+    } catch {
+      return { lastPage: 0, items: [] };
+    }
+  }
+
+  /**
+   * @param {{ lastPage?: number, items?: Array }} cache
+   */
+  async #savePagesCache(cache) {
+    try {
+      await fs.writeFile(this.#cacheFilePath(), JSON.stringify(cache || { lastPage: 0, items: [] }, null, 2), 'utf8');
+    } catch (err) {
+      console.warn('[Xatab] failed to write pages cache:', err && err.message);
+    }
+  }
+
+  /**
+   * Extract listing items from a byxatab HTML listing page.
+   * @param {string} body
+   * @returns {Array<{title:string,url:string}>}
+   */
+  #extractListingCandidates(body) {
+    const html = String(body || '');
+    const items = [];
+    const seen = new Set();
+    const anchorRegex = /<a\b[^>]*href=["']([^"']+)["'][^>]*class=["'][^"']*item\b[^"']*["'][^>]*>([\s\S]*?)<\/a>/gi;
+    for (const match of html.matchAll(anchorRegex)) {
+      const hrefRaw = this.#decodeHtmlAmpersands(match[1]);
+      const block = String(match[2] || '');
+      let resolved;
+      try {
+        resolved = new URL(hrefRaw, 'https://byxatab.com/').toString();
+      } catch {
+        continue;
+      }
+      const key = resolved.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const titleMatch = block.match(/<div\b[^>]*class=["'][^"']*\bitem__title\b[^"']*["'][^>]*>([\s\S]*?)<\/div>/i);
+      const title = this.#stripHtml(titleMatch?.[1] || block);
+      items.push({ title, url: resolved });
+    }
+    return items;
+  }
+
+  /**
+   * Find best candidate from cache items for a query.
+   * @param {string} query
+   * @param {{ lastPage:number, items:Array }} cache
+   * @returns {{url:string,title:string,score:number}|null}
+   */
+  #findCandidateInCache(query, cache) {
+    if (!cache || !Array.isArray(cache.items) || cache.items.length === 0) return null;
+    let best = null;
+    for (const it of cache.items) {
+      const score = this.#scoreCandidate(it.title || '', it.url || '', query);
+      if (score <= 0) continue;
+      if (!best || score > best.score) {
+        best = { url: it.url, title: it.title, score };
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Crawl listing pages starting from cache.lastPage+1 until 404 or found query.
+   * Updates cache with discovered items and returns first found url or null.
+   * @param {string} query
+   * @param {{ lastPage:number, items:Array }} cache
+   */
+  async #crawlPagesUntil404ForQuery(query, cache) {
+    const maxPages = 2000;
+    let start = Math.max(1, Number(cache?.lastPage) + 1);
+    if (start <= 0) start = 1;
+    for (let p = start; p <= maxPages; p++) {
+      const pageUrl = p === 1 ? 'https://byxatab.com/' : `https://byxatab.com/page/${p}/`;
+      const res = await this.#scraper.fetch(pageUrl, { method: 'GET', headers: this.#buildHeaders() });
+      if (res.statusCode === 404) {
+        cache.lastPage = p - 1;
+        await this.#savePagesCache(cache);
+        break;
+      }
+
+      const items = this.#extractListingCandidates(res.body || '');
+      let added = false;
+      for (const it of items) {
+        const key = it.url.toLowerCase();
+        if (!cache.items.some(x => String(x.url || '').toLowerCase() === key)) {
+          cache.items.push({ title: it.title, url: it.url, page: p });
+          added = true;
+        }
+      }
+
+      cache.lastPage = p;
+      if (added) await this.#savePagesCache(cache);
+
+      const found = this.#findCandidateInCache(query, cache);
+      if (found) return found.url;
+
+      await new Promise(r => setTimeout(r, 150));
+    }
+    return null;
+  }
+
+  /**
    * @param {string} searchQueryOrUrl
    * @returns {Promise<string|null>}
    */
   async #resolveGamePageUrl(searchQueryOrUrl) {
     const raw = String(searchQueryOrUrl || '').trim();
     if (!raw) throw new Error('Game name is required');
-
-    if (this.#isByxatabGamePageUrl(raw)) {
-      return raw;
+    // If the input already looks like a byxatab game page URL, return it as-is
+    try {
+      const maybeUrl = new URL(raw, 'https://byxatab.com/').toString();
+      if (this.#isByxatabGamePageUrl(maybeUrl)) return maybeUrl;
+    } catch {
+      // not a URL, treat as a query
     }
 
-    const searchUrl = this.#buildSearchUrl(raw);
-    const searchResponse = await this.#scraper.fetch(searchUrl, {
-      method: 'GET',
-      headers: this.#buildHeaders(),
-    });
-
-    if (!searchResponse.ok) {
-      throw new Error(`Failed to fetch Xatab search page for "${raw}": HTTP ${searchResponse.statusCode}`);
+    // Try cache first
+    const cache = await this.#loadPagesCache();
+    const cached = this.#findCandidateInCache(raw, cache);
+    if (cached) {
+      console.log(`[Xatab] cache hit: ${cached.url}`);
+      return cached.url;
     }
 
-    const candidates = this.#extractSearchCandidates(searchResponse.body, raw);
-    if (candidates.length < 1) {
-      return null;
+    // Not in cache — crawl listing pages (continuing from last cached page) until found or 404
+    console.log(`[Xatab] cache miss for "${raw}", crawling listing pages...`);
+    const crawled = await this.#crawlPagesUntil404ForQuery(raw, cache);
+    if (crawled) {
+      console.log(`[Xatab] found by crawling: ${crawled}`);
+      return crawled;
     }
 
-    return candidates[0].url;
+    // Fallback: use legacy search endpoint (index.php?do=search)
+    try {
+      if (typeof this.#scraper.searchByxatab === 'function') {
+        const searchResponse = await this.#scraper.searchByxatab(raw);
+        if (searchResponse && searchResponse.ok) {
+          const candidates = this.#extractSearchCandidates(searchResponse.body, raw);
+          if (candidates.length > 0) {
+            console.log(`[Xatab] search: ${candidates[0].url}`);
+            return candidates[0].url;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[Xatab] fallback search failed:', err && err.message);
+    }
+
+    return null;
   }
 
   /**
@@ -384,6 +533,27 @@ class XatabController {
    */
   async XatabMagnetLink(gameName) {
     return this.xatabMagnetLink(gameName);
+  }
+
+  /**
+   * Resolve the byxatab game page URL for a query or URL.
+   * Returns the resolved game page URL or null when not found.
+   * @param {string} gameNameOrUrl
+   * @returns {Promise<string|null>}
+   */
+  async xatabGamePageUrl(gameNameOrUrl) {
+    try {
+      const raw = String(gameNameOrUrl || '').trim();
+      if (!raw) return null;
+      const resolved = await this.#resolveGamePageUrl(raw);
+      return resolved || null;
+    } catch {
+      return null;
+    }
+  }
+
+  async XatabGamePageUrl(gameNameOrUrl) {
+    return this.xatabGamePageUrl(gameNameOrUrl);
   }
 }
 

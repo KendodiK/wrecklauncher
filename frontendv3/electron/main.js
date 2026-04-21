@@ -1933,7 +1933,6 @@ handle('steam:get-installed-games', async () => {
     }
 
     if (!gameDetails) return null;
-    console.log('Fetched game details:', gameDetails);
     let backendPirateSites = Array.isArray(gameDetails.pirate_sites) ? gameDetails.pirate_sites : [];
     if (backendPirateSites.length < 1) {
       const gameId = Number(gameDetails.id);
@@ -1944,14 +1943,14 @@ handle('steam:get-installed-games', async () => {
           if (byIdPirateSites.length > 0) {
             backendPirateSites = byIdPirateSites;
             gameDetails.pirate_sites = byIdPirateSites;
-            console.log('Pirate sites loaded from game-id fallback endpoint:', byIdPirateSites);
+            console.log('Pirate sites loaded from game-id fallback endpoint:', byIdPirateSites.length);
           }
         } catch (error) {
           console.warn('Pirate sites game-id fallback failed:', error);
         }
       }
     }
-    console.log('Pirate sites from backend:', backendPirateSites);
+    console.log('Pirate sites from backend:', backendPirateSites.length);
     // Always return DB state first, then scrape and push updates asynchronously.
     gameDetails.pirate_sites = backendPirateSites;
 
@@ -1964,7 +1963,7 @@ handle('steam:get-installed-games', async () => {
         const scrapedPirateSites = await getPirateSitesForGame(gameDetails.name || '');
         const syncPlan = buildPirateSiteSyncPlan(backendPirateSites, scrapedPirateSites);
 
-        console.log('Fetched pirate sites (background):', scrapedPirateSites);
+        console.log('Fetched pirate sites (background):', scrapedPirateSites.length);
 
         await uploadPirateSiteSyncPlan({
           token,
@@ -2222,7 +2221,6 @@ handle('steam:get-installed-games', async () => {
     const id = String(clientId || ITCH_OAUTH_CLIENT_ID || '').trim();
     if (!id) throw new Error('itch.io OAuth client ID is required. Provide it as argument or set ITCH_OAUTH_CLIENT_ID in main.js.');
     const loginResult = await getItchCtrl().login(id);
-    console.log(loginResult);
     return loginResult;
   });
 
@@ -2289,14 +2287,6 @@ handle('steam:get-installed-games', async () => {
       url: typeof profile?.url === 'string' ? profile.url : null,
       cover_url: typeof profile?.cover_url === 'string' ? profile.cover_url : null,
     };
-
-    console.log('Resolved itch.io profile:', {
-      rawProfile: profile,
-      loginResult,
-      generatedUsername,
-      resolvedProfile,
-      oauthToken,
-    });
 
     if (!oauthToken) throw new Error('itch.io OAuth token is missing after login');
 
@@ -2460,7 +2450,6 @@ handle('steam:get-installed-games', async () => {
       throw new Error('GOG OAuth client ID is required. Provide it as argument or set GOG_OAUTH_CLIENT_ID in main.js.');
     }
     const loginResult = await getGogCtrl().login(id);
-    console.log(loginResult);
     return loginResult;
   });
 
@@ -2782,6 +2771,11 @@ handle('steam:get-installed-games', async () => {
     return await getXatabCtrl().xatabMagnetLink(String(gameName));
   });
 
+  // Resolve byxatab game page URL (returns full game page URL or null)
+  handle('xatab:game-page', async (_event, gameName) => {
+    return await getXatabCtrl().xatabGamePageUrl(String(gameName));
+  });
+
   
   // ── Torrent controller ────────────────────────────────────────────────────
   // progress events are pushed to the renderer via webContents.send so the
@@ -2827,7 +2821,6 @@ handle('steam:get-installed-games', async () => {
       }
     }
 
-    console.log('[torrent:start] mUri (full):', mUri);
     console.log('[torrent:start] sPath:', sPath);
     if (requestedDisplayName) console.log('[torrent:start] displayName:', requestedDisplayName);
     console.log('[torrent:start] tracker count:', (mUri.match(/&tr=/g) || []).length);

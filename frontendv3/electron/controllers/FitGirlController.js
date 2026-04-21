@@ -31,7 +31,6 @@ class FitGirlController {
 
     // Log a snippet around any magnet link found so we can see the raw encoding.
     const rawMagnetIdx = body.indexOf('magnet:');
-    console.log('[FitGirl] body snippet around magnet:', rawMagnetIdx === -1 ? '(not found)' : body.slice(Math.max(0, rawMagnetIdx - 10), rawMagnetIdx + 200));
 
     const match = body.match(/href=["'](magnet:\?xt=urn:btih:[^"']+)["']/i);
     if (!match) {
@@ -43,7 +42,7 @@ class FitGirlController {
       .replace(/&#0*38;/g, '&')   // &#038; / &#38;
       .replace(/&amp;/gi, '&');   // &amp;
 
-    console.log('[FitGirl] decoded magnet:', magnetLink.slice(0, 120));
+    console.log('[FitGirl] decoded magnet found');
     return magnetLink;
   }
 

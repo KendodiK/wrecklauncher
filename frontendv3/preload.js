@@ -427,6 +427,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   FitGirlMagnetLink: (gameName) => ipcRenderer.invoke('fitgirl:magnet-link', gameName),
   PcGamesTorrentMagnetLink: (gameName) => ipcRenderer.invoke('pcgamestorrent:magnet-link', gameName),
   XatabMagnetLink: (gameName) => ipcRenderer.invoke('xatab:magnet-link', gameName),
+  xatabGamePageUrl: (gameName) => ipcRenderer.invoke('xatab:game-page', gameName),
+  XatabGamePageUrl: (gameName) => ipcRenderer.invoke('xatab:game-page', gameName),
   ComingSoonGames: (from) => ipcRenderer.invoke('shop-specials:coming-soon', from),
   DiscountedGames: (from) => ipcRenderer.invoke('shop-specials:discounted', from),
   FeaturedGames: (from) => ipcRenderer.invoke('shop-specials:featured', from),

@@ -730,6 +730,25 @@ function buildSteamHeroCandidates(appId) {
 	]);
 }
 
+function buildSteamBannerCandidates(appId) {
+	// Banner candidates prioritized for DB: prefer header / capsule (wide) over vertical library hero
+	const candidates = buildSteamAssetCandidates(appId, [
+		'header.jpg',
+		'capsule_616x353.jpg',
+		'library_hero.jpg',
+		'capsule_467x181.jpg',
+	]);
+
+	// Also include the shared.akamai store_item_assets host variant which some Steam images use
+	const id = Number(appId);
+	if (Number.isFinite(id) && id > 0) {
+		candidates.push(`https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${Math.trunc(id)}/header.jpg`);
+		candidates.push(`https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${Math.trunc(id)}/capsule_616x353.jpg`);
+	}
+
+	return candidates;
+}
+
 async function probeImageUrlReachable(url, timeoutMs = STORE_STEAM_IMAGE_PROBE_TIMEOUT_MS) {
 	const href = String(url || '').trim();
 	if (!isHttpImageUrl(href)) return false;
@@ -1442,7 +1461,7 @@ function buildLookupTitleCandidates(expectedTitles, routeState) {
 }
 
 function slugFromTitle(title, separator = '_') {
-	return normalizeTitleForCompare(title).split(' ').filter(Boolean).join(separator);
+	return title.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, separator);
 }
 
 function buildGogTitleSlugs(title) {
@@ -2075,15 +2094,15 @@ function resolvePirateSitePageHref(entry, gameTitle = '') {
 
 	const lowerHref = rawHref.toLowerCase();
 	const label = String(entry?.label || '').toLowerCase();
-	const slugFromLink = extractSlugFromUrl(rawHref);
-	const slugFallback = slugFromTitle(gameTitle, '-') || '';
-	const slug = slugFromLink || slugFallback;
+	const slugfromtitle = slugFromTitle(gameTitle, '-') || '';
+	const slug = slugfromtitle;
 	const encodedTitle = encodeURIComponent(String(gameTitle || '').trim());
 
 	if (/fitgirl-repacks\.site/.test(lowerHref) || label.includes('fitgirl')) {
 		if (!slug) {
 			return encodedTitle ? `https://fitgirl-repacks.site/?s=${encodedTitle}` : 'https://fitgirl-repacks.site/';
 		}
+		console.log('[resolvePirateSitePageHref] Resolved FitGirl slug:', slug);
 		return `https://fitgirl-repacks.site/${slug}/`;
 	}
 
@@ -2096,8 +2115,10 @@ function resolvePirateSitePageHref(entry, gameTitle = '') {
 	) {
 		// Match the same first-step source page that the PCGames resolver starts from.
 		if (!slug) {
+			console.log('[resolvePirateSitePageHref] No slug from title, falling back to search URL for IGG Games');
 			return encodedTitle ? `https://igg-games.com/?s=${encodedTitle}` : 'https://igg-games.com/';
 		}
+		console.log('[resolvePirateSitePageHref] Resolved IGG Games slug:', slug);
 		return `https://igg-games.com/${slug}.html`;
 	}
 
@@ -2115,6 +2136,7 @@ function resolvePirateSitePageHref(entry, gameTitle = '') {
 			}
 		} else if (/^\/(games|search)\//i.test(rawHref)) {
 			try {
+				console.log('[resolvePirateSitePageHref] Resolving byxatab relative URL:', rawHref);
 				return new URL(rawHref, 'https://byxatab.com/').toString();
 			} catch {
 				// Fall through to title-based search URL.
@@ -2933,16 +2955,18 @@ const StoreGamePage = () => {
 			? pickFirstFilledText(parsedPlatform?.heroImage, parsedPlatform?.coverImage)
 			: pickFirstFilledText(parsedPlatform?.coverImage, parsedPlatform?.boxArtImage, parsedPlatform?.heroImage);
 		const coverImage = pickFirstFilledText(
+			// For Steam games prefer the vertical library poster first (library_600x900)
+			steam?.cover,
+			steam?.capsule,
 			parsedPrimaryImage,
+			parsedPlatform?.coverImage,
+			parsedPlatform?.heroImage,
 			routeState?.coverImage,
 			routeState?.coverUrl,
+			routeState?.image,
 			parsedDb?.coverImage,
 			parsedDb?.bannerImg,
 			parsedDb?.heroImage,
-			parsedPlatform?.bannerImg,
-			routeState?.image,
-			steam?.cover,
-			steam?.capsule,
 			fallback.coverImage
 		);
 		const heroImage = pickFirstFilledText(
@@ -3050,6 +3074,55 @@ const StoreGamePage = () => {
 		}, SCREENSHOT_AUTOSTEP_MS);
 		return () => window.clearInterval(intervalId);
 	}, [loading, screenshotSources.length]);
+
+	// Showcase keyboard and wheel navigation
+	const showcaseRef = useRef(null);
+	const isShowcaseHoveredRef = useRef(false);
+	const lastWheelAtRef = useRef(0);
+
+	const handleShowcaseWheel = useCallback((event) => {
+		try {
+			const delta = Number(event?.deltaY || 0);
+			if (!isFinite(delta) || Math.abs(delta) < 10) return;
+			const now = Date.now();
+			if (now - lastWheelAtRef.current < 180) return; // simple debounce
+			lastWheelAtRef.current = now;
+			if (delta > 0) {
+				goNextScreenshot();
+			} else {
+				goPrevScreenshot();
+			}
+			// prevent page scroll when interacting with the showcase
+			event.preventDefault();
+		} catch (err) {
+			// ignore
+		}
+	}, [goNextScreenshot, goPrevScreenshot]);
+
+	useEffect(() => {
+		const onKey = (e) => {
+			try {
+				if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+				const active = document && document.activeElement;
+				const tag = active && active.tagName ? String(active.tagName).toLowerCase() : '';
+				if (tag === 'input' || tag === 'textarea' || active?.isContentEditable) return;
+				// Only respond if user is hovering over the showcase or the showcase is focused
+				if (!isShowcaseHoveredRef.current && document.activeElement !== showcaseRef.current) return;
+				if (e.key === 'ArrowLeft') {
+					goPrevScreenshot();
+					e.preventDefault();
+				} else if (e.key === 'ArrowRight') {
+					goNextScreenshot();
+					e.preventDefault();
+				}
+			} catch (err) {
+				// ignore
+			}
+		};
+
+		window.addEventListener('keydown', onKey);
+		return () => window.removeEventListener('keydown', onKey);
+	}, [goPrevScreenshot, goNextScreenshot]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -3189,11 +3262,12 @@ const StoreGamePage = () => {
 			dbDetails?.coverUrl,
 		);
 
-		const platformSpecificCandidates = currentPlatform === 'steam'
-			? [
-				...buildSteamHeroCandidates(currentAppId),
-				...buildSteamCoverCandidates(currentAppId),
-			]
+		const platformSpecificBannerCandidates = currentPlatform === 'steam'
+			? buildSteamBannerCandidates(currentAppId)
+			: [];
+
+		const platformSpecificCoverCandidates = currentPlatform === 'steam'
+			? buildSteamCoverCandidates(currentAppId)
 			: [];
 
 		const coverCandidates = uniqueImageCandidates([
@@ -3203,33 +3277,55 @@ const StoreGamePage = () => {
 			routeState?.coverImage,
 			model?.heroImage,
 			model?.coverImage,
-			...platformSpecificCandidates,
+			...platformSpecificCoverCandidates,
 			dbBanner,
 		]);
 		if (coverCandidates.length < 1) return;
 
-		const heroCandidates = uniqueImageCandidates([
+		const bannerCandidates = uniqueImageCandidates([
 			parsedCurrentPlatform?.heroImage,
 			parsedCurrentPlatform?.coverImage,
+			...platformSpecificBannerCandidates,
+			...platformSpecificCoverCandidates,
 			routeState?.heroImage,
 			routeState?.coverImage,
 			model?.heroImage,
 			model?.coverImage,
-			...platformSpecificCandidates,
 			dbBanner,
 		]);
 
 		void (async () => {
 			try {
+				// Resolve the UI cover (vertical) separately and prefer banner (header/capsule) for DB sync
 				const resolvedCover = await resolveFirstLoadableImageUrl(coverCandidates);
-				const resolvedHero = await resolveFirstLoadableImageUrl([
-					resolvedCover,
-					...heroCandidates,
-				]);
+				const resolvedBanner = await resolveFirstLoadableImageUrl(bannerCandidates);
 
 				if (cancelled) return;
 
-				const finalBanner = pickFirstFilledText(resolvedCover, resolvedHero);
+				let finalBanner = '';
+				if (currentPlatform === 'steam' && Number.isFinite(currentAppId) && currentAppId > 0) {
+					// Prefer canonical Steam header/capsule variants from multiple known hosts
+					const hosts = Array.isArray(STORE_STEAM_IMAGE_CDN_HOSTS) && STORE_STEAM_IMAGE_CDN_HOSTS.length > 0
+						? STORE_STEAM_IMAGE_CDN_HOSTS
+						: ['https://cdn.cloudflare.steamstatic.com'];
+					const canonicalCandidates = [];
+					for (const h of hosts) {
+						canonicalCandidates.push(`${h}/steam/apps/${Math.trunc(currentAppId)}/header.jpg`);
+						canonicalCandidates.push(`${h}/steam/apps/${Math.trunc(currentAppId)}/capsule_616x353.jpg`);
+					}
+					// also include the shared.akamai store_item_assets variant
+					canonicalCandidates.push(`https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${Math.trunc(currentAppId)}/header.jpg`);
+					canonicalCandidates.push(`https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${Math.trunc(currentAppId)}/capsule_616x353.jpg`);
+
+					finalBanner = pickFirstFilledText(
+						...canonicalCandidates,
+						parsedCurrentPlatform?.bannerImg,
+						resolvedBanner,
+						resolvedCover,
+					);
+				} else {
+					finalBanner = pickFirstFilledText(resolvedBanner, resolvedCover);
+				}
 				if (!finalBanner) return;
 
 				const previousDbBanner = String(dbBanner || '').trim().toLowerCase();
@@ -3938,6 +4034,32 @@ const StoreGamePage = () => {
 
 	const handleOpenPirateSite = async (entry) => {
 		setErrorMessage('');
+		const rawHref = decodeHtmlAmpersands(String(entry?.href || '').trim());
+		const lowerHref = rawHref.toLowerCase();
+		const label = String(entry?.label || '').toLowerCase();
+		const api = typeof window !== 'undefined' ? window.electronAPI : null;
+
+		// Prefer resolving exact byxatab game page via main process when possible
+		if ((/byxatab\.com/.test(lowerHref) || label.includes('xatab') || label.includes('byxatab')) && api && typeof api.xatabGamePageUrl === 'function') {
+			const slugFallback = slugFromTitle(model.title || model.name, '-') || '';
+			const slugFromLink = extractSlugFromUrl(rawHref);
+			const slug = slugFromLink || slugFallback;
+			const lookup = /byxatab\.com\/games\//.test(lowerHref)
+				? rawHref
+				: (String(model.title || model.name || slug || '').trim() || slug);
+
+			try {
+				const resolved = await withTimeout(
+					api.xatabGamePageUrl(lookup),
+					5000,
+					'Timed out while resolving Xatab page URL.'
+				);
+				if (hasFilledText(resolved) && await openExternalUrl(resolved)) return;
+			} catch (err) {
+				// fallback to default resolver below
+			}
+		}
+
 		const pageHref = resolvePirateSitePageHref(entry, model.title || model.name || '');
 		if (await openExternalUrl(pageHref)) return;
 		setErrorMessage('No pirate site page URL is available for this source.');
