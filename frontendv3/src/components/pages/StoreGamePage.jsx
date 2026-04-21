@@ -2102,8 +2102,10 @@ function resolvePirateSitePageHref(entry, gameTitle = '') {
 		if (!slug) {
 			return encodedTitle ? `https://fitgirl-repacks.site/?s=${encodedTitle}` : 'https://fitgirl-repacks.site/';
 		}
-		console.log('[resolvePirateSitePageHref] Resolved FitGirl slug:', slug);
-		return `https://fitgirl-repacks.site/${slug}/`;
+		// FitGirl expects space-encoded slugs (e.g. "Night%20Shippers") rather than
+		// our slugified hyphen form — use the encoded title to preserve spaces.
+		console.log('[resolvePirateSitePageHref] Resolved FitGirl encoded title:', encodedTitle);
+		return `https://fitgirl-repacks.site/${encodedTitle}/`;
 	}
 
 	if (
@@ -3074,55 +3076,6 @@ const StoreGamePage = () => {
 		}, SCREENSHOT_AUTOSTEP_MS);
 		return () => window.clearInterval(intervalId);
 	}, [loading, screenshotSources.length]);
-
-	// Showcase keyboard and wheel navigation
-	const showcaseRef = useRef(null);
-	const isShowcaseHoveredRef = useRef(false);
-	const lastWheelAtRef = useRef(0);
-
-	const handleShowcaseWheel = useCallback((event) => {
-		try {
-			const delta = Number(event?.deltaY || 0);
-			if (!isFinite(delta) || Math.abs(delta) < 10) return;
-			const now = Date.now();
-			if (now - lastWheelAtRef.current < 180) return; // simple debounce
-			lastWheelAtRef.current = now;
-			if (delta > 0) {
-				goNextScreenshot();
-			} else {
-				goPrevScreenshot();
-			}
-			// prevent page scroll when interacting with the showcase
-			event.preventDefault();
-		} catch (err) {
-			// ignore
-		}
-	}, [goNextScreenshot, goPrevScreenshot]);
-
-	useEffect(() => {
-		const onKey = (e) => {
-			try {
-				if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-				const active = document && document.activeElement;
-				const tag = active && active.tagName ? String(active.tagName).toLowerCase() : '';
-				if (tag === 'input' || tag === 'textarea' || active?.isContentEditable) return;
-				// Only respond if user is hovering over the showcase or the showcase is focused
-				if (!isShowcaseHoveredRef.current && document.activeElement !== showcaseRef.current) return;
-				if (e.key === 'ArrowLeft') {
-					goPrevScreenshot();
-					e.preventDefault();
-				} else if (e.key === 'ArrowRight') {
-					goNextScreenshot();
-					e.preventDefault();
-				}
-			} catch (err) {
-				// ignore
-			}
-		};
-
-		window.addEventListener('keydown', onKey);
-		return () => window.removeEventListener('keydown', onKey);
-	}, [goPrevScreenshot, goNextScreenshot]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -4110,6 +4063,15 @@ const StoreGamePage = () => {
 						api.pcGamesTorrentMagnetLink(slug),
 						PIRATE_LINK_RESOLVE_TIMEOUT_MS,
 						'Timed out while resolving PCGamesTorrent download link.'
+					);
+					if (hasFilledText(resolved)) {
+						torrentId = decodeHtmlAmpersands(resolved);
+					}
+				} else if ((/online-fix\.me/.test(lowerHref) || /uploads\.online-fix\.me/.test(lowerHref) || label.includes('online-fix')) && slug && typeof api?.onlineFixMeMagnetLink === 'function') {
+					const resolved = await withTimeout(
+						api.onlineFixMeMagnetLink(slug),
+						PIRATE_LINK_RESOLVE_TIMEOUT_MS,
+						'Timed out while resolving Online-Fix download link.'
 					);
 					if (hasFilledText(resolved)) {
 						torrentId = decodeHtmlAmpersands(resolved);
