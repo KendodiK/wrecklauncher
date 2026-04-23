@@ -6,7 +6,6 @@ const os = require('node:os');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const cloudscraper = require('cloudscraper');
-const CloudscraperController = require('./CloudscraperController');
 
 // Puppeteer (and puppeteer-extra stealth) are used as a fallback to solve Cloudflare JS challenges
 let _puppeteer = null;
@@ -24,9 +23,6 @@ try {
 }
 
 class XatabController {
-  /** @type {CloudscraperController} */
-  #scraper;
-
   /** @type {number} */
   #timeoutMs;
 
@@ -37,14 +33,11 @@ class XatabController {
    * @param {{ timeoutMs?: number, cookieHeader?: string }} [cfg]
    */
   constructor(cfg) {
-    this.#scraper = new CloudscraperController(cfg);
-
     const timeoutMs = Number(cfg?.timeoutMs);
     this.#timeoutMs = timeoutMs > 0 ? timeoutMs : 20_000;
 
     this.#cookieHeader = String(
       cfg?.cookieHeader
-      || process.env.WRECK_XATAB_COOKIE
       || 'dle_user_id=346916; dle_password=c02c0d85a9f103c4aa74c8591407a48b; dle_newpm=0'
     ).trim();
   }
@@ -130,15 +123,6 @@ class XatabController {
   }
 
   /**
-   * @param {string} query
-   * @returns {string}
-   */
-  #buildSearchUrl(query) {
-    const q = String(query || '').trim();
-    return `https://byxatab.com/search/${encodeURIComponent(q)}/`;
-  }
-
-  /**
    * @param {string} title
    * @param {string} href
    * @param {string} query
@@ -164,46 +148,6 @@ class XatabController {
     }
 
     return score;
-  }
-
-  /**
-   * @param {string} body
-   * @param {string} searchQuery
-   * @returns {Array<{ url: string, title: string, score: number }>}
-   */
-  #extractSearchCandidates(body, searchQuery) {
-    const html = String(body || '');
-
-    /** @type {Array<{ url: string, title: string, score: number }>} */
-    const candidates = [];
-    const seen = new Set();
-
-    const anchorRegex = /<a\b[^>]*href=["']([^"']+)["'][^>]*class=["'][^"']*\brelease\b[^"']*["'][^>]*>([\s\S]*?)<\/a>/gi;
-    for (const match of html.matchAll(anchorRegex)) {
-      const hrefRaw = this.#decodeHtmlAmpersands(match[1]);
-      const block = String(match[2] || '');
-
-      let resolved;
-      try {
-        resolved = new URL(hrefRaw, 'https://byxatab.com/').toString();
-      } catch {
-        continue;
-      }
-
-      if (!this.#isByxatabGamePageUrl(resolved)) continue;
-
-      const urlKey = resolved.toLowerCase();
-      if (seen.has(urlKey)) continue;
-      seen.add(urlKey);
-
-      const titleMatch = block.match(/<div\b[^>]*class=["'][^"']*\brelease__title\b[^"']*["'][^>]*>([\s\S]*?)<\/div>/i);
-      const title = this.#stripHtml(titleMatch?.[1] || block);
-      const score = this.#scoreCandidate(title, resolved, searchQuery);
-      candidates.push({ url: resolved, title, score });
-    }
-
-    candidates.sort((left, right) => right.score - left.score);
-    return candidates;
   }
 
   /**
@@ -234,7 +178,7 @@ class XatabController {
    */
   async #savePagesCache(cache) {
     try {
-      await fs.writeFile(this.#cacheFilePath(), JSON.stringify(cache || { lastPage: 0, items: [] }, null, 2), 'utf8');
+      await fs.writeFile(this.#cacheFilePath(), JSON.stringify(cache || { items: [] }, null, 2), 'utf8');
     } catch (err) {
       console.warn('[Xatab] failed to write pages cache:', err && err.message);
     }
@@ -297,8 +241,7 @@ class XatabController {
    */
   async #crawlPagesUntil404ForQuery(query, cache) {
     const maxPages = 2000;
-    let start = Math.max(1, Number(cache?.lastPage) + 1);
-    if (start <= 0) start = 1;
+    const start = 1;
     for (let p = start; p <= maxPages; p++) {
       const pageUrl = p === 1 ? 'https://byxatab.com/' : `https://byxatab.com/page/${p}/`;
       const res = await this.#fetchWithCookieRetry(pageUrl, { method: 'GET', extraHeaders: {} });
@@ -313,7 +256,7 @@ class XatabController {
       for (const it of items) {
         const key = it.url.toLowerCase();
         if (!cache.items.some(x => String(x.url || '').toLowerCase() === key)) {
-          cache.items.push({ title: it.title, url: it.url, page: p });
+          cache.items.push({ title: it.title, url: it.url });
           added = true;
         }
       }
@@ -330,20 +273,12 @@ class XatabController {
   }
 
   /**
-   * @param {string} searchQueryOrUrl
+   * @param {string} gameName - NOT slug
    * @returns {Promise<string|null>}
    */
-  async #resolveGamePageUrl(searchQueryOrUrl) {
-    const raw = String(searchQueryOrUrl || '').trim();
+  async #resolveGamePageUrl(gameName) {
+    const raw = String(gameName || '').trim();    
     if (!raw) throw new Error('Game name is required');
-    // If the input already looks like a byxatab game page URL, return it as-is
-    try {
-      const maybeUrl = new URL(raw, 'https://byxatab.com/').toString();
-      if (this.#isByxatabGamePageUrl(maybeUrl)) return maybeUrl;
-    } catch {
-      // not a URL, treat as a query
-    }
-
     // Try cache first
     const cache = await this.#loadPagesCache();
     const cached = this.#findCandidateInCache(raw, cache);
@@ -351,7 +286,6 @@ class XatabController {
       console.log(`[Xatab] cache hit: ${cached.url}`);
       return cached.url;
     }
-
     // Not in cache — crawl listing pages (continuing from last cached page) until found or 404
     console.log(`[Xatab] cache miss for "${raw}", crawling listing pages...`);
     const crawled = await this.#crawlPagesUntil404ForQuery(raw, cache);
@@ -359,23 +293,6 @@ class XatabController {
       console.log(`[Xatab] found by crawling: ${crawled}`);
       return crawled;
     }
-
-    // Fallback: use legacy search endpoint (index.php?do=search)
-    try {
-      if (typeof this.#scraper.searchByxatab === 'function') {
-        const searchResponse = await this.#scraper.searchByxatab(raw);
-        if (searchResponse && searchResponse.ok) {
-          const candidates = this.#extractSearchCandidates(searchResponse.body, raw);
-          if (candidates.length > 0) {
-            console.log(`[Xatab] search: ${candidates[0].url}`);
-            return candidates[0].url;
-          }
-        }
-      }
-    } catch (err) {
-      console.warn('[Xatab] fallback search failed:', err && err.message);
-    }
-
     return null;
   }
 
@@ -387,7 +304,7 @@ class XatabController {
   #extractDownloadButtonUrl(body, baseUrl) {
     const html = String(body || '');
     const primaryMatch = html.match(/<a\b[^>]*href=["']([^"']*index\.php\?do=download[^"']*)["'][^>]*class=["'][^"']*\bdownload-torrent\b[^"']*["'][^>]*>/i);
-    const fallbackMatch = html.match(/<a\b[^>]*href=["']([^"']*index\.php\?do=download[^"']*)["'][^>]*>/i);
+    const fallbackMatch = html.match(/<a\b[^>]*href=["']([^"']*index\.php\?do=download[^"']*)["'][^>]*>/i); //should never happen, but better safe than sorry
     const match = primaryMatch || fallbackMatch;
     if (!match || !match[1]) return null;
 
@@ -494,12 +411,10 @@ class XatabController {
     const extraHeaders = opts.extraHeaders || {};
 
     let headers = this.#buildHeaders(extraHeaders);
-    let response = await this.#scraper.fetch(url, { method, headers, qs: opts.qs, body: opts.body });
+    let response = await fetch(url, { method, headers, body: opts.body });
 
     const bodyText = String(response?.body || '');
-    const looksLikeCF = /window\.__CF\$cv|challenge-platform\/scripts\/jsd|401 Authorization Required/i.test(bodyText)
-      || /cloudflare/i.test(String(response?.headers?.server || ''))
-      || Number(response?.statusCode) === 401;
+    const looksLikeCF = response.status === 403 || response.status === 401 || /cloudflare|attention required/i.test(bodyText);
 
     if (looksLikeCF && _puppeteer) {
       try {
@@ -508,7 +423,7 @@ class XatabController {
           this.#cookieHeader = cookie;
           process.env.WRECK_XATAB_COOKIE = cookie;
           headers = this.#buildHeaders(extraHeaders);
-          response = await this.#scraper.fetch(url, { method, headers, qs: opts.qs, body: opts.body });
+          response = await fetch(url, { method, headers, body: opts.body });
         }
       } catch (err) {
         console.warn('[Xatab] Puppeteer fallback failed:', err?.message || err);
@@ -549,16 +464,16 @@ class XatabController {
   /**
    * Fetches the magnet link for a game from byxatab.com.
    * Flow: search -> game page -> download-torrent button -> .torrent download -> magnet conversion -> temp cleanup.
-   * @param {string} gameName
+   * @param {string} gameName - NOT slug
    * @returns {Promise<string|null>}
    */
   async xatabMagnetLink(gameName) {
-    const queryOrUrl = String(gameName || '').trim();
-    if (!queryOrUrl) throw new Error('Game name is required');
+    const raw = String(gameName || '').trim();
+    if (!raw) throw new Error('Game name is required');
 
-    const gamePageUrl = await this.#resolveGamePageUrl(queryOrUrl);
+    const gamePageUrl = await this.#resolveGamePageUrl(raw);
     if (!gamePageUrl) {
-      console.warn('[Xatab] no search result found for:', queryOrUrl);
+      console.warn('[Xatab] no search result found for:', raw);
       return null;
     }
 
@@ -568,7 +483,7 @@ class XatabController {
     });
 
     if (!gamePageResponse.ok) {
-      throw new Error(`Failed to fetch Xatab game page for "${queryOrUrl}": HTTP ${gamePageResponse.statusCode}`);
+      throw new Error(`Failed to fetch Xatab game page for "${raw}": HTTP ${gamePageResponse.status}`);
     }
 
     const downloadUrl = this.#extractDownloadButtonUrl(gamePageResponse.body, gamePageUrl);
@@ -620,14 +535,14 @@ class XatabController {
   }
 
   /**
-   * Resolve the byxatab game page URL for a query or URL.
+   * Resolve the byxatab game page URL for a query.
    * Returns the resolved game page URL or null when not found.
-   * @param {string} gameNameOrUrl
+   * @param {string} gameName - NOT slug
    * @returns {Promise<string|null>}
    */
-  async xatabGamePageUrl(gameNameOrUrl) {
+  async xatabGamePageUrl(gameName) {
     try {
-      const raw = String(gameNameOrUrl || '').trim();
+      const raw = String(gameName || '').trim();
       if (!raw) return null;
       const resolved = await this.#resolveGamePageUrl(raw);
       return resolved || null;
@@ -636,8 +551,8 @@ class XatabController {
     }
   }
 
-  async XatabGamePageUrl(gameNameOrUrl) {
-    return this.xatabGamePageUrl(gameNameOrUrl);
+  async XatabGamePageUrl(gameName) {
+    return this.xatabGamePageUrl(gameName);
   }
 }
 

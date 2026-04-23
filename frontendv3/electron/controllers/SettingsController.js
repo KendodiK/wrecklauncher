@@ -114,14 +114,9 @@ class SettingsController {
     return {
       display: {
         theme: 'dark',
-        language: 'en',
-        uiScale: 100,
-        animations: true,
       },
       library: {
-        autoRefreshHours: 24,
         viewMode: 'carousel',
-        gamesPerPage: 20,
       },
       downloads: {
         path: defaultDownloadPath,
@@ -141,7 +136,6 @@ class SettingsController {
           gog: { connected: false, username: '' },
           itch: { connected: false, username: '' },
         },
-        syncFrequencyHours: 6,
       },
     };
   }
@@ -223,20 +217,6 @@ class SettingsController {
     // Merge with defaults to ensure all fields exist.
     const merged = this.#mergeSettings(defaults, sanitizedLoaded);
 
-    // Migrate older settings files where country code lived outside `store.countryCode`.
-    const hasStoreCountry = this.#normalizeCountryCode(parsed?.store?.countryCode);
-    if (!hasStoreCountry) {
-      const legacyCountry =
-        this.#normalizeCountryCode(parsed?.display?.countryCode)
-        || this.#normalizeCountryCode(parsed?.account?.countryCode);
-      if (legacyCountry) {
-        merged.store = {
-          ...(merged.store || {}),
-          countryCode: legacyCountry,
-        };
-      }
-    }
-
     const normalizedStoreCountryCode =
       this.#normalizeCountryCode(merged?.store?.countryCode)
       || this.#inferCountryCodeFromLocale();
@@ -244,7 +224,6 @@ class SettingsController {
       ...(merged.store || {}),
       countryCode: normalizedStoreCountryCode,
     };
-
     return merged;
   }
 
@@ -457,7 +436,6 @@ class SettingsController {
   async clearCache() {
     this.#cachedSettingsHash = '';
     this.#cachedSettingsOrigin = '';
-    console.log('[SettingsController] Settings cache cleared');
   }
 
   /**

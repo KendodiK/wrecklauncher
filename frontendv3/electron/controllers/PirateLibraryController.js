@@ -235,7 +235,7 @@ class PirateLibraryController {
    */
   async addGameFromDialog(ownerWindow = null) {
     const result = await dialog.showOpenDialog(ownerWindow || undefined, {
-      title: 'Select pirate game executable',
+      title: 'Select local game executable',
       properties: ['openFile'],
       filters: [
         { name: 'Executable Files', extensions: ['exe'] },

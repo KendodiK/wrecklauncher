@@ -1,8 +1,5 @@
 // @ts-check
 
-const { normalizeBaseUrl, enc, joinUrl } = require('../lib/url');
-const { fetchJsonSafe } = require('../lib/http');
-
 /**
  * @typedef {string} AuthToken
  */
@@ -24,7 +21,7 @@ class TokenController {
    * @param {string} serverurl
    */
   constructor(serverurl) {
-    this._serverUrl = normalizeBaseUrl(serverurl || '', { defaultProtocol: 'http:' });
+    this._serverUrl = serverurl || '';
     this.#username = '';
     this.#password = '';
     this.#email = '';
@@ -58,43 +55,6 @@ class TokenController {
     this.#email = '';
   }
 
-  /**
-   * @param {any} json
-   * @param {string|null|undefined} text
-   * @returns {AuthToken|null}
-   */
-  _extractTokenFromResponse(json, text) {
-    if (typeof json === 'string' && json.trim()) {
-      return /** @type {AuthToken} */ (json.trim());
-    }
-
-    if (json && typeof json === 'object') {
-      const tokenField = typeof json.token === 'string' ? json.token.trim() : '';
-      const idField = typeof json.id === 'string' ? json.id.trim() : '';
-      if (idField && tokenField) {
-        return /** @type {AuthToken} */ (`${idField}.${tokenField}`);
-      }
-      if (tokenField) {
-        return /** @type {AuthToken} */ (tokenField);
-      }
-      if (json.newUser && typeof json.newUser === 'object') {
-        const userId = typeof json.newUser.id === 'string' ? json.newUser.id.trim() : '';
-        const userToken = typeof json.newUser.token === 'string' ? json.newUser.token.trim() : '';
-        if (userId && userToken) {
-          return /** @type {AuthToken} */ (`${userId}.${userToken}`);
-        }
-      }
-    }
-
-    if (typeof text === 'string') {
-      const cleaned = text.trim().replace(/^"(.*)"$/, '$1');
-      if (cleaned) {
-        return /** @type {AuthToken} */ (cleaned);
-      }
-    }
-
-    return null;
-  }
 
   /**
     * Tries known PUT login variants and returns an auth token when available.
@@ -103,67 +63,40 @@ class TokenController {
   async login(username = this.#username, password = this.#password) {
     const user = String(username || '').trim();
     const pass = String(password || '').trim();
-    if (!user || !pass) return null;
-
-    /** @type {Error|null} */
-    let lastMeaningfulError = null;
-
-    /** @type {{ method: 'PUT', url: string, headers: Record<string, string>, body?: string }[]} */
-    const attempts = [
-      {
-        method: 'PUT',
-        url: joinUrl(this._serverUrl, 'api', 'login'),
-        headers: { 'content-type': 'application/json', accept: 'application/json' },
-        body: JSON.stringify({ username: user, password: pass }),
-      },
-      {
-        method: 'PUT',
-        url: joinUrl(this._serverUrl, 'api', 'login', enc(user), enc(pass)),
-        headers: { accept: 'application/json' },
-      },
-    ];
-
+    let headers = {
+        'content-type': 'application/json',
+        'accept': 'application/json',
+    };
+    let body = JSON.stringify({ username: user, password: pass });
     if (this.#token) {
-      attempts.push({
-        method: 'PUT',
-        url: joinUrl(this._serverUrl, 'api', 'login'),
-        headers: { accept: 'application/json', Authorization: `Bearer ${this.#token}` },
-      });
+        headers = {
+            ...headers,
+            Authorization: `Bearer ${this.#token}`,
+        };
+        body = null;
     }
-
-    for (const attempt of attempts) {
-      const { ok, status, json, text } = await fetchJsonSafe(attempt.url, {
-        method: attempt.method,
-        headers: attempt.headers,
-        body: attempt.body,
+    if ((!user || !pass) && !this.#token) return null;
+      const response = await fetch(`${this._serverUrl}/api/login`, {
+        method: "PUT",
+        headers: headers,
+        body: body,
       });
-
-      if (ok) {
-        const token = this._extractTokenFromResponse(json, text);
+      if (response.ok) {
+          const data = await response.json();
+        /**
+         * @type {AuthToken|null}
+         */
+        const token = data.token || data;
         if (token) {
           this.#username = user;
           this.#password = pass;
           this.#email = '';
           this.#token = token;
-          return token;
+          return token || null;
+        }else{
+            return null;
         }
-        continue;
-      }
-
-      const responseText = String((json && (json.error || json.message)) || text || '').toLowerCase();
-      if (status === 404 || status === 405) {
-        // Endpoint variant not available; try next known variant.
-        continue;
-      }
-
-      lastMeaningfulError = new Error(`Login failed: HTTP ${status}${responseText ? ` - ${String(responseText).slice(0, 200)}` : ''}`);
-    }
-
-    if (lastMeaningfulError) {
-      throw lastMeaningfulError;
-    }
-
-    return null;
+      }    
   }
 
   /**
@@ -171,69 +104,57 @@ class TokenController {
    * @param {string} username 
    * @param {string} password 
    * @param {string} email
+   * @param {string|null|undefined} pfp - Optional profile picture URL.
+   * @param {string|null|undefined} bio - Optional user bio.
    * @returns token on success, null on failure (e.g. username taken)
     * @throws on HTTP errors or unexpected responses
    */
-  async register(username, password, email, profile = null) {
-    /** @type {{ avatarUrl?: string, pfp?: string, bio?: string }} */
-    const normalizedProfile = profile && typeof profile === 'object' ? profile : {};
-    const avatarUrl = String(normalizedProfile.avatarUrl || normalizedProfile.pfp || '').trim();
-    const bio = String(normalizedProfile.bio || '').trim();
+  async register(username, password, email, pfp, bio) {
 
-    /** @type {{ username: string, password: string, email: string, pfp?: string, avatarUrl?: string, bio?: string }} */
+
+    /** @type {{ username: string, password: string, email: string }} */
     const payload = {
       username,
       password,
-      email,
+      email
     };
-    if (avatarUrl) {
-      payload.pfp = avatarUrl;
-      payload.avatarUrl = avatarUrl;
-    }
-    if (bio) {
-      payload.bio = bio;
-    }
-
-    const url = joinUrl(this._serverUrl, 'api', 'native-users');
-    const { ok, status, json, text } = await fetchJsonSafe(url, { 
+    const url = `${this._serverUrl}/api/native-users`;
+    const response = await fetch(url, { 
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         accept: 'application/json',
       },
       body: JSON.stringify(payload)
-    });
-    if (!ok) throw new Error(`Registration failed: HTTP ${status}${text ? ` - ${String(text).slice(0, 200)}` : ''}`);
-    if (json && typeof json === 'object') {
-      const maybeToken = json.token;
-      if (typeof maybeToken === 'string' && maybeToken.trim()) {
-        const t = maybeToken.trim();
+    });    
+    if (!response.ok) throw new Error(`Registration failed: HTTP ${response.status}${response.text ? ` - ${String(response.text).slice(0, 200)}` : ''}`);
+    const data = await response.json();
+    if (data && typeof data === 'object') {
+      const token = data.token;
+      if (typeof token === 'string' && token.trim()) {
+        const t = token.trim();
         this.#username = username;
         this.#password = password;
         this.#email = email;
         this.#token = /** @type {AuthToken} */ (t);
+        const avatarUrl = String(pfp || '').trim();
+        const bioText = String(bio || '').trim();
+        if (avatarUrl || bioText) {
+            const updatePayload = {};
+            if (avatarUrl) updatePayload.pfp = avatarUrl;
+            if (bioText) updatePayload.bio = bioText;
+            await fetch(`${this._serverUrl}/api/native-users/me`, {
+                method: 'PUT',
+                headers: {
+                    'content-type': 'application/json',
+                    accept: 'application/json',
+                    Authorization: `Bearer ${t}`,
+                },
+                body: JSON.stringify(updatePayload),
+            });
+        }
         return /** @type {AuthToken} */ (t);
       }
-    }
-    if (typeof json === 'string' && json.trim()) {
-      const t = json.trim();
-      this.#username = username;
-      this.#password = password;
-      this.#email = email;
-      this.#token = /** @type {AuthToken} */ (t);
-      return /** @type {AuthToken} */ (t);
-    }
-    if (typeof text === 'string') {
-      this.#username = username;
-      this.#password = password;
-      this.#email = email;
-      const t = text.trim().replace(/^"(.*)"$/, '$1');
-      if (t) {
-        this.#username = username;
-        this.#password = password;
-        this.#email = email;
-        this.#token = t;
-        return /** @type {AuthToken} */ (t)};
     }
     return null;
   }
@@ -251,7 +172,7 @@ class TokenController {
 
     const token = await this.login();
     if (!token) return null;
-    this.#token = token;
+    this.#token = token;    
     return token;
   }
 }

@@ -4,20 +4,14 @@ import { useLocation, useNavigate } from 'react-router-dom';
 const DEFAULT_SETTINGS = {
 	display: {
 		theme: 'dark',
-		language: 'en',
-		uiScale: 100,
-		animations: true,
 	},
 	store: {
 		countryCode: 'DE',
 	},
 	library: {
-		autoRefreshHours: 24,
 		viewMode: 'carousel',
-		gamesPerPage: 20,
 	},
 	downloads: {
-		path: 'Downloads/WreckLauncher',
 		pirateTorrentsPath: 'Downloads/WreckLauncher/Pirate Torrents',
 		concurrent: 3,
 	},
@@ -32,7 +26,6 @@ const DEFAULT_SETTINGS = {
 			gog: { connected: false, username: '' },
 			itch: { connected: false, username: '' },
 		},
-		syncFrequencyHours: 6,
 	},
 };
 
@@ -167,7 +160,7 @@ function normalizeHttpAvatarUrl(value) {
 
 function normalizeEditableProfile(raw) {
 	const source = raw && typeof raw === 'object' ? raw : {};
-	const avatarCandidate = source.avatarUrl ?? source.avatar_url ?? source.avatarURL ?? source.profilePicture ?? source.pfp ?? '';
+	const avatarCandidate = source.pfp ?? '';
 	const normalizedAvatarUrl = normalizeHttpAvatarUrl(avatarCandidate);
 
 	return {
@@ -191,8 +184,6 @@ async function healthCheckAvatarUrl(url, timeoutMs = PROFILE_IMAGE_HEALTHCHECK_T
 	}
 
 	if (typeof window !== 'undefined') {
-		const cloudscraperFetch = window?.electronAPI?.cloudscraperFetch;
-		if (typeof cloudscraperFetch === 'function') {
 			try {
 				const timeout = Math.max(1200, Number(timeoutMs) || PROFILE_IMAGE_HEALTHCHECK_TIMEOUT_MS);
 				const payload = await new Promise((resolve, reject) => {
@@ -204,7 +195,7 @@ async function healthCheckAvatarUrl(url, timeoutMs = PROFILE_IMAGE_HEALTHCHECK_T
 					}, timeout);
 
 					Promise.resolve(
-						cloudscraperFetch(normalizedUrl, {
+						fetch(normalizedUrl, {
 							method: 'GET',
 							headers: {
 								Accept: 'image/*,*/*;q=0.8',
@@ -225,7 +216,7 @@ async function healthCheckAvatarUrl(url, timeoutMs = PROFILE_IMAGE_HEALTHCHECK_T
 						});
 				});
 
-				const statusCode = Number(payload?.statusCode || 0);
+				const statusCode = Number(payload?.status || 0);
 				const ok = payload?.ok === true || (statusCode >= 200 && statusCode < 400);
 				if (ok) {
 					return { ok: true, reason: '', url: normalizedUrl };
@@ -233,7 +224,6 @@ async function healthCheckAvatarUrl(url, timeoutMs = PROFILE_IMAGE_HEALTHCHECK_T
 			} catch {
 				// Fall through to browser image probe.
 			}
-		}
 	}
 
 	if (typeof Image === 'undefined' || typeof window === 'undefined') {

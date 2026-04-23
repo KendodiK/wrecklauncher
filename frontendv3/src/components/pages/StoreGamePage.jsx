@@ -1517,10 +1517,11 @@ async function fetchDetailsByTitleHints(api, platform, titleHints, countryCode) 
 	const cc = String(countryCode || 'US').trim().toLowerCase() || 'us';
 
 	if (platform === 'steam') {
+		const getByTitle = typeof api?.getSteamGameDetailsByTitle === 'function' ? api.getSteamGameDetailsByTitle : null;
+		if (!getByTitle) return null;
 		for (const title of titleHints) {
 			if (!hasFilledText(title)) continue;
-			if (typeof api.getSteamGameDetailsByTitle !== 'function') continue;
-			const details = await api.getSteamGameDetailsByTitle(title, cc);
+			const details = await getByTitle(title, cc);
 			if (!details || typeof details !== 'object') continue;
 			const candidateTitle = details?.name || details?.title || details?.raw?.name || details?.raw?.search_match?.title || '';
 			if (isExactTitleMatch(candidateTitle, titleHints)) return details;
@@ -1529,10 +1530,12 @@ async function fetchDetailsByTitleHints(api, platform, titleHints, countryCode) 
 	}
 
 	if (platform === 'gog') {
+		const getByTitle = typeof api?.getGogGameDetailsByTitle === 'function' ? api.getGogGameDetailsByTitle : null;
+		const getBySlug = typeof api?.getGogGameDetails === 'function' ? api.getGogGameDetails : null;
 		for (const title of titleHints) {
 			if (!hasFilledText(title)) continue;
-			if (typeof api.getGogGameDetailsByTitle === 'function') {
-				const details = await api.getGogGameDetailsByTitle(title);
+			if (getByTitle) {
+				const details = await getByTitle(title);
 				if (details && typeof details === 'object' && isExactTitleMatch(details?.title || details?.name || '', titleHints)) {
 					return details;
 				}
@@ -1540,7 +1543,8 @@ async function fetchDetailsByTitleHints(api, platform, titleHints, countryCode) 
 
 			const slugCandidates = buildGogTitleSlugs(title);
 			for (const slug of slugCandidates) {
-				const details = await api.getGogGameDetails(slug);
+				if (!getBySlug) continue;
+				const details = await getBySlug(slug);
 				if (details && typeof details === 'object' && isExactTitleMatch(details?.title || details?.name || '', titleHints)) {
 					return details;
 				}
@@ -1550,10 +1554,11 @@ async function fetchDetailsByTitleHints(api, platform, titleHints, countryCode) 
 	}
 
 	if (platform === 'itchio') {
+		const getByTitle = typeof api?.getItchGameDetailsByTitle === 'function' ? api.getItchGameDetailsByTitle : null;
+		if (!getByTitle) return null;
 		for (const title of titleHints) {
 			if (!hasFilledText(title)) continue;
-			if (typeof api.getItchGameDetailsByTitle !== 'function') continue;
-			const details = await api.getItchGameDetailsByTitle(title);
+			const details = await getByTitle(title);
 			if (!details || typeof details !== 'object') continue;
 			if (isExactTitleMatch(details?.title || details?.name || '', titleHints)) return details;
 		}
@@ -2018,9 +2023,7 @@ function normalizeSiteLinksFromAny(value) {
 function normalizePirateLinksFromAny(value) {
 	if (!value) return [];
 
-	const source = Array.isArray(value)
-		? value
-		: (typeof value === 'object' ? Object.values(value) : []);
+	const source = Array.isArray(value) ? value : (typeof value === 'object' ? Object.values(value) : []);
 
 	const out = [];
 	const seen = new Set();
@@ -2029,28 +2032,40 @@ function normalizePirateLinksFromAny(value) {
 		const entry = source[index];
 		if (!entry) continue;
 
-		let href = '';
+		let rawHref = '';
+		let rawMagnet = '';
+		let rawSitelink = '';
 		let label = 'Pirate Download';
 
 		if (typeof entry === 'string') {
-			href = entry.trim();
+			rawHref = entry.trim();
 		} else if (typeof entry === 'object') {
-			href = String(entry.link || entry.url || entry.href || '').trim();
+			rawHref = String(entry.link || entry.url || entry.href || '').trim();
+			rawMagnet = String(entry.magnet || entry.magnet_uri || entry.magnetUri || entry.magnetLink || entry.torrent || '').trim();
+			rawSitelink = String(entry.sitelink || entry.site_link || entry.siteLink || entry.page || entry.pageUrl || '').trim();
 			label = String(entry.site_name || entry.siteName || entry.name || entry.label || 'Pirate Download').trim() || 'Pirate Download';
 		}
 
-		if (!href) continue;
-		if (!/^https?:\/\//i.test(href) && !/^magnet:\?/i.test(href)) continue;
+		// Prefer explicit sitelink as the page href if provided
+		const hrefCandidate = rawSitelink || rawHref || '';
+		const magnetCandidate = rawMagnet || (hrefCandidate && /^magnet:\?/i.test(hrefCandidate) ? hrefCandidate : '');
 
-		const key = href.toLowerCase();
+		if (!magnetCandidate && !hrefCandidate) continue;
+
+		const key = (magnetCandidate || hrefCandidate).toLowerCase();
 		if (seen.has(key)) continue;
 		seen.add(key);
 
-		out.push({
-			id: `pirate-${index}`,
+		const outEntry = {
+			id: String((typeof entry === 'object' && (entry.id || entry.label)) ? (entry.id || entry.label) : `pirate-${index}`),
 			label,
-			href,
-		});
+		};
+
+		if (hrefCandidate && /^https?:\/\//i.test(hrefCandidate)) outEntry.href = hrefCandidate;
+		if (magnetCandidate && /^magnet:\?/i.test(magnetCandidate)) outEntry.magnet = magnetCandidate;
+		if (rawSitelink && /^https?:\/\//i.test(rawSitelink)) outEntry.sitelink = rawSitelink;
+
+		out.push(outEntry);
 	}
 
 	return out;
@@ -2089,7 +2104,7 @@ function pirateEntryKey(entry, fallback = '') {
 }
 
 function resolvePirateSitePageHref(entry, gameTitle = '') {
-	const rawHref = decodeHtmlAmpersands(String(entry?.href || '').trim());
+	const rawHref = decodeHtmlAmpersands(String(entry?.sitelink || entry?.site_link || entry?.siteLink || entry?.href || '').trim());
 	if (/^https?:\/\//i.test(rawHref)) return rawHref;
 
 	const lowerHref = rawHref.toLowerCase();
@@ -2647,9 +2662,10 @@ const StoreGamePage = () => {
 
 	useEffect(() => {
 		const api = typeof window !== 'undefined' ? window.electronAPI : null;
-		if (!api || typeof api.onPirateSitesUpdated !== 'function' || !appId) return;
+		if (!api || !appId) return;
 
-		const unsubscribe = api.onPirateSitesUpdated((payload) => {
+		const unsubscribe = typeof api.onPirateSitesUpdated === 'function'
+			? api.onPirateSitesUpdated((payload) => {
 			const incoming = payload && typeof payload === 'object' ? payload : null;
 			if (!incoming) return;
 
@@ -2661,20 +2677,34 @@ const StoreGamePage = () => {
 				: (Array.isArray(incoming.pirateSites) ? incoming.pirateSites : []);
 			if (incomingSites.length < 1) return;
 
+			console.log('[StoreGamePage] pirate-sites payload received for appId', payload?.appId, 'sites:', incomingSites);
+
 			setLivePirateSites((prev) => {
 				const merged = normalizePirateLinksFromAny([
 					...(Array.isArray(prev) ? prev : []),
 					...incomingSites,
 				]);
 
+				console.log('[StoreGamePage] pirate-sites merged (pre-map):', merged);
+
 				return merged
-					.map((entry) => ({
-						site_name: String(entry?.label || 'Pirate Download').trim() || 'Pirate Download',
-						link: String(entry?.href || '').trim(),
-					}))
+					.map((entry) => {
+						const label = String(entry?.label || 'Pirate Download').trim() || 'Pirate Download';
+						const href = String(entry?.href || '').trim();
+						const magnet = String(entry?.magnet || entry?.magnet_uri || entry?.magnetUri || '').trim();
+						const sitelink = String(entry?.sitelink || entry?.site_link || entry?.siteLink || '').trim();
+						const link = magnet || href || sitelink || '';
+						return {
+							site_name: label,
+							link,
+							magnet: magnet || undefined,
+							href: href || undefined,
+							sitelink: sitelink || undefined,
+						};
+					})
 					.filter((entry) => /^https?:\/\//i.test(entry.link) || /^magnet:\?/i.test(entry.link));
 			});
-		});
+		}) : null;
 
 		return () => {
 			if (typeof unsubscribe === 'function') {
@@ -2980,6 +3010,7 @@ const StoreGamePage = () => {
 			routeState?.heroImage,
 			routeState?.heroUrl,
 			routeState?.image,
+			steam?.cover,
 			steam?.hero,
 			steam?.header,
 			coverImage,
@@ -3080,7 +3111,7 @@ const StoreGamePage = () => {
 	useEffect(() => {
 		let cancelled = false;
 		const api = typeof window !== 'undefined' ? window.electronAPI : null;
-		if (!api || typeof api.syncScrapedGameDetailsByAppIdAndPlatform !== 'function') return;
+		if (!api) return;
 
 		const scrapedPlatform = normalizePlatformName(platformDetails?.__resolved_platform || requestedPlatform);
 		const parsedScraped = parsePlatformDetails(scrapedPlatform, platformDetails, appId);
@@ -3149,16 +3180,20 @@ const StoreGamePage = () => {
 		void (async () => {
 			try {
 				const countryCode = knownCountryCode || await resolvePreferredCountryCode(api);
-				const result = await api.syncScrapedGameDetailsByAppIdAndPlatform({
-					...syncPayload,
-					countryCode,
-				});
+				if (typeof api.syncScrapedGameDetailsByAppIdAndPlatform === 'function') {
+					const result = await api.syncScrapedGameDetailsByAppIdAndPlatform({
+						...syncPayload,
+						countryCode,
+					});
 
-				if (!result || result.ok !== true || result.action === 'skipped') return;
+					if (!result || result.ok !== true || result.action === 'skipped') return;
 
-				const refreshed = await api.getAllDetailsByAppIDAndPlatform(resolvedAppId, scrapedPlatform, countryCode);
-				if (!cancelled && refreshed) {
-					setDbDetails(refreshed);
+					if (typeof api.getAllDetailsByAppIDAndPlatform === 'function') {
+						const refreshed = await api.getAllDetailsByAppIDAndPlatform(resolvedAppId, scrapedPlatform, countryCode);
+						if (!cancelled && refreshed) {
+							setDbDetails(refreshed);
+						}
+					}
 				}
 			} catch (err) {
 				if (!cancelled) {
@@ -3190,7 +3225,7 @@ const StoreGamePage = () => {
 	useEffect(() => {
 		let cancelled = false;
 		const api = typeof window !== 'undefined' ? window.electronAPI : null;
-		if (!api || typeof api.syncScrapedGameDetailsByAppIdAndPlatform !== 'function') return;
+		if (!api) return;
 
 		const currentPlatform = normalizePlatformName(
 			dbDetails?.platform_name
@@ -3310,19 +3345,23 @@ const StoreGamePage = () => {
 				lastDbBannerSyncKeyRef.current = syncKey;
 
 				const countryCode = knownCountryCode || await resolvePreferredCountryCode(api);
-				const result = await api.syncScrapedGameDetailsByAppIdAndPlatform({
-					appId: currentAppId,
-					platform: currentPlatform,
-					name: resolvedTitle,
-					banner_img: finalBanner,
-					countryCode,
-				});
+				if (typeof api.syncScrapedGameDetailsByAppIdAndPlatform === 'function') {
+					const result = await api.syncScrapedGameDetailsByAppIdAndPlatform({
+						appId: currentAppId,
+						platform: currentPlatform,
+						name: resolvedTitle,
+						banner_img: finalBanner,
+						countryCode,
+					});
 
-				if (!result || result.ok !== true || result.action === 'skipped') return;
+					if (!result || result.ok !== true || result.action === 'skipped') return;
 
-				const refreshed = await api.getAllDetailsByAppIDAndPlatform(currentAppId, currentPlatform, countryCode);
-				if (!cancelled && refreshed) {
-					setDbDetails(refreshed);
+					if (typeof api.getAllDetailsByAppIDAndPlatform === 'function') {
+						const refreshed = await api.getAllDetailsByAppIDAndPlatform(currentAppId, currentPlatform, countryCode);
+						if (!cancelled && refreshed) {
+							setDbDetails(refreshed);
+						}
+					}
 				}
 			} catch (err) {
 				if (!cancelled) {
@@ -3356,7 +3395,7 @@ const StoreGamePage = () => {
 	useEffect(() => {
 		let cancelled = false;
 		const api = typeof window !== 'undefined' ? window.electronAPI : null;
-		if (!api || typeof api.syncGamePriceByAppIdAndPlatform !== 'function') return;
+		if (!api) return;
 
 		const currentPlatform = normalizePlatformName(dbDetails?.platform_name || requestedPlatform);
 		const currentAppId = Number(dbDetails?.app_id ?? appId);
@@ -3383,12 +3422,16 @@ const StoreGamePage = () => {
 		void (async () => {
 			try {
 				const countryCode = normalizeCountryCode(dbDetails?.country_code) || await resolvePreferredCountryCode(api);
-				const result = await api.syncGamePriceByAppIdAndPlatform(currentAppId, currentPlatform, resolvedPrice, countryCode);
-				if (!result || result.updated !== true) return;
+				if (typeof api.syncGamePriceByAppIdAndPlatform === 'function') {
+					const result = await api.syncGamePriceByAppIdAndPlatform(currentAppId, currentPlatform, resolvedPrice, countryCode);
+					if (!result || result.updated !== true) return;
 
-				const refreshed = await api.getAllDetailsByAppIDAndPlatform(currentAppId, currentPlatform, countryCode);
-				if (!cancelled && refreshed) {
-					setDbDetails(refreshed);
+					if (typeof api.getAllDetailsByAppIDAndPlatform === 'function') {
+						const refreshed = await api.getAllDetailsByAppIDAndPlatform(currentAppId, currentPlatform, countryCode);
+						if (!cancelled && refreshed) {
+							setDbDetails(refreshed);
+						}
+					}
 				}
 			} catch (err) {
 				if (!cancelled) {
@@ -3904,7 +3947,7 @@ const StoreGamePage = () => {
 		if (!/^https?:\/\//i.test(normalizedHref)) return false;
 
 		const api = typeof window !== 'undefined' ? window.electronAPI : null;
-		if (api && typeof api.openExternalUrl === 'function') {
+		if (typeof api?.openExternalUrl === 'function') {
 			try {
 				await api.openExternalUrl(normalizedHref);
 				return true;
@@ -3927,7 +3970,7 @@ const StoreGamePage = () => {
 		const titleHint = String(model.title || model.name || '').trim();
 		const api = typeof window !== 'undefined' ? window.electronAPI : null;
 
-		if (titleHint && api && typeof api.getItchGameDetailsByTitle === 'function') {
+		if (titleHint && typeof api?.getItchGameDetailsByTitle === 'function') {
 			try {
 				const details = await api.getItchGameDetailsByTitle(titleHint);
 				const detailSiteLinks = normalizeSiteLinksFromAny(details?.links || details?.sites || details?.url || details?.store_url || details?.storeUrl);
@@ -3993,7 +4036,7 @@ const StoreGamePage = () => {
 		const api = typeof window !== 'undefined' ? window.electronAPI : null;
 
 		// Prefer resolving exact byxatab game page via main process when possible
-		if ((/byxatab\.com/.test(lowerHref) || label.includes('xatab') || label.includes('byxatab')) && api && typeof api.xatabGamePageUrl === 'function') {
+		if ((/byxatab\.com/.test(lowerHref) || label.includes('xatab') || label.includes('byxatab')) && typeof api?.xatabGamePageUrl === 'function') {
 			const slugFallback = slugFromTitle(model.title || model.name, '-') || '';
 			const slugFromLink = extractSlugFromUrl(rawHref);
 			const slug = slugFromLink || slugFallback;
@@ -4031,16 +4074,17 @@ const StoreGamePage = () => {
 	};
 
 	const handleOpenPirateLink = async (entry) => {
-		const rawHref = String(entry?.href || '').trim();
-		if (!rawHref) return;
+		const explicitMagnet = String(entry?.magnet || entry?.magnet_uri || entry?.magnetUri || entry?.magnetLink || '').trim();
+		const rawHref = String(entry?.href || entry?.sitelink || entry?.link || '').trim();
+		if (!explicitMagnet && !rawHref) return;
 
-		const entryKey = pirateEntryKey(entry, rawHref);
+		const entryKey = pirateEntryKey(entry, explicitMagnet || rawHref);
 		setStartingPirateKeys((prev) => (prev.includes(entryKey) ? prev : [...prev, entryKey]));
 		setErrorMessage('');
 
 		try {
-			let torrentId = decodeHtmlAmpersands(rawHref);
-			const lowerHref = torrentId.toLowerCase();
+			let torrentId = decodeHtmlAmpersands(explicitMagnet || rawHref);
+			const lowerHref = String(torrentId || rawHref).toLowerCase();
 			const label = String(entry?.label || '').toLowerCase();
 
 			if (!/^magnet:\?/i.test(torrentId)) {

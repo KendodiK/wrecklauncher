@@ -278,8 +278,6 @@ app.whenReady().then(() => {
   let gamesCtrl = null;
   /** @type {import('./controllers/PlatformsController')|null} */
   let platformsCtrl = null;
-  /** @type {import('./controllers/CloudscraperController')|null} */
-  let cloudscraperCtrl = null;
   /** @type {import('./controllers/FitGirlController')|null} */
   let fitGirlCtrl = null;
   /** @type {import('./controllers/PcGamesTorrentController')|null} */
@@ -335,14 +333,6 @@ app.whenReady().then(() => {
       platformsCtrl = new PlatformsController({ serverUrl: backendUrl });
     }
     return platformsCtrl;
-  }
-
-  function getCloudscraperCtrl() {
-    if (!cloudscraperCtrl) {
-      const CloudscraperController = require('./controllers/CloudscraperController');
-      cloudscraperCtrl = new CloudscraperController({ timeoutMs: 20_000 });
-    }
-    return cloudscraperCtrl;
   }
 
   function getFitGirlCtrl() {
@@ -1188,12 +1178,13 @@ function getShopSpecialsCtrl() {
     return token;
   });
 
-  handle('user:register', async (_event, username, password, email) => {
-    const token = await getUserCtrl().register(String(username), String(password), String(email));
+  handle('user:register', async (_event, username, password, email, bio, pfp) => {
+    const token = await getUserCtrl().register(String(username), String(password), String(email), String(bio), String(pfp));
     const normalized = typeof token === 'string' ? token.trim() : '';
     if (normalized) {
       try {
         getUserCtrl().setToken(normalized);
+        getUserCtrl().updateCurrentUserProfile({ bio, pfp })
       } catch {
         // ignore
       }

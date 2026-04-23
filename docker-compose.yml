@@ -1,24 +1,22 @@
 services:
   db:
     image: mariadb:11.4
+    env_file:
+      - .env
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     environment:
       MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
       MARIADB_DATABASE: ${MARIADB_DATABASE}
       MARIADB_USER: ${MARIADB_USER}
       MARIADB_PASSWORD: ${MARIADB_PASSWORD}
     ports:
-      - "${DB_PORT_HOST:-3306}:3306"
+      - "3306:3306"
     volumes:
-      # Persists DB data between restarts
       - mariadb_data:/var/lib/mysql
-
-      # Optional: initialize schema on first boot.
-      # Anything in /docker-entrypoint-initdb.d is executed once on first init.
-      # Your repo currently has these as directories (can contain multiple .sql files).
-      - ./database/docker-init.sql:/docker-entrypoint-initdb.d/01-docker-init:ro
-      - ./database/nonofficial.sql:/docker-entrypoint-initdb.d/02-nonofficial:ro
     healthcheck:
-      test: ["CMD-SHELL", "mariadb-admin ping -h 127.0.0.1 -uroot -p$$MARIADB_ROOT_PASSWORD --silent"]
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -27,42 +25,41 @@ services:
     build:
       context: .
       dockerfile: docker/dockerfile
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    env_file:
+      - .env
     environment:
       DB_HOST: db
       DB_PORT: 3306
-      DB_USERNAME: ${MARIADB_USER}
-      DB_PASSWORD: ${MARIADB_PASSWORD}
-      DB_NAME: ${MARIADB_DATABASE}
-      STEAM_API_KEY: ${STEAM_API_KEY}
     depends_on:
       db:
         condition: service_healthy
     ports:
-      - "${API_PORT_HOST:-3000}:3000"
+      - "3000:3000"
+    
     restart: unless-stopped
-
   websocket:
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     build:
-      context: .
+      context: ./websocket
       dockerfile: docker/dockerfile.websocket
+    env_file:
+      - .env
     environment:
-      WS_PORT: 8080
       DB_HOST: db
       DB_PORT: 3306
-      DB_USERNAME: ${MARIADB_USER}
-      DB_PASSWORD: ${MARIADB_PASSWORD}
-      DB_NAME: ${MARIADB_DATABASE}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
     depends_on:
       db:
         condition: service_healthy
-      api:
-        condition: service_started
     ports:
-      - "${WS_PORT_HOST:-8080}:8080"
-    volumes:
-      # Keep websocket code on a dedicated mount.
-      - ./websocket:/app/websocket
+      - "8080:8080"
     restart: unless-stopped
-
 volumes:
   mariadb_data:

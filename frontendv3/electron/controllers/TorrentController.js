@@ -52,10 +52,8 @@ class TorrentController {
 
     if (!this.#clientPromise) {
       this.#clientPromise = (async () => {
-        console.log('[TorrentController] loading webtorrent via dynamic import…');
         const mod = await import('webtorrent');
         const WebTorrent = mod.default ?? mod;
-        console.log('[TorrentController] webtorrent loaded, creating client…');
         const client = new WebTorrent({
           // Port 0 = OS picks a free port, avoids EACCES on the default 6881.
           torrentPort: 0,
@@ -76,7 +74,6 @@ class TorrentController {
             console.error('[TorrentController] WebTorrent client error:', err);
           }
         });
-        console.log('[TorrentController] client ready');
         this.#client = client;
         return client;
       })().catch((err) => {
@@ -544,7 +541,6 @@ class TorrentController {
     if (!TorrentController.#pending) TorrentController.#pending = new Map();
     const pending = TorrentController.#pending;
     if (pending.has(magnetOrUri)) {
-      console.log('[TorrentController] concurrent add in progress, waiting…');
       const torrent = await pending.get(magnetOrUri);
       this.#applyPreferredDisplayName(torrent, displayName);
       return this.#snapshot(torrent, savePath);
@@ -566,10 +562,8 @@ class TorrentController {
       }
 
       const raw = client.add(magnetOrUri, addOptions);
-      console.log('[TorrentController] client.add() raw type:', typeof raw, ' isPromise:', raw instanceof Promise);
       const torrent = (raw instanceof Promise) ? await raw : raw;
       await this.#waitForTorrentIdentity(torrent);
-      console.log('[TorrentController] torrent ready — infoHash:', torrent.infoHash, ' name:', torrent.name, ' path:', torrent.path);
       return torrent;
     })();
 

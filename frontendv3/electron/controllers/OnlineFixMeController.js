@@ -6,7 +6,6 @@ const os = require('node:os');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const cloudscraper = require('cloudscraper');
-const CloudscraperController = require('./CloudscraperController');
 
 // Puppeteer (and puppeteer-extra stealth) are used as a fallback to solve Cloudflare JS challenges
 let _puppeteer = null;
@@ -23,9 +22,6 @@ try {
   }
 }
 class OnlineFixMeController {
-  /** @type {CloudscraperController} */
-  #scraper;
-
   /** @type {number} */
   #timeoutMs;
 
@@ -36,12 +32,9 @@ class OnlineFixMeController {
    * @param {{ timeoutMs?: number, cookieHeader?: string }} [cfg]
    */
   constructor(cfg) {
-    this.#scraper = new CloudscraperController(cfg);
-
     const timeoutMs = Number(cfg?.timeoutMs);
     this.#timeoutMs = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 20_000;
-
-    this.#cookieHeader = String(cfg?.cookieHeader || process.env.WRECK_ONLINE_FIX_COOKIE || '').trim();
+    this.#cookieHeader = String(cfg?.cookieHeader || 'online_fix_auth=gAAAAABp54Rj9E7dPKeUx0HJDBklBlB61zPYT_-LbXDfmTl0VKlgWliIY6sqvD7pcA6ZTLBI4ynXWd1Nu044UyGyI362scuwfs8dSR-bX6nnsyNe9tOFMzyMiyGmGEfQXW1FcUA0tycyhKaddLsVKcLA-fjYptnrZPTj40X3lrMu0xFKDm3fo47364ZSmBeUT7gdWcTu_cioHDriPdgEtJXwBh-0dxqj4ikXwsTppyct08aEdT6p9gOHF4y5iDsY2dHexAtRQJPK; cf_clearance=JRbHQol8U2OQIY1HgMJBc4vntdi3Pn7uK7wTaMxvoNM-1776780255-1.2.1.1-2yL0Qkwaqx2QCq4Wbr7usfa1jmJXbzBn8OJRflEZkkbSZ2dQ4bCc91tZGN2xFWqZvl5PdGUfqPPAWL33p91XDoB0cQq7D9EPVO7eMD.C.Vqnxiqrs97r7nOieyLCHlHWwOHzBqAFB9jH1zRHn9DVJyIjOvxY6KgjW9Y7h46pTVFvNTVnfgzlUfYloE5NExhDMdS2v.TGdA_WK0jjHB4hhaAOMlFVeLBsqsSMYzpNpb9Qu71o5ynb1Of899OTg5xbje19HwOZHse9jiyPrEficpUAwHlUkJj8dZhkPKhvzIJbk6wgJyxDiT7ZhIiZObEDF7nuC3OsXAKOtoSh9BdLSg; PHPSESSID=8o7jjsn32n5jpfji7fk12iovf1').trim();
   }
 
   /**
@@ -101,38 +94,12 @@ class OnlineFixMeController {
   }
 
   /**
-   * Normalize a provided name so the resulting path segment is single-encoded.
-   * Accepts plain text, single-encoded or double-encoded values.
-   * @param {string} name
-   * @returns {string}
-   */
-  #normalizeNameForPath(name) {
-    const raw = String(name || '').trim();
-    if (!raw) return '';
-
-    // Repeatedly decode up to a few times to handle double-encoding.
-    let decoded = raw;
-    for (let i = 0; i < 3; i++) {
-      try {
-        const next = decodeURIComponent(decoded);
-        if (next === decoded) break;
-        decoded = next;
-      } catch (err) {
-        break;
-      }
-    }
-
-    return encodeURIComponent(decoded);
-  }
-
-  /**
    * Fetch the listing page for a given game name and return the list URL and HTML body.
    * @param {string} name
    * @returns {Promise<{ listUrl: string, html: string }>} 
    */
   async #fetchOnlineFixMeTorrentList(name) {
-    const safeName = this.#normalizeNameForPath(name);
-    const listUrl = `https://uploads.online-fix.me:2053/torrents/${safeName}/`;
+    const listUrl = `https://uploads.online-fix.me:2053/torrents/${encodeURIComponent(name)}/`;
     const body = await this.#fetchOnlineFixMeUrl(listUrl);
     return { listUrl, html: String(body || '') };
   }
@@ -145,7 +112,7 @@ class OnlineFixMeController {
     // Build headers using the standard builder so cookies/overrides propagate.
     const headers = this.#buildHeaders();
 
-    let response = await this.#scraper.fetch(url, { method: 'GET', headers });
+    let response = await fetch(url, { method: 'GET', headers });
 
     // If Cloudflare JS-challenge or 401 was returned, try a Puppeteer-based fallback once.
     const bodyText = String(response?.body || '');
@@ -159,9 +126,8 @@ class OnlineFixMeController {
           const cookie = await this.#getClearanceCookiesWithPuppeteer(url);
           if (cookie) {
             this.#cookieHeader = cookie;
-            process.env.WRECK_ONLINE_FIX_COOKIE = cookie;
             const headers2 = this.#buildHeaders();
-            response = await this.#scraper.fetch(url, { method: 'GET', headers: headers2 });
+            response = await fetch(url, { method: 'GET', headers: headers2 });
           }
         } catch (err) {
           // ignore and surface below
@@ -171,7 +137,7 @@ class OnlineFixMeController {
     }
 
     if (!response || !response.ok) {
-      throw new Error(`Failed to fetch OnlineFixMe URL: HTTP ${response?.statusCode || 'unknown'}`);
+      throw new Error(`Failed to fetch OnlineFixMe URL: HTTP ${response?.status || 'unknown'}`);
     }
     return response.body;
   }
@@ -217,7 +183,6 @@ class OnlineFixMeController {
           const cookie = await this.#getClearanceCookiesWithPuppeteer(referer);
           if (cookie) {
             this.#cookieHeader = cookie;
-            process.env.WRECK_ONLINE_FIX_COOKIE = cookie;
             requestOptions.headers = this.#buildHeaders({ 'Accept': 'application/x-bittorrent,application/octet-stream;q=0.9,*/*;q=0.8', 'Referer': referer });
             response = await cloudscraper(requestOptions);
           }
@@ -229,27 +194,23 @@ class OnlineFixMeController {
       if (!response) throw err;
     }
 
-    const statusCode = Number(response?.statusCode) || 0;
+    const statusCode = Number(response?.status) || 0;
     if (statusCode < 200 || statusCode >= 300) {
       throw new Error(`Failed to download OnlineFixMe torrent file: HTTP ${statusCode}`);
     }
-
     const body = response?.body;
     const buffer = Buffer.isBuffer(body) ? body : Buffer.from(body || '');
     if (buffer.length < 32) {
       throw new Error('Downloaded OnlineFixMe torrent file is empty or invalid');
     }
-
     const hasBencodeHeader = buffer[0] === 0x64; // 'd'
     const hasInfoSection = buffer.includes(Buffer.from('4:info'));
     if (!hasBencodeHeader || !hasInfoSection) {
       throw new Error('Downloaded payload is not a valid torrent file');
     }
-
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wreck-onlinefix-'));
     const tempPath = path.join(tempDir, `${Date.now()}-${randomUUID()}.torrent`);
     await fs.writeFile(tempPath, buffer);
-
     return { tempPath, tempDir, buffer };
   }
 
@@ -323,14 +284,14 @@ class OnlineFixMeController {
   }
 
   /**
-   * Resolve a magnet link for a game name on Online-Fix.me
+   * Resolve a magnet link for a game name (NOT slug) on Online-Fix.me
    * @param {string} gameName
    * @returns {Promise<string|null>}
    */
   async onlineFixMeMagnetLink(gameName) {
     const name = String(gameName || '').trim();
     if (!name) return null;
-
+    
     let tempPath = '';
     let tempDir = '';
 
