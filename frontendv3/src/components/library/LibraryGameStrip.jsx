@@ -1,10 +1,9 @@
 import React, { useCallback, useMemo } from 'react';
 import GameSliderBase from '../shared/GameSliderBase.jsx';
-import PlatformBadge from './PlatformBadge.jsx';
 
 // Library game strip — wrapper around GameSliderBase in translate mode.
 // Renders game cover cards with active card highlight.
-const LibraryGameStrip = React.memo(({ games, activeGameId, onSelect, onOpenStore }) => {
+const LibraryGameStrip = React.memo(({ games, onSelect, onOpenStore }) => {
 
   // Map LibraryGame data to the format GameSliderBase expects.
   // Keep this memoized to avoid rebuilding slider data on every parent render.
@@ -19,42 +18,28 @@ const LibraryGameStrip = React.memo(({ games, activeGameId, onSelect, onOpenStor
     [games],
   );
 
-  const shouldLoop = sliderGames.length > 6;
-
   const handleCurrentCardChange = useCallback(
     (card) => {
       if (typeof onSelect !== 'function') return;
       if (card?.id == null) return;
-
-      const nextId = String(card.id);
-      const currentId = String(activeGameId ?? '');
-      if (nextId === currentId) return;
-
       onSelect(card.id);
     },
-    [activeGameId, onSelect],
+    [onSelect],
   );
 
   const handleCardClick = useCallback(
     (card) => {
       if (typeof onSelect !== 'function') return;
       if (card?.id == null) return;
-
-      const nextId = String(card.id);
-      const currentId = String(activeGameId ?? '');
-      if (nextId === currentId) return;
-
       onSelect(card.id);
     },
-    [activeGameId, onSelect],
+    [onSelect],
   );
 
   return (
     <GameSliderBase
       mode="translate"
-      loop={shouldLoop}
       games={sliderGames}
-      selectedCardId={activeGameId}
       showFallbackCards={false}
       activeOffsetPx={200}
       cloneCount={Math.min(5, sliderGames.length)}
@@ -82,10 +67,6 @@ const LibraryGameStrip = React.memo(({ games, activeGameId, onSelect, onOpenStor
               fetchPriority={isActive ? 'high' : 'auto'}
             />
             <div className="lib-strip-card-overlay" />
-            <PlatformBadge
-              platform={game?.launcherId || game?.platform_name || game?.platform}
-              className="lib-platform-badge-card"
-            />
             {isActive ? (
               <div className="lib-strip-card-popover">
                 <button

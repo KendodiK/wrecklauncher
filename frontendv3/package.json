@@ -1,5 +1,5 @@
 {
-  "name": "anchor-launcher",
+  "name": "frontendv3",
   "version": "1.0.0",
   "description": "Electron + React + Tailwind frontend",
   "main": "electron/main.js",
@@ -15,30 +15,7 @@
     "electron:dev:3000": "cross-env NODE_ENV=development WRECK_BACKEND_URL=http://127.0.0.1:3000 electron .",
     "electron:dev:3000:insecure": "cross-env NODE_ENV=development WRECK_BACKEND_URL=http://127.0.0.1:3000 electron .",
     "package": "electron-forge package",
-    "make": "electron-forge make",
-    "dist": "npm run build && electron-builder",
-    "dist:nsis": "npm run build && electron-builder --win nsis"
-  },
-  "build": {
-    "appId": "com.AnchorLauncher.app",
-    "productName": "Anchor Launcher",
-    "directories": {
-      "output": "release"
-    },
-    "files": [
-      "dist/**/*",
-      "electron/**/*",
-      "preload.js",
-      "package.json"
-    ],
-    "win": {
-      "target": "nsis",
-      "signAndEditExecutable": false
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true
-    }
+    "make": "electron-forge make"
   },
   "keywords": [],
   "author": "WreckLauncher Team",
@@ -58,7 +35,6 @@
     "concurrently": "^9.2.1",
     "cross-env": "^7.0.3",
     "electron": "^32.3.3",
-    "electron-builder": "^26.8.1",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
     "vite": "^7.3.1",

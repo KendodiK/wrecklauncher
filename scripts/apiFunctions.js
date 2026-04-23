@@ -366,10 +366,6 @@ module.exports.GETGameByIdWithAllData = async function (req, res) {
     const gameGenres = await gamesGenresCtrl.getByGameId(gameId);
     game.genres = gameGenres;
 
-        const gamesPirateSitesConnCtrl = new GamesPirateSitesConnectionController();
-        const pirateSites = await gamesPirateSitesConnCtrl.getConnectionsByGameId(gameId);
-        game.pirate_sites = pirateSites ?? [];
-
     return res.json(game);
   } catch (err) {
       return res.status(500).json({ error: err.message });

@@ -2,46 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 
 const DownloadManagerContext = createContext(null);
 const DOWNLOAD_RESUME_STORAGE_KEY = 'wrecklauncher.torrent.resume.v1';
-const DOWNLOAD_COMPLETED_STORAGE_KEY = 'wrecklauncher.torrent.completed.v1';
-const DOWNLOAD_RESUME_CACHE_KEY = 'downloads:resume';
-const DOWNLOAD_COMPLETED_CACHE_KEY = 'downloads:completed';
 const RESUME_RESTORE_STARTUP_DELAY_MS = 1800;
-
-function getElectronApi() {
-	if (typeof window === 'undefined' || !window.electronAPI) return null;
-	return window.electronAPI;
-}
-
-async function readTorrentCachePayload(key) {
-	const api = getElectronApi();
-	if (!api || typeof api.torrentCacheGet !== 'function') {
-		return { available: false, hasValue: false, value: null };
-	}
-
-	try {
-		const payload = await api.torrentCacheGet(String(key || '').trim());
-		if (!payload || typeof payload !== 'object') {
-			return { available: true, hasValue: false, value: null };
-		}
-		return {
-			available: true,
-			hasValue: Object.prototype.hasOwnProperty.call(payload, 'value'),
-			value: payload.value,
-		};
-	} catch {
-		return { available: true, hasValue: false, value: null };
-	}
-}
-
-function writeTorrentCacheEntries(key, value) {
-	const api = getElectronApi();
-	if (!api || typeof api.torrentCacheSet !== 'function') return;
-	Promise
-		.resolve(api.torrentCacheSet(String(key || '').trim(), value))
-		.catch(() => {
-			// ignore cache write errors
-		});
-}
 
 function normalizeProgress(progress) {
 	if (!progress || typeof progress !== 'object') return null;
@@ -126,30 +87,25 @@ function resumableKey(entry) {
 	return '';
 }
 
-function normalizeResumableEntriesList(entries) {
-	const source = Array.isArray(entries) ? entries : [];
-	const deduped = [];
-	const seen = new Set();
-
-	for (const entry of source) {
-		const normalized = normalizeResumableEntry(entry);
-		if (!normalized) continue;
-		const key = resumableKey(normalized);
-		if (!key || seen.has(key)) continue;
-		seen.add(key);
-		deduped.push(normalized);
-	}
-
-	return deduped;
-}
-
 function readResumableEntries() {
 	if (typeof window === 'undefined' || !window.localStorage) return [];
 	try {
 		const raw = window.localStorage.getItem(DOWNLOAD_RESUME_STORAGE_KEY);
 		if (!raw) return [];
 		const parsed = JSON.parse(raw);
-		return normalizeResumableEntriesList(parsed);
+		if (!Array.isArray(parsed)) return [];
+
+		const deduped = [];
+		const seen = new Set();
+		for (const entry of parsed) {
+			const normalized = normalizeResumableEntry(entry);
+			if (!normalized) continue;
+			const key = resumableKey(normalized);
+			if (!key || seen.has(key)) continue;
+			seen.add(key);
+			deduped.push(normalized);
+		}
+		return deduped;
 	} catch {
 		return [];
 	}
@@ -159,95 +115,6 @@ function writeResumableEntries(entries) {
 	if (typeof window === 'undefined' || !window.localStorage) return;
 	try {
 		window.localStorage.setItem(DOWNLOAD_RESUME_STORAGE_KEY, JSON.stringify(entries));
-	} catch {
-		// ignore local storage write errors
-	}
-}
-
-function normalizeCompletedEntry(entry) {
-	const normalized = normalizeProgress(entry);
-	if (!normalized) return null;
-
-	const completedAt = Number(entry?.completedAt);
-	return {
-		...normalized,
-		done: true,
-		progress: Math.max(1, Number(normalized.progress) || 0),
-		completedAt: Number.isFinite(completedAt) && completedAt > 0 ? completedAt : Date.now(),
-	};
-}
-
-function completedEntryKey(entry) {
-	if (!entry || typeof entry !== 'object') return '';
-	const hash = String(entry.infoHash || '').trim().toLowerCase();
-	if (hash) return `hash:${hash}`;
-
-	const savePath = String(entry.savePath || entry.path || '').trim().toLowerCase();
-	const name = String(entry.name || '').trim().toLowerCase();
-	if (savePath || name) return `path:${savePath}|name:${name}`;
-
-	const magnet = String(entry.magnetURI || '').trim().toLowerCase();
-	if (magnet) return `magnet:${magnet}`;
-	return '';
-}
-
-function mergeCompletedEntries(previousEntries, incomingEntries) {
-	const previous = Array.isArray(previousEntries) ? previousEntries : [];
-	const incoming = Array.isArray(incomingEntries) ? incomingEntries : [incomingEntries];
-
-	const next = [...previous];
-	for (const candidate of incoming) {
-		const normalized = normalizeCompletedEntry(candidate);
-		if (!normalized) continue;
-
-		const key = completedEntryKey(normalized);
-		if (!key) continue;
-
-		const index = next.findIndex((entry) => completedEntryKey(entry) === key);
-		if (index === -1) {
-			next.unshift(normalized);
-			continue;
-		}
-
-		const existing = next[index] || {};
-		next[index] = {
-			...existing,
-			...normalized,
-			done: true,
-			progress: Math.max(1, Number(normalized.progress) || Number(existing.progress) || 1),
-			completedAt: Math.max(Number(existing.completedAt) || 0, Number(normalized.completedAt) || 0) || Date.now(),
-		};
-	}
-
-	return next.sort((left, right) => (Number(right?.completedAt) || 0) - (Number(left?.completedAt) || 0));
-}
-
-function normalizeCompletedEntriesList(entries) {
-	const source = Array.isArray(entries) ? entries : [];
-	let merged = [];
-	for (const entry of source) {
-		merged = mergeCompletedEntries(merged, entry);
-	}
-	return merged;
-}
-
-function readCompletedEntries() {
-	if (typeof window === 'undefined' || !window.localStorage) return [];
-	try {
-		const raw = window.localStorage.getItem(DOWNLOAD_COMPLETED_STORAGE_KEY);
-		if (!raw) return [];
-
-		const parsed = JSON.parse(raw);
-		return normalizeCompletedEntriesList(parsed);
-	} catch {
-		return [];
-	}
-}
-
-function writeCompletedEntries(entries) {
-	if (typeof window === 'undefined' || !window.localStorage) return;
-	try {
-		window.localStorage.setItem(DOWNLOAD_COMPLETED_STORAGE_KEY, JSON.stringify(Array.isArray(entries) ? entries : []));
 	} catch {
 		// ignore local storage write errors
 	}
@@ -281,61 +148,15 @@ function buildResumableEntry(download, previous = null) {
 	return out;
 }
 
-function mergeArtworkFields(baseEntry, fallbackEntry) {
-	if (!baseEntry || typeof baseEntry !== 'object') return baseEntry;
-	if (!fallbackEntry || typeof fallbackEntry !== 'object') return baseEntry;
-
-	const next = { ...baseEntry };
-	if (!String(next.imageUrl || '').trim() && String(fallbackEntry.imageUrl || '').trim()) {
-		next.imageUrl = String(fallbackEntry.imageUrl).trim();
-	}
-	if (!String(next.thumbnailUrl || '').trim() && String(fallbackEntry.thumbnailUrl || '').trim()) {
-		next.thumbnailUrl = String(fallbackEntry.thumbnailUrl).trim();
-	}
-	if (!String(next.coverUrl || '').trim() && String(fallbackEntry.coverUrl || '').trim()) {
-		next.coverUrl = String(fallbackEntry.coverUrl).trim();
-	}
-	if (!String(next.image || '').trim() && String(fallbackEntry.image || '').trim()) {
-		next.image = String(fallbackEntry.image).trim();
-	}
-
-	return next;
-}
-
 export function DownloadManagerProvider({ children }) {
 	const [downloads, setDownloads] = useState([]);
-	const [completedDownloads, setCompletedDownloads] = useState(() => readCompletedEntries());
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState('');
-	const [cacheHydrated, setCacheHydrated] = useState(false);
 	const [resumeBootstrapped, setResumeBootstrapped] = useState(false);
 
 	const upsertDownload = useCallback((entry) => {
 		const normalized = normalizeProgress(entry);
 		if (!normalized) return;
-
-		if (normalized.done) {
-			setDownloads((prev) => {
-				const index = prev.findIndex((item) => item.infoHash === normalized.infoHash);
-				const activeEntry = index >= 0 ? prev[index] : null;
-				const completedEntry = {
-					...(activeEntry || {}),
-					...normalized,
-					done: true,
-					progress: Math.max(1, Number(normalized.progress) || 0),
-					completedAt: Date.now(),
-				};
-
-				setCompletedDownloads((prevCompleted) => mergeCompletedEntries(prevCompleted, completedEntry));
-
-				if (index === -1) return prev;
-				const next = [...prev];
-				next.splice(index, 1);
-				return next;
-			});
-			return;
-		}
-
 		setDownloads((prev) => {
 			const index = prev.findIndex((item) => item.infoHash === normalized.infoHash);
 			if (index === -1) return [normalized, ...prev];
@@ -355,56 +176,7 @@ export function DownloadManagerProvider({ children }) {
 			const normalized = Array.isArray(current)
 				? current.map((item) => normalizeProgress(item)).filter(Boolean)
 				: [];
-
-			const active = [];
-			const completed = [];
-			for (const item of normalized) {
-				if (item.done) {
-					completed.push({ ...item, completedAt: Date.now() });
-				} else {
-					active.push(item);
-				}
-			}
-
-			const resumableEntries = readResumableEntries();
-			const resumableByHash = new Map(
-				resumableEntries
-					.map((entry) => [String(entry?.infoHash || '').trim().toLowerCase(), entry])
-					.filter(([key]) => Boolean(key)),
-			);
-			const resumableByMagnet = new Map(
-				resumableEntries
-					.map((entry) => [String(entry?.magnetURI || '').trim().toLowerCase(), entry])
-					.filter(([key]) => Boolean(key)),
-			);
-
-			setDownloads((prev) => {
-				const prevByHash = new Map(
-					prev
-						.map((entry) => [String(entry?.infoHash || '').trim().toLowerCase(), entry])
-						.filter(([key]) => Boolean(key)),
-				);
-				const prevByMagnet = new Map(
-					prev
-						.map((entry) => [String(entry?.magnetURI || '').trim().toLowerCase(), entry])
-						.filter(([key]) => Boolean(key)),
-				);
-
-				return active.map((entry) => {
-					const hashKey = String(entry?.infoHash || '').trim().toLowerCase();
-					const magnetKey = String(entry?.magnetURI || '').trim().toLowerCase();
-					const fallback =
-						(hashKey && prevByHash.get(hashKey)) ||
-						(magnetKey && prevByMagnet.get(magnetKey)) ||
-						(hashKey && resumableByHash.get(hashKey)) ||
-						(magnetKey && resumableByMagnet.get(magnetKey)) ||
-						null;
-					return mergeArtworkFields(entry, fallback);
-				});
-			});
-			if (completed.length > 0) {
-				setCompletedDownloads((prevCompleted) => mergeCompletedEntries(prevCompleted, completed));
-			}
+			setDownloads(normalized);
 		} catch (e) {
 			setError(e instanceof Error ? e.message : String(e));
 		} finally {
@@ -434,10 +206,9 @@ export function DownloadManagerProvider({ children }) {
 					entry.savePath || undefined,
 					preferredName || undefined,
 				);
-				const snapshotName = typeof snapshot?.name === 'string' ? snapshot.name.trim() : '';
 				upsertDownload({
 					...snapshot,
-					name: snapshotName || preferredName || String(snapshot?.infoHash || '').trim(),
+					name: preferredName || snapshot?.name,
 					magnetURI: entry.magnetURI,
 					savePath: entry.savePath || snapshot?.savePath || snapshot?.path || '',
 					imageUrl: entry.imageUrl,
@@ -452,49 +223,6 @@ export function DownloadManagerProvider({ children }) {
 	}, [upsertDownload]);
 
 	useEffect(() => {
-		let cancelled = false;
-
-		void (async () => {
-			try {
-				const localResumable = readResumableEntries();
-				const localCompleted = readCompletedEntries();
-
-				const [resumePayload, completedPayload] = await Promise.all([
-					readTorrentCachePayload(DOWNLOAD_RESUME_CACHE_KEY),
-					readTorrentCachePayload(DOWNLOAD_COMPLETED_CACHE_KEY),
-				]);
-
-				if (resumePayload.available && resumePayload.hasValue) {
-					const normalizedResumable = normalizeResumableEntriesList(resumePayload.value);
-					writeResumableEntries(normalizedResumable);
-				} else if (resumePayload.available) {
-					writeTorrentCacheEntries(DOWNLOAD_RESUME_CACHE_KEY, localResumable);
-				}
-
-				if (completedPayload.available && completedPayload.hasValue) {
-					const normalizedCompleted = normalizeCompletedEntriesList(completedPayload.value);
-					writeCompletedEntries(normalizedCompleted);
-					if (!cancelled) {
-						setCompletedDownloads(normalizedCompleted);
-					}
-				} else if (completedPayload.available) {
-					writeTorrentCacheEntries(DOWNLOAD_COMPLETED_CACHE_KEY, localCompleted);
-				}
-			} finally {
-				if (!cancelled) {
-					setCacheHydrated(true);
-				}
-			}
-		})();
-
-		return () => {
-			cancelled = true;
-		};
-	}, []);
-
-	useEffect(() => {
-		if (!cacheHydrated) return;
-
 		let cancelled = false;
 		let unsub = null;
 		let restoreTimer = null;
@@ -535,7 +263,7 @@ export function DownloadManagerProvider({ children }) {
 			if (restoreTimer) window.clearTimeout(restoreTimer);
 			if (typeof unsub === 'function') unsub();
 		};
-	}, [cacheHydrated, refreshStatus, restoreInterruptedDownloads, upsertDownload]);
+	}, [refreshStatus, restoreInterruptedDownloads, upsertDownload]);
 
 	useEffect(() => {
 		if (!resumeBootstrapped) return;
@@ -557,14 +285,7 @@ export function DownloadManagerProvider({ children }) {
 			.filter((entry) => !entry.done && Boolean(String(entry.magnetURI || '').trim()));
 
 		writeResumableEntries(nextEntries);
-		writeTorrentCacheEntries(DOWNLOAD_RESUME_CACHE_KEY, nextEntries);
 	}, [downloads, resumeBootstrapped]);
-
-	useEffect(() => {
-		if (!cacheHydrated) return;
-		writeCompletedEntries(completedDownloads);
-		writeTorrentCacheEntries(DOWNLOAD_COMPLETED_CACHE_KEY, completedDownloads);
-	}, [cacheHydrated, completedDownloads]);
 
 	const startDownload = useCallback(async ({ magnetUri, savePath, artwork, title } = {}) => {
 		const api = typeof window !== 'undefined' ? window.electronAPI : null;
@@ -576,11 +297,13 @@ export function DownloadManagerProvider({ children }) {
 		setError('');
 		const snapshot = await api.torrentStart(cleanMagnetUri, cleanSavePath || undefined, cleanTitle || undefined);
 		const art = artwork && typeof artwork === 'object' ? artwork : {};
-		const snapshotName = typeof snapshot?.name === 'string' ? snapshot.name.trim() : '';
 		const withArtwork = {
 			...snapshot,
 			name:
-				snapshotName || cleanTitle || String(snapshot?.infoHash || cleanMagnetUri).trim(),
+				cleanTitle ||
+				(typeof snapshot?.name === 'string' && snapshot.name.trim()
+					? snapshot.name.trim()
+					: String(snapshot?.infoHash || cleanMagnetUri).trim()),
 			magnetURI:
 				typeof snapshot?.magnetURI === 'string' && snapshot.magnetURI.trim()
 					? snapshot.magnetURI.trim()
@@ -597,18 +320,6 @@ export function DownloadManagerProvider({ children }) {
 			image: typeof art.image === 'string' ? art.image : undefined,
 		};
 		upsertDownload(withArtwork);
-
-		const resumable = buildResumableEntry(withArtwork);
-		if (resumable && resumable.magnetURI && !resumable.done) {
-			const existing = readResumableEntries();
-			const key = resumableKey(resumable);
-			const merged = key
-				? [resumable, ...existing.filter((entry) => resumableKey(entry) !== key)]
-				: [resumable, ...existing];
-			writeResumableEntries(merged);
-			writeTorrentCacheEntries(DOWNLOAD_RESUME_CACHE_KEY, merged);
-		}
-
 		return withArtwork;
 	}, [upsertDownload]);
 
@@ -642,11 +353,6 @@ export function DownloadManagerProvider({ children }) {
 		if (!api || typeof api.torrentRemove !== 'function') throw new Error('torrentRemove API is not available');
 		const result = await api.torrentRemove(String(infoHash), Boolean(deleteFiles));
 		setDownloads((prev) => prev.filter((item) => item.infoHash !== infoHash));
-		const nextResumable = readResumableEntries().filter(
-			(entry) => String(entry?.infoHash || '').trim().toLowerCase() !== String(infoHash || '').trim().toLowerCase(),
-		);
-		writeResumableEntries(nextResumable);
-		writeTorrentCacheEntries(DOWNLOAD_RESUME_CACHE_KEY, nextResumable);
 
 		const lockedTargets = Array.isArray(result?.lockedTargets)
 			? result.lockedTargets.filter((entry) => typeof entry === 'string' && entry.trim())
@@ -670,22 +376,6 @@ export function DownloadManagerProvider({ children }) {
 		return await api.torrentOpen(String(infoHash || ''), String(savePath || '').trim() || undefined);
 	}, []);
 
-	const dismissCompletedDownload = useCallback((entryOrKey) => {
-		const keyCandidate = typeof entryOrKey === 'string'
-			? String(entryOrKey || '').trim().toLowerCase()
-			: completedEntryKey(entryOrKey);
-		if (!keyCandidate) return;
-
-		setCompletedDownloads((previous) => previous.filter((entry) => {
-			const key = completedEntryKey(entry);
-			if (key === keyCandidate) return false;
-			if (keyCandidate.startsWith('hash:')) {
-				return String(entry?.infoHash || '').trim().toLowerCase() !== keyCandidate.slice(5);
-			}
-			return true;
-		}));
-	}, []);
-
 	const start = useCallback(async ({ magnetUri, savePath, title } = {}) => {
 		return await startDownload({ magnetUri, savePath, title });
 	}, [startDownload]);
@@ -700,7 +390,6 @@ export function DownloadManagerProvider({ children }) {
 
 	const value = useMemo(() => ({
 		downloads,
-		completedDownloads,
 		busy,
 		error,
 		refreshStatus,
@@ -713,11 +402,9 @@ export function DownloadManagerProvider({ children }) {
 		resumeDownload,
 		removeDownload,
 		openDownload,
-		dismissCompletedDownload,
 		clearError: () => setError(''),
 	}), [
 		downloads,
-		completedDownloads,
 		busy,
 		error,
 		refreshStatus,
@@ -730,7 +417,6 @@ export function DownloadManagerProvider({ children }) {
 		resumeDownload,
 		removeDownload,
 		openDownload,
-		dismissCompletedDownload,
 	]);
 
 	return <DownloadManagerContext.Provider value={value}>{children}</DownloadManagerContext.Provider>;

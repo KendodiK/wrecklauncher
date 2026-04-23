@@ -32,7 +32,7 @@ body {
   z-index: 9999;
   -webkit-app-region: drag;
   padding: 4px 10px;
-  background: #0f172af2;
+  background: rgba(15, 23, 42, 0.95);
   border-bottom: 1px solid rgba(51, 65, 85, 0.9);
 }
 
@@ -332,7 +332,6 @@ body {
   position: relative;
   min-height: 100vh;
   color: #e2e8f0;
-  overflow: hidden;
 }
 
 /* Dynamic hero background — blurred game art */
@@ -468,7 +467,7 @@ body {
   min-width: 236px;
 }
 
-.library-add-local-btn {
+.library-add-pirate-btn {
   border-radius: 6px;
   border: 1px solid rgba(251, 146, 60, 0.65);
   background: rgba(194, 65, 12, 0.32);
@@ -481,13 +480,13 @@ body {
   transition: border-color 0.2s ease, color 0.2s ease, background-color 0.2s ease;
 }
 
-.library-add-local-btn:hover {
+.library-add-pirate-btn:hover {
   border-color: rgba(251, 191, 36, 0.8);
   color: #fff7ed;
   background: rgba(194, 65, 12, 0.45);
 }
 
-.library-add-local-btn:disabled {
+.library-add-pirate-btn:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }
@@ -1029,62 +1028,8 @@ body {
   background: linear-gradient(to top, rgba(15, 23, 42, 0.88) 0%, rgba(15, 23, 42, 0.1) 50%, transparent 100%);
 }
 
-.lib-platform-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border-radius: 999px;
-  border: 1px solid rgba(148, 163, 184, 0.45);
-  background: rgba(2, 6, 23, 0.72);
-  color: rgba(226, 232, 240, 0.95);
-  padding: 3px 8px;
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  box-shadow: 0 4px 14px rgba(2, 6, 23, 0.45);
-  backdrop-filter: blur(6px);
-}
-
-.lib-platform-badge-icon {
-  width: 14px;
-  height: 14px;
-  display: block;
-}
-
-.lib-platform-badge-label {
-  line-height: 1;
-}
-
-.lib-platform-badge-steam {
-  border-color: rgba(125, 211, 252, 0.65);
-  color: rgba(186, 230, 253, 0.98);
-}
-
-.lib-platform-badge-gog {
-  border-color: rgba(196, 181, 253, 0.65);
-  color: rgba(233, 213, 255, 0.98);
-}
-
-.lib-platform-badge-itchio {
-  border-color: rgba(252, 165, 165, 0.68);
-  color: rgba(254, 226, 226, 0.98);
-}
-
-.lib-platform-badge-pirate {
-  border-color: rgba(253, 186, 116, 0.72);
-  color: rgba(255, 237, 213, 0.98);
-}
-
-.lib-platform-badge-card {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  z-index: 4;
-}
-
 .lib-strip-card-popover {
   position: absolute;
-  z-index: 10;
   top: 10px;
   right: 10px;
   display: flex;
@@ -1142,7 +1087,6 @@ body {
   letter-spacing: 0.04em;
   color: rgba(226, 232, 240, 0.95);
   font-size: 11px;
-  z-index: 10;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1255,36 +1199,11 @@ body {
   box-shadow: 0 0 0 2px rgba(167, 139, 250, 0.8);
 }
 
-.lib-drawer-item-img-wrap {
-  position: relative;
-  width: 80px;
-  height: 48px;
-  flex-shrink: 0;
-}
-
 .lib-drawer-item-img {
   width: 80px;
   height: 48px;
   border-radius: 4px;
   object-fit: cover;
-}
-
-.lib-platform-badge-drawer {
-  position: absolute;
-  left: 4px;
-  top: 4px;
-  z-index: 2;
-  padding: 2px 5px;
-  background: rgba(2, 6, 23, 0.8);
-}
-
-.lib-platform-badge-drawer .lib-platform-badge-icon {
-  width: 12px;
-  height: 12px;
-}
-
-.lib-platform-badge-drawer .lib-platform-badge-label {
-  display: none;
 }
 
 .lib-drawer-item-title {

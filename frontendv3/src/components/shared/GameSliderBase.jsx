@@ -37,7 +37,6 @@ const GameSliderBase = ({
 	cloneCount: cloneCountProp = 5,
 	loop = true,
 	ariaLabel,
-	selectedCardId,
 	onActivateCard,
 	onCardClick,
 	onCurrentCardChange,
@@ -62,11 +61,9 @@ const GameSliderBase = ({
 	const shouldReduceMotion = useReducedMotion();
 	const [isMoving, setIsMoving] = useState(false);
 	const skipAnimationRef = useRef(false);
-	const lastEmittedCurrentCardRef = useRef('');
-	const suppressCurrentCardEmitRef = useRef(false);
-	const emitCurrentCardOnIndexChangeRef = useRef(false);
 	const resizeRafRef = useRef(0);
 	const wheelLockRef = useRef(false);
+	const [x, setX] = useState(0);
 	const xRef = useRef(0);
 	
 	// Drag state
@@ -104,33 +101,56 @@ const GameSliderBase = ({
 		return source;
 	}, [games, showFallbackCards]);
 
-	// Stable identity for card composition/order to avoid resetting internal loop state
-	// when parent passes a new array instance with the same ids.
-	const baseCardsKey = useMemo(
-		() => baseCards.map((card) => String(card?.id ?? '')).join('|'),
-		[baseCards],
-	);
-	const baseCardsRef = useRef(baseCards);
-	useLayoutEffect(() => {
-		baseCardsRef.current = baseCards;
-	}, [baseCards]);
-
 	const hasLoopClones = loop && baseCards.length > 1;
 	const useProceduralLoop = mode === 'translate' && hasLoopClones;
 	const [effectiveLoopCloneCount, setEffectiveLoopCloneCount] = useState(() => Math.max(1, cloneCountProp));
 
 	useEffect(() => {
 		const minimumCloneCount = Math.max(1, cloneCountProp);
-		setEffectiveLoopCloneCount((prev) => (prev === minimumCloneCount ? prev : minimumCloneCount));
-	}, [cloneCountProp]);
+		if (!hasLoopClones || mode !== 'translate') {
+			setEffectiveLoopCloneCount((prev) => (prev === minimumCloneCount ? prev : minimumCloneCount));
+			return;
+		}
+
+		const carousel = carouselRef.current;
+		if (!carousel) return;
+
+		const computeCloneCount = () => {
+			const viewportWidth = carousel.offsetWidth || window.innerWidth || 1280;
+			let estimatedCardSpan = 194;
+
+			const container = containerRef.current;
+			if (container) {
+				const style = window.getComputedStyle(container);
+				const gap = Number.parseFloat(style.columnGap || style.gap || '10') || 10;
+				const firstCard = container.children?.[0];
+				const cardWidth = firstCard ? firstCard.getBoundingClientRect().width : 184;
+				estimatedCardSpan = Math.max(120, cardWidth + gap);
+			}
+
+			const sideCountFromViewport = Math.ceil(viewportWidth / estimatedCardSpan) + 2;
+			const boundedCloneCount = Math.min(30, Math.max(minimumCloneCount, sideCountFromViewport));
+
+			setEffectiveLoopCloneCount((prev) => (prev === boundedCloneCount ? prev : boundedCloneCount));
+		};
+
+		computeCloneCount();
+		const ro = new ResizeObserver(() => {
+			computeCloneCount();
+		});
+		ro.observe(carousel);
+
+		return () => {
+			ro.disconnect();
+		};
+	}, [cloneCountProp, hasLoopClones, mode]);
 
 	const createProceduralEntry = useCallback(
 		(ordinal) => {
-			const source = baseCardsRef.current;
-			const baseLen = source.length;
+			const baseLen = baseCards.length;
 			if (!baseLen) return null;
 			const baseIndex = ((ordinal % baseLen) + baseLen) % baseLen;
-			const card = source[baseIndex];
+			const card = baseCards[baseIndex];
 			return {
 				...card,
 				_key: `stream-${ordinal}`,
@@ -138,7 +158,7 @@ const GameSliderBase = ({
 				_streamOrdinal: ordinal,
 			};
 		},
-		[],
+		[baseCards],
 	);
 
 	const initialIndex = useMemo(() => {
@@ -171,9 +191,8 @@ const GameSliderBase = ({
 
 		skipAnimationRef.current = true;
 		setStreamCards(nextStreamCards);
-		suppressCurrentCardEmitRef.current = true;
 		setCurrentIndex(side + Math.floor(baseLen / 2));
-	}, [baseCardsKey, baseCards.length, createProceduralEntry, effectiveLoopCloneCount, useProceduralLoop]);
+	}, [baseCards.length, createProceduralEntry, effectiveLoopCloneCount, useProceduralLoop]);
 
 	const cards = useMemo(() => {
 		if (!baseCards.length) return [];
@@ -230,62 +249,12 @@ const GameSliderBase = ({
 
 	if (!cards.length) return null;
 
-	useLayoutEffect(() => {
-		if (selectedCardId == null || selectedCardId === '') return;
-
-		const normalizedSelectedId = String(selectedCardId);
-		const source = cards;
-		if (!Array.isArray(source) || source.length < 1) return;
-		const safeCurrentIndex = Math.max(0, Math.min(source.length - 1, currentIndex));
-		if (String(source[safeCurrentIndex]?.id ?? '') === normalizedSelectedId) return;
-
-		const matchingIndices = [];
-		for (let index = 0; index < source.length; index += 1) {
-			if (String(source[index]?.id ?? '') !== normalizedSelectedId) continue;
-			matchingIndices.push(index);
-		}
-
-		if (matchingIndices.length < 1) return;
-
-		const isCanonicalMatch = (entry) => {
-			if (!entry || typeof entry !== 'object') return false;
-			if (useProceduralLoop) {
-				const ordinal = Number(entry._streamOrdinal);
-				return Number.isFinite(ordinal) && ordinal >= 0 && ordinal < baseCards.length;
-			}
-			if (hasLoopClones) {
-				return entry._isClone !== true;
-			}
-			return true;
-		};
-
-		const canonicalIndices = matchingIndices.filter((index) => isCanonicalMatch(source[index]));
-		const candidateIndices = canonicalIndices.length > 0 ? canonicalIndices : matchingIndices;
-
-		let targetIndex = -1;
-		let minDistance = Number.POSITIVE_INFINITY;
-		for (const index of candidateIndices) {
-			const distance = Math.abs(index - safeCurrentIndex);
-			if (distance < minDistance) {
-				minDistance = distance;
-				targetIndex = index;
-			}
-		}
-
-		if (targetIndex < 0 || targetIndex === safeCurrentIndex) return;
-		skipAnimationRef.current = true;
-		suppressCurrentCardEmitRef.current = true;
-		emitCurrentCardOnIndexChangeRef.current = false;
-		setCurrentIndex(targetIndex);
-	}, [cards, currentIndex, selectedCardId]);
-
 	const move = (dir) => {
 		if (isMoving) return;
 		if (cards.length < 2) return;
 		if (useProceduralLoop) {
 			const next = Math.max(0, Math.min(cards.length - 1, currentIndex + dir));
 			if (next === currentIndex) return;
-			emitCurrentCardOnIndexChangeRef.current = true;
 			setIsMoving(true);
 			setCurrentIndex(next);
 			return;
@@ -293,12 +262,10 @@ const GameSliderBase = ({
 		if (!hasLoopClones) {
 			const next = Math.max(0, Math.min(cards.length - 1, currentIndex + dir));
 			if (next === currentIndex) return;
-			emitCurrentCardOnIndexChangeRef.current = true;
 			setIsMoving(true);
 			setCurrentIndex(next);
 			return;
 		}
-		emitCurrentCardOnIndexChangeRef.current = true;
 		setIsMoving(true);
 		setCurrentIndex((prev) => prev + dir);
 	};
@@ -310,7 +277,6 @@ const GameSliderBase = ({
 		if (typeof onCardClick === 'function') {
 			onCardClick(cards[index], { index });
 		}
-		emitCurrentCardOnIndexChangeRef.current = true;
 		setIsMoving(true);
 		setCurrentIndex(index);
 	};
@@ -336,11 +302,7 @@ const GameSliderBase = ({
 				const offset = Math.round((viewportWidth - contentWidth) / 2);
 				if (xRef.current !== offset) {
 					xRef.current = offset;
-					const shouldAnimate = animate && !shouldReduceMotion && !skipAnimationRef.current && transitionMs > 0;
-					container.style.transition = shouldAnimate
-						? `transform ${Math.max(0, transitionMs)}ms cubic-bezier(0.2, 0.8, 0.2, 1)`
-						: 'none';
-					container.style.transform = `translate3d(${offset}px, 0, 0)`;
+					setX(offset);
 				}
 				return;
 			}
@@ -357,14 +319,10 @@ const GameSliderBase = ({
 			offset = Math.round(offset);
 			if (xRef.current !== offset) {
 				xRef.current = offset;
-				const shouldAnimate = animate && !shouldReduceMotion && !skipAnimationRef.current && transitionMs > 0;
-				container.style.transition = shouldAnimate
-					? `transform ${Math.max(0, transitionMs)}ms cubic-bezier(0.2, 0.8, 0.2, 1)`
-					: 'none';
-				container.style.transform = `translate3d(${offset}px, 0, 0)`;
+				setX(offset);
 			}
 		},
-		[activeOffsetPx, cards.length, currentIndex, mode, shouldReduceMotion, transitionMs]
+		[activeOffsetPx, cards.length, currentIndex, mode]
 	);
 
 	// Layout update: place active card + toggle active class
@@ -430,8 +388,6 @@ const GameSliderBase = ({
 					skipAnimationRef.current = true;
 					setStreamCards(nextCards);
 					if (nextIndex !== currentIndex) {
-						suppressCurrentCardEmitRef.current = true;
-						emitCurrentCardOnIndexChangeRef.current = false;
 						setCurrentIndex(nextIndex);
 					}
 				}
@@ -451,8 +407,6 @@ const GameSliderBase = ({
 
 				if (nextIndex !== currentIndex) {
 					skipAnimationRef.current = true;
-					suppressCurrentCardEmitRef.current = true;
-					emitCurrentCardOnIndexChangeRef.current = false;
 					setCurrentIndex(nextIndex);
 					requestAnimationFrame(() => setIsMoving(false));
 					return;
@@ -469,7 +423,6 @@ const GameSliderBase = ({
 		if (mode !== 'translate') return;
 		const carousel = carouselRef.current;
 		if (!carousel) return;
-		const container = containerRef.current;
 
 		const ro = new ResizeObserver(() => {
 			if (resizeRafRef.current) return;
@@ -481,10 +434,6 @@ const GameSliderBase = ({
 		ro.observe(carousel);
 		return () => {
 			ro.disconnect();
-			if (container) {
-				container.style.transition = '';
-				container.style.transform = '';
-			}
 			if (resizeRafRef.current) {
 				cancelAnimationFrame(resizeRafRef.current);
 				resizeRafRef.current = 0;
@@ -500,14 +449,10 @@ const GameSliderBase = ({
 
 			if (prev < 0) {
 				skipAnimationRef.current = true;
-				suppressCurrentCardEmitRef.current = true;
-				emitCurrentCardOnIndexChangeRef.current = false;
 				return 0;
 			}
 			if (prev > maxIndex) {
 				skipAnimationRef.current = true;
-				suppressCurrentCardEmitRef.current = true;
-				emitCurrentCardOnIndexChangeRef.current = false;
 				return maxIndex;
 			}
 
@@ -517,8 +462,6 @@ const GameSliderBase = ({
 				const anchoredIndex = effectiveLoopCloneCount + normalizedBaseIndex;
 				if (anchoredIndex !== prev) {
 					skipAnimationRef.current = true;
-					suppressCurrentCardEmitRef.current = true;
-					emitCurrentCardOnIndexChangeRef.current = false;
 					return anchoredIndex;
 				}
 			}
@@ -531,28 +474,8 @@ const GameSliderBase = ({
 		if (typeof onCurrentCardChange !== 'function') return;
 		const card = cards[currentIndex];
 		if (!card) return;
-		const hasControlledSelection = selectedCardId != null && selectedCardId !== '';
-
-		if (suppressCurrentCardEmitRef.current) {
-			suppressCurrentCardEmitRef.current = false;
-			emitCurrentCardOnIndexChangeRef.current = false;
-			return;
-		}
-
-		if (hasControlledSelection && !emitCurrentCardOnIndexChangeRef.current) {
-			return;
-		}
-
-		const marker = String(card.id ?? '');
-		if (lastEmittedCurrentCardRef.current === marker) {
-			emitCurrentCardOnIndexChangeRef.current = false;
-			return;
-		}
-		lastEmittedCurrentCardRef.current = marker;
-
 		onCurrentCardChange(card, { index: currentIndex });
-		emitCurrentCardOnIndexChangeRef.current = false;
-	}, [cards, currentIndex, onCurrentCardChange, selectedCardId]);
+	}, [cards, currentIndex, onCurrentCardChange]);
 
 	const onKeyDown = (e) => {
 		if (e.key === 'ArrowRight') move(1);
@@ -726,9 +649,16 @@ const GameSliderBase = ({
 						})}
 					</ul>
 				) : (
-					<ul
+					<motion.ul
 						ref={containerRef}
 						className={classNameContainer}
+						initial={false}
+						animate={{ x }}
+						transition={
+							!shouldReduceMotion && !skipAnimationRef.current
+								? { duration: Math.max(0, transitionMs) / 1000, ease: [0.2, 0.8, 0.2, 1] }
+								: { duration: 0 }
+						}
 					>
 						{cards.map((card, index) => (
 							<li
@@ -751,7 +681,7 @@ const GameSliderBase = ({
 								})}
 							</li>
 						))}
-					</ul>
+					</motion.ul>
 				)}
 
 				{typeof renderAfterContainer === 'function' ? renderAfterContainer({ move }) : null}
