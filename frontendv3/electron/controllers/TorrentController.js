@@ -217,15 +217,36 @@ class TorrentController {
     const hash = String(t.infoHash ?? '').trim().toLowerCase();
     const forcedPaused = !!hash && this.#forcedPaused.has(hash);
     const preferredName = hash ? String(this.#preferredDisplayNames.get(hash) || '').trim() : '';
+    const metadataName = String(t.name || '').trim();
+    const infoHashText = String(t.infoHash || '').trim();
+    const hasReliableMetadataName = !!metadataName
+      && (!infoHashText || metadataName.toLowerCase() !== infoHashText.toLowerCase());
+    const rawDownloaded = Number(t.downloaded);
+    const rawLength = Number(t.length);
+    const rawProgress = Number(t.progress);
+    const downloadedFromProgress = (
+      Number.isFinite(rawLength)
+      && rawLength > 0
+      && Number.isFinite(rawProgress)
+      && rawProgress >= 0
+    )
+      ? Math.round(Math.min(1, rawProgress) * rawLength)
+      : 0;
+    const normalizedDownloaded = Number.isFinite(rawDownloaded)
+      ? Math.max(0, Math.trunc(rawDownloaded))
+      : 0;
+    const effectiveDownloaded = Math.max(normalizedDownloaded, downloadedFromProgress);
     const rawMagnetURI = (typeof t.magnetURI === 'string' ? t.magnetURI.trim() : '');
     const derivedMagnetURI = hash ? `magnet:?xt=urn:btih:${hash}` : '';
     return {
       infoHash:      t.infoHash      ?? '',
-      name:          preferredName || t.name || t.infoHash || 'Pending…',
+      // Prefer the real torrent metadata name once available.
+      // Fallback to renderer-provided display name while metadata is pending.
+      name:          hasReliableMetadataName ? metadataName : (preferredName || metadataName || t.infoHash || 'Pending…'),
       progress:      t.progress      ?? 0,
       downloadSpeed: t.downloadSpeed ?? 0,
       uploadSpeed:   t.uploadSpeed   ?? 0,
-      downloaded:    t.downloaded    ?? 0,
+      downloaded:    effectiveDownloaded,
       uploaded:      t.uploaded      ?? 0,
       length:        t.length        ?? 0,
       numPeers:      t.numPeers      ?? 0,

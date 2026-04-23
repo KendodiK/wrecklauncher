@@ -1,5 +1,14 @@
 import React from 'react';
 
+function normalizeLauncherTabId(raw) {
+  const normalized = String(raw || '').trim().toLowerCase();
+  if (!normalized) return '';
+  if (normalized === 'gog.com') return 'gog';
+  if (normalized === 'itchio' || normalized === 'itch.io') return 'itch';
+  if (normalized === 'local') return 'pirate';
+  return normalized;
+}
+
 const LauncherTabs = ({
   launchers,
   activeLauncherId,
@@ -14,7 +23,9 @@ const LauncherTabs = ({
   return (
     <div className="lib-launcher-tabs">
       {tabItems.map((launcher) => {
-        const isActive = launcher.id === 'all' ? !!isAllActive : launcher.id === activeLauncherId;
+        const launcherId = normalizeLauncherTabId(launcher.id);
+        const activeId = normalizeLauncherTabId(activeLauncherId);
+        const isActive = launcherId === 'all' ? !!isAllActive : launcherId === activeId;
         return (
           <button
             key={launcher.id}
