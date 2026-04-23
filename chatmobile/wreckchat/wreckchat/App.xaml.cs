@@ -1,5 +1,8 @@
 using System.Diagnostics.CodeAnalysis;
 using Uno.Resizetizer;
+using wreckchat.Services.Api;
+using wreckchat.Services.Auth;
+using wreckchat.Services.Http;
 
 namespace wreckchat;
 public partial class App : Application
@@ -74,8 +77,17 @@ public partial class App : Application
                 })
                 .ConfigureServices((context, services) =>
                 {
-                    // TODO: Register your services
-                    //services.AddSingleton<IMyService, MyService>();
+                    services.AddSingleton<ITokenService, TokenService>();
+                    services.AddTransient<AuthHandler>();
+
+                    services.AddHttpClient<IApiService, ApiService>(client =>
+                    {
+                        client.BaseAddress = new Uri("https://api.anchorlauncher.hu"); // API URL
+                    })
+                    .AddHttpMessageHandler<AuthHandler>();
+
+                    services.AddTransient<MainModel>();
+                    services.AddTransient<SecondModel>();
                 })
                 .UseNavigation(ReactiveViewModelMappings.ViewModelMappings, RegisterRoutes)
             );
