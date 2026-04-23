@@ -1068,7 +1068,6 @@ const LibraryPage = () => {
 	const [hideZeroPlaytime, setHideZeroPlaytime] = useState(false);
 	const [showAllGames, setShowAllGames] = useState(false);
 	const [stripWindowStart, setStripWindowStart] = useState(0);
-	const [showHeaderMenu, setShowHeaderMenu] = useState(false);
 	const [actionState, setActionState] = useState({ busyAction: '', text: '', type: '' });
 	const launcherOptions = useMemo(
 		() => (Array.isArray(launchers)
@@ -1091,16 +1090,6 @@ const LibraryPage = () => {
 	const toggleSortDirection = useCallback(() => {
 		setSortDirection((previous) => (previous === 'asc' ? 'desc' : 'asc'));
 	}, []);
-
-	const handleCycleSortMode = useCallback(() => {
-		cycleSortMode();
-		setShowHeaderMenu(false);
-	}, [cycleSortMode]);
-
-	const handleToggleSortDirection = useCallback(() => {
-		toggleSortDirection();
-		setShowHeaderMenu(false);
-	}, [toggleSortDirection]);
 
 	const ownedGames = useMemo(() => {
 		return dedupeLibraryGames(libraryGames.filter((g) => g.owned === true));
@@ -2232,37 +2221,37 @@ const LibraryPage = () => {
 					{/* Control board: search + launcher tabs */}
 			<section className="library-control-board">
 				<header className="library-control-header">
-					<div className="library-control-left">
-						<LauncherTabs
-							launchers={launchers}
-							activeLauncherId={activeLauncherId}
-							showAllOption
-							isAllActive={scope === 'all' || String(activeLauncherId || '').trim().toLowerCase() === 'all'}
-							onChange={handleLauncherTabChange}
+					<label className="library-search-label">
+						<span className="library-search-hint">Search</span>
+						<input
+							value={search}
+							onChange={(e) => setSearch(e.target.value)}
+							placeholder="title, genre, tag"
+							className="library-search-input"
 						/>
-					</div>
+					</label>
 
-					<div className="library-control-right">
-						<label className="library-search-label">
-							<span className="library-search-hint">Search</span>
-							<input
-								value={search}
-								onChange={(e) => setSearch(e.target.value)}
-								placeholder="title, genre, tag"
-								className="library-search-input"
-							/>
-						</label>
+					<button
+						type="button"
+						className="library-menu-btn"
+						onClick={toggleSortDirection}
+						title={`Sort direction: ${sortDirectionLabel}`}
+						aria-label={`Toggle sort direction (${sortDirectionLabel})`}
+					>
+						{sortDirection === 'asc' ? '↑' : '↓'}
+					</button>
 
-						<button
-							type="button"
-							className="library-menu-btn library-header-inline-action"
-							onClick={toggleSortDirection}
-							title={`Sort direction: ${sortDirectionLabel}`}
-							aria-label={`Toggle sort direction (${sortDirectionLabel})`}
-						>
-							{sortDirection === 'asc' ? '↑' : '↓'}
-						</button>
+					<button
+						type="button"
+						className="library-menu-btn"
+						onClick={cycleSortMode}
+						title="Cycle sort mode"
+					>
+						{`Sort: ${sortLabel}`}
+					</button>
 
+<<<<<<< HEAD
+<<<<<<< HEAD
 						<button
 							type="button"
 							className="library-menu-btn library-header-inline-action"
@@ -2324,8 +2313,31 @@ const LibraryPage = () => {
 							</div>
 						) : null}
 					</div>
+=======
+=======
+>>>>>>> parent of a92d98b (blah)
+					<button
+						type="button"
+						className="library-add-pirate-btn"
+						onClick={handleAddPirateLibraryGame}
+						disabled={actionState.busyAction !== ''}
+					>
+						{actionState.busyAction === 'add-pirate' ? 'Adding EXE...' : 'Add Pirate EXE'}
+					</button>
+<<<<<<< HEAD
+>>>>>>> parent of a92d98b (blah)
+=======
+>>>>>>> parent of a92d98b (blah)
 
 				</header>
+
+				<LauncherTabs
+					launchers={launchers}
+					activeLauncherId={activeLauncherId}
+					showAllOption
+					isAllActive={scope === 'all' || String(activeLauncherId || '').trim().toLowerCase() === 'all'}
+					onChange={handleLauncherTabChange}
+				/>
 				{actionState.text ? (
 					<p className={`library-action-notice ${actionState.type === 'error' ? 'library-action-notice-error' : ''}`}>
 						{actionState.text}

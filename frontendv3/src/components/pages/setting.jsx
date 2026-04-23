@@ -26,7 +26,6 @@ const DEFAULT_SETTINGS = {
 			bio: '',
 			avatarUrl: '',
 		},
-		profilesByUserId: {},
 		platforms: {
 			steam: { connected: false, username: '', profileLink: '' },
 			gog: { connected: false, username: '' },
@@ -140,57 +139,6 @@ function normalizeSettings(data) {
 	return mergeWithDefaults(DEFAULT_SETTINGS, data);
 }
 
-function normalizeCurrentUserId(value) {
-	return String(value ?? '').trim();
-}
-
-function resolveProfileForUser(settings, userId) {
-	const normalizedUserId = normalizeCurrentUserId(userId);
-	const profileMap = settings?.account?.profilesByUserId;
-	const scopedProfile =
-		normalizedUserId
-		&& profileMap
-		&& typeof profileMap === 'object'
-		&& profileMap[normalizedUserId]
-		&& typeof profileMap[normalizedUserId] === 'object'
-			? profileMap[normalizedUserId]
-			: null;
-	const profile = normalizedUserId
-		? (scopedProfile || {})
-		: (settings?.account?.profile || {});
-
-	return {
-		bio: typeof profile?.bio === 'string' ? profile.bio : '',
-		avatarUrl: typeof profile?.avatarUrl === 'string' ? profile.avatarUrl : '',
-	};
-}
-
-async function resolveCurrentUserId(api) {
-	if (!api || typeof api !== 'object') return '';
-
-	if (typeof api.getCurrentUser === 'function') {
-		try {
-			const profile = await api.getCurrentUser();
-			const profileId = normalizeCurrentUserId(profile?.id);
-			if (profileId) return profileId;
-		} catch {
-			// fall through to token fallback
-		}
-	}
-
-	if (typeof api.getToken === 'function') {
-		try {
-			const token = await api.getToken();
-			const tokenId = normalizeCurrentUserId(String(token ?? '').split('.')[0] || '');
-			if (tokenId) return tokenId;
-		} catch {
-			// ignore and return empty id
-		}
-	}
-
-	return '';
-}
-
 function sleep(ms) {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -235,7 +183,6 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 	const [gogOAuthStatus, setGogOAuthStatus] = useState({ isLoggedIn: false, hasToken: false });
 	const [itchOAuthStatus, setItchOAuthStatus] = useState({ isLoggedIn: false, hasToken: false });
 	const [platformRuntime, setPlatformRuntime] = useState(() => createEmptyPlatformRuntimeState());
-	const [currentUserId, setCurrentUserId] = useState('');
 	const [profileForm, setProfileForm] = useState({ bio: '', avatarUrl: '' });
 	const [downloadPathsForm, setDownloadPathsForm] = useState({ path: '', pirateTorrentsPath: '' });
 	const [message, setMessage] = useState({ type: '', text: '' });
@@ -330,12 +277,13 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 	const loadSettings = async () => {
 		try {
 			setLoading(true);
-			const resolvedCurrentUserId = await resolveCurrentUserId(window.electronAPI);
-			setCurrentUserId(resolvedCurrentUserId);
 			const data = await fetchSettingsWithRetry(window.electronAPI, 8, 150);
 			const normalized = normalizeSettings(data);
 			setSettings(normalized);
-			setProfileForm(resolveProfileForUser(normalized, resolvedCurrentUserId));
+			setProfileForm({
+				bio: normalized?.account?.profile?.bio || '',
+				avatarUrl: normalized?.account?.profile?.avatarUrl || '',
+			});
 			setDownloadPathsForm({
 				path: normalized?.downloads?.path || '',
 				pirateTorrentsPath: normalized?.downloads?.pirateTorrentsPath || normalized?.downloads?.path || '',
@@ -365,11 +313,12 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 			await refreshPlatformRuntimeState();
 		} catch (error) {
 			console.error('Failed to load settings:', error);
-			const resolvedCurrentUserId = await resolveCurrentUserId(window.electronAPI);
-			setCurrentUserId(resolvedCurrentUserId);
 			const fallbackSettings = normalizeSettings(null);
 			setSettings(fallbackSettings);
-			setProfileForm(resolveProfileForUser(fallbackSettings, resolvedCurrentUserId));
+			setProfileForm({
+				bio: fallbackSettings.account.profile.bio,
+				avatarUrl: fallbackSettings.account.profile.avatarUrl,
+			});
 			setDownloadPathsForm({
 				path: fallbackSettings.downloads.path,
 				pirateTorrentsPath: fallbackSettings.downloads.pirateTorrentsPath || fallbackSettings.downloads.path,
@@ -820,7 +769,6 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 	const handleSaveProfile = async () => {
 		const normalizedBio = profileForm.bio.trim();
 		const normalizedAvatarUrl = profileForm.avatarUrl.trim();
-		const normalizedCurrentUserId = normalizeCurrentUserId(currentUserId);
 		let remoteProfile = null;
 		let remoteError = null;
 
@@ -839,41 +787,25 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 				}
 			}
 
-			const existingProfilesByUserId =
-				settings?.account?.profilesByUserId && typeof settings.account.profilesByUserId === 'object'
-					? settings.account.profilesByUserId
-					: {};
-			const nextProfilesByUserId = normalizedCurrentUserId
-				? {
-					...existingProfilesByUserId,
-					[normalizedCurrentUserId]: {
-						bio: normalizedBio,
-						avatarUrl: normalizedAvatarUrl,
-					},
-				}
-				: existingProfilesByUserId;
-
 			const updated = await window.electronAPI.updateSettings({
 				account: {
 					profile: {
 						bio: normalizedBio,
 						avatarUrl: normalizedAvatarUrl,
 					},
-					profilesByUserId: nextProfilesByUserId,
 				},
 			});
 			const normalized = normalizeSettings(updated);
 			setSettings(normalized);
-			const resolvedProfile = resolveProfileForUser(normalized, normalizedCurrentUserId);
 
 			const resolvedBio =
 				typeof remoteProfile?.bio === 'string'
 					? remoteProfile.bio
-					: resolvedProfile.bio;
+					: (normalized?.account?.profile?.bio || '');
 			const resolvedAvatar =
 				typeof remoteProfile?.avatarUrl === 'string'
 					? remoteProfile.avatarUrl
-					: resolvedProfile.avatarUrl;
+					: (normalized?.account?.profile?.avatarUrl || '');
 
 			setProfileForm({
 				bio: resolvedBio,
@@ -903,21 +835,6 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 		} catch (error) {
 			console.error('Failed to save profile settings:', error);
 			if (isMissingSettingsHandlerError(error, 'settings:update-bulk')) {
-				const normalizedCurrentUserId = normalizeCurrentUserId(currentUserId);
-				const existingProfilesByUserId =
-					settings?.account?.profilesByUserId && typeof settings.account.profilesByUserId === 'object'
-						? settings.account.profilesByUserId
-						: {};
-				const nextProfilesByUserId = normalizedCurrentUserId
-					? {
-						...existingProfilesByUserId,
-						[normalizedCurrentUserId]: {
-							bio: normalizedBio,
-							avatarUrl: normalizedAvatarUrl,
-						},
-					}
-					: existingProfilesByUserId;
-
 				const localUpdated = normalizeSettings({
 					...settings,
 					account: {
@@ -926,7 +843,6 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 							bio: normalizedBio,
 							avatarUrl: normalizedAvatarUrl,
 						},
-						profilesByUserId: nextProfilesByUserId,
 					},
 				});
 				setSettings(localUpdated);
