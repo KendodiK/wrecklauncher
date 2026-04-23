@@ -1069,8 +1069,6 @@ const LibraryPage = () => {
 	const [showAllGames, setShowAllGames] = useState(false);
 	const [stripWindowStart, setStripWindowStart] = useState(0);
 	const [actionState, setActionState] = useState({ busyAction: '', text: '', type: '' });
-<<<<<<< HEAD
-<<<<<<< HEAD
 	const launcherOptions = useMemo(
 		() => (Array.isArray(launchers)
 			? launchers.map((entry) => {
@@ -1092,10 +1090,6 @@ const LibraryPage = () => {
 	const toggleSortDirection = useCallback(() => {
 		setSortDirection((previous) => (previous === 'asc' ? 'desc' : 'asc'));
 	}, []);
-=======
->>>>>>> parent of 8bb715d (blah blah blah)
-=======
->>>>>>> parent of 8bb715d (blah blah blah)
 
 	const ownedGames = useMemo(() => {
 		return dedupeLibraryGames(libraryGames.filter((g) => g.owned === true));
@@ -1438,8 +1432,6 @@ const LibraryPage = () => {
 				const leftHasAppId = Number.isFinite(leftAppId) && leftAppId > 0;
 				const rightHasAppId = Number.isFinite(rightAppId) && rightAppId > 0;
 
-<<<<<<< HEAD
-<<<<<<< HEAD
 				if (leftHasAppId && rightHasAppId && leftAppId !== rightAppId) {
 					comparison = leftAppId - rightAppId;
 				} else if (leftHasAppId !== rightHasAppId) {
@@ -1467,10 +1459,6 @@ const LibraryPage = () => {
 		[filteredGames],
 	);
 
-=======
->>>>>>> parent of 8bb715d (blah blah blah)
-=======
->>>>>>> parent of 8bb715d (blah blah blah)
 	const activeGame = useMemo(() => {
 		if (!filteredGames.length) return null;
 		return filteredGamesById.get(activeGameId) ?? filteredGames[0] ?? null;
@@ -2262,17 +2250,6 @@ const LibraryPage = () => {
 						{`Sort: ${sortLabel}`}
 					</button>
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-						<button
-							type="button"
-							className="library-menu-btn library-header-inline-action"
-							onClick={cycleSortMode}
-							title="Cycle sort mode"
-						>
-							{`Sort: ${sortLabel}`}
-						</button>
-
 					<button
 						type="button"
 						className="library-add-local-btn"
@@ -2282,65 +2259,48 @@ const LibraryPage = () => {
 						{actionState.busyAction === 'add-local' ? 'Adding EXE...' : 'Add Local EXE'}
 					</button>
 
-						<button
-							type="button"
-							className="library-menu-btn library-header-overflow-toggle"
-							onClick={() => setShowHeaderMenu((value) => !value)}
-							aria-label="Open library actions menu"
-						>
-							<svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
-								<path d="M5 7h14M5 12h14M5 17h14" />
-							</svg>
-						</button>
-
-						{showHeaderMenu ? (
-							<div className="library-scope-menu library-header-overflow-menu">
-								<p className="library-scope-menu-label">Library Actions</p>
-								<button
-									type="button"
-									onClick={handleToggleSortDirection}
-									className="library-scope-btn"
-								>
-									Sort Direction: {sortDirectionLabel}
-								</button>
-								<button
-									type="button"
-									onClick={handleCycleSortMode}
-									className="library-scope-btn"
-								>
-									Sort Mode: {sortLabel}
-								</button>
-								<div className="library-scope-divider" />
-								<button
-									type="button"
-									onClick={() => {
-										setShowHeaderMenu(false);
-										handleAddPirateLibraryGame();
-									}}
-									className="library-scope-btn"
-									disabled={actionState.busyAction !== ''}
-								>
-									{actionState.busyAction === 'add-pirate' ? 'Adding EXE...' : 'Add Pirate EXE'}
-								</button>
-							</div>
-						) : null}
-					</div>
-=======
-=======
->>>>>>> parent of a92d98b (blah)
 					<button
 						type="button"
-						className="library-add-pirate-btn"
-						onClick={handleAddPirateLibraryGame}
-						disabled={actionState.busyAction !== ''}
+						className="library-menu-btn library-header-overflow-toggle"
+						onClick={() => setShowHeaderMenu((value) => !value)}
+						aria-label="Open library actions menu"
 					>
-						{actionState.busyAction === 'add-pirate' ? 'Adding EXE...' : 'Add Pirate EXE'}
+						<svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+							<path d="M5 7h14M5 12h14M5 17h14" />
+						</svg>
 					</button>
-<<<<<<< HEAD
->>>>>>> parent of a92d98b (blah)
-=======
->>>>>>> parent of a92d98b (blah)
 
+					{showHeaderMenu ? (
+						<div className="library-scope-menu library-header-overflow-menu">
+							<p className="library-scope-menu-label">Library Actions</p>
+							<button
+								type="button"
+								onClick={handleToggleSortDirection}
+								className="library-scope-btn"
+							>
+								Sort Direction: {sortDirectionLabel}
+							</button>
+							<button
+								type="button"
+								onClick={handleCycleSortMode}
+								className="library-scope-btn"
+							>
+								Sort Mode: {sortLabel}
+							</button>
+							<div className="library-scope-divider" />
+							<button
+								type="button"
+								onClick={() => {
+									setShowHeaderMenu(false);
+									handleAddPirateLibraryGame();
+								}}
+								className="library-scope-btn"
+								disabled={actionState.busyAction !== ''}
+							>
+								{actionState.busyAction === 'add-pirate' ? 'Adding EXE...' : 'Add Pirate EXE'}
+							</button>
+						</div>
+					) : null}
 				</header>
 
 				<LauncherTabs
@@ -2364,15 +2324,7 @@ const LibraryPage = () => {
 						<>
 							<div className="library-dock-strip-area group">
 								<LibraryGameStrip
-<<<<<<< HEAD
-<<<<<<< HEAD
-									games={stripGames}
-=======
 									games={filteredGames}
->>>>>>> parent of 8bb715d (blah blah blah)
-=======
-									games={filteredGames}
->>>>>>> parent of 8bb715d (blah blah blah)
 									activeGameId={activeGame?.id ?? ''}
 									onSelect={setActiveGameId}
 									onOpenStore={handleOpenStorePage}
