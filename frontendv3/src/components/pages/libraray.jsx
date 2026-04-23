@@ -1069,6 +1069,7 @@ const LibraryPage = () => {
 	const [showAllGames, setShowAllGames] = useState(false);
 	const [stripWindowStart, setStripWindowStart] = useState(0);
 	const [actionState, setActionState] = useState({ busyAction: '', text: '', type: '' });
+<<<<<<< HEAD
 	const launcherOptions = useMemo(
 		() => (Array.isArray(launchers)
 			? launchers.map((entry) => {
@@ -1090,6 +1091,8 @@ const LibraryPage = () => {
 	const toggleSortDirection = useCallback(() => {
 		setSortDirection((previous) => (previous === 'asc' ? 'desc' : 'asc'));
 	}, []);
+=======
+>>>>>>> parent of 8bb715d (blah blah blah)
 
 	const ownedGames = useMemo(() => {
 		return dedupeLibraryGames(libraryGames.filter((g) => g.owned === true));
@@ -1432,6 +1435,7 @@ const LibraryPage = () => {
 				const leftHasAppId = Number.isFinite(leftAppId) && leftAppId > 0;
 				const rightHasAppId = Number.isFinite(rightAppId) && rightAppId > 0;
 
+<<<<<<< HEAD
 				if (leftHasAppId && rightHasAppId && leftAppId !== rightAppId) {
 					comparison = leftAppId - rightAppId;
 				} else if (leftHasAppId !== rightHasAppId) {
@@ -1459,6 +1463,8 @@ const LibraryPage = () => {
 		[filteredGames],
 	);
 
+=======
+>>>>>>> parent of 8bb715d (blah blah blah)
 	const activeGame = useMemo(() => {
 		if (!filteredGames.length) return null;
 		return filteredGamesById.get(activeGameId) ?? filteredGames[0] ?? null;
@@ -2352,7 +2358,11 @@ const LibraryPage = () => {
 						<>
 							<div className="library-dock-strip-area group">
 								<LibraryGameStrip
+<<<<<<< HEAD
 									games={stripGames}
+=======
+									games={filteredGames}
+>>>>>>> parent of 8bb715d (blah blah blah)
 									activeGameId={activeGame?.id ?? ''}
 									onSelect={setActiveGameId}
 									onOpenStore={handleOpenStorePage}
