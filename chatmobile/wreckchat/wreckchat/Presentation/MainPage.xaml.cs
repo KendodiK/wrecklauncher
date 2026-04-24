@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Windows.UI;
+using wreckchat.Services.Api;
 
 namespace wreckchat.Presentation;
 
@@ -21,8 +22,30 @@ public sealed partial class MainPage : Page
         _chatRoomIncoming = (TextBlock)FindName("ChatRoomIncoming");
     }
 
-    private void Login_Click(object sender, RoutedEventArgs e)
+    private async void Login_Click(object sender, RoutedEventArgs e)
     {
+        var username = UsernameInput.Text;
+        var password = PasswordInput.Password;
+
+        if (string.IsNullOrWhiteSpace(username))
+        {
+            // TODO: Show error
+            return;
+        }
+        else if (string.IsNullOrWhiteSpace(password))
+        {
+            // TODO: Show error
+            return;
+        }
+
+        var model = ((App)Application.Current).Services.GetService<MainModel>()!;
+        var token = await model.CheckData(username, password);
+        if (!token)
+        {
+            // TODO: Show error
+            return;
+        }
+
         LoginView.Visibility = Visibility.Collapsed;
         AppView.Visibility = Visibility.Visible;
         BottomNav.Visibility = Visibility.Visible;

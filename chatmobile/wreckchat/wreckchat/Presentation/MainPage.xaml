@@ -26,13 +26,15 @@
                    Foreground="#94A3B8"
                    TextAlignment="Center" />
 
-        <TextBox PlaceholderText="Username"
+        <TextBox x:Name="UsernameInput"
+                 PlaceholderText="Username"
                  Background="#1E293B"
                  Foreground="#E2E8F0"
                  BorderBrush="#334155"
                  Padding="12"
                  CornerRadius="8" />
-        <PasswordBox PlaceholderText="Password"
+        <PasswordBox x:Name="PasswordInput"
+                     PlaceholderText="Password"
                      Background="#1E293B"
                      Foreground="#E2E8F0"
                      BorderBrush="#334155"
