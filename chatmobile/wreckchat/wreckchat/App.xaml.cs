@@ -3,6 +3,7 @@ using Uno.Resizetizer;
 using wreckchat.Services.Api;
 using wreckchat.Services.Auth;
 using wreckchat.Services.Http;
+using wreckchat.Services.WS;
 
 namespace wreckchat;
 public partial class App : Application
@@ -87,6 +88,8 @@ public partial class App : Application
                         client.BaseAddress = new Uri("https://api.anchorlauncher.hu"); // API URL
                     })
                     .AddHttpMessageHandler<AuthHandler>();
+
+                    services.AddSingleton<IWebSocketService, WebSocketService>();
 
                     services.AddTransient<MainModel>();
                     services.AddTransient<SecondModel>();
