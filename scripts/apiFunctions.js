@@ -502,6 +502,18 @@ module.exports.GETFriendsOfNativeUser = async function (req, res) {
     }     
 }
 
+module.exports.GETFriendsWithChattingStatus = async function (req, res) {
+    try {
+        const { nativeUserId } = req.params;
+        const friendsCtrl = new FriendsController();
+        const friends = await friendsCtrl.getChattingFriends(nativeUserId);
+        
+        return res.json(friends);
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+}
+
 module.exports.GETNativeUserById = async function (req, res) {
     try {
         const { userId } = req.params;

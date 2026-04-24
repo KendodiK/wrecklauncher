@@ -33,7 +33,7 @@ public class LoginModel
 
         var token = await _api.Login(username, password);
 
-        if (token is InvalidOperationException)
+        if (token is InvalidOperationException) //do with try catch instead
         {
             // TODO: Show error
             return false;
