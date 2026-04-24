@@ -50,7 +50,7 @@ const Storeslider = ({ items, onCardClick, onNearEnd, nearEndThreshold = 5 }) =>
                     platform_name: normalizedPlatform,
                     description:
                         card.description ??
-                        'Short description goes here. Replace this with real store data when available.',
+                        'No description available. Click to learn more about this game on the store page.',
                     sites: card.sites,
                     tags: card.tags,
                 },

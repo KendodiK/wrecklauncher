@@ -647,6 +647,8 @@ const GameSliderBase = ({
 		if (!el) return;
 
 		const handler = (e) => {
+			// Only react when SHIFT is held
+			if (!e.shiftKey) return;
 			// Treat mouse wheel/trackpad as left/right navigation.
 			// Prevent page scroll while the cursor is over the carousel.
 			if (e.cancelable) e.preventDefault();

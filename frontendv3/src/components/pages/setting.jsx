@@ -403,6 +403,16 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 	useEffect(() => {
 		applyDocumentTheme(settings?.display?.theme || 'dark');
 	}, [settings?.display?.theme]);
+	//auto msg dismiss after 3s
+	useEffect(() => {
+		if (!message.text) return;
+
+		const timer = setTimeout(() => {
+			setMessage({ text: "", type: "" });
+		}, 3000);
+
+		return () => clearTimeout(timer);
+		}, [message]);
 
 	const fetchPlatformRuntimeState = async () => {
 		const empty = createEmptyPlatformRuntimeState();
@@ -1223,16 +1233,77 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 					</div>
 				)}
 
-				{/* Status Message */}
 				{message.text && (
-					<div className={`mb-4 p-3 rounded-lg ${
-						message.type === 'success' ? 'bg-green-900/30 text-green-400 border border-green-700' :
-						'bg-red-900/30 text-red-400 border border-red-700'
-					}`}>
-						{message.text}
-					</div>
-				)}
+				<div className="fixed top-16 left-1/2 -translate-x-1/2 z-50">
+					<div
+					className={`mb-4 px-4 py-3 pr-10 rounded-lg shadow-lg relative backdrop-blur-sm ${
+						message.type === "success"
+						? "bg-green-800 text-green-100 border border-green-600"
+						: "bg-red-800 text-red-100 border border-red-600"
+					}`}
+					>
+					{message.text}
 
+					{/* Close button */}
+					<span
+						onClick={() => setMessage({ text: "", type: "" })}
+						className="absolute top-1 right-2 cursor-pointer text-lg font-bold hover:opacity-70"
+					>
+						×
+					</span>
+					</div>
+				</div>
+				)}
+				<section className="mb-8 bg-slate-800/50 rounded-lg p-6 border border-slate-700">
+					<h2 className="text-xl font-semibold mb-4 flex items-center">
+						<svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.121 17.804A13.937 13.937 0 0112 16c2.634 0 5.09.73 7.121 2.004M15 10a3 3 0 11-6 0 3 3 0 016 0z" />
+						</svg>
+						Profile
+					</h2>
+
+					<div className="space-y-4">
+						<div>
+							<label className="text-sm font-medium">Profile picture URL</label>
+							<input
+								type="url"
+								value={profileForm.avatarUrl}
+								onChange={(e) => setProfileForm((prev) => ({ ...prev, avatarUrl: e.target.value }))}
+								disabled={saving}
+								placeholder="https://example.com/avatar.png"
+								className="mt-2 w-full bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
+							/>
+							{profileAvatarUrlError ? (
+								<p className="mt-2 text-xs text-rose-300">{profileAvatarUrlError}</p>
+							) : (
+								<p className="mt-2 text-xs text-slate-400">Only http:// or https:// links are accepted, and a reachability health check runs before save.</p>
+							)}
+						</div>
+
+						<div>
+							<label className="text-sm font-medium">Bio</label>
+							<textarea
+								rows={4}
+								value={profileForm.bio}
+								onChange={(e) => setProfileForm((prev) => ({ ...prev, bio: e.target.value }))}
+								disabled={saving}
+								placeholder="Write a short bio"
+								className="mt-2 w-full bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500 resize-none"
+							/>
+							<p className="mt-2 text-xs text-slate-400">Bio is stored and rendered as plain text.</p>
+						</div>
+
+						<div className="flex justify-end">
+							<button
+								onClick={handleSaveProfile}
+								disabled={!canSaveProfile}
+								className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-60"
+							>
+								{saving ? 'Saving...' : 'Save profile'}
+							</button>
+						</div>
+					</div>
+				</section>
 				{/* Display Settings */}
 				{(selectedSection === 'display' || !showingMovedSection) && (
 				<section className="mb-8 bg-slate-800/50 rounded-lg p-6 border border-slate-700">
@@ -1260,86 +1331,7 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 								<option value="purple-black">Purple Black</option>
 								<option value="light-green">Light Green</option>
 								<option value="light">Light</option>
-								<option value="system">System</option>
 							</select>
-						</div>
-
-						{/* Language */}
-						<div className="flex items-center justify-between">
-							<div>
-								<label className="text-sm font-medium">Language</label>
-								<p className="text-xs text-slate-400">Select your language</p>
-							</div>
-							<select
-								value={settings.display.language}
-								onChange={(e) => updateSetting('display', 'language', e.target.value)}
-								disabled={saving}
-								className="bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
-							>
-								<option value="en">English</option>
-								<option value="hu">Hungarian</option>
-							</select>
-						</div>
-
-						<div className="flex items-center justify-between">
-							<div>
-								<label className="text-sm font-medium">Store country</label>
-								<p className="text-xs text-slate-400">Used for regional prices and availability lookups</p>
-							</div>
-							<select
-								value={selectedStoreCountryCode}
-								onChange={(e) => updateSetting('store', 'countryCode', e.target.value)}
-								disabled={saving}
-								className="bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
-							>
-								{!hasSelectedStoreCountryOption ? (
-									<option value={selectedStoreCountryCode}>{`Custom - ${selectedStoreCountryCode}`}</option>
-								) : null}
-								{STORE_COUNTRY_OPTIONS.map((country) => (
-									<option key={country.code} value={country.code}>
-										{`${country.name} - ${country.code}`}
-									</option>
-								))}
-							</select>
-						</div>
-
-						{/* UI Scale */}
-						<div className="flex items-center justify-between">
-							<div>
-								<label className="text-sm font-medium">UI Scale: {settings.display.uiScale}%</label>
-								<p className="text-xs text-slate-400">Adjust interface size</p>
-							</div>
-							<select
-								value={settings.display.uiScale}
-								onChange={(e) => updateSetting('display', 'uiScale', parseInt(e.target.value))}
-								disabled={saving}
-								className="bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
-							>
-								<option value="100">100%</option>
-								<option value="125">125%</option>
-								<option value="150">150%</option>
-							</select>
-						</div>
-
-						{/* Animations */}
-						<div className="flex items-center justify-between">
-							<div>
-								<label className="text-sm font-medium">Animations</label>
-								<p className="text-xs text-slate-400">Enable or disable UI animations</p>
-							</div>
-							<button
-								onClick={() => updateSetting('display', 'animations', !settings.display.animations)}
-								disabled={saving}
-								className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-									settings.display.animations ? 'bg-blue-600' : 'bg-slate-600'
-								}`}
-							>
-								<span
-									className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-										settings.display.animations ? 'translate-x-6' : 'translate-x-1'
-									}`}
-								/>
-							</button>
 						</div>
 					</div>
 				</section>
@@ -1356,25 +1348,6 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 					</h2>
 
 					<div className="space-y-4">
-						{/* Auto-refresh */}
-						<div className="flex items-center justify-between">
-							<div>
-								<label className="text-sm font-medium">Auto-refresh interval</label>
-								<p className="text-xs text-slate-400">How often to sync your library</p>
-							</div>
-							<select
-								value={settings.library.autoRefreshHours}
-								onChange={(e) => updateSetting('library', 'autoRefreshHours', parseInt(e.target.value))}
-								disabled={saving}
-								className="bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
-							>
-								<option value="6">Every 6 hours</option>
-								<option value="12">Every 12 hours</option>
-								<option value="24">Every 24 hours</option>
-								<option value="48">Every 2 days</option>
-							</select>
-						</div>
-
 						{/* View Mode */}
 						<div className="flex items-center justify-between">
 							<div>
@@ -1389,24 +1362,6 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 							>
 								<option value="carousel">Carousel</option>
 								<option value="list">List</option>
-							</select>
-						</div>
-
-						{/* Games per page */}
-						<div className="flex items-center justify-between">
-							<div>
-								<label className="text-sm font-medium">Games per page</label>
-								<p className="text-xs text-slate-400">Number of games to load at once</p>
-							</div>
-							<select
-								value={settings.library.gamesPerPage}
-								onChange={(e) => updateSetting('library', 'gamesPerPage', parseInt(e.target.value))}
-								disabled={saving}
-								className="bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
-							>
-								<option value="20">20</option>
-								<option value="50">50</option>
-								<option value="100">100</option>
 							</select>
 						</div>
 					</div>
@@ -1460,25 +1415,13 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 
 					<div className="space-y-4">
 						<div>
-							<label className="text-sm font-medium">General download path</label>
-							<input
-								type="text"
-								value={downloadPathsForm.path}
-								onChange={(e) => setDownloadPathsForm((prev) => ({ ...prev, path: e.target.value }))}
-								disabled={saving}
-								placeholder="C:\\Downloads\\WreckLauncher"
-								className="mt-2 w-full bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
-							/>
-						</div>
-
-						<div>
-							<label className="text-sm font-medium">Pirate torrent download path</label>
+							<label className="text-sm font-medium">Game torrent download path</label>
 							<input
 								type="text"
 								value={downloadPathsForm.pirateTorrentsPath}
 								onChange={(e) => setDownloadPathsForm((prev) => ({ ...prev, pirateTorrentsPath: e.target.value }))}
 								disabled={saving}
-								placeholder="C:\\Downloads\\WreckLauncher\\Pirate Torrents"
+								placeholder="C:\\Downloads\\WreckLauncher\\Game Torrents"
 								className="mt-2 w-full bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
 							/>
 						</div>
@@ -1586,8 +1529,8 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 										type="text"
 										value={gogUsername}
 										onChange={(e) => setGogUsername(e.target.value)}
-										disabled={saving || gogBusy}
-										placeholder="yourgogname"
+										disabled={true}
+										placeholder="yourgogname(automatic from OAuth)"
 										className="mt-2 w-full bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
 									/>
 								</label>
@@ -1631,8 +1574,8 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 										type="text"
 										value={itchUsername}
 										onChange={(e) => setItchUsername(e.target.value)}
-										disabled={saving || itchBusy}
-										placeholder="youritchname"
+										disabled={true}
+										placeholder="youritchname(automatic from OAuth)"
 										className="mt-2 w-full bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
 									/>
 								</label>
@@ -1659,56 +1602,7 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 					</div>
 				</section>
 
-				<section className="mb-8 bg-slate-800/50 rounded-lg p-6 border border-slate-700">
-					<h2 className="text-xl font-semibold mb-4 flex items-center">
-						<svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.121 17.804A13.937 13.937 0 0112 16c2.634 0 5.09.73 7.121 2.004M15 10a3 3 0 11-6 0 3 3 0 016 0z" />
-						</svg>
-						Profile
-					</h2>
 
-					<div className="space-y-4">
-						<div>
-							<label className="text-sm font-medium">Profile picture URL</label>
-							<input
-								type="url"
-								value={profileForm.avatarUrl}
-								onChange={(e) => setProfileForm((prev) => ({ ...prev, avatarUrl: e.target.value }))}
-								disabled={saving}
-								placeholder="https://example.com/avatar.png"
-								className="mt-2 w-full bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
-							/>
-							{profileAvatarUrlError ? (
-								<p className="mt-2 text-xs text-rose-300">{profileAvatarUrlError}</p>
-							) : (
-								<p className="mt-2 text-xs text-slate-400">Only http:// or https:// links are accepted, and a reachability health check runs before save.</p>
-							)}
-						</div>
-
-						<div>
-							<label className="text-sm font-medium">Bio</label>
-							<textarea
-								rows={4}
-								value={profileForm.bio}
-								onChange={(e) => setProfileForm((prev) => ({ ...prev, bio: e.target.value }))}
-								disabled={saving}
-								placeholder="Write a short bio"
-								className="mt-2 w-full bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500 resize-none"
-							/>
-							<p className="mt-2 text-xs text-slate-400">Bio is stored and rendered as plain text.</p>
-						</div>
-
-						<div className="flex justify-end">
-							<button
-								onClick={handleSaveProfile}
-								disabled={!canSaveProfile}
-								className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-60"
-							>
-								{saving ? 'Saving...' : 'Save profile'}
-							</button>
-						</div>
-					</div>
-				</section>
 				</>
 				)}
 

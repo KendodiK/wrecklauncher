@@ -1,4 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import SteamLogo from '../../../../webpage/img/steam_logo.svg';
+import GogLogo from '../../../../webpage/img/gog_logo.svg';
+import ItchLogo from '../../../../webpage/img/itch_io_logo.svg';
 import { useNavigate } from 'react-router-dom';
 import CompactFiltersSidebar from './CompactFiltersSidebar.jsx';
 import { mergeUniqueGames, searchGamesFromSources } from '../../utils/remoteGameSearch.js';
@@ -9,9 +13,9 @@ import {
 } from '../../utils/storeRouting.js';
 
 const PLATFORM_ICON_META = {
-	steam: { short: 'S', tone: 'bg-sky-500/20 text-sky-200 border-sky-400/40' },
-	gog: { short: 'G', tone: 'bg-emerald-500/20 text-emerald-200 border-emerald-400/40' },
-	itchio: { short: 'I', tone: 'bg-rose-500/20 text-rose-200 border-rose-400/40' },
+	steam: { img: SteamLogo, tone: 'bg-sky-500/20 text-sky-200 border-sky-400/40' },
+	gog: { img: GogLogo, tone: 'bg-emerald-500/20 text-emerald-200 border-emerald-400/40' },
+	itchio: { img: ItchLogo, tone: 'bg-rose-500/20 text-rose-200 border-rose-400/40' },
 };
 
 function extractMetadataLabel(value) {
@@ -137,6 +141,11 @@ const FilteredGamesSection = ({
 	const [selectedPlatforms, setSelectedPlatforms] = useState(() => normalizedDefaultPlatforms);
 	const [priceRange, setPriceRange] = useState({ min: 0, max: 100 });
 	const [selectedGame, setSelectedGame] = useState(null);
+	const [hoveredGame, setHoveredGame] = useState(null);
+	const [hoverAnchorRect, setHoverAnchorRect] = useState(null);
+	const [hoverOverRow, setHoverOverRow] = useState(false);
+	const [hoverOverPopup, setHoverOverPopup] = useState(false);
+	const [countryCode, setCountryCode] = useState('DE');
 	const [resolvedGenresByGameId, setResolvedGenresByGameId] = useState({});
 	const [remoteSearchGames, setRemoteSearchGames] = useState([]);
 	const [isRemoteSearchLoading, setIsRemoteSearchLoading] = useState(false);
@@ -144,7 +153,6 @@ const FilteredGamesSection = ({
 	const gamesPerPage = 20;
 	const normalizedSearchQuery = String(searchQuery || '').trim();
 	const hasSearchFilters = normalizedSearchQuery.length > 0 || selectedTags.length > 0;
-
 	useEffect(() => {
 		setSelectedPlatforms((prev) => (
 			areStringArraysEqual(prev, normalizedDefaultPlatforms) ? prev : normalizedDefaultPlatforms
@@ -300,6 +308,132 @@ const FilteredGamesSection = ({
 	const displayGameMetadata = useMemo(() => {
 		return displayGame ? getMetadataForGame(displayGame) : { tags: [], genres: [] };
 	}, [displayGame, resolvedGenresByGameId]);
+
+	// Keep popup visible when hovering over popup itself
+	useEffect(() => {
+		if (!hoverOverRow && !hoverOverPopup) {
+			setHoveredGame(null);
+			setHoverAnchorRect(null);
+		}
+	}, [hoverOverRow, hoverOverPopup]);
+
+	function normalizeCountryCodeLocal(value) {
+		const raw = String(value || '').trim().toUpperCase();
+		return /^[A-Z]{2}$/.test(raw) ? raw : null;
+	}
+
+	function inferCountryCodeFromLocaleLocal() {
+		const localeCandidates = [];
+		try {
+			const resolved = Intl?.DateTimeFormat?.().resolvedOptions?.().locale;
+			if (resolved) localeCandidates.push(resolved);
+		} catch {
+			// ignore
+		}
+		if (typeof navigator !== 'undefined' && typeof navigator?.language === 'string' && navigator.language.trim()) {
+			localeCandidates.push(navigator.language);
+		}
+
+		for (const locale of localeCandidates) {
+			const match = String(locale).match(/[-_](?<cc>[A-Za-z]{2})\b/);
+			const code = normalizeCountryCodeLocal(match?.groups?.cc || match?.[1]);
+			if (code) return code;
+		}
+
+		return 'DE';
+	}
+
+	// Resolve preferred country code (checks settings then falls back to locale 'DE')
+	useEffect(() => {
+		let cancelled = false;
+		void (async () => {
+			try {
+				const api = typeof window !== 'undefined' ? window.electronAPI : null;
+				if (!api || typeof api.invoke !== 'function') {
+					setCountryCode('DE');
+					return;
+				}
+				const settings = await api.invoke('settings:get');
+				if (cancelled) return;
+				const candidates = [
+					settings?.store?.countryCode,
+					settings?.display?.countryCode,
+					settings?.account?.countryCode,
+				];
+				for (const candidate of candidates) {
+					const normalized = normalizeCountryCodeLocal(candidate);
+					if (normalized) {
+						setCountryCode(normalized);
+						return;
+					}
+				}
+				setCountryCode(inferCountryCodeFromLocaleLocal());
+			} catch {
+				if (!cancelled) setCountryCode('DE');
+			}
+		})();
+
+		return () => { cancelled = true; };
+	}, []);
+
+	const COUNTRY_TO_CURRENCY = {
+		US: 'USD',
+		DE: 'EUR',
+		GB: 'GBP',
+		JP: 'JPY',
+		CA: 'CAD',
+		AU: 'AUD',
+		FR: 'EUR',
+		ES: 'EUR',
+		IT: 'EUR',
+		CN: 'CNY',
+		KR: 'KRW',
+	};
+
+	const COUNTRY_TO_LOCALE = {
+		US: 'en-US',
+		DE: 'de-DE',
+		GB: 'en-GB',
+		JP: 'ja-JP',
+		CA: 'en-CA',
+		AU: 'en-AU',
+		FR: 'fr-FR',
+		ES: 'es-ES',
+		IT: 'it-IT',
+		CN: 'zh-CN',
+		KR: 'ko-KR',
+	};
+
+	function normalizePriceValueLocal(raw, platformHint = '') {
+		const numeric = Number(raw);
+		if (!Number.isFinite(numeric) || numeric <= 0) return null;
+
+		const normalizedPlatform = String(platformHint || '').trim().toLowerCase();
+		const looksLikeMinorUnits = Number.isInteger(numeric)
+			&& (
+				(normalizedPlatform === 'gog' || normalizedPlatform === 'gog.com')
+					? numeric >= 100
+					: numeric >= 1000
+				);
+
+		if (looksLikeMinorUnits) {
+			return Number((numeric / 100).toFixed(2));
+		}
+
+		return Number(numeric.toFixed(2));
+	}
+
+	function formatPriceByCountry(price, cc) {
+		if (price == null || !Number.isFinite(Number(price))) return '';
+		const code = String(cc || 'DE').trim().toUpperCase() || 'DE';
+		const currency = COUNTRY_TO_CURRENCY[code] || 'EUR';
+		const locale = COUNTRY_TO_LOCALE[code] || 'en-US';
+		try {
+			return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(Number(price));
+		} catch {
+			return `${currency} ${Number(price).toFixed(2)}`;
+		}
+	}
 
 	useEffect(() => {
 		let cancelled = false;
@@ -497,14 +631,23 @@ useEffect(() => {
 							? [...availablePlatformsByTitle.get(titleKey)]
 							: [];
 
+						// Price formatting for listing (use countryCode with fallback)
+						const platformHint = resolveStorePlatformFromGameStrict(game) || (availablePlatforms[0] || '');
+						const rawPrice = game?.price ?? game?.cost ?? game?.price_overview ?? null;
+						const normalizedPrice = normalizePriceValueLocal(rawPrice, platformHint) ;
+						const explicitPriceLabel = String(game?.priceLabel || game?.formated_price || game?.formatted_price || '').trim();
+						const formattedPrice = explicitPriceLabel || (normalizedPrice !== null ? formatPriceByCountry(normalizedPrice, countryCode) : '');
+
 						return (
 							<div
 								key={gameId}
-								className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors border-b border-slate-700/30 ${
+								className={`relative flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors border-b border-slate-700/30 ${
 									isSelected ? 'bg-slate-700/50' : 'hover:bg-slate-700/30'
 								}`}
-								onClick={() => setSelectedGame(game)}
-								onDoubleClick={() => navigate(toStoreGameUrl(game), { state: { game } })}
+									onClick={() => setSelectedGame(game)}
+									onDoubleClick={() => navigate(toStoreGameUrl(game), { state: { game } })}
+									onMouseEnter={(e) => { setHoveredGame(game); setHoverAnchorRect(e.currentTarget.getBoundingClientRect()); setHoverOverRow(true); }}
+									onMouseLeave={() => setHoverOverRow(false)}
 							>
 								<div className="w-20 h-11 flex-shrink-0 rounded overflow-hidden bg-slate-900/50">
 									<img
@@ -517,22 +660,28 @@ useEffect(() => {
 								<div className="flex-1 min-w-0">
 									<div className="flex items-center justify-between gap-2 mb-1">
 										<h4 className="text-sm font-medium text-slate-100 truncate">{game.title || game.name}</h4>
-										{availablePlatforms.length > 0 ? (
-											<div className="flex items-center gap-1 flex-shrink-0">
-												{availablePlatforms.map((platform) => {
-													const meta = getPlatformIconMeta(platform);
-													return (
-														<span
-															key={`platform-icon-${gameId}-${platform}`}
-															className={`inline-flex items-center justify-center w-5 h-5 rounded border text-[10px] font-semibold ${meta.tone}`}
-															title={`Available on ${getStorePlatformLabel(platform)}`}
-														>
-															{meta.short}
-														</span>
-													);
-												})}
-											</div>
-										) : null}
+										<div className="flex items-center gap-2 flex-shrink-0">
+											{formattedPrice ? (
+												<div className="text-xs text-slate-300 tabular-nums">{formattedPrice}</div>
+											) : null}
+											{availablePlatforms.length > 0 ? (
+												<div className="flex items-center gap-1">
+													{availablePlatforms.map((platform) => {
+														const meta = getPlatformIconMeta(platform);
+														return (
+															<img
+																key={`platform-icon-${gameId}-${platform}`}
+																src={meta.img || ''}
+																alt={getStorePlatformLabel(platform)}
+																title={`Available on ${getStorePlatformLabel(platform)}`}
+																className="w-5 h-5 object-contain rounded border border-slate-700/40"
+																onError={(e) => { e.target.style.display = 'none'; }}
+															/>
+														);
+													})}
+												</div>
+											) : null}
+										</div>
 									</div>
 									<div className="flex flex-wrap gap-1">
 										{visibleTags.map((tag) => (
@@ -546,8 +695,9 @@ useEffect(() => {
 										) : null}
 									</div>
 								</div>
+						
 							</div>
-						);
+							);
 					}) : (
 						<div className="flex-1 flex items-center justify-center text-slate-500 p-4">
 							No games match your filters
@@ -575,42 +725,6 @@ useEffect(() => {
 				</div>
 			</div>
 
-			{/* Game preview */}
-			<div className="filtered-games-preview-panel w-[30%] bg-slate-800/40 backdrop-blur-sm rounded-lg border border-slate-700/50 overflow-hidden flex flex-col">
-				{displayGame ? (
-					<>
-						<div className="px-3 py-2 border-b border-slate-700/50">
-							<h3 className="text-sm font-semibold text-slate-100 truncate">{displayGame.title || displayGame.name}</h3>
-						</div>
-						<div className="flex-1 overflow-y-auto p-3 scrollbar-thin">
-							<div className="w-full aspect-[16/9] rounded overflow-hidden bg-slate-900/50 mb-3">
-								<img src={displayGame.image || displayGame.banner_img} alt={displayGame.title || displayGame.name} className="w-full h-full object-cover" onError={e => e.target.style.display = 'none'} />
-							</div>
-							<div className="mb-3 flex flex-wrap gap-1">
-								{displayGameMetadata.tags.slice(0, 4).map((tag) => (
-									<span key={`preview-tag-${tag}`} className="store-universal-tag">{tag}</span>
-								))}
-								{displayGameMetadata.genres
-									.filter((genre) => !displayGameMetadata.tags.some((tag) => tag.toLowerCase() === String(genre || '').toLowerCase()))
-									.slice(0, 4)
-									.map((genre) => (
-										<span key={`preview-genre-${genre}`} className="store-universal-tag">{genre}</span>
-									))}
-							</div>
-							<p className="text-xs text-slate-300 leading-relaxed mb-3">{displayGame.description || 'No description available.'}</p>
-							<button onClick={() => navigate(toStoreGameUrl(displayGame), { state: { game: displayGame } })}
-								className="w-full rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-sm font-semibold py-2 transition-colors">
-								Open Game Page
-							</button>
-						</div>
-					</>
-				) : (
-					<div className="flex-1 flex items-center justify-center text-slate-500 p-4 text-sm">
-						No games available for preview
-					</div>
-				)}
-			</div>
-
 			{/* Filters */}
 			<CompactFiltersSidebar
 				searchQuery={searchQuery}
@@ -625,9 +739,69 @@ useEffect(() => {
 				onPriceChange={setPriceRange}
 				onReset={handleResetFilters}
 			/>
+			{hoveredGame && hoverAnchorRect ? (
+				<HoverPopupPortal
+					anchorRect={hoverAnchorRect}
+					game={hoveredGame}
+					metadata={getMetadataForGame(hoveredGame)}
+					onEnter={() => setHoverOverPopup(true)}
+					onLeave={() => setHoverOverPopup(false)}
+				/>
+			) : null}
 		</div>
 	);
 };
 
 export default FilteredGamesSection;
+
+// Hover popup portal renderer
+function HoverPopupPortal({ anchorRect, game, metadata, onEnter, onLeave }) {
+	const root = typeof document !== 'undefined' ? document.body : null;
+	if (!root || !anchorRect || !game) return null;
+
+	const top = Math.max(8, Math.round(anchorRect.top + window.scrollY));
+	const left = Math.round(anchorRect.right + 12 + window.scrollX);
+
+	return createPortal(
+		<div
+			onMouseEnter={onEnter}
+			onMouseLeave={onLeave}
+			style={{ position: 'absolute', top: `${top}px`, left: `${left}px`, width: 320, zIndex: 9999 }}
+			className="bg-slate-800/90 backdrop-blur-sm rounded-lg border border-slate-700/60 p-3 shadow-lg"
+		>
+			<div className="flex items-start justify-between gap-2 mb-2">
+				<h5 className="text-sm font-semibold text-slate-100 truncate">{game.title || game.name}</h5>
+				<div className="flex items-center gap-2">
+					{(() => {
+						const platform = resolveStorePlatformFromGameStrict(game) || game?.platform_name || game?.platform;
+						const meta = getPlatformIconMeta(platform);
+						if (meta?.img) {
+							return (
+								<div className="flex items-center gap-2">
+									<img src={meta.img} alt={getStorePlatformLabel(platform)} title={getStorePlatformLabel(platform)} className="w-6 h-6 object-contain rounded border border-slate-700/40" onError={e => e.target.style.display = 'none'} />
+									<div className="text-xs text-slate-300">{getStorePlatformLabel(platform)}</div>
+								</div>
+							);
+						}
+						return (
+							<span className={`inline-flex items-center justify-center w-6 h-6 rounded border text-xs font-semibold ${meta.tone}`} title={getStorePlatformLabel(platform)}>
+								{meta.short}
+							</span>
+						);
+					})()}
+				</div>
+			</div>
+			<div className="w-full aspect-[16/9] rounded overflow-hidden bg-slate-900/50 mb-2">
+				<img src={game.image || game.banner_img} alt={game.title || game.name} className="w-full h-full object-cover" onError={e => e.target.style.display = 'none'} />
+			</div>
+			<div className="mb-2 flex flex-wrap gap-1">
+				{(metadata?.tags || []).slice(0, 3).map((tag) => (
+					<span key={`hover-tag-${tag}`} className="store-universal-tag">{tag}</span>
+				))}
+			</div>
+			<p className="text-xs text-slate-300 leading-relaxed line-clamp-3">{String(game.description || game.summary || game.short_description || '').trim() || 'No description available.'}</p>
+		</div>,
+		root,
+	);
+}
 
