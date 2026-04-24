@@ -1,4 +1,5 @@
 using wreckchat.Services.Api;
+using wreckchat.Services.WS;
 
 namespace wreckchat.Presentation;
 
@@ -6,16 +7,19 @@ public partial record MainModel
 {
     private INavigator _navigator;
     private IApiService _apiService;
+    private IWebSocketService _ws;
     public string? Title { get; }
 
     public MainModel(
         IStringLocalizer localizer,
         IOptions<AppConfig> appInfo,
         INavigator navigator,
-        IApiService apiService)
+        IApiService apiService,
+        IWebSocketService webSocketService)
     {
         _navigator = navigator;
         _apiService = apiService;
+        _ws = webSocketService;
         Title = "Main";
         Title += $" - {localizer["ApplicationName"]}";
         Title += $" - {appInfo?.Value?.Environment}";
@@ -34,6 +38,7 @@ public partial record MainModel
         try
         {
             var token = await _apiService.Login(username, password);
+            await _ws.ConnectAsync(null);
             return true;
         }
         catch (Exception)
