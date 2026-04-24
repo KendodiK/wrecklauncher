@@ -462,7 +462,7 @@ class GogController extends GamesController {
             });
             if(response.ok){
               const data = await response.json().catch(() => null);
-              heroImage = super._healthCheckUrl(data?._links.boxArtImage?.href) || null;
+              heroImage = await super._healthCheckUrl(data?._links.boxArtImage?.href) || normalizedImage;
             }
           }catch{
             // ignore hero image errors; keep null
@@ -471,7 +471,7 @@ class GogController extends GamesController {
             id: productId,
             product_id: productId,
             title: String(product?.title || `gog:${productId}`).trim() || `gog:${productId}`,
-            image: normalizedImage,
+            banner_img: normalizedImage,
             hero_img: heroImage || normalizedImage,
             url: this.#normalizeStoreUrl(product?.url ?? null),
             slug: typeof product?.slug === 'string' ? product.slug : null,
@@ -542,7 +542,8 @@ class GogController extends GamesController {
           id,
           product_id: id,
           title: `gog:${id}`,
-          image: null,
+          banner_img: null,
+          hero_img: null,
           url: null,
           slug: null,
           raw: null,

@@ -375,7 +375,7 @@ class UserController extends TokenController {
         headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' },
       });
 
-      if (response.ok) {
+      if (response.ok && response.status === 200) {
         const json = await response.json();
         if (Array.isArray(json)) return json;
         if (Array.isArray(json?.ownedGames)) return json.ownedGames;

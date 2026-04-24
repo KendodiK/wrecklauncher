@@ -360,7 +360,7 @@ class PcGamesTorrentController {
   async pcGamesTorrentMagnetLink(gameName) {
     if (!gameName || !String(gameName).trim()) throw new Error('Game name is required');
     const slug = String(gameName).trim().replace(/\s+/g, '-');
-    const url = `https://pcgamestorrent.com/${encodeURIComponent(slug)}.html`;
+    const url = `https://pcgamestorrents.com/${encodeURIComponent(slug)}.html`;
     const response = await fetch(url);
     if (!response.ok) {
       throw new Error(`Failed to fetch PcGamesTorrent game page for "${gameName}": HTTP ${response.status}`);

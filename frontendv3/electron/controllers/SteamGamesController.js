@@ -230,15 +230,16 @@ class SteamGamesController extends GamesController {
         : data?.price_overview && typeof data.price_overview === 'object' && typeof data.price_overview.initial === 'number'
           ? data.price_overview.initial
           : null;
-      const headerImageUrlFormatter = String(data.header_image).split('header.jpg')
-      const heroImage = await super._healthCheckUrl(headerImageUrlFormatter[0] + 'library_600x900.jpg' + headerImageUrlFormatter[1]) || data.header_image;
-
+      let heroImage = await super._healthCheckUrl('https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/'+data.steam_appid+'/library_600x900.jpg');
+      if (!heroImage) {
+        heroImage = await super._healthCheckUrl('https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/'+data.steam_appid+'/hero_capsule.jpg');
+      }
 
       let gameDetails = {
         appid: data.steam_appid ?? appIdNum,
         name: data.name ?? null,
         banner_img: data.header_image ?? data.capsule_image ?? null,
-        hero_img: heroImage,        
+        hero_img: heroImage ?? data.header_image ?? null,        
         genres: Array.isArray(data.genres) ? data.genres : [], 
         genre_names: Array.isArray(data.genres)          ? data.genres
               .map((g) => (g && typeof g === 'object' ? g.description : null))
@@ -250,7 +251,10 @@ class SteamGamesController extends GamesController {
         cost: normalizedCost,
         minimum_requirements: typeof minimumRequirements === 'string' && minimumRequirements.trim() ? minimumRequirements : null,
         cc: ccToUse ?? null,
-        screenshots: data.screenshots || [],
+        screenshots: Array.isArray(data.screenshots)          ? data.screenshots
+              .map((s) => s?.path_full)
+              .filter((s) => typeof s === 'string' && s.trim())
+          : [],
         lang,
         raw,
       };

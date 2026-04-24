@@ -124,13 +124,11 @@ class XatabController {
 
   /**
    * @param {string} title
-   * @param {string} href
    * @param {string} query
    * @returns {number}
    */
-  #scoreCandidate(title, href, query) {
+  #scoreCandidate(title, query) {
     const titleNorm = this.#normalizeText(title);
-    const hrefNorm = this.#normalizeText(href);
     const queryNorm = this.#normalizeText(query);
 
     if (!queryNorm) return 0;
@@ -138,14 +136,6 @@ class XatabController {
     let score = 0;
     if (titleNorm === queryNorm) score += 500;
     if (titleNorm.includes(queryNorm)) score += 300;
-    if (hrefNorm.includes(queryNorm)) score += 200;
-
-    const queryTokens = queryNorm.split(' ').filter(Boolean);
-    for (const token of queryTokens) {
-      if (token.length < 2) continue;
-      if (titleNorm.includes(token)) score += 40;
-      if (hrefNorm.includes(token)) score += 25;
-    }
 
     return score;
   }
@@ -224,7 +214,7 @@ class XatabController {
     if (!cache || !Array.isArray(cache.items) || cache.items.length === 0) return null;
     let best = null;
     for (const it of cache.items) {
-      const score = this.#scoreCandidate(it.title || '', it.url || '', query);
+      const score = this.#scoreCandidate(it.title || '', query);
       if (score <= 0) continue;
       if (!best || score > best.score) {
         best = { url: it.url, title: it.title, score };
@@ -303,9 +293,11 @@ class XatabController {
    */
   #extractDownloadButtonUrl(body, baseUrl) {
     const html = String(body || '');
+    console.log('[Xatab] extracting download button URL from game page HTML, length:', html.length);
     const primaryMatch = html.match(/<a\b[^>]*href=["']([^"']*index\.php\?do=download[^"']*)["'][^>]*class=["'][^"']*\bdownload-torrent\b[^"']*["'][^>]*>/i);
     const fallbackMatch = html.match(/<a\b[^>]*href=["']([^"']*index\.php\?do=download[^"']*)["'][^>]*>/i); //should never happen, but better safe than sorry
     const match = primaryMatch || fallbackMatch;
+    console.log('[Xatab] download button regex match:', !!match, 'primary:', !!primaryMatch, 'fallback:', !!fallbackMatch);
     if (!match || !match[1]) return null;
 
     const decodedHref = this.#decodeHtmlAmpersands(match[1]);
@@ -485,8 +477,8 @@ class XatabController {
     if (!gamePageResponse.ok) {
       throw new Error(`Failed to fetch Xatab game page for "${raw}": HTTP ${gamePageResponse.status}`);
     }
-
-    const downloadUrl = this.#extractDownloadButtonUrl(gamePageResponse.body, gamePageUrl);
+    const body = await gamePageResponse.text();
+    const downloadUrl = this.#extractDownloadButtonUrl(body, gamePageUrl);
     if (!downloadUrl) {
       console.warn('[Xatab] no download-torrent button found in game page:', gamePageUrl);
       return null;

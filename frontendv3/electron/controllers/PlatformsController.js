@@ -235,9 +235,8 @@ class PlatformsController {
 
     if (ok) return json ?? { deleted: true };
 
-    const msg = httpErrorMessage(status, json, text);
     if (status === 401) {
-      const e = new Error(msg);
+      const e = new Error("Unauthorized access when deleting platform user: " + (text || JSON.stringify(json)));
       // @ts-ignore
       e.code = 'WRECK_INVALID_TOKEN';
       throw e;
@@ -253,7 +252,7 @@ class PlatformsController {
       };
     }
 
-    throw new Error(msg);
+    throw new Error("Failed to delete platform user: " + (text || JSON.stringify(json)));
   }
 
   async getAllPlatformUserIds(token) {
@@ -278,16 +277,15 @@ class PlatformsController {
         return [];
       }
 
-      const msg = httpErrorMessage(status, json, text);
       if (status === 401) {
-        const e = new Error(msg);
+        const e = new Error("Unauthorized access when fetching platform user IDs: " + (text || JSON.stringify(json)));
         // @ts-ignore
         e.code = 'WRECK_INVALID_TOKEN';
         throw e;
       }
 
 
-      throw new Error(msg);
+      throw new Error("Failed to fetch platform user IDs: " + (text || JSON.stringify(json)));
   }
 
   /**

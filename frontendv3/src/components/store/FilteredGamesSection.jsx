@@ -600,7 +600,7 @@ useEffect(() => {
 	return (
 		<div className="filtered-games-section w-full flex gap-4">
 			{/* Game list */}
-			<div className="filtered-games-main-panel w-[50%] bg-slate-800/40 backdrop-blur-sm rounded-lg border border-slate-700/50 flex flex-col overflow-hidden">
+			<div className="filtered-games-main-panel w-[80%] bg-slate-800/40 backdrop-blur-sm rounded-lg border border-slate-700/50 flex flex-col overflow-hidden">
 				<div className="px-4 py-3 border-b border-slate-700/50 flex items-center justify-between">
 					<div>
 						<h3 className="text-lg font-semibold text-slate-100">{title}</h3>
