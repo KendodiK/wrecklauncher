@@ -1190,7 +1190,7 @@ const LibraryPage = () => {
 	// Prevent scrolling on library page (vertical scroll, keyboard navigation, wheel)
 	useEffect(() => {
 		const handleWheel = (event) => {
-			event.preventDefault();
+			//event.preventDefault();
 		};
 
 		const handleKeyDown = (event) => {
@@ -2480,7 +2480,7 @@ const LibraryPage = () => {
 									className="library-scope-btn"
 									disabled={actionState.busyAction !== ''}
 								>
-									{actionState.busyAction === 'add-pirate' ? 'Adding EXE...' : 'Add Pirate EXE'}
+									{actionState.busyAction === 'add-pirate' ? 'Adding EXE...' : 'Add Local EXE'}
 								</button>
 							</div>
 						) : null}
@@ -2505,7 +2505,9 @@ const LibraryPage = () => {
 										<div className="flex flex-col gap-2">
 											{filteredGames.map((game) => {
 												const isActive = game.id === (activeGame?.id ?? '');
-												const gameThumb = libraryViewMode ==='list' ? (game.heroUrl || game.coverUrl) : game.coverUrl;
+												console.log("lib: ", libraryViewMode)
+												console.log("Library init: ", (libraryViewMode === 'list' ? "hero" : "cover"), game.title);												
+												const gameThumb = game.heroUrl || game.coverUrl;
 												return (
 													<button
 														type="button"
@@ -2519,7 +2521,7 @@ const LibraryPage = () => {
 														}`}
 													>
 														<div className="flex items-center gap-3">
-															<div className="h-10 w-16 flex-shrink-0 overflow-hidden border border-slate-700/70 bg-slate-900/60">
+															<div className="h-30 w-20 flex-shrink-0 overflow-hidden border border-slate-700/70 bg-slate-900/60">
 																{gameThumb ? (
 																	<img src={gameThumb} 
 																	onError={(e) => {

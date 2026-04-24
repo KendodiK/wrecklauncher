@@ -631,9 +631,10 @@ body {
   pointer-events: none;
   position: absolute;
   inset: 0;
-  background-size: cover;
-  background-repeat: no-repeat;
-  background-position: center center;
+  margin-top: 90px;
+  background-size: auto;
+  background-repeat: repeat;
+  background-position: center top;
   opacity: 0.55;
   filter: blur(3px);
 }
@@ -761,6 +762,7 @@ body {
 
 .library-add-local-btn {
   border-radius: 6px;
+  width: 190px;
   border: 1px solid rgba(251, 146, 60, 0.65);
   background: rgba(194, 65, 12, 0.32);
   padding: 8px 12px;
@@ -969,7 +971,7 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  opacity: 0;
+  opacity: 1;
   transition: opacity 0.3s ease;
 }
 
@@ -1795,6 +1797,5 @@ body {
     justify-content: center;
   }
 }
-
 
 
