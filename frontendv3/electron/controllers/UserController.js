@@ -1,8 +1,6 @@
 // @ts-check
 
 const TokenController = require('./TokenController');
-const { enc, joinUrl, normalizeBaseUrl } = require('../lib/url');
-const { fetchJsonSafe, httpErrorMessage } = require('../lib/http');
 
 class UserController extends TokenController {
   /** @type {string} */
@@ -13,7 +11,7 @@ class UserController extends TokenController {
    */
   constructor(cfg) {
     super(cfg.serverUrl);
-    this.#serverUrl = normalizeBaseUrl(cfg.serverUrl || '', { defaultProtocol: 'http:' });
+    this.#serverUrl = cfg.serverUrl || '';
   }
 
   /**
@@ -31,7 +29,7 @@ class UserController extends TokenController {
   /**
    * @param {any} raw
    * @param {string|number|null} [fallbackId]
-   * @returns {{ id: string|number|null, username: string, bio: string|null, avatarUrl: string|null }|null}
+   * @returns {{ id: string|number|null, username: string, bio: string|null, pfp: string|null }|null}
    */
   #normalizeNativeUser(raw, fallbackId = null) {
     if (!raw || typeof raw !== 'object') return null;
@@ -45,14 +43,14 @@ class UserController extends TokenController {
       id,
       username: username || `User ${String(id || '').trim() || '?'}`,
       bio: raw?.bio ?? null,
-      avatarUrl: raw?.pfp ?? raw?.avatarUrl ?? null,
+      pfp: raw?.pfp ?? raw?.avatarUrl ?? null,
     };
   }
 
   /**
    * @param {string|number} userId
    * @param {string|null|undefined} [tokenOverride]
-   * @returns {Promise<{ id: string|number|null, username: string, bio: string|null, avatarUrl: string|null }|null>}
+   * @returns {Promise<{ id: string|number|null, username: string, bio: string|null, pfp: string|null }|null>}
    */
   async getNativeUserById(userId, tokenOverride) {
     const normalizedUserId = String(userId ?? '').trim();
@@ -69,46 +67,47 @@ class UserController extends TokenController {
       headers.Authorization = `Bearer ${token}`;
     }
 
-    const url = joinUrl(this.#serverUrl, 'api', 'native-users', enc(normalizedUserId));
-    const { ok, status, json, text } = await fetchJsonSafe(url, {
+    const url = `${this.#serverUrl}/api/native-users/${encodeURIComponent(normalizedUserId)}`;
+    const response = await fetch(url, {
       method: 'GET',
       headers,
     });
 
-    if (!ok) {
-      const msg = httpErrorMessage(status, json, text);
-      if (status === 401) {
-        const e = new Error(msg);
+    if (!response.ok) {
+      if (response.status === 401) {
+        const e = new Error(response.statusText || `HTTP ${response.status}`);
         // @ts-ignore
         e.code = 'WRECK_INVALID_TOKEN';
         throw e;
       }
-      if (status === 404 || status === 405) return null;
-      throw new Error(msg);
+      if (response.status === 404 || response.status === 405) return null;
+      throw new Error(response.statusText || `HTTP ${response.status}`);
     }
 
+    const json = await response.json();
     return this.#normalizeNativeUser(json, normalizedUserId);
   }
 
   /**
    * @param {string} name
-   * @returns {Promise<Array<{ id: string|number|null, username: string, bio: string|null, avatarUrl: string|null }>>}
+   * @returns {Promise<Array<{ id: string|number|null, username: string, bio: string|null, pfp: string|null }>>}
    */
   async searchNativeUsersByName(name) {
     const needle = String(name || '').trim();
     if (!needle) return [];
 
-    const url = joinUrl(this.#serverUrl, 'api', 'native-users', 'name', enc(needle));
-    const { ok, status, json, text } = await fetchJsonSafe(url, {
+    const url = `${this.#serverUrl}/api/native-users/name/${encodeURIComponent(needle)}`;
+    const response = await fetch(url, {
       method: 'GET',
       headers: { 'Accept': 'application/json' },
     });
 
-    if (!ok) {
-      const msg = httpErrorMessage(status, json, text);
-      if (status === 404 || status === 405) return [];
-      throw new Error(msg);
+    if (!response.ok) {
+      if (response.status === 404 || response.status === 405) return [];
+      throw new Error(response.statusText || `HTTP ${response.status}`);
     }
+
+    const json = await response.json();
 
     const rows = Array.isArray(json)
       ? json
@@ -132,7 +131,7 @@ class UserController extends TokenController {
 
   /**
    * @param {string|number|null|undefined} [nativeUserIdOverride]
-   * @returns {Promise<Array<{ friendshipId: string|number|null, userId: string|number, username: string, bio: string|null, avatarUrl: string|null }>>}
+   * @returns {Promise<Array<{ friendshipId: string|number|null, userId: string|number, username: string, bio: string|null, pfp: string|null }>>}
    */
   async getFriendsWithProfiles(nativeUserIdOverride) {
     const token = await this.getToken();
@@ -142,8 +141,8 @@ class UserController extends TokenController {
       String(nativeUserIdOverride ?? '').trim() || this.#extractNativeUserIdFromToken(token);
     if (!nativeUserId) throw new Error('Missing native user id');
 
-    const url = joinUrl(this.#serverUrl, 'api', 'friends', enc(nativeUserId));
-    const { ok, status, json, text } = await fetchJsonSafe(url, {
+    const url = `${this.#serverUrl}/api/friends/${encodeURIComponent(nativeUserId)}`;
+    const response = await fetch(url, {
       method: 'GET',
       headers: {
         'Accept': 'application/json',
@@ -151,18 +150,17 @@ class UserController extends TokenController {
       },
     });
 
-    if (!ok) {
-      const msg = httpErrorMessage(status, json, text);
-      if (status === 401) {
-        const e = new Error(msg);
+    if (!response.ok) {
+      if (response.status === 401) {
+        const e = new Error(response.statusText || `HTTP ${response.status}`);
         // @ts-ignore
         e.code = 'WRECK_INVALID_TOKEN';
         throw e;
       }
-      if (status === 404 || status === 405) return [];
-      throw new Error(msg);
+      if (response.status === 404 || response.status === 405) return [];
+      throw new Error(response.statusText || `HTTP ${response.status}`);
     }
-
+    const json = await response.json();
     const rows = Array.isArray(json)
       ? json
       : (Array.isArray(json?.items) ? json.items : (Array.isArray(json?.data) ? json.data : []));
@@ -196,14 +194,14 @@ class UserController extends TokenController {
         id: row.userId,
         username: `User ${row.userId}`,
         bio: null,
-        avatarUrl: null,
+        pfp: null,
       };
       return {
         friendshipId: row.friendshipId,
         userId: normalizedProfile.id ?? row.userId,
         username: normalizedProfile.username,
         bio: normalizedProfile.bio,
-        avatarUrl: normalizedProfile.avatarUrl,
+        pfp: normalizedProfile.pfp,
       };
     });
 
@@ -224,8 +222,8 @@ class UserController extends TokenController {
       throw new Error('Invalid friend user id');
     }
 
-    const url = joinUrl(this.#serverUrl, 'api', 'friends');
-    const { ok, status, json, text } = await fetchJsonSafe(url, {
+    const url = `${this.#serverUrl}/api/friends`;
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
@@ -235,17 +233,16 @@ class UserController extends TokenController {
       body: JSON.stringify({ friend_user_id: normalizedFriendUserId }),
     });
 
-    if (!ok) {
-      const msg = httpErrorMessage(status, json, text);
-      if (status === 401) {
-        const e = new Error(msg);
+    if (!response.ok) {
+      if (response.status === 401) {
+        const e = new Error(response.statusText || `HTTP ${response.status}`);
         // @ts-ignore
         e.code = 'WRECK_INVALID_TOKEN';
         throw e;
       }
-      throw new Error(msg);
+      throw new Error(response.statusText || `HTTP ${response.status}`);
     }
-
+    const json = await response.json();
     return json ?? { ok: true };
   }
 
@@ -262,8 +259,8 @@ class UserController extends TokenController {
       throw new Error('Invalid friendship id');
     }
 
-    const url = joinUrl(this.#serverUrl, 'api', 'friends', enc(normalizedFriendshipId));
-    const { ok, status, json, text } = await fetchJsonSafe(url, {
+    const url = `${this.#serverUrl}/api/friends/${encodeURIComponent(normalizedFriendshipId)}`;
+    const response = await fetch(url, {
       method: 'DELETE',
       headers: {
         'Accept': 'application/json',
@@ -271,15 +268,14 @@ class UserController extends TokenController {
       },
     });
 
-    if (!ok) {
-      const msg = httpErrorMessage(status, json, text);
-      if (status === 401) {
-        const e = new Error(msg);
+    if (!response.ok) {
+      if (response.status === 401) {
+        const e = new Error(response.statusText || `HTTP ${response.status}`);
         // @ts-ignore
         e.code = 'WRECK_INVALID_TOKEN';
         throw e;
       }
-      throw new Error(msg);
+      throw new Error(response.statusText || `HTTP ${response.status}`);
     }
 
     return { ok: true, friendshipId: normalizedFriendshipId };
@@ -303,22 +299,13 @@ class UserController extends TokenController {
       if (!token) throw new Error('Missing auth token');
 
       const nativeUserId = String(token).split('.')[0] || '';
-      const endpoints = [
-        nativeUserId ? joinUrl(this.#serverUrl, 'api', 'platform-users', enc(nativeUserId)) : null,
-        joinUrl(this.#serverUrl, 'api', 'platform-users'),
-        joinUrl(this.#serverUrl, 'api', 'platform_users'),
-      ].filter(Boolean);
-
-      /** @type {Error|null} */
-      let lastCompatibilityError = null;
-
-      for (const url of endpoints) {
-        const { ok, status, json, text } = await fetchJsonSafe(url, {
+      const url = `${this.#serverUrl}/api/platform-users/${encodeURIComponent(nativeUserId)}`;
+        const response = await fetch(url, {
           method: 'GET',
           headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' },
-        });
-
-        if (ok) {
+        });        
+        if (response.ok) {
+          const json = await response.json();
           const rows = Array.isArray(json)
             ? json
             : (Array.isArray(json?.items) ? json.items : (Array.isArray(json?.data) ? json.data : []));
@@ -341,25 +328,15 @@ class UserController extends TokenController {
           return null;
         }
 
-        const msg = httpErrorMessage(status, json, text);
 
         // Token invalid/rotated: caller will retry with a fresh login.
-        if (status === 401) {
-          const e = new Error(msg);
+        if (response.status === 401) {
+          const e = new Error(response.statusText || `HTTP ${response.status}`);
           // @ts-ignore
           e.code = 'WRECK_INVALID_TOKEN';
           throw e;
         }
-
-        if (status === 404 || status === 405) {
-          lastCompatibilityError = new Error(msg);
-          continue;
-        }
-
-        throw new Error(msg);
-      }
-
-      throw lastCompatibilityError || new Error('No compatible platform-users endpoint found');
+        throw new Error(response.statusText || `HTTP ${response.status}`);
     };
 
     try {
@@ -391,46 +368,29 @@ class UserController extends TokenController {
   async getOwnedGamesFromSteam() {
     const token = await this.getToken();
     if (!token) throw new Error('Missing auth token');
+    const url = `${this.#serverUrl}/steam/api/get-owned-games`;
 
-    const endpoints = [
-      joinUrl(this.#serverUrl, 'steam', 'api', 'get-owned-games'),
-      joinUrl(this.#serverUrl, 'steam', 'api', 'getOwnedGames'),
-      joinUrl(this.#serverUrl, 'api', 'steam', 'owned-games'),
-    ];
-
-    /** @type {Error|null} */
-    let lastCompatibilityError = null;
-
-    for (const url of endpoints) {
-      const { ok, status, json, text } = await fetchJsonSafe(url, {
+      const response = await fetch(url, {
         method: 'GET',
         headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' },
       });
 
-      if (ok) {
+      if (response.ok) {
+        const json = await response.json();
         if (Array.isArray(json)) return json;
         if (Array.isArray(json?.ownedGames)) return json.ownedGames;
-        if (Array.isArray(json?.response?.games)) return json.response.games;
+        if (Array.isArray(json?.response?.games)) return json.response.games; //nem kéne belépjen ide
         return [];
       }
 
-      const msg = httpErrorMessage(status, json, text);
-      if (status === 401) {
-        const e = new Error(msg);
+      if (response.status === 401) {
+        const e = new Error(response.statusText || `HTTP ${response.status}`);
         // @ts-ignore
         e.code = 'WRECK_INVALID_TOKEN';
         throw e;
       }
 
-      if (status === 404 || status === 405) {
-        lastCompatibilityError = new Error(msg);
-        continue;
-      }
-
-      throw new Error(msg);
-    }
-
-    throw lastCompatibilityError || new Error('No compatible Steam owned-games endpoint found');
+      throw new Error(response.statusText || `HTTP ${response.status}`);
   }
 
   /**
@@ -447,37 +407,37 @@ class UserController extends TokenController {
       throw new Error('Missing native user id');
     }
 
-    const url = joinUrl(this.#serverUrl, 'api', 'native-users', enc(normalizedNativeUserId), 'steam-owned-games');
-    const { ok, status, json, text } = await fetchJsonSafe(url, {
+    const url = `${this.#serverUrl}/api/native-users/${encodeURIComponent(normalizedNativeUserId)}/steam-owned-games`;
+    const response = await fetch(url, {
       method: 'GET',
       headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' },
     });
 
-    if (ok) {
+    if (response.ok) {
+      const json = await response.json();
       if (Array.isArray(json)) return json;
       if (Array.isArray(json?.ownedGames)) return json.ownedGames;
       if (Array.isArray(json?.response?.games)) return json.response.games;
       return [];
     }
 
-    const msg = httpErrorMessage(status, json, text);
-    if (status === 401) {
-      const e = new Error(msg);
+    if (response.status === 401) {
+      const e = new Error(response.statusText || `HTTP ${response.status}`);
       // @ts-ignore
       e.code = 'WRECK_INVALID_TOKEN';
       throw e;
     }
-    if (status === 404 || status === 405) return [];
-    throw new Error(msg);
+    if (response.status === 404 || response.status === 405) return [];
+    throw new Error(response.statusText || `HTTP ${response.status}`);
   }
 
   /**
    * Updates the authenticated native user's profile fields on the backend database.
    * Supports both current and legacy API paths.
    *
-   * @param {{ bio?: any, avatarUrl?: any, avatar_url?: any, pfp?: any }} profilePatch
+   * @param {{ bio?: any, pfp?: any }} profilePatch
    * @param {string|null|undefined} tokenOverride
-   * @returns {Promise<{ id: string|number|null, username: string, bio: string|null, avatarUrl: string|null }|null>}
+   * @returns {Promise<{ id: string|number|null, username: string, bio: string|null, pfp: string|null }|null>}
    */
   async updateCurrentUserProfile(profilePatch, tokenOverride) {
     const token =
@@ -515,7 +475,7 @@ class UserController extends TokenController {
       payload.bio = patch.bio == null ? '' : String(patch.bio);
     }
     if (hasAvatar) {
-      const avatarRaw = patch.avatarUrl ?? patch.avatar_url ?? patch.pfp;
+      const avatarRaw = patch.pfp;
       payload.pfp = avatarRaw == null ? '' : String(avatarRaw);
     }
 
@@ -523,8 +483,8 @@ class UserController extends TokenController {
       return await this.getCurrentUserInfo(token);
     }
 
-    const updateUrl = joinUrl(this.#serverUrl, 'api', 'native-users');
-    const { ok, status, json, text } = await fetchJsonSafe(updateUrl, {
+    const updateUrl = `${this.#serverUrl}/api/native-users`;
+    const response = await fetch(updateUrl, {
       method: 'PUT',
       headers: {
         'Accept': 'application/json',
@@ -534,17 +494,16 @@ class UserController extends TokenController {
       body: JSON.stringify(payload),
     });
 
-    if (!ok) {
-      const msg = httpErrorMessage(status, json, text);
-      if (status === 401) {
-        const e = new Error(msg);
+    if (!response.ok) {
+      if (response.status === 401) {
+        const e = new Error(response.statusText || `HTTP ${response.status}`);
         // @ts-ignore
         e.code = 'WRECK_INVALID_TOKEN';
         throw e;
       }
-      throw new Error(msg);
+      throw new Error(response.statusText || `HTTP ${response.status}`);
     }
-
+    const json = await response.json();
     const normalized = this.#normalizeNativeUser(json, userId);
     if (normalized) return normalized;
 
@@ -564,7 +523,7 @@ class UserController extends TokenController {
    * Returns a normalized user object for renderer bootstrap.
    *
    * @param {string|null|undefined} tokenOverride
-   * @returns {Promise<{ id: string|number|null, username: string, bio: string|null, avatarUrl: string|null }|null>}
+   * @returns {Promise<{ id: string|number|null, username: string, bio: string|null, pfp: string|null }|null>}
    */
   async getCurrentUserInfo(tokenOverride) {
     const token =
@@ -590,8 +549,8 @@ class UserController extends TokenController {
       throw e;
     }
 
-    const profileUrl = joinUrl(this.#serverUrl, 'api', 'native-users', enc(userId));
-    const { ok, status, json, text } = await fetchJsonSafe(profileUrl, {
+    const profileUrl = `${this.#serverUrl}/api/native-users/${encodeURIComponent(userId)}`;
+    const response = await fetch(profileUrl, {
       method: 'GET',
       headers: {
         'Accept': 'application/json',
@@ -599,27 +558,26 @@ class UserController extends TokenController {
       },
     });
 
-    if (ok) {
-      const raw = json && typeof json === 'object' ? json : {};
+    if (response.ok) {
+      const raw = await response.json();
       const username = String(raw?.name ?? raw?.username ?? raw?.user_name ?? '').trim() || `User ${userId}`;
       return {
         id: raw?.id ?? userId,
         username,
         bio: raw?.bio ?? null,
-        avatarUrl: raw?.pfp ?? raw?.avatarUrl ?? null,
+        pfp: raw?.pfp ?? raw?.avatarUrl ?? null,
       };
     }
 
-    const msg = httpErrorMessage(status, json, text);
-    if (status === 401) {
-      const e = new Error(msg);
+    if (response.status === 401) {
+      const e = new Error(response.statusText || `HTTP ${response.status}`);
       // @ts-ignore
       e.code = 'WRECK_INVALID_TOKEN';
       throw e;
     }
 
-    if (status !== 404 && status !== 405) {
-      throw new Error(msg);
+    if (response.status !== 404 && response.status !== 405) {
+      throw new Error(response.statusText || `HTTP ${response.status}`);
     }
 
     return {

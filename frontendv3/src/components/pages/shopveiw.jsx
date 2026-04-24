@@ -105,11 +105,7 @@ function pickSpecialsArray(payload) {
 function parseDiscountPercent(game) {
 	const rawCandidates = [
 		game.discount_percent,
-		game.discountPercentage,
-		game.discount_percentage,
-		game.discount,
-		game.percentage,
-		game.sale_percentage,
+		game.discount
 	];
 
 	for (const raw of rawCandidates) {
@@ -236,14 +232,6 @@ function mapGameCard(game, fallbackTag = '') {
 
 const Shopveiw = ({ items }) => {
 	const didRunSmokeRef = useRef(false);
-// useEffect(() => {
-//         // React.StrictMode runs effects twice in dev; guard so smoke runs once.
-//         if (didRunSmokeRef.current) return;
-//         didRunSmokeRef.current = true;
-//         runSmokeControllers().catch((e) => {
-//             console.warn('[smoke] runSmokeControllers failed:', e);
-//         });
-//     }, []);
 	const [allGames, setAllGames] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [featuredGames, setFeaturedGames] = useState([]);
@@ -276,14 +264,12 @@ const Shopveiw = ({ items }) => {
 const ensureFullBrowsePages = async () => {
 	if (isLoadingMoreBrowse || !hasMoreBrowse) return;
 
-	// 🔹 Build exclusion set (same as your filter)
 	const carouselIds = new Set(
 		[...upcomingGames]
 			.map(g => Number(g?.appid ?? g?.app_id ?? g?.id))
 			.filter(v => Number.isFinite(v) && v > 0)
 	);
 
-	// 🔹 Current usable browse count
 	const currentBrowseCount = allGames.filter(game => {
 		const id = Number(game?.appid ?? game?.app_id ?? game?.id);
 		if (!Number.isFinite(id) || id <= 0) return true;
@@ -295,7 +281,6 @@ const ensureFullBrowsePages = async () => {
 
 	const needed = BATCH_SIZE - remainder;
 
-	// 🔥 Estimate yield ratio (fallback to 0.7 if unknown)
 	let estimatedRatio = 0.7;
 
 	// OPTIONAL: improve estimate using last fetch
@@ -317,7 +302,6 @@ const ensureFullBrowsePages = async () => {
 		pagesNeeded
 	});
 
-	// 🔁 Fetch predicted number of pages
 	for (let i = 0; i < pagesNeeded; i++) {
 		if (!hasMoreBrowse) break;
 
@@ -325,33 +309,6 @@ const ensureFullBrowsePages = async () => {
 		if (!added || added === 0) break;
 	}	
 };
-	// const ensureFullBrowsePages = async () => {
-	// 	if (isLoadingMoreBrowse || !hasMoreBrowse) return;
-
-	// 	let safety = 5;
-
-	// 	while (safety > 0) {
-	// 		const carouselIds = new Set(
-	// 			[...upcomingGames]
-	// 				.map(g => Number(g?.appid ?? g?.app_id ?? g?.id))
-	// 				.filter(v => Number.isFinite(v) && v > 0)
-	// 		);
-
-	// 		const currentBrowseCount = allGames.filter(game => {
-	// 			const id = Number(game?.appid ?? game?.app_id ?? game?.id);
-	// 			if (!Number.isFinite(id) || id <= 0) return true;
-	// 			return !carouselIds.has(id);
-	// 		}).length;
-
-	// 		if (currentBrowseCount % BATCH_SIZE === 0) break;
-
-	// 		const gotNew = await loadNextBrowsePage();
-	// 		if (gotNew === 0) break;
-
-	// 		safety--;
-	// 	}
-	// };
-	// Scroll carousel section into view when clicked
 	const scrollToCarousel = (sectionRef) => {
 		if (!sectionRef?.current) return;
 		sectionRef.current.scrollIntoView({

@@ -1,9 +1,6 @@
 // @ts-check
 
 const { shell } = require('electron');
-const https = require('https');
-const { joinUrl, normalizeBaseUrl } = require('../lib/url');
-const { fetchJsonSafe } = require('../lib/http');
 const GamesController = require('./GamesController');
 const fs = require("fs");
 const path = require("path");
@@ -22,109 +19,12 @@ class SteamGamesController extends GamesController {
   constructor(cfg) {
     const serverUrl = cfg?.serverUrl;
     super({ serverUrl });
-    this.#serverUrl = normalizeBaseUrl(serverUrl, { defaultProtocol: 'https:' });
+    this.#serverUrl = serverUrl || '';
     this.#platformID = '';
   }
-  static #agent = new https.Agent({
-    keepAlive: true,
-    maxSockets: 2,
-    maxFreeSockets: 2,
-    timeout: 30_000,
-  });
   /** @param {number} ms */
   static #sleep(ms) {
     return new Promise((r) => setTimeout(r, ms));
-  }
-
-  /** @type {Set<string>} */
-  static #zeroDecimalCurrencies = new Set([
-    'BIF',
-    'CLP',
-    'DJF',
-    'GNF',
-    'ISK',
-    'JPY',
-    'KMF',
-    'KRW',
-    'PYG',
-    'RWF',
-    'UGX',
-    'VND',
-    'VUV',
-    'XAF',
-    'XOF',
-    'XPF',
-  ]);
-
-  /**
-   * @param {unknown} rawValue
-   * @returns {number|null}
-   */
-  static #parsePriceFromFormattedText(rawValue) {
-    const text = String(rawValue || '').trim();
-    if (!text) return null;
-    if (/^free$/i.test(text)) return 0;
-
-    const compact = text.replace(/\s+/g, '');
-    const numericLike = compact.replace(/[^0-9,.-]/g, '');
-    if (!/[0-9]/.test(numericLike)) return null;
-
-    const lastDot = numericLike.lastIndexOf('.');
-    const lastComma = numericLike.lastIndexOf(',');
-    const decimalSep = lastDot > lastComma ? '.' : (lastComma > -1 ? ',' : '');
-
-    let normalized = numericLike;
-    if (decimalSep) {
-      const sepPattern = decimalSep === '.' ? /,/g : /\./g;
-      normalized = normalized.replace(sepPattern, '');
-
-      const lastDecimalIndex = normalized.lastIndexOf(decimalSep);
-      if (lastDecimalIndex >= 0) {
-        const left = normalized.slice(0, lastDecimalIndex).replace(new RegExp(`\\${decimalSep}`, 'g'), '');
-        const right = normalized.slice(lastDecimalIndex + 1);
-        if (right.length === 0) {
-          normalized = left;
-        } else if (right.length > 2 && left.length > 0) {
-          normalized = `${left}${right}`;
-        } else {
-          normalized = `${left}.${right}`;
-        }
-      }
-    } else {
-      normalized = normalized.replace(/[.,]/g, '');
-    }
-
-    const parsed = Number(normalized);
-    if (!Number.isFinite(parsed) || parsed < 0) return null;
-    return Number(parsed.toFixed(2));
-  }
-
-  /**
-   * @param {any} priceOverview
-   * @returns {number|null}
-   */
-  static #normalizeSteamCost(priceOverview) {
-    if (!priceOverview || typeof priceOverview !== 'object') return null;
-
-    const formattedPrice = SteamGamesController.#parsePriceFromFormattedText(
-      priceOverview.final_formatted || priceOverview.initial_formatted || ''
-    );
-    if (formattedPrice !== null) return formattedPrice;
-
-    const finalNumeric = Number(priceOverview.final);
-    if (!Number.isFinite(finalNumeric) || finalNumeric < 0) return null;
-
-    const currency = String(priceOverview.currency || '').trim().toUpperCase();
-    if (SteamGamesController.#zeroDecimalCurrencies.has(currency)) {
-      return Number(finalNumeric.toFixed(2));
-    }
-
-    if (Number.isInteger(finalNumeric)) {
-      if (finalNumeric >= 100) return Number((finalNumeric / 100).toFixed(2));
-      return Number(finalNumeric.toFixed(2));
-    }
-
-    return Number(finalNumeric.toFixed(2));
   }
 
   /**
@@ -146,17 +46,18 @@ class SteamGamesController extends GamesController {
       `&l=${encodeURIComponent('english')}` +
       `&cc=${encodeURIComponent(countryCode)}`;
 
-    const { ok, status, json, text } = await fetchJsonSafe(url, {
+    const response = await fetch(url, {
       method: 'GET',
       headers: {
         'Accept': 'application/json',
         'User-Agent': 'WreckLauncher/1.0 (+steam title lookup)',
       },
-    });
-
-    if (!ok) {
+    });    
+    const json = await response.json().catch(() => null);
+    const text = await response.text().catch(() => null);
+    if (!response.ok) {
       const snippet = String((json && (json.error || json.message)) || text || '').replace(/\s+/g, ' ').trim().slice(0, 300);
-      throw new Error(`Steam title search failed (HTTP ${status}): ${snippet}`);
+      throw new Error(`Steam title search failed (HTTP ${response.status}): ${snippet}`);
     }
 
     const items = Array.isArray(json?.items) ? json.items : [];
@@ -202,9 +103,25 @@ class SteamGamesController extends GamesController {
       const candidateTitle = String(details.name || match.title || '').trim();
       const detailScore = this._titleMatchScore(title, candidateTitle);
       const mergedScore = Math.max(match.score, detailScore);
-
+      const gamedetails = super._getAllDetailsResponse(
+        {
+          "app_id": String(details.appid || match.appid || ''),
+          "platform_name": "steam",
+          "name": details.name || match.title || '',
+          "banner_img": details.header_image || '',
+          "description": typeof details.short_description === 'string' && details.short_description.trim() ? details.short_description : null,
+          "minimum_requirements": details.minimum_requirements || null,
+          "cost": details.cost || null,
+          "currency": details.price_overview.currency || null,
+          "country_code": cc || null,
+          "genre_names": Array.isArray(details.genres) ? details.genres.map((g) => (g && typeof g === 'object' ? g.description : null)).filter((s) => typeof s === 'string' && s.trim()) : [],
+          "pirate_sites": [],
+        }
+      )
       const enrichedDetails = {
         ...details,
+        ...gamedetails,
+        screenshots: details.screenshots || [],
         raw: {
           ...(details.raw || {}),
           search_match: {
@@ -226,66 +143,7 @@ class SteamGamesController extends GamesController {
 
     return bestDetails;
   }
-  /**
-   * @param {string} url
-   * @param {{ timeoutMs: number, maxBodyBytes: number }} opts
-   */
-  static #httpsGetText(url, { timeoutMs, maxBodyBytes }) {
-    return new Promise((resolve, reject) => {
-      const u = new URL(url);
 
-      const req = https.request(
-        {
-          protocol: u.protocol,
-          hostname: u.hostname,
-          port: u.port || 443,
-          path: u.pathname + u.search,
-          method: 'GET',
-          agent: SteamGamesController.#agent,
-          headers: {
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,application/json;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'identity',
-            'Connection': 'keep-alive',
-            'User-Agent':
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-            'Referer': 'https://store.steampowered.com/',
-            'Origin': 'https://store.steampowered.com',
-          },
-        },
-        (res) => {
-          /** @type {Buffer[]} */
-          const chunks = [];
-          let totalBytes = 0;
-
-          res.on('data', (chunk) => {
-            const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-            totalBytes += buf.length;
-            if (totalBytes > maxBodyBytes) {
-              req.destroy();
-              reject(new Error(`Steam response too large (> ${maxBodyBytes} bytes)`));
-              return;
-            }
-            chunks.push(buf);
-          });
-
-          res.on('end', () => {
-            resolve({
-              statusCode: res.statusCode ?? 0,
-              body: Buffer.concat(chunks).toString('utf8'),
-            });
-          });
-        }
-      );
-
-      req.on('error', (e) => reject(e instanceof Error ? e : new Error(String(e))));
-      req.setTimeout(timeoutMs, () => {
-        req.destroy();
-        reject(new Error('Steam API request timed out'));
-      });
-      req.end();
-    });
-  }
 
   /**
    * @param {string} token
@@ -297,13 +155,11 @@ class SteamGamesController extends GamesController {
     const appIdNum = Number(appID);
     if (!Number.isFinite(appIdNum) || appIdNum <= 0) throw new Error(`Invalid Steam AppID: ${String(appID)}`);
     const lang = 'en';
-    const timeoutMs = 8000;
     const retries = 5;
     const retryDelay = 700;
-    const maxBodyBytes = 8 * 1024 * 1024;
 
     const requestedCc = typeof cc === 'string' && cc.trim() ? cc.trim() : undefined;
-    const fallbackCc = 'us';
+    const fallbackCc = 'de';
 
     /**
      * @param {string|undefined} ccToUse
@@ -316,8 +172,15 @@ class SteamGamesController extends GamesController {
         (ccToUse ? `&cc=${encodeURIComponent(ccToUse)}` : '') +
         `&l=${encodeURIComponent(lang)}`;
 
-      const { statusCode, body } = await SteamGamesController.#httpsGetText(url, { timeoutMs, maxBodyBytes });
-
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'WreckLauncher/1.0 (+steam title lookup)',
+        },
+      });
+       const body = await response.json().catch(() => null);
+       const statusCode = response.status;
       if (statusCode === 429 || statusCode === 403) {
         if (tryNumber < retries) {
           const multiplier = statusCode === 403 ? 3 : 1;
@@ -344,9 +207,7 @@ class SteamGamesController extends GamesController {
         }
         throw new Error('Steam returned null body');
       }
-
-      const parsed = JSON.parse(trimmed);
-      const appData = parsed?.[String(appIdNum)];
+      const appData = body?.[String(appIdNum)];
       if (!appData || !appData.success) return null;
       const data = appData.data || {};
       const raw = data;
@@ -366,17 +227,30 @@ class SteamGamesController extends GamesController {
           : (data?.is_free === true ? 0 : null);
       const normalizedCost = data?.is_free === true
         ? 0
-        : SteamGamesController.#normalizeSteamCost(rawPriceOverview);
+        : data?.price_overview && typeof data.price_overview === 'object' && typeof data.price_overview.initial === 'number'
+          ? data.price_overview.initial
+          : null;
+      const headerImageUrlFormatter = String(data.header_image).split('header.jpg')
+      const heroImage = await super._healthCheckUrl(headerImageUrlFormatter[0] + 'library_600x900.jpg' + headerImageUrlFormatter[1]) || data.header_image;
+
 
       let gameDetails = {
         appid: data.steam_appid ?? appIdNum,
         name: data.name ?? null,
-        bannerimg: data.header_image ?? data.capsule_image ?? null,
-        genres: Array.isArray(data.genres) ? data.genres : [],
+        banner_img: data.header_image ?? data.capsule_image ?? null,
+        hero_img: heroImage,        
+        genres: Array.isArray(data.genres) ? data.genres : [], 
+        genre_names: Array.isArray(data.genres)          ? data.genres
+              .map((g) => (g && typeof g === 'object' ? g.description : null))
+              .filter((s) => typeof s === 'string' && s.trim())
+          : [],
+        short_description: typeof data.short_description === 'string' && data.short_description.trim() ? data.short_description : null, 
+        long_description: typeof data.detailed_description === 'string' && data.detailed_description.trim() ? data.detailed_description : null,      
         price_overview: priceOverviewFinal,
         cost: normalizedCost,
         minimum_requirements: typeof minimumRequirements === 'string' && minimumRequirements.trim() ? minimumRequirements : null,
         cc: ccToUse ?? null,
+        screenshots: data.screenshots || [],
         lang,
         raw,
       };
@@ -398,7 +272,7 @@ class SteamGamesController extends GamesController {
           app_id: String(gameDetails.appid ?? appIdNum),
           platform_name: 'steam',
           name: gameDetails.name || `steam:${String(gameDetails.appid ?? appIdNum)}`,
-          banner_img: gameDetails.bannerimg || '',
+          banner_img: gameDetails.banner_img || '',
           description: typeof data.short_description === 'string' && data.short_description.trim() ? data.short_description : null,
           minimum_requirements: gameDetails.minimum_requirements,
           cost,
@@ -487,7 +361,6 @@ const steamPath = await new Promise((resolve, reject) => {
       console.error("Steam not found:", err);
       reject(err);
     } else {
-      console.log("Steam path found:", item.value);
       resolve(item.value);
     }
   });

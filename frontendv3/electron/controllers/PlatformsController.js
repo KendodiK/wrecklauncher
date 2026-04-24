@@ -1,10 +1,6 @@
-const { joinUrl, normalizeBaseUrl } = require('../lib/url');
-const { fetchJsonSafe, httpErrorMessage } = require('../lib/http');
+const { stat } = require("original-fs");
 
-function enc(v) {
-  return encodeURIComponent(String(v ?? ''));
-}
-
+// @ts-check
 class PlatformsController {
 
   /** @type {string} */
@@ -14,7 +10,7 @@ class PlatformsController {
    * @param {{ serverUrl: string }} cfg
    */
   constructor(cfg) {
-    this.#serverUrl = normalizeBaseUrl(cfg.serverUrl || '', { defaultProtocol: 'http:' });
+    this.#serverUrl = cfg.serverUrl || '';
   }
 
   /**
@@ -29,20 +25,6 @@ class PlatformsController {
     return raw;
   }
 
-  /**
-   * @param {unknown} platformName
-   * @returns {string[]}
-   */
-  _expandPlatformNameCandidates(platformName) {
-    const normalized = this._normalizePlatformName(platformName);
-    if (!normalized) return [];
-
-    const candidates = [normalized];
-    if (normalized === 'itchio') candidates.push('itch', 'itch.io');
-    if (normalized === 'gog') candidates.push('gog.com');
-
-    return Array.from(new Set(candidates.map((entry) => String(entry || '').trim().toLowerCase()).filter(Boolean)));
-  }
 
   /**
    * @param {string} token
@@ -53,54 +35,47 @@ class PlatformsController {
     if (parts.length !== 2 || !parts[0]) return '';
     return parts[0];
   }
-
+/**
+ * 
+ * @param {string} platformName 
+ * @returns 
+ */
   async getPlatform(platformName) {
-    const candidates = this._expandPlatformNameCandidates(platformName);
-    if (candidates.length < 1) {
-      throw new Error('platformName is required');
-    }
-
-    /** @type {Error|null} */
-    let lastCompatibilityError = null;
-
-    for (const candidate of candidates) {
-      const url = joinUrl(this.#serverUrl, 'api', 'platforms', enc(candidate));
-      const { ok, status, json, text } = await fetchJsonSafe(url, {
+    const platformname = this._normalizePlatformName(platformName);
+    if (!platformname) throw new Error('platformName is required');
+    const url = `${this.#serverUrl}/api/platforms/${encodeURIComponent(platformname)}`;
+      const response = await fetch(url, {
         method: 'GET',
         headers: {
           'Accept': 'application/json',
         },
       });
-
+      const {ok, status} = response;
+      const json = await response.json().catch(() => null);
+      const text = await response.text().catch(() => null);
       if (ok && json && typeof json === 'object') {
         return json;
-      }
-
-      const msg = httpErrorMessage(status, json, text);
+      }      
       if (status === 401) {
-        const e = new Error(msg);
+        const e = new Error(`Unauthorized access when fetching platform "${platformName}": ${status} - ${text || JSON.stringify(json)}`);
         // @ts-ignore
         e.code = 'WRECK_INVALID_TOKEN';
         throw e;
       }
-
-      if (status === 404 || status === 405) {
-        lastCompatibilityError = new Error(msg);
-        continue;
-      }
-
-      throw new Error(msg);
-    }
-
-    throw lastCompatibilityError || new Error(`Platform not found: ${String(platformName)}`);
+      throw new Error(`Failed to fetch platform "${platformName}": ${status} - ${text || JSON.stringify(json)}`);
   }
-
+/**
+ * 
+ * @param {string} token 
+ * @param {string} platformName 
+ * @returns 
+ */
   async createPlatform(token, platformName) {
     const normalizedName = this._normalizePlatformName(platformName);
     if (!normalizedName) throw new Error('platformName is required');
 
-    const url = joinUrl(this.#serverUrl, 'api', 'platforms');
-    const { ok, status, json, text } = await fetchJsonSafe(url, {
+    const url = `${this.#serverUrl}/api/platforms`;
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
@@ -114,7 +89,9 @@ class PlatformsController {
         name: normalizedName,
       }),
     });
-
+    const {ok, status} = response;
+    const json = await response.json().catch(() => null);
+    const text = await response.text().catch(() => null);
     if (!ok) {
       const msg = httpErrorMessage(status, json, text);
       if (status === 401) {
@@ -128,7 +105,15 @@ class PlatformsController {
 
     return json;
   }
-
+/**
+ * 
+ * @param {string} token 
+ * @param {string} platformName 
+ * @param {string} platformUsername 
+ * @param {string} oauthToken 
+ * @param {string|number} platformProfileId 
+ * @returns 
+ */
   async createPlatformUser(token, platformName, platformUsername, oauthToken, platformProfileId) {
     const normalizedPlatformName = this._normalizePlatformName(platformName);
     const normalizedPlatformUsername = String(platformUsername ?? '').trim();
@@ -153,16 +138,8 @@ class PlatformsController {
       throw new Error(`Platform not found or missing id for: ${String(platformName)}`);
     }
 
-    const endpoints = [
-      joinUrl(this.#serverUrl, 'api', 'platform-users'),
-      joinUrl(this.#serverUrl, 'api', 'platform_users'),
-    ];
-
-    /** @type {Error|null} */
-    let lastCompatibilityError = null;
-
-    for (const url of endpoints) {
-      const { ok, status, json, text } = await fetchJsonSafe(url, {
+    const url = `${this.#serverUrl}/api/platform-users`;
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Accept': 'application/json',
@@ -178,7 +155,9 @@ class PlatformsController {
           oauth_token: normalizedOauthToken,
         }),
       });
-
+      const {ok, status} = response;
+      const json = await response.json().catch(() => null);
+      const text = await response.text().catch(() => null);
       if (ok) return json;
 
       const msg = httpErrorMessage(status, json, text);
@@ -188,19 +167,21 @@ class PlatformsController {
         e.code = 'WRECK_INVALID_TOKEN';
         throw e;
       }
-
-      if (status === 404 || status === 405) {
-        lastCompatibilityError = new Error(msg);
-        continue;
-      }
-
       throw new Error(msg);
-    }
-
-    throw lastCompatibilityError || new Error('No compatible platform-user create endpoint found');
   }
-
+/**
+ * 
+ * @param {string} token 
+ * @param {string} platformUsername 
+ * @param {string} platformProfileLink 
+ * @returns 
+ */
   async createSteamPlatformUser(token, platformUsername, platformProfileLink) {
+    /**
+     * 
+     * @param {string} link 
+     * @returns 
+     */
     const getSteamIdFromProfileLink = async (link) => {
       const s = String(link ?? '');
 
@@ -212,11 +193,14 @@ class PlatformsController {
       const vanityMatch = s.match(/\/id\/([^/?&#]+)/);
       const vanityName = vanityMatch ? vanityMatch[1] : (s.includes('/') ? null : s.trim());
       if (vanityName) {
-        const { ok, status, json, text } = await fetchJsonSafe(
-          joinUrl(this.#serverUrl, 'api', 'steam', 'profile-id', enc(vanityName)),
+        const response = await fetch(
+          `${this.#serverUrl}/api/steam/profile-id/${encodeURIComponent(vanityName)}`,
           { method: 'GET' }
         );
-        if (!ok) throw new Error(`Failed to resolve Steam vanity URL: ${httpErrorMessage(status, json, text)}`);
+        const { ok, status } = response;
+        const json = await response.json().catch(() => null);
+        const text = await response.text().catch(() => null);
+        if (!ok) throw new Error(`Failed to resolve Steam vanity URL: ${status} - ${text || JSON.stringify(json)}`);
         return json?.steamid ?? null;
       }
 
@@ -235,15 +219,19 @@ class PlatformsController {
     const normalizedId = String(platformUserId ?? '').trim();
     if (!normalizedId) throw new Error('platformUserId is required');
 
-    const url = joinUrl(this.#serverUrl, 'api', 'platform-users', enc(normalizedId));
+    const url = `${this.#serverUrl}/api/platform-users/${encodeURIComponent(normalizedId)}`;
 
-    const { ok, status, json, text } = await fetchJsonSafe(url, {
+    const response = await fetch(url, {
       method: 'DELETE',
       headers: {
         'Accept': 'application/json',
         'Authorization': `Bearer ${token}`,
       },
     });
+
+    const { ok, status } = response;
+    const json = await response.json().catch(() => null);
+    const text = await response.text().catch(() => null);
 
     if (ok) return json ?? { deleted: true };
 
@@ -270,23 +258,18 @@ class PlatformsController {
 
   async getAllPlatformUserIds(token) {
     const nativeUserId = this._extractNativeUserIdFromToken(token);
-    const endpoints = [
-      nativeUserId ? joinUrl(this.#serverUrl, 'api', 'platform-users', enc(nativeUserId)) : null,
-      joinUrl(this.#serverUrl, 'api', 'platform-users'),
-      joinUrl(this.#serverUrl, 'api', 'platform_users'),
-    ].filter(Boolean);
-
-    /** @type {Error|null} */
-    let lastCompatibilityError = null;
-
-    for (const url of endpoints) {
-      const { ok, status, json, text } = await fetchJsonSafe(url, {
+    const url = `${this.#serverUrl}/api/platform-users/${encodeURIComponent(nativeUserId)}`;
+      const response = await fetch(url, {
         method: 'GET',
         headers: {
           'Accept': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
       });
+
+      const { ok, status } = response;
+      const json = await response.json().catch(() => null);
+      const text = await response.text().catch(() => null);
 
       if (ok) {
         if (Array.isArray(json)) return json;
@@ -303,15 +286,8 @@ class PlatformsController {
         throw e;
       }
 
-      if (status === 404 || status === 405) {
-        lastCompatibilityError = new Error(msg);
-        continue;
-      }
 
       throw new Error(msg);
-    }
-
-    throw lastCompatibilityError || new Error('No compatible platform-users list endpoint found');
   }
 
   /**
