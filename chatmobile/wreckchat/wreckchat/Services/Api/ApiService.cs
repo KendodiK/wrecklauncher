@@ -14,10 +14,6 @@ public class ApiService : IApiService
 {
     private readonly HttpClient _client;
     private readonly ITokenService _tokenService;
-    private static readonly JsonSerializerOptions _jsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true
-    };
 
     public ApiService(HttpClient client, ITokenService tokenService)
     {
@@ -28,17 +24,17 @@ public class ApiService : IApiService
     private async Task AddAuthHeader()
     {
         var token = await _tokenService.GetToken();
-        token = token.Trim('"');
+        token = token.Trim('"'); // fontos fix
 
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
     }
 
-
     public async Task<UserModel> GetUsers(string userId = null)
     {
         await AddAuthHeader();
         var token = await _tokenService.GetToken();
+        token = token.Trim('"');
 
         var response = await _client.GetAsync($"/api/native-users/{userId ?? token.Split('.')[0]}");
 
@@ -47,7 +43,10 @@ public class ApiService : IApiService
 
         var body = await response.Content.ReadAsStringAsync();
 
-        var user = JsonSerializer.Deserialize<UserModel>(body, _jsonOptions);
+        var user = JsonSerializer.Deserialize<UserModel>(body, new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        });
 
         if (user == null)
             throw new InvalidOperationException("Failed to deserialize user response.");
@@ -76,6 +75,7 @@ public class ApiService : IApiService
 
         var body = await response.Content.ReadAsStringAsync();
 
+        // ha "string" jön vissza JSON-ként → korrekt deserialize
         var token = JsonSerializer.Deserialize<string>(body);
 
         if (token == null)
@@ -98,35 +98,43 @@ public class ApiService : IApiService
 
         var body = await response.Content.ReadAsStringAsync();
 
-        List<FriendModel> friends;
+        List<FriendModel> users;
 
         using var doc = JsonDocument.Parse(body);
 
         if (doc.RootElement.ValueKind == JsonValueKind.Array)
         {
-            friends = JsonSerializer.Deserialize<List<FriendModel>>(body, _jsonOptions);
+            users = JsonSerializer.Deserialize<List<FriendModel>>(body, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
         }
         else
         {
-            var single = JsonSerializer.Deserialize<FriendModel>(body, _jsonOptions);
+            var single = JsonSerializer.Deserialize<FriendModel>(body, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
 
-            friends = new List<FriendModel> { single };
+            users = new List<FriendModel> { single };
         }
 
-        if (friends == null)
+        if (users == null)
             throw new InvalidOperationException("Failed to deserialize friends response.");
 
-        return friends;
+        return users;
     }
 
-    /*public async Task<string> GetGameCount()
+    public async Task<List<string>> GetChattingFriends(string chatId)
     {
         await AddAuthHeader();
-        var body =  await _client.GetStringAsync("/api/games/gamecount");
-
-        using var doc = JsonDocument.Parse(body);
-        int countedGames = doc.RootElement.GetProperty("countedGames").GetInt32();
-
-        return countedGames.ToString();
-    } */
+        var response = await _client.GetAsync($"/api/chatting-friends/{chatId}");
+        if (response.StatusCode == HttpStatusCode.NotFound)
+            throw new Exception("No chatting friends found for chat");
+        var body = await response.Content.ReadAsStringAsync();
+        var friends = JsonSerializer.Deserialize<List<string>>(body);
+        if (friends == null)
+            throw new InvalidOperationException("Failed to deserialize chatting friends response.");
+        return friends;
+    }
 }

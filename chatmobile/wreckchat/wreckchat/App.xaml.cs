@@ -4,6 +4,7 @@ using wreckchat.Services.Api;
 using wreckchat.Services.Auth;
 using wreckchat.Services.Http;
 using wreckchat.Services.WS;
+using wreckchat.ViewModels;
 
 namespace wreckchat;
 public partial class App : Application
@@ -89,7 +90,9 @@ public partial class App : Application
                     })
                     .AddHttpMessageHandler<AuthHandler>();
 
-                    services.AddSingleton<IWebSocketService, WebSocketService>();
+                    //services.AddSingleton<IWebSocketService, WebSocketService>();
+                    services.AddSingleton<IWebSocketEventHub, WebSocketEventHub>();
+                    services.AddSingleton<WebSocketBackgroundService>();
 
                     services.AddTransient<MainModel>();
                     services.AddTransient<SecondModel>();

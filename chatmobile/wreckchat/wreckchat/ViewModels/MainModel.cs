@@ -1,15 +1,23 @@
 using System.Diagnostics;
-using wreckchat.Services.Api;
-using wreckchat.Services.WS;
+using Microsoft.UI.Dispatching;
 using wreckchat.Models;
+using wreckchat.Services.Api;
+using wreckchat.Services.Auth;
+using wreckchat.Services.WS;
 
-namespace wreckchat.Presentation;
+namespace wreckchat.ViewModels;
 
-public partial record MainModel
+public partial class MainModel : BaseViewModel
 {
     private INavigator _navigator;
     private IApiService _apiService;
-    private IWebSocketService _ws;
+    private ITokenService _tokenService;
+    private IServiceProvider _serviceProvider;
+    private readonly IWebSocketEventHub _hub;
+    // private IWebSocketService _ws;
+    private readonly DispatcherQueue _dispatcher;
+    private string _lastMessage;
+
     public string? Title { get; }
 
     public MainModel(
@@ -17,17 +25,35 @@ public partial record MainModel
         IOptions<AppConfig> appInfo,
         INavigator navigator,
         IApiService apiService,
-        IWebSocketService webSocketService)
+        ITokenService tokenService,
+        // IWebSocketService webSocketService,
+        IServiceProvider serviceProvider,
+        IWebSocketEventHub hub)
     {
         _navigator = navigator;
         _apiService = apiService;
-        _ws = webSocketService;
+        _tokenService = tokenService;
+        //_ws = webSocketService;
+        _serviceProvider = serviceProvider;
+        _hub = hub;
+        _dispatcher = DispatcherQueue.GetForCurrentThread();
+
         Title = "Main";
         Title += $" - {localizer["ApplicationName"]}";
         Title += $" - {appInfo?.Value?.Environment}";
+
+        _hub.OnMessage += HandleMessage;
     }
 
     public IState<string> Name => State<string>.Value(this, () => string.Empty);
+
+    private void HandleMessage(string msg)
+    {
+        _dispatcher.TryEnqueue(() =>
+        {
+            LastMessage = msg;
+        });
+    }
 
     public async Task GoToSecond()
     {
@@ -90,16 +116,52 @@ public partial record MainModel
         }
     } */
 
-    public async Task InitSocket()
+    public async Task<List<string>> GetChattingFriends(string userId)
+    {
+        try
+        {
+            List<string> chattingFriends = await _apiService.GetChattingFriends(userId);
+            return chattingFriends;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine("Error fetching chatting friends: " + ex.Message);
+            throw;
+        }
+    }
+
+    public string LastMessage
+    {
+        get => _lastMessage;
+        set
+        {
+            _lastMessage = value;
+            //OnPropertyChanged();
+        }
+    }
+
+    /* public async Task InitSocket()
     {
         await _ws.ConnectAsync(null);
 
-        _ws.StartAsync(async (msg) =>
+        _ = _ws.StartAsync(async (msg) =>
         {
             Debug.WriteLine("WS MSG: " + msg);
 
-            // UI update esetén:
-            // await Dispatcher.RunAsync(...)
+            _dispatcher.TryEnqueue(() =>
+            {
+                LastMessage = msg;
+            });
+
+            await Task.CompletedTask;
         });
+    } */
+
+    public async Task StartWebSocket()
+    {
+        var ws = _serviceProvider.GetService<WebSocketBackgroundService>();
+        var token = await _tokenService.GetToken();
+
+        await ws.StartAsync("ws://api.anchorlauncher.hu:8080", token);
     }
 }

@@ -10,5 +10,6 @@ public interface IApiService
     Task<string> GetOrders();
     Task<string> Login(string username, string password);
     Task<List<FriendModel>> GetFriends(string userId);
-    //Task<string> GetGameCount();
+
+    Task<List<string>> GetChattingFriends(string chatId);
 }
