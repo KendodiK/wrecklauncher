@@ -60,7 +60,6 @@ const Login = ({ onLogin }) => {
           if (typeof window?.electronAPI?.getCurrentUser === 'function') {
             try {
               profile = await window.electronAPI.getCurrentUser();
-              console.log('Fetched user profile after login:', profile);
             } catch {
               profile = null;
             }

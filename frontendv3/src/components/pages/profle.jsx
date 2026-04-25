@@ -254,12 +254,10 @@ const ProfilePage = ({ user }) => {
 				}
 				if(typeof window?.electronAPI?.getOwnedGamesFromGogByNativeUserId === 'function') {
 					const payload = await window.electronAPI.getOwnedGamesFromGogByNativeUserId(nativeUserId);
-					console.log('GOG payload', payload);
 					return extractGames(payload).map((row) => normalizeOwnedSteamGame(row)).filter(Boolean);
 				}
 				if(typeof window?.electronAPI?.getOwnedGamesFromItchByNativeUserId === 'function') {
 					const payload = await window.electronAPI.getOwnedGamesFromItchByNativeUserId(nativeUserId);
-					console.log('Itch payload', payload);
 					return extractGames(payload).map((row) => normalizeOwnedSteamGame(row)).filter(Boolean);
 				}
 

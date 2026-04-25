@@ -38,7 +38,6 @@ const CAROUSEL_CHUNK_SIZE = BATCH_SIZE;
 
 async function fetchGamesPage(api, from) {
 	const batch = await api.getGames(from);
-	console.log(`Fetched games page from offset ${from}:`, batch);
 	return Array.isArray(batch) ? batch : [];
 }
 
@@ -295,12 +294,6 @@ const ensureFullBrowsePages = async () => {
 
 	const pagesNeeded = Math.ceil(needed / estimatedPerPage);
 
-	console.log('[ensureFullBrowsePages]', {
-		currentBrowseCount,
-		needed,
-		estimatedRatio,
-		pagesNeeded
-	});
 
 	for (let i = 0; i < pagesNeeded; i++) {
 		if (!hasMoreBrowse) break;
@@ -323,7 +316,6 @@ const ensureFullBrowsePages = async () => {
 		setIsLoadingMoreBrowse(true);
 		try {
 			const batch = await fetchGamesPage(window.electronAPI, browseOffset);
-			console.log(`[loadNextBrowsePage] Fetched next browse page from offset ${browseOffset}:`, batch);
 			setBrowseOffset((prev) => prev + batch.length);
 			const mapped = batch.map(mapGameCard);
 
@@ -459,7 +451,6 @@ const ensureFullBrowsePages = async () => {
 					...firstGames,
 					...secondGames,
 				];
-				console.log('Fetched initial games data:', gamesData);
 				const featuredChunk1 = featuredPage1.status === 'fulfilled' ? featuredPage1.value : { items: [], nextFrom: BATCH_SIZE, hasMore: false };
 				const featuredChunk2 = featuredPage2.status === 'fulfilled' ? featuredPage2.value : { items: [], nextFrom: CAROUSEL_INITIAL_ITEMS, hasMore: false };
 				const discountedChunk1 = discountedPage1.status === 'fulfilled' ? discountedPage1.value : { items: [], nextFrom: BATCH_SIZE, hasMore: false };
@@ -525,8 +516,6 @@ const ensureFullBrowsePages = async () => {
 				if (upcomingChunk1.items.length + upcomingChunk2.items.length < 1) {
 					upcomingHasMore = false;
 				}
-
-				console.log('Setting all games:', transformedGames);
 				setAllGames(transformedGames);
 				setBrowseOffset(gamesData.length);
 				setHasMoreBrowse(canLoadMore);

@@ -1901,7 +1901,7 @@ function parseGogRatingFromHtml(html) {
 
 	const normalizedScore = Number.isFinite(score) ? Number(score) : null;
 	if (!Number.isFinite(normalizedScore) || normalizedScore <= 0) {
-		console.log('[parseGogRatingFromHtml] No critics score parsed', {
+		console.warn('[parseGogRatingFromHtml] No critics score parsed', {
 			htmlLength: source.length,
 			hasOpencritic: /opencritic/i.test(source),
 			hasCriticsRatingsBlock: /critics-ratings/i.test(source),
@@ -1910,10 +1910,7 @@ function parseGogRatingFromHtml(html) {
 	}
 
 	const clamped = Math.max(0, Math.min(100, normalizedScore));
-	console.log('[parseGogRatingFromHtml] Parsed GOG critics score', {
-		score: clamped,
-		scoreSource,
-	});
+
 
 	return {
 		score: Number(clamped.toFixed(1)),
@@ -1925,10 +1922,9 @@ function parseGogRatingFromHtml(html) {
 
 async function fetchGogUserRating(href) {
 	const absoluteHref = toAbsoluteStoreHref('gog', href);
-	console.log('[fetchGogUserRating] Starting fetch:', { href, absoluteHref });
 	
 	if (!/^https?:\/\//i.test(absoluteHref)) {
-		console.log('[fetchGogUserRating] Invalid href format');
+		console.warn('[fetchGogUserRating] Invalid href format');
 		return null;
 	}
 
@@ -1940,27 +1936,22 @@ async function fetchGogUserRating(href) {
 		
 		for (const tryUrl of urlsToTry) {
 			try {
-				console.log('[fetchGogUserRating] Trying URL:', tryUrl);
 				html = await fetchTextWithTimeout(tryUrl);
 				if (html && html.length > 1000) {
-					console.log('[fetchGogUserRating] Successfully fetched from:', tryUrl);
 					break;
 				}
 			} catch (error) {
-				console.log('[fetchGogUserRating] Failed URL:', tryUrl, error);
+				console.warn('[fetchGogUserRating] Failed URL:', tryUrl, error);
 				continue;
 			}
 		}
 		
 		if (!html) {
-			console.log('[fetchGogUserRating] Failed all URL attempts');
+			console.warn('[fetchGogUserRating] Failed all URL attempts');
 			return null;
 		}
 		
-		console.log('[fetchGogUserRating] HTML fetched, length:', html?.length);
-		
 		const parsed = parseGogRatingFromHtml(html);
-		console.log('[fetchGogUserRating] Parsed result:', parsed);
 		
 		if (!parsed) return null;
 
@@ -2119,7 +2110,6 @@ function resolvePirateSitePageHref(entry, gameTitle = '') {
 		}
 		// FitGirl expects space-encoded slugs (e.g. "Night%20Shippers") rather than
 		// our slugified hyphen form — use the encoded title to preserve spaces.
-		console.log('[resolvePirateSitePageHref] Resolved FitGirl encoded title:', encodedTitle);
 		return `https://fitgirl-repacks.site/${encodedTitle}/`;
 	}
 
@@ -2132,10 +2122,8 @@ function resolvePirateSitePageHref(entry, gameTitle = '') {
 	) {
 		// Match the same first-step source page that the PCGames resolver starts from.
 		if (!slug) {
-			console.log('[resolvePirateSitePageHref] No slug from title, falling back to search URL for IGG Games');
 			return encodedTitle ? `https://igg-games.com/?s=${encodedTitle}` : 'https://igg-games.com/';
 		}
-		console.log('[resolvePirateSitePageHref] Resolved IGG Games slug:', slug);
 		return `https://igg-games.com/${slug}.html`;
 	}
 
@@ -2153,7 +2141,6 @@ function resolvePirateSitePageHref(entry, gameTitle = '') {
 			}
 		} else if (/^\/(games|search)\//i.test(rawHref)) {
 			try {
-				console.log('[resolvePirateSitePageHref] Resolving byxatab relative URL:', rawHref);
 				return new URL(rawHref, 'https://byxatab.com/').toString();
 			} catch {
 				// Fall through to title-based search URL.
@@ -2677,15 +2664,11 @@ const StoreGamePage = () => {
 				: (Array.isArray(incoming.pirateSites) ? incoming.pirateSites : []);
 			if (incomingSites.length < 1) return;
 
-			console.log('[StoreGamePage] pirate-sites payload received for appId', payload?.appId, 'sites:', incomingSites);
-
 			setLivePirateSites((prev) => {
 				const merged = normalizePirateLinksFromAny([
 					...(Array.isArray(prev) ? prev : []),
 					...incomingSites,
 				]);
-
-				console.log('[StoreGamePage] pirate-sites merged (pre-map):', merged);
 
 				return merged
 					.map((entry) => {
@@ -3644,9 +3627,8 @@ const StoreGamePage = () => {
 						// Use the full URL if it's valid, otherwise reconstruct
 						const gogHref = /^https?:\/\//i.test(siteHref) ? siteHref : `https://www.gog.com/en/game/${extractedSlug}`;
 						upsert('gog', extractedSlug, gogHref);
-						console.log('[ratingTargets] GOG slug extracted:', { slug: extractedSlug, href: gogHref, isValid: true });
 					} else {
-						console.log('[ratingTargets] GOG numeric ID found (invalid slug), skipping:', { numericId: extractedSlug });
+						console.warn('[ratingTargets] GOG numeric ID found (invalid slug), skipping:', { numericId: extractedSlug });
 					}
 				}
 			} else {
@@ -3667,12 +3649,10 @@ const StoreGamePage = () => {
 				// Try to build a proper GOG URL from the title slug
 				const gameTitle = String(model.title || model.name || '').trim();
 				const gogSlugs = buildGogTitleSlugs(gameTitle);
-				console.log('[ratingTargets] Building GOG slug from title:', { gameTitle, availableSlugs: gogSlugs.slice(0, 3) });
 				if (gogSlugs.length > 0) {
 					// Use the first slug candidate
 					const gogUrl = `https://www.gog.com/en/game/${gogSlugs[0]}`;
 					upsert('gog', gogSlugs[0], gogUrl);
-					console.log('[ratingTargets] GOG URL generated from title:', { slug: gogSlugs[0], url: gogUrl });
 				}
 			}
 		}
@@ -3690,19 +3670,7 @@ const StoreGamePage = () => {
 		const gogHref = toAbsoluteStoreHref('gog', ratingTargets.gog.href);
 		const itchHref = toAbsoluteStoreHref('itchio', ratingTargets.itchio.href);
 
-		// Debug logging
-		if (activePlatform === 'gog' || gogHref) {
-			console.log('[StoreGamePage] GOG Rating Fetch Debug:', {
-				activePlatform,
-				appId,
-				'model.appid': model?.appid,
-				'ratingTargets.gog.appId': ratingTargets.gog?.appId,
-				'ratingTargets.gog.href': ratingTargets.gog?.href,
-				gogHref,
-				'platformDetails?.id': platformDetails?.id,
-				'platformDetails?.productId': platformDetails?.productId,
-			});
-		}
+
 
 		setRatingsByPlatform({
 			steam: { loading: !!steamAppId, data: null },

@@ -1311,6 +1311,8 @@ body {
 .lib-strip-card-image {
   width: inherit;
   height: inherit;
+  min-width: 180px;
+  min-height: 140px;
   object-fit: contain;
   object-position: center center;
   display: block;

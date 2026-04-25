@@ -165,7 +165,7 @@ class OnlineFixMeController {
           }
         } catch (err) {
           // ignore and surface below
-          console.warn('[OnlineFixMe] Puppeteer fallback failed:', err?.message || err);
+          console.warn('[OnlineFixMe] Puppeteer fallback failed:', err?.message || String(err).slice(0, 200));
         }
       }
     }

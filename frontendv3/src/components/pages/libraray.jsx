@@ -1376,7 +1376,43 @@ const LibraryPage = () => {
 						}
 					})(), 'Itch library load'));
 				}
+platformTasks.push(
+	wrapLibraryPlatformTask(
+		(async () => {
+			try {
+				const localLibraryEntries = await window.electronAPI
+					.getPirateLibraryGames()
+					.catch((error) => {
+						console.warn('Failed to load local library entries:', error);
+						return [];
+					});
 
+				console.log('Loaded local library entries:', localLibraryEntries);
+
+				const localLibraryGames = Array.isArray(localLibraryEntries)
+					? localLibraryEntries
+							.map((entry) => toLocalLibraryGame(entry))
+							.filter(Boolean)
+					: [];
+
+				return {
+					games: localLibraryGames,
+					error: '',
+				};
+			} catch (error) {
+				console.error('Failed to load local library:', error);
+				return {
+					games: [],
+					error:
+						error instanceof Error
+							? error.message
+							: 'Failed to load local library',
+				};
+			}
+		})(),
+		'Local library load'
+	)
+);
 				if (gogSettings?.connected) {
 					platformTasks.push(wrapLibraryPlatformTask((async () => {
 						try {

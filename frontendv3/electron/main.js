@@ -2733,6 +2733,8 @@ handle('steam:get-installed-games', async () => {
   // ── Local pirate library (manual EXE-based entries) ─────────────────────
 
   handle('pirate-library:get-games', async () => {
+    const data = await getPirateLibraryCtrl().getGames();
+    console.log('Handling pirate-library:get-games : ', data);
     return await getPirateLibraryCtrl().getGames();
   });
 
