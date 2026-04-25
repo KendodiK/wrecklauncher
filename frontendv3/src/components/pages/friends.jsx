@@ -224,7 +224,7 @@ setLocalMessages((prev) => ({
 ...prev,
 [activeFriendId]: [
 ...(prev[activeFriendId] ?? []),
-{ id: makeId(), from: 'me', text, ts: 'Now' },
+{ id: makeId(), from: 'me', text, to: activeFriendId },
 ],
 }));
 setDraft('');
@@ -304,11 +304,11 @@ throw new Error('Remove-friend API is not available in this build');
 await window.electronAPI.removeFriend(friendshipId);
 
 setFriends((prev) => prev.filter((row) => String(row?.id ?? '').trim() !== friendId));
-setLocalMessages((prev) => {
-const next = { ...prev };
-delete next[friendId];
-return next;
-});
+// setLocalMessages((prev) => {
+// const next = { ...prev };
+// delete next[friendId];
+// return next;
+// });
 setSearchResults((prev) =>
 prev.map((item) =>
 String(item?.id ?? '').trim() === friendId
@@ -329,7 +329,7 @@ setRemovingFriendIds((prev) => prev.filter((id) => id !== friendId));
 
 const FriendRow = ({ friend, selected, showMsgButton, showProfileButton, showRemoveButton, removeBusy, onRemove }) => (
 <div
-role="button"
+role="text"
 tabIndex={0}
 className={
 'flex items-center gap-3 rounded-lg border px-3 py-2 select-none transition-colors ' +
@@ -337,10 +337,10 @@ className={
 ? 'border-slate-600/70 bg-slate-900/45'
 : 'border-slate-700/60 bg-slate-950/25 hover:bg-slate-900/35')
 }
-onClick={() => openChat(friend.id)}
-onKeyDown={(e) => {
-if (e.key === 'Enter') openChat(friend.id);
-}}
+// onClick={() => openChat(friend.id)}
+// onKeyDown={(e) => {
+// if (e.key === 'Enter') openChat(friend.id);
+// }}
 >
 <div className="relative">
 {friend.avatarUrl ? (
@@ -367,7 +367,7 @@ statusDot(friend.status)
 
 {(showMsgButton || showProfileButton || showRemoveButton) && (
 <div className="flex items-center gap-2">
-{showMsgButton && (
+{/* {showMsgButton && (
 <button
 type="button"
 className="text-xs px-2 py-1 rounded border border-slate-700/60 bg-slate-900/30 hover:bg-slate-900/50"
@@ -378,7 +378,7 @@ openChat(friend.id);
 >
 MSG
 </button>
-)}
+)} */}
 {showProfileButton && (
 <button
 type="button"
