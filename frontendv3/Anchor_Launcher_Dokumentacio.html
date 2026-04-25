@@ -68,18 +68,19 @@
 <!-- ====== 1. BEVEZETÉS ====== -->
 <h2 id="bev">1. Bevezetés, a téma ismertetése, témaválasztás indoklása, szakmai célkitűzés</h2>
 
-<p>Az <strong>Anchor Launcher</strong> (korábbi nevén Wreck Launcher, Flagship Launcher) egy modern asztali játékindító alkalmazás, amelyet Electron, React és Node.js technológiák felhasználásával készítettem. A program célja, hogy egyetlen egységes felületről biztosítson hozzáférést a felhasználó különböző platformokon (Steam, GOG, itch.io) található játékaihoz, valamint lehetővé tegye a torrent-alapú játékletöltést alternatív forrásokból (FitGirl, Dodi Repacks, Byxatab, Online-Fix, PC Games Torrent).</p>
+<p>Az <strong>Anchor Launcher</strong> egy modern asztali játékindító alkalmazás, amelyet Electron, React és Node.js technológiák felhasználásával készítettem. A program célja, hogy egyetlen egységes felületről biztosítson hozzáférést a felhasználó különböző platformokon (Steam, GOG, itch.io) található játékaihoz, valamint lehetővé tegye a torrent-alapú játékletöltést alternatív forrásokból (FitGirl, Byxatab, Online-Fix, PC Games Torrent).</p>
 
-<p><strong>Témaválasztás indoklása:</strong> Napjainkban egy átlagos játékos többféle platformon is rendelkezhet játékokkal – a Steamen, GOG-on, itch.io-n, illetve akár kalózforrásokból is. Ezek kezelése külön-külön alkalmazásokban történik, ami kényelmetlen és széttöredezett élményt nyújt. Az Anchor Launcher ezt a problémát orvosolja azáltal, hogy egyesíti az összes játékplatformot egyetlen, letisztult felületen, miközben a torrent-alapú letöltéseket is natívan támogatja.</p>
+<p><strong>Témaválasztás indoklása:</strong> Napjainkban egy átlagos játékos többféle platformon is rendelkezhet játékokkal – a Steamen, GOG-on, itch.io-n, illetve akár kalózforrásokból is. Ezek kezelése külön-külön alkalmazásokban történik, ami kényelmetlen és széttöredezett élményt nyújt. Az Anchor Launcher ezt a problémát orvosolja azáltal, hogy egyesíti az összes említett játékplatformot egyetlen, letisztult felületen, miközben a torrent-alapú letöltéseket is natívan támogatja, valós időben keresi elérhetőségét az adott játéknak.</p>
 
 <p><strong>Szakmai célkitűzés:</strong> A projekt elkészítése során célom volt, hogy egy olyan valóságban is használható, teljes értékű asztali alkalmazást hozzak létre, amely:</p>
 <ul>
   <li>modern, reszponzív felhasználói felülettel rendelkezik (Tailwind CSS + React);</li>
   <li>Electron segítségével natív asztali alkalmazásként fut Windows rendszeren;</li>
   <li>támogatja a Steam, GOG és itch.io játékok böngészését, részletes adatainak lekérését;</li>
+  <li>valós idejű adatok lekérdezése különböző platformokról és "alternatív letöltőoldalakról"</li>
   <li>integrált torrent-klienst tartalmaz (WebTorrent) a játékok letöltéséhez;</li>
-  <li>felhasználói fiókrendszert biztosít regisztrációval, bejelentkezéssel, ismerősök kezelésével;</li>
-  <li>testreszabható beállításokkal rendelkezik (téma, országkód, megjelenés).</li>
+  <li>felhasználói fiókrendszert biztosít regisztrációval, bejelentkezéssel, ismerősök kezelésével;</li>  
+  <li>testreszabható beállításokkal rendelkezik (téma, országkód(árakhoz), megjelenés).</li>
 </ul>
 
 <!-- ====== 2. FEJLESZTŐI DOKUMENTÁCIÓ ====== -->
@@ -87,13 +88,15 @@
 
 <h3 id="fejl-kornyezet">2.1 Fejlesztőkörnyezet ismertetése</h3>
 
-<h4>Hardverkörnyezet</h4>
-<ul>
-  <li>Processzor: Intel Core i7 12. generáció vagy azzal egyenértékű</li>
-  <li>RAM: minimum 16 GB (a böngészőfejlesztés és az Electron nehéz felépítése miatt)</li>
-  <li>Tárhely: SSD ajánlott (a gyors újrafordítások érdekében)</li>
-  <li>Operációs rendszer: Windows 10/11 (a csomagolt kimenet Windows NSIS telepítő)</li>
-</ul>
+<h4>Hardverkövetelmények</h4>
+<table>
+  <tr><th>Összetevő</th><th>Minimum</th><th>Ajánlott</th></tr>
+  <tr><td>Processzor</td><td>Intel Core i3 / AMD Ryzen 3 (2 GHz+)</td><td>Intel Core i5 / AMD Ryzen 5</td></tr>
+  <tr><td>Memória (RAM)</td><td>4 GB</td><td>8 GB vagy több</td></tr>
+  <tr><td>Tárhely</td><td>500 MB szabad hely (az alkalmazás számára)</td><td>1 GB+ (a cache és a letöltések miatt)</td></tr>
+  <tr><td>Operációs rendszer</td><td>Windows 10 (64-bit)</td><td>Windows 11</td></tr>
+  <tr><td>Internet kapcsolat</td><td>Szükséges (a backend és az áruházak eléréséhez)</td><td>Szélessávú kapcsolat (torrent-letöltésekhez)</td></tr>
+</table>
 
 <h4>Szoftverkörnyezet</h4>
 <table>
