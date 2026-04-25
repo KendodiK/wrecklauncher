@@ -16,6 +16,7 @@ const RightSidebar = ({
 	const [activeGenreTab, setActiveGenreTab] = useState(null);
 	const [selectedPlatforms, setSelectedPlatforms] = useState([]);
 	const [priceRange, setPriceRange] = useState({ min: 0, max: 100 });
+	const [genreSearch, setGenreSearch] = useState('');
 	const [showAdvanced, setShowAdvanced] = useState(false);
 	const searchInputRef = useRef(null);
 	const searchTimeoutRef = useRef(null);
@@ -33,6 +34,10 @@ const RightSidebar = ({
 		{ id: 9, name: 'Puzzle' },
 		{ id: 10, name: 'Indie' },
 	];
+
+	const filteredGenres = displayGenres.filter((g) =>
+		g.name.toLowerCase().includes(genreSearch.toLowerCase())
+	);
 
 	// Debounced search handler (300ms)
 	const handleSearchChange = (e) => {
@@ -61,7 +66,7 @@ const RightSidebar = ({
 		if (activeGenreTab === genreId) {
 			setActiveGenreTab(null);
 			setSelectedGenres([]);
-			notifyFiltersChange(searchQuery, [], selectedPlatform, priceRange);
+			notifyFiltersChange(searchQuery, [], selectedPlatforms, priceRange);
 		} else {
 			setActiveGenreTab(genreId);
 			setSelectedGenres([genreId]);
@@ -107,6 +112,7 @@ const RightSidebar = ({
 		setActiveGenreTab(null);
 		setSelectedPlatforms([]);
 		setPriceRange({ min: 0, max: 100 });
+		setGenreSearch('');
 		notifyFiltersChange('', [], [], { min: 0, max: 100 });
 	};
 
@@ -223,13 +229,35 @@ const RightSidebar = ({
 
 					{showAdvanced && (
 						<div className="space-y-4">
+							{/* Price range slider */}
+							<div>
+								<label className="block text-xs font-medium text-slate-400 mb-2 uppercase tracking-wide">
+									Price Range
+								</label>
+								<PriceRangeSlider
+									min={0}
+									max={100}
+									value={priceRange}
+									onChange={handlePriceChange}
+								/>
+							</div>
 							{/* Genre checkboxes (multi-select) */}
 							<div>
 								<label className="block text-xs font-medium text-slate-400 mb-2 uppercase tracking-wide">
 									Genres (multi-select)
 								</label>
+								{/* Local search for genres */}
+								<div className="mb-2">
+									<input
+										type="text"
+										value={genreSearch}
+										onChange={(e) => setGenreSearch(e.target.value)}
+										placeholder="Search genres..."
+										className="w-full px-3 py-2 bg-slate-950/40 border border-slate-700/60 rounded text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-500/50 focus:border-slate-500"
+									/>
+								</div>
 								<div className="space-y-2 max-h-48 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-slate-800/50">
-									{displayGenres.map((genre) => (
+									{filteredGenres.map((genre) => (
 										<label
 											key={genre.id}
 											className="flex items-center gap-2 cursor-pointer group"
@@ -248,18 +276,7 @@ const RightSidebar = ({
 								</div>
 							</div>
 
-							{/* Price range slider */}
-							<div>
-								<label className="block text-xs font-medium text-slate-400 mb-2 uppercase tracking-wide">
-									Price Range
-								</label>
-								<PriceRangeSlider
-									min={0}
-									max={100}
-									value={priceRange}
-									onChange={handlePriceChange}
-								/>
-							</div>
+
 						</div>
 					)}
 				</div>

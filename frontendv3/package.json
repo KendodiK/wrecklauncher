@@ -2,6 +2,7 @@
   "name": "anchor-launcher",
   "version": "1.0.0",
   "description": "Electron + React + Tailwind frontend",
+  "productName": "Anchor Launcher",
   "main": "electron/main.js",
   "scripts": {
     "dev": "vite",
@@ -41,7 +42,7 @@
     }
   },
   "keywords": [],
-  "author": "WreckLauncher Team",
+  "author": "AnchorLauncher Team",
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {

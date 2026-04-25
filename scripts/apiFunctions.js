@@ -433,7 +433,7 @@ module.exports.GETGamesInList = async function (req, res) {
 
 module.exports.GETSearch = async function (req, res) {
     try {
-        const payload = req.body && typeof req.body === 'object' ? req.body : {};
+        const payload = req.params || (req.body && typeof req.body === 'object' ? req.body : {}) || {};
         const normalizedNeedle = String(payload.needle ?? '').trim();
         const tags = Array.isArray(payload.tags)
             ? payload.tags.map((tag) => String(tag ?? '').trim()).filter((tag) => !!tag)

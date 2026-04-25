@@ -50,7 +50,7 @@ const Storeslider = ({ items, onCardClick, onNearEnd, nearEndThreshold = 5 }) =>
                     platform_name: normalizedPlatform,
                     description:
                         card.description ??
-                        'Short description goes here. Replace this with real store data when available.',
+                        'No description available. Click to learn more about this game on the store page.',
                     sites: card.sites,
                     tags: card.tags,
                 },
@@ -181,9 +181,9 @@ const Storeslider = ({ items, onCardClick, onNearEnd, nearEndThreshold = 5 }) =>
                         loading={abs <= 1 ? 'eager' : 'lazy'}
                         style={{ objectFit: card.preferContainImage ? 'contain' : 'cover' }}
                     />
-                    {Number(card.discountPercent) > 0 ? (
+                    {Number(card.discount_percent) > 0 ? (
                         <div className="absolute left-3 top-3 rounded-md bg-emerald-500/95 px-2 py-1 text-xs font-bold text-white shadow-lg">
-                            -{Math.round(Number(card.discountPercent))}%
+                            -{Math.round(Number(card.discount_percent))}%
                         </div>
                     ) : null}
                     <div className="shop-card-title">{card.title}</div>

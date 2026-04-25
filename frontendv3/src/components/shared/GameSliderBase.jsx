@@ -58,7 +58,7 @@ const GameSliderBase = ({
 	// Animation hooks (wrapper supplies timing; easing is controlled here)
 	transition,
 	transitionMs = 300,
-}) => {
+}) => {	
 	const carouselRef = useRef(null);
 	const containerRef = useRef(null);
 	const shouldReduceMotion = useReducedMotion();
@@ -108,6 +108,7 @@ const GameSliderBase = ({
 
 		return source;
 	}, [games, showFallbackCards]);
+	
 
 	// Stable identity for card composition/order to avoid resetting internal loop state
 	// when parent passes a new array instance with the same ids.
@@ -255,6 +256,67 @@ const GameSliderBase = ({
 			...head,
 		];
 	}, [baseCards, createProceduralEntry, effectiveLoopCloneCount, hasLoopClones, streamCards, useProceduralLoop]);
+	const recenter = useCallback(
+		(animate = true) => {
+			if (mode !== 'translate') return;
+			const container = containerRef.current;
+			const carousel = carouselRef.current;
+			if (!container || !carousel) return;
+			if (!cards.length) return;
+
+			const allCards = container.children;
+			const activeCard = allCards[currentIndex];
+			if (!activeCard) return;
+
+			const viewportWidth = carousel.offsetWidth;
+			const contentWidth = container.scrollWidth;
+			if (!viewportWidth || !contentWidth) return;
+
+			// If all cards fit, just center the whole row (prevents it translating off-screen).
+			if (contentWidth <= viewportWidth) {
+				const offset = Math.round((viewportWidth - contentWidth) / 2);
+				if (xRef.current !== offset) {
+					xRef.current = offset;
+					const shouldAnimate = animate && !shouldReduceMotion && !skipAnimationRef.current && transitionMs > 0;
+					const transitionValue = String(transition || '').trim();
+					const resolvedTransition = transitionValue || `transform ${Math.max(0, transitionMs)}ms ease-out`;
+					container.style.transition = shouldAnimate
+						? resolvedTransition
+						: 'none';
+					const lerp = (start, end, t) => start + (end - start) * t;
+
+let currentX = xRef.current;
+currentX = lerp(currentX, offset, 0.15);
+
+xRef.current = currentX;
+container.style.transform = `translate3d(${currentX}px, 0, 0)`;
+				}
+				return;
+			}
+
+			const viewportCenter = viewportWidth / 2;
+			const cardCenter = activeCard.offsetLeft + activeCard.offsetWidth / 2;
+			let offset = (viewportCenter - cardCenter) - activeOffsetPx;
+
+			// Clamp so the list never scrolls out of view.
+			const maxOffset = 0;
+			const minOffset = Math.min(0, viewportWidth - contentWidth);
+			offset = Math.max(minOffset, Math.min(maxOffset, offset));
+
+			offset = Math.round(offset * 100) / 100;
+			if (xRef.current !== offset) {
+				xRef.current = offset;
+				const shouldAnimate = animate && !shouldReduceMotion && !skipAnimationRef.current && transitionMs > 0;
+				const transitionValue = String(transition || '').trim();
+				const resolvedTransition = transitionValue || `transform ${Math.max(0, transitionMs)}ms cubic-bezier(0.2, 0.8, 0.2, 1)`;
+				container.style.transition = shouldAnimate
+					? resolvedTransition
+					: 'none';
+				container.style.transform = `translate3d(${offset}px, 0, 0)`;
+			}
+		},
+		[activeOffsetPx, cards.length, currentIndex, mode, shouldReduceMotion, transition, transitionMs]
+	);
 
 	if (!cards.length) return null;
 
@@ -353,67 +415,24 @@ const GameSliderBase = ({
 		setIsMoving(true);
 		setCurrentIndex(index);
 	};
+	useEffect(() => {
+	const container = containerRef.current;
+	if (!container) return;
 
-	const recenter = useCallback(
-		(animate = true) => {
-			if (mode !== 'translate') return;
-			const container = containerRef.current;
-			const carousel = carouselRef.current;
-			if (!container || !carousel) return;
-			if (!cards.length) return;
+	const transitionValue =
+		String(transition || '').trim() ||
+		`transform ${Math.max(0, transitionMs)}ms cubic-bezier(0.25, 0.8, 0.25, 1)`;
 
-			const allCards = container.children;
-			const activeCard = allCards[currentIndex];
-			if (!activeCard) return;
+	container.style.transition = transitionValue;
+	}, [transition, transitionMs]);
 
-			const viewportWidth = carousel.offsetWidth;
-			const contentWidth = container.scrollWidth;
-			if (!viewportWidth || !contentWidth) return;
 
-			// If all cards fit, just center the whole row (prevents it translating off-screen).
-			if (contentWidth <= viewportWidth) {
-				const offset = Math.round((viewportWidth - contentWidth) / 2);
-				if (xRef.current !== offset) {
-					xRef.current = offset;
-					const shouldAnimate = animate && !shouldReduceMotion && !skipAnimationRef.current && transitionMs > 0;
-					const transitionValue = String(transition || '').trim();
-					const resolvedTransition = transitionValue || `transform ${Math.max(0, transitionMs)}ms cubic-bezier(0.2, 0.8, 0.2, 1)`;
-					container.style.transition = shouldAnimate
-						? resolvedTransition
-						: 'none';
-					container.style.transform = `translate3d(${offset}px, 0, 0)`;
-				}
-				return;
-			}
-
-			const viewportCenter = viewportWidth / 2;
-			const cardCenter = activeCard.offsetLeft + activeCard.offsetWidth / 2;
-			let offset = (viewportCenter - cardCenter) - activeOffsetPx;
-
-			// Clamp so the list never scrolls out of view.
-			const maxOffset = 0;
-			const minOffset = Math.min(0, viewportWidth - contentWidth);
-			offset = Math.max(minOffset, Math.min(maxOffset, offset));
-
-			offset = Math.round(offset);
-			if (xRef.current !== offset) {
-				xRef.current = offset;
-				const shouldAnimate = animate && !shouldReduceMotion && !skipAnimationRef.current && transitionMs > 0;
-				const transitionValue = String(transition || '').trim();
-				const resolvedTransition = transitionValue || `transform ${Math.max(0, transitionMs)}ms cubic-bezier(0.2, 0.8, 0.2, 1)`;
-				container.style.transition = shouldAnimate
-					? resolvedTransition
-					: 'none';
-				container.style.transform = `translate3d(${offset}px, 0, 0)`;
-			}
-		},
-		[activeOffsetPx, cards.length, currentIndex, mode, shouldReduceMotion, transition, transitionMs]
-	);
 
 	// Layout update: place active card + toggle active class
 	useLayoutEffect(() => {
 		if (mode !== 'translate') return;
-		recenter(!skipAnimationRef.current);
+		recenterSafe(true);
+		skipAnimationRef.current = false;
 		skipAnimationRef.current = false;
 	}, [currentIndex, cards.length, recenter, mode]);
 
@@ -431,7 +450,7 @@ const GameSliderBase = ({
 
 				const side = Math.max(1, effectiveLoopCloneCount);
 				const extendThreshold = Math.max(2, side);
-				let nextCards = cards;
+				let nextCards = [...cards];
 				let nextIndex = currentIndex;
 				let changed = false;
 
@@ -502,10 +521,19 @@ const GameSliderBase = ({
 				}
 			}
 			setIsMoving(false);
-		}, Math.max(0, transitionMs + 10));
+		}, Math.max(0, (transitionMs ?? 300) + 10));
 
 		return () => clearTimeout(timer);
 	}, [baseCards.length, cards, createProceduralEntry, currentIndex, effectiveLoopCloneCount, hasLoopClones, isMoving, transitionMs, useProceduralLoop]);
+	useEffect(() => {
+  if (!isMoving) return;
+
+  const fallback = setTimeout(() => {
+    setIsMoving(false);
+  }, 500); // failsafe unlock
+
+  return () => clearTimeout(fallback);
+}, [isMoving]);
 
 	// Recenter when the carousel area changes size (e.g., dropdown opens, window resizes).
 	useEffect(() => {
@@ -518,7 +546,7 @@ const GameSliderBase = ({
 			if (resizeRafRef.current) return;
 			resizeRafRef.current = requestAnimationFrame(() => {
 				resizeRafRef.current = 0;
-				recenter(false);
+				recenterSafe(false);
 			});
 		});
 		ro.observe(carousel);
@@ -640,6 +668,15 @@ const GameSliderBase = ({
 		e.preventDefault();
 		e.stopPropagation?.();
 	};
+		const recenterRaf = useRef(0);
+
+const recenterSafe = useCallback(() => {
+  if (recenterRaf.current) cancelAnimationFrame(recenterRaf.current);
+
+  recenterRaf.current = requestAnimationFrame(() => {
+    recenter(true);
+  });
+}, [recenter]);
 
 	// Native non-passive wheel handler to reliably block vertical page scroll while hovering.
 	useEffect(() => {
@@ -647,6 +684,8 @@ const GameSliderBase = ({
 		if (!el) return;
 
 		const handler = (e) => {
+			// Only react when SHIFT is held
+			if (!e.shiftKey) return;
 			// Treat mouse wheel/trackpad as left/right navigation.
 			// Prevent page scroll while the cursor is over the carousel.
 			if (e.cancelable) e.preventDefault();
