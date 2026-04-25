@@ -45,12 +45,12 @@ server.on('listening', async () => {
   } catch (err) {
     console.error('Error creating database tables on startup:', err);
   }
-  await apiFunctions.fetchInitialShopSpecialsData();
+  /*await apiFunctions.fetchInitialShopSpecialsData();
   setInterval(() => {
     apiFunctions.fetchInitialShopSpecialsData().catch((err) => {
       console.error('Error refreshing shop specials data:', err);
     });
-  }, 24 * 60 * 60 * 1000); // Refresh shop specials data every day
+  }, 24 * 60 * 60 * 1000); // Refresh shop specials data every day*/
 });
 //#endregion
 

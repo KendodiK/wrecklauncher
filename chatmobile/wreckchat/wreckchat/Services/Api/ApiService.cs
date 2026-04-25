@@ -1,10 +1,15 @@
 using System;
 using System.Collections.Generic;
-using System.Text;
+using System.Net;
 using System.Net.Http.Json;
-using wreckchat.Services.Auth;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Newtonsoft.Json;
+using Windows.ApplicationModel.UserDataAccounts.SystemAccess;
+using Windows.System;
+using wreckchat.Models;
+using wreckchat.Services.Auth;
 
 namespace wreckchat.Services.Api;
 
@@ -22,15 +27,29 @@ public class ApiService : IApiService
     private async Task AddAuthHeader()
     {
         var token = await _tokenService.GetToken();
+        token = token.Trim();
 
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
     }
 
-    public async Task<string> GetUsers()
+    public async Task<UserModel> GetUsers()
     {
         await AddAuthHeader();
-        return await _client.GetStringAsync("/api/users");
+        var token = await _tokenService.GetToken();
+
+        var response = await _client.GetAsync($"/api/native-users/{token.Split('.')[0]}");
+
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            throw new Exception($"No data found for user");
+        }
+
+        var body = await response.Content.ReadAsStringAsync();
+        var user = JsonConvert.DeserializeObject<UserModel>(body);
+        if (user == null)
+            throw new InvalidOperationException("Failed to deserialize user response.");
+        return user;
     }
 
     public async Task<string> GetOrders()
@@ -41,8 +60,9 @@ public class ApiService : IApiService
 
     public async Task<string> Login(string username, string password)
     {
-        var json = JsonSerializer.Serialize(new { username, password });
+        var json = Newtonsoft.Json.JsonConvert.SerializeObject(new { username, password });
         using var content = new StringContent(json, Encoding.UTF8, "application/json");
+        Console.WriteLine($"Login request: {json}");
 
         var response = await _client.PutAsync("/api/login", content);
 
@@ -52,12 +72,43 @@ public class ApiService : IApiService
         }
 
         var body = await response.Content.ReadAsStringAsync();
+        Console.WriteLine(body);
 
         if (body == null)
             throw new InvalidOperationException("Failed to deserialize token response.");
 
-        await _tokenService.SetToken(body);
-        return body;
+        string token = Convert.ToString(body).Trim('"');
+        Console.WriteLine(token);
+        await _tokenService.SetToken(token);
+        return token;
+    }
+
+    public async Task<List<UserModel>> GetFriends(string userId)
+    {
+        await AddAuthHeader();
+        var response = await _client.GetAsync($"/api/friends/{userId}");
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            throw new Exception($"No friends found for user");
+        }
+        List<UserModel> users;
+
+        var body = await response.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(body);
+
+        if (doc.RootElement.ValueKind == JsonValueKind.Array)
+        {
+            users = JsonSerializer.Deserialize<List<UserModel>>(body);
+        }
+        else
+        {
+            var single = JsonSerializer.Deserialize<UserModel>(body);
+            users = new List<UserModel> { single };
+        }
+        var friends = JsonConvert.DeserializeObject<List<UserModel>>(body);
+        if (friends == null)
+            throw new InvalidOperationException("Failed to deserialize friends response.");
+        return friends;
     }
 }
 

@@ -13,6 +13,10 @@ public sealed partial class MainPage : Page
     private Grid _chatRoomView = null!;
     private Grid _chatListView = null!;
     private TextBlock _chatRoomIncoming = null!;
+    private MainModel _model = null!;
+    private UserModel user = null!;
+    private List<UserModel> friends = null!;
+
 
     public MainPage()
     {
@@ -38,18 +42,20 @@ public sealed partial class MainPage : Page
             return;
         }
 
-        var model = ((App)Application.Current).Services.GetService<MainModel>()!;
-        var token = await model.CheckData(username, password);
+        _model = ((App)Application.Current).Services.GetService<MainModel>()!;
+        var token = await _model.CheckData(username, password);
         if (!token)
         {
             // TODO: Show error
             return;
         }
 
+        user = await _model.GetUserData();
+        //todo: barátok lekérdezése
+
         LoginView.Visibility = Visibility.Collapsed;
-        AppView.Visibility = Visibility.Visible;
-        BottomNav.Visibility = Visibility.Visible;
-        ShowTab("Chats");
+        //await _model.InitSocket(); <- vlami nem jó a thredinggel mert itt megakad
+        BuildFrame();
     }
 
     private void ChatsNav_Click(object sender, RoutedEventArgs e) => ShowTab("Chats");
@@ -64,6 +70,15 @@ public sealed partial class MainPage : Page
 
     private void OpenChat_Noah(object sender, RoutedEventArgs e) => OpenChatRoom("Noah", "See you tomorrow");
 
+    private void BuildFrame()
+    {
+        AppView.Visibility = Visibility.Visible;
+        BottomNav.Visibility = Visibility.Visible;
+        ShowTab("Chats");
+
+        ProfileName.Text = user.Name;
+        ProfileBio.Text = user.Bio;
+    }
     private void BackToChats_Click(object sender, RoutedEventArgs e)
     {
         _chatRoomView.Visibility = Visibility.Collapsed;
@@ -82,16 +97,29 @@ public sealed partial class MainPage : Page
 
     private void ShowTab(string tab)
     {
+        //todo ide switch:
+        //todo ha -> profile, lekérdezni (a még nincs): friends->profile infóval!, gamecount, owned games(count), owned games(list), common count?
+        //todo ha -> Notifications, lekérdezni a chat log-ot
+        //todo ha -> chats, lekérdezni a jelenleg beszélgető partnereket és az üzeneteket ha rá kattinatanak egy-egyre.
+
+
         ChatsTab.Visibility = tab == "Chats" ? Visibility.Visible : Visibility.Collapsed;
         NotificationsTab.Visibility = tab == "Notifications" ? Visibility.Visible : Visibility.Collapsed;
         ProfileTab.Visibility = tab == "Profile" ? Visibility.Visible : Visibility.Collapsed;
-
         HeaderTitle.Text = tab;
 
-        if (tab == "Chats")
+        switch (tab)
         {
-            _chatRoomView.Visibility = Visibility.Collapsed;
-            _chatListView.Visibility = Visibility.Visible;
+            case "Profile":
+                break;
+            case "Notifications":
+                break;
+            case "Chats":
+                _chatRoomView.Visibility = Visibility.Collapsed;
+                _chatListView.Visibility = Visibility.Visible;
+
+                friends = await _model.GetFriends(user.Id);
+                break;
         }
 
         ChatsNav.Foreground = tab == "Chats" ? new SolidColorBrush(Color.FromArgb(255, 226, 232, 240)) : new SolidColorBrush(Color.FromArgb(255, 148, 163, 184));

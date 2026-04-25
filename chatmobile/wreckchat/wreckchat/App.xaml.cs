@@ -85,7 +85,7 @@ public partial class App : Application
 
                     services.AddHttpClient<IApiService, ApiService>(client =>
                     {
-                        client.BaseAddress = new Uri("https://api.anchorlauncher.hu"); // API URL
+                        client.BaseAddress = new Uri("https://api.anchorlauncher.hu"); // API URL producion: https://api.anchorlauncher.hu
                     })
                     .AddHttpMessageHandler<AuthHandler>();
 

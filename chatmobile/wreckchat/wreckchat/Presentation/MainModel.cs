@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using wreckchat.Services.Api;
 using wreckchat.Services.WS;
+using wreckchat.Models;
 
 namespace wreckchat.Presentation;
 
@@ -38,12 +40,52 @@ public partial record MainModel
         try
         {
             var token = await _apiService.Login(username, password);
-            await _ws.ConnectAsync(null);
             return true;
         }
         catch (Exception)
         {
             return false;
         }
+    }
+
+    public async Task<UserModel> GetUserData()
+    {
+        try
+        {
+            UserModel userData = await _apiService.GetUsers();
+            return userData;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine("Error fetching user data: " + ex.Message);
+            throw;
+        }
+    }
+
+    public async Task<List<UserModel>> GetFriends(string userId)
+    {
+        try
+        {
+            List<UserModel> friends = await _apiService.GetFriends(userId);
+            return friends;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine("Error fetching friends: " + ex.Message);
+            throw;
+        }
+    }
+
+    public async Task InitSocket()
+    {
+        await _ws.ConnectAsync(null);
+
+        _ws.StartAsync(async (msg) =>
+        {
+            Debug.WriteLine("WS MSG: " + msg);
+
+            // UI update esetén:
+            // await Dispatcher.RunAsync(...)
+        });
     }
 }
