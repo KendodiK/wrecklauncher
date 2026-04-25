@@ -27,7 +27,6 @@ class FitGirlController {
       .replace(/&#0*38;/g, '&')   // &#038; / &#38;
       .replace(/&amp;/gi, '&');   // &amp;
 
-    console.log('[FitGirl] decoded magnet found');  //delete this line later, still needed for debugging the magnet decoding
     return magnetLink;
   }
 

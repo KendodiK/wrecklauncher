@@ -55,7 +55,6 @@ function AuthExpiredGuard({ onLogout }) {
 function App() {
   // user: bejelentkezett felhasználó adatai (vagy null, ha nincs bejelentkezve)
   const [user, setUser] = useState(null);
-
   // Startup auth bootstrap: if a token is saved, hydrate user info so UI is logged-in immediately.
   useEffect(() => {
     let cancelled = false;
@@ -86,11 +85,11 @@ function App() {
             ? profile.username.trim()
             : (userId ? `User ${userId}` : 'Player');
         const avatarCandidate =
+          profile?.pfp || 
           profile?.avatarUrl ||
           profile?.avatar_url ||
           profile?.avatarURL ||
           profile?.profilePicture ||
-          profile?.pfp ||
           null;
         const resolvedAvatarUrl =
           typeof avatarCandidate === 'string' && avatarCandidate.trim()
@@ -165,7 +164,7 @@ function App() {
   const handleLocalUserProfileUpdate = useCallback((profilePatch) => {
     const patch = profilePatch && typeof profilePatch === 'object' ? profilePatch : {};
     const hasBio = Object.prototype.hasOwnProperty.call(patch, 'bio');
-    const hasAvatar = Object.prototype.hasOwnProperty.call(patch, 'avatarUrl');
+    const hasAvatar = Object.prototype.hasOwnProperty.call(patch, 'pfp') || Object.prototype.hasOwnProperty.call(patch, 'avatarUrl');
     const hasUsername = Object.prototype.hasOwnProperty.call(patch, 'username');
     const hasProfileUpdatedAt = Object.prototype.hasOwnProperty.call(patch, 'profileUpdatedAt');
 
@@ -183,7 +182,9 @@ function App() {
         ...previous,
         username: hasUsername && incomingUsername ? incomingUsername : previous.username,
         bio: hasBio ? (patch.bio ?? null) : previous.bio,
-        avatarUrl: hasAvatar ? (patch.avatarUrl ?? null) : previous.avatarUrl,
+        avatarUrl: hasAvatar
+  ? (patch.avatarUrl ?? patch.pfp ?? null)
+  : previous.avatarUrl,
         profileUpdatedAt: nextProfileUpdatedAt,
       };
     });

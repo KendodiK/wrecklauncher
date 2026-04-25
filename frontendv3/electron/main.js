@@ -1216,6 +1216,7 @@ function getShopSpecialsCtrl() {
 
   handleAuthed('user:get-current-user', async ({ token }) => {
     getUserCtrl().setToken(token);
+    const data = await getUserCtrl().getCurrentUserInfo(token)
     return await getUserCtrl().getCurrentUserInfo(token);
   });
 
@@ -1618,7 +1619,6 @@ handle('steam:get-installed-games', async () => {
 
       const pcGamesTask = (async () => {
         try {
-          console.log('Attempting to fetch PCGamesTorrent link for game:', slug);
           const pcGamesTorrentLink = await getPcGamesTorrentCtrl().pcGamesTorrentMagnetLink(slug);
           return pcGamesTorrentLink ? { name: 'PCGamesTorrent', url: pcGamesTorrentLink } : null;
         } catch (error) {
@@ -1629,7 +1629,6 @@ handle('steam:get-installed-games', async () => {
 
       const xatabTask = (async () => {
         try {
-          console.log('Attempting to fetch Xatab link for game:', slug);
           const xatabLink = await getXatabCtrl().xatabMagnetLink(slug);
           return xatabLink ? { name: 'Xatab', url: xatabLink } : null;
         } catch (error) {
@@ -1642,7 +1641,6 @@ handle('steam:get-installed-games', async () => {
         try {
           // Online-Fix expects a space-encoded title segment (e.g. "Night%20Shippers").
           const onlineFixSlug = encodeURIComponent(String(name || '').trim());
-          console.log('Attempting to fetch OnlineFixMe link for game (encoded):', onlineFixSlug);
           const link = await getOnlineFixMeCtrl().onlineFixMeMagnetLink(onlineFixSlug);
           return link ? { name: 'Online-Fix.me', url: link } : null;
         } catch (error) {
@@ -1816,10 +1814,6 @@ handle('steam:get-installed-games', async () => {
         syncPlan.sitesToSync,
         countryCode,
       );
-      console.log(`${logPrefix}Uploaded scraped pirate site changes:`, {
-        attempted: syncPlan.sitesToSync.length,
-        ...uploadSummary,
-      });
       return uploadSummary;
     } catch (error) {
       if (rethrowInvalidToken && error && typeof error === 'object' && error.code === 'WRECK_INVALID_TOKEN') {
@@ -1913,11 +1907,6 @@ handle('steam:get-installed-games', async () => {
 
     if (!Number.isFinite(appId) || appId <= 0) throw new Error('App ID is required');
     if (!platform) throw new Error('Platform is required');
-
-    console.log(
-      `[IPC] games:get-all-details-by-appid-and-platform appId=${appId} platform=${platform} fallback=${allowPlatformFallback ? 'on' : 'off'} from=${senderUrl}`
-    );
-
     if (!token) {
       try {
         const persistedToken = await getUserCtrl().getToken();
@@ -1957,14 +1946,12 @@ handle('steam:get-installed-games', async () => {
           if (byIdPirateSites.length > 0) {
             backendPirateSites = byIdPirateSites;
             gameDetails.pirate_sites = byIdPirateSites;
-            console.log('Pirate sites loaded from game-id fallback endpoint:', byIdPirateSites.length);
           }
         } catch (error) {
           console.warn('Pirate sites game-id fallback failed:', error);
         }
       }
     }
-    console.log('Pirate sites from backend:', backendPirateSites.length);
     // Always return DB state first, then scrape and push updates asynchronously.
     gameDetails.pirate_sites = backendPirateSites;
 
@@ -1977,7 +1964,6 @@ handle('steam:get-installed-games', async () => {
         const scrapedPirateSites = await getPirateSitesForGame(gameDetails.name || '');
         const syncPlan = buildPirateSiteSyncPlan(backendPirateSites, scrapedPirateSites);
 
-        console.log('Fetched pirate sites (background):', scrapedPirateSites.length);
 
         await uploadPirateSiteSyncPlan({
           token,
@@ -2013,8 +1999,6 @@ handle('steam:get-installed-games', async () => {
         : 'DE';
     const countryCode = await resolvePreferredCountryCode(rawCountryCode);
     const numericId = Number(id);
-
-    console.log(`[IPC] games:get-all-details-by-id id=${String(id)} from=${senderUrl}`);
 
     if (routeCtx) {
       const appId = Number.isFinite(numericId) && numericId > 0 ? numericId : routeCtx.appId;
@@ -2838,15 +2822,10 @@ handle('steam:get-installed-games', async () => {
         // keep existing sPath if fallback mkdir also fails
       }
     }
-
-    console.log('[torrent:start] sPath:', sPath);
-    if (requestedDisplayName) console.log('[torrent:start] displayName:', requestedDisplayName);
-    console.log('[torrent:start] tracker count:', (mUri.match(/&tr=/g) || []).length);
     if (!mUri) throw new Error('magnetUri is required');
     const snapshot = await getTorrentCtrl().start(mUri, sPath, (progress) => {
       try { event.sender.send('torrent:progress', progress); } catch { /* window closed */ }
     }, requestedDisplayName || '');
-    console.log('[torrent:start] initial snapshot:', snapshot);
     return snapshot;
   });
 

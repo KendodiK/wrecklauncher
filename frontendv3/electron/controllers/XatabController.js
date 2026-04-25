@@ -273,14 +273,12 @@ class XatabController {
     const cache = await this.#loadPagesCache();
     const cached = this.#findCandidateInCache(raw, cache);
     if (cached) {
-      console.log(`[Xatab] cache hit: ${cached.url}`);
       return cached.url;
     }
     // Not in cache — crawl listing pages (continuing from last cached page) until found or 404
-    console.log(`[Xatab] cache miss for "${raw}", crawling listing pages...`);
+    console.warn(`[Xatab] cache miss for "${raw}", crawling listing pages...`);
     const crawled = await this.#crawlPagesUntil404ForQuery(raw, cache);
     if (crawled) {
-      console.log(`[Xatab] found by crawling: ${crawled}`);
       return crawled;
     }
     return null;
@@ -293,11 +291,9 @@ class XatabController {
    */
   #extractDownloadButtonUrl(body, baseUrl) {
     const html = String(body || '');
-    console.log('[Xatab] extracting download button URL from game page HTML, length:', html.length);
     const primaryMatch = html.match(/<a\b[^>]*href=["']([^"']*index\.php\?do=download[^"']*)["'][^>]*class=["'][^"']*\bdownload-torrent\b[^"']*["'][^>]*>/i);
     const fallbackMatch = html.match(/<a\b[^>]*href=["']([^"']*index\.php\?do=download[^"']*)["'][^>]*>/i); //should never happen, but better safe than sorry
     const match = primaryMatch || fallbackMatch;
-    console.log('[Xatab] download button regex match:', !!match, 'primary:', !!primaryMatch, 'fallback:', !!fallbackMatch);
     if (!match || !match[1]) return null;
 
     const decodedHref = this.#decodeHtmlAmpersands(match[1]);

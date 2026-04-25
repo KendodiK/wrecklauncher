@@ -19,6 +19,7 @@ id,
 friendshipId: entry.friendshipId ?? entry.friendship_id ?? null,
 name,
 avatarUrl,
+pfp: avatarUrl,
 status: 'offline',
 bio,
 friendship: 'friend',
@@ -36,7 +37,7 @@ const name = String(entry.username ?? entry.name ?? `User ${id}`).trim() || `Use
 const avatarUrl = String(entry.avatarUrl ?? entry.pfp ?? '').trim() || '';
 const bio = String(entry.bio ?? '').trim();
 
-return { id, name, avatarUrl, bio };
+return { id, name, avatarUrl, pfp, bio };
 }
 
 const FriendsPage = ({ user }) => {
@@ -240,8 +241,8 @@ profile: {
 id: friend.id,
 name: friend.name,
 bio: friend.bio,
-avatarUrl: friend.avatarUrl,
-pfp: friend.avatarUrl,
+avatarUrl: friend.avatarUrl || friend.pfp,
+pfp: friend.avatarUrl || friend.pfp,
 },
 viewerUsername: user?.username || 'Player',
 },

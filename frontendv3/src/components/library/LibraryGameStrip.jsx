@@ -26,7 +26,6 @@ const LibraryGameStrip = React.memo(({ games, activeGameId, onSelect, onOpenStor
 
   const handleCurrentCardChange = useCallback(
     (card) => {
-      console.log('Current card changed(change):', card)
       if (typeof onSelect !== 'function') return;
       if (card?.id == null) return;
 
@@ -41,7 +40,6 @@ const LibraryGameStrip = React.memo(({ games, activeGameId, onSelect, onOpenStor
 
   const handleCardClick = useCallback(
     (card) => {
-      console.log('Current card changed(click):', card)
       if (typeof onSelect !== 'function') return;
       if (card?.id == null) return;
 

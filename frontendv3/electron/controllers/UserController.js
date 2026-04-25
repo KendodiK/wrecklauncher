@@ -469,7 +469,6 @@ class UserController extends TokenController {
       Object.prototype.hasOwnProperty.call(patch, 'avatarUrl')
       || Object.prototype.hasOwnProperty.call(patch, 'avatar_url')
       || Object.prototype.hasOwnProperty.call(patch, 'pfp');
-
     const payload = {};
     if (hasBio) {
       payload.bio = patch.bio == null ? '' : String(patch.bio);

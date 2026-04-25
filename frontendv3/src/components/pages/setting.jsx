@@ -18,7 +18,7 @@ const DEFAULT_SETTINGS = {
 	account: {
 		profile: {
 			bio: '',
-			avatarUrl: '',
+			pfp: '',
 		},
 		profilesByUserId: {},
 		platforms: {
@@ -165,7 +165,7 @@ function normalizeEditableProfile(raw) {
 
 	return {
 		bio: sanitizeProfileBio(source.bio),
-		avatarUrl: normalizedAvatarUrl || '',
+		pfp: normalizedAvatarUrl || '',
 	};
 }
 
@@ -390,8 +390,8 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 	const [itchOAuthStatus, setItchOAuthStatus] = useState({ isLoggedIn: false, hasToken: false });
 	const [platformRuntime, setPlatformRuntime] = useState(() => createEmptyPlatformRuntimeState());
 	const [currentUserId, setCurrentUserId] = useState('');
-	const [profileForm, setProfileForm] = useState({ bio: '', avatarUrl: '' });
-	const [profileBaseline, setProfileBaseline] = useState({ bio: '', avatarUrl: '' });
+	const [profileForm, setProfileForm] = useState({ bio: '', pfp: '' });
+	const [profileBaseline, setProfileBaseline] = useState({ bio: '', pfp: '' });
 	const [downloadPathsForm, setDownloadPathsForm] = useState({ path: '', pirateTorrentsPath: '' });
 	const [message, setMessage] = useState({ type: '', text: '' });
 
@@ -1005,19 +1005,19 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 
 	const handleSaveProfile = async () => {
 		const normalizedBio = sanitizeProfileBio(profileForm.bio);
-		const normalizedAvatarUrl = normalizeHttpAvatarUrl(profileForm.avatarUrl);
+		const normalizedAvatarUrl = normalizeHttpAvatarUrl(profileForm.pfp);
 		if (normalizedAvatarUrl == null) {
 			setMessage({ type: 'error', text: 'Profile picture URL must start with http:// or https://.' });
 			return;
 		}
 
-		const baselineAvatarNormalized = normalizeHttpAvatarUrl(profileBaseline.avatarUrl);
+		const baselineAvatarNormalized = normalizeHttpAvatarUrl(profileBaseline.pfp);
 		const baselineAvatarUrl = baselineAvatarNormalized == null ? '' : baselineAvatarNormalized;
 		const avatarChanged = baselineAvatarUrl !== normalizedAvatarUrl;
 
 		const localProfile = {
 			bio: normalizedBio,
-			avatarUrl: normalizedAvatarUrl,
+			pfp: normalizedAvatarUrl,
 		};
 		const normalizedCurrentUserId = normalizeCurrentUserId(currentUserId);
 		let remoteProfile = null;
@@ -1038,14 +1038,14 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 			const safeAvatarUrl = String(avatarHealth.url ?? normalizedAvatarUrl ?? '').trim();
 			const safeProfile = {
 				bio: localProfile.bio,
-				avatarUrl: safeAvatarUrl,
+				pfp: safeAvatarUrl,
 			};
 
 			if (typeof window?.electronAPI?.updateCurrentUserProfile === 'function') {
 				try {
 					remoteProfile = await window.electronAPI.updateCurrentUserProfile({
 						bio: safeProfile.bio,
-						avatarUrl: safeProfile.avatarUrl,
+						pfp: safeProfile.pfp,
 					});
 				} catch (error) {
 					remoteError = error;
@@ -1062,7 +1062,7 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 					...existingProfilesByUserId,
 					[normalizedCurrentUserId]: {
 						bio: safeProfile.bio,
-						avatarUrl: safeProfile.avatarUrl,
+						pfp: safeProfile.pfp,
 					},
 				}
 				: existingProfilesByUserId;
@@ -1071,7 +1071,7 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 				account: {
 					profile: {
 						bio: safeProfile.bio,
-						avatarUrl: safeProfile.avatarUrl,
+						pfp: safeProfile.pfp,
 					},
 					profilesByUserId: nextProfilesByUserId,
 				},
@@ -1082,7 +1082,7 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 			// Keep renderer UI in sync with what the user just saved, even if backend returns stale fields.
 			const resolvedProfile = {
 				bio: safeProfile.bio,
-				avatarUrl: safeProfile.avatarUrl,
+				pfp: safeProfile.pfp,
 			};
 
 			setProfileForm(resolvedProfile);
@@ -1121,7 +1121,7 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 						...existingProfilesByUserId,
 						[normalizedCurrentUserId]: {
 							bio: localProfile.bio,
-							avatarUrl: localProfile.avatarUrl,
+							pfp: localProfile.pfp,
 						},
 					}
 					: existingProfilesByUserId;
@@ -1132,7 +1132,7 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 						...(settings?.account || {}),
 						profile: {
 							bio: localProfile.bio,
-							avatarUrl: localProfile.avatarUrl,
+							pfp: localProfile.pfp,
 						},
 						profilesByUserId: nextProfilesByUserId,
 					},
@@ -1196,7 +1196,7 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 	const canSaveDownloadPaths =
 		downloadPathsForm.path.trim().length > 0
 		&& downloadPathsForm.pirateTorrentsPath.trim().length > 0;
-	const normalizedAvatarInput = normalizeHttpAvatarUrl(profileForm.avatarUrl);
+	const normalizedAvatarInput = normalizeHttpAvatarUrl(profileForm.pfp);
 	const profileAvatarUrlError = normalizedAvatarInput === null
 		? 'Profile picture URL must start with http:// or https://.'
 		: '';
@@ -1267,8 +1267,8 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 							<label className="text-sm font-medium">Profile picture URL</label>
 							<input
 								type="url"
-								value={profileForm.avatarUrl}
-								onChange={(e) => setProfileForm((prev) => ({ ...prev, avatarUrl: e.target.value }))}
+								value={profileForm.pfp}
+								onChange={(e) => setProfileForm((prev) => ({ ...prev, pfp: e.target.value }))}
 								disabled={saving}
 								placeholder="https://example.com/avatar.png"
 								className="mt-2 w-full bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"

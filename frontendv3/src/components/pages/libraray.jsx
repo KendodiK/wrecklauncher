@@ -565,7 +565,6 @@ function toSteamLibraryGame(game, installedAppIds) {
 	const title = rawTitle || 'Unknown Steam title';
 	const coverCandidate = game?.banner_img ?? coverFallbacks[0] ?? null;
 	const bannerCandidate = game?.hero_img ?? heroFallbacks[0] ?? coverFallbacks[0] ?? null;
-	console.log("Steam hero img: ", resolveLibraryCoverUrl(bannerCandidate, title, 'Steam'), { game });
 	return {
 		id: String(appId),
 		appid: appId,
@@ -994,7 +993,7 @@ function toLocalLibraryGame(entry) {
 	const title =
 		typeof entry?.title === 'string' && entry.title.trim()
 			? entry.title.trim()
-			: titleFromExecutable || `local:${normalizedLocalId}`;
+			: titleFromExecutable || `pirate:${normalizedLocalId}`;
 
 	const coverUrl = resolveLibraryCoverUrl(entry?.coverUrl ?? null, title, 'Local');
 
@@ -1072,7 +1071,7 @@ function normalizeLauncherFilterId(raw) {
 	if (!normalized) return '';
 	if (normalized === 'gog.com') return 'gog';
 	if (normalized === 'itchio' || normalized === 'itch.io') return 'itch';
-	if (normalized === 'local') return 'pirate';
+	if (normalized === 'pirate') return 'pirate';
 	return normalized;
 }
 
@@ -1286,19 +1285,6 @@ const LibraryPage = () => {
 									return game;
 								});
 								}),
-								// window.electronAPI.getOwnedGamesFromSteam().then((payload) => {
-								// 	for(let game of Array.isArray(payload) ? payload : []) {
-								// 		const appId = extractSteamAppId(game);
-								// 		if (appId) {	
-								// 			game = {
-								// 				...game,
-								// 				hero_img: "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/" + appId + "/library_600x900.jpg",
-								// 				banner_img: "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/" + appId + "/library_hero.jpg",
-								// 			}
-								// 			console.log("Promise resolved Steam game with appId " + appId, game);
-								// 		}
-								// 	}
-								// }),
 								installedSteamGamesPromise.catch((error) => {
 									console.warn('Failed to load installed Steam games:', error);
 									return [];
@@ -2487,11 +2473,32 @@ const LibraryPage = () => {
 					</div>
 
 				</header>
-				{actionState.text ? (
+				{/* {actionState.text ? (
 					<p className={`library-action-notice ${actionState.type === 'error' ? 'library-action-notice-error' : ''}`}>
 						{actionState.text}
 					</p>
-				) : null}
+				) : null} */}
+				{actionState.text && (
+				<div className="fixed top-16 left-1/2 -translate-x-1/2 z-50">
+					<div
+					className={`mb-4 px-4 py-3 pr-10 rounded-lg shadow-lg relative backdrop-blur-sm ${
+						actionState.type === "success"
+						? "bg-green-800 text-green-100 border border-green-600"
+						: "bg-red-800 text-red-100 border border-red-600"
+					}`}
+					>
+					{actionState.text}
+
+					{/* Close button */}
+					<span
+						onClick={() => setActionState({ busyAction: "", text: "", type: "" })}
+						className="absolute top-1 right-2 cursor-pointer text-lg font-bold hover:opacity-70"
+					>
+						×
+					</span>
+					</div>
+				</div>
+				)}
 			</section>
 
 			{/* Bottom dock: game strip + status bar */}
@@ -2504,9 +2511,7 @@ const LibraryPage = () => {
 									<div className="w-full max-w-none max-h-[58vh] overflow-y-auto pr-1 scrollbar-thin">
 										<div className="flex flex-col gap-2">
 											{filteredGames.map((game) => {
-												const isActive = game.id === (activeGame?.id ?? '');
-												console.log("lib: ", libraryViewMode)
-												console.log("Library init: ", (libraryViewMode === 'list' ? "hero" : "cover"), game.title);												
+												const isActive = game.id === (activeGame?.id ?? '');											
 												const gameThumb = game.heroUrl || game.coverUrl;
 												return (
 													<button

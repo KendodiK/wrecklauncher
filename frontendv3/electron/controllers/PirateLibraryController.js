@@ -242,7 +242,7 @@ class PirateLibraryController {
         { name: 'All Files', extensions: ['*'] },
       ],
     });
-
+    console.log("pirateLibrary save entry: ",result);
     if (result.canceled || !Array.isArray(result.filePaths) || result.filePaths.length < 1) {
       return null;
     }

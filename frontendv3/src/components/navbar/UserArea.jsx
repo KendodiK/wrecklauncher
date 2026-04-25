@@ -15,19 +15,15 @@ const UserArea = ({ user, onLogout }) => {
   const username = isLoggedIn && user?.username ? user.username : 'Guest';
   const avatarCandidate =
     (isLoggedIn &&
-      (user?.avatarUrl ||
-        user?.avatarURL ||
-        user?.avatar_url ||
-        user?.profilePicture ||
-        user?.pfp)) ||
+      (user?.pfp || user?.avatarUrl || user?.avatar_url)) ||
     '';
   const avatarUrl = typeof avatarCandidate === 'string' ? avatarCandidate.trim() : '';
   const avatarRenderVersion = Number(user?.profileUpdatedAt || 0);
   const avatarRenderKey = `${avatarUrl}|${Number.isFinite(avatarRenderVersion) && avatarRenderVersion > 0 ? avatarRenderVersion : 'static'}`;
-
   useEffect(() => {
     setAvatarFailed(false);
   }, [avatarUrl]);
+
 
   // Külső kattintás figyelése: ha a menün kívül kattintunk, zárjuk be a lenyílót
   useEffect(() => {
