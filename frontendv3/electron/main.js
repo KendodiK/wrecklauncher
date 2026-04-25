@@ -10,7 +10,7 @@ const GOG_OAUTH_CLIENT_ID = '46899977096215655';
 const devServerUrl = String(
   process.env.VITE_DEV_SERVER_URL || `http://localhost:${String(process.env.VITE_DEV_PORT || '5173')}`,
 ).trim();
-
+process.title = "Anchor Launcher";
 let mainWindow;
 /** @type {Tray|null} */
 let appTray = null;
@@ -63,14 +63,14 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 700,
     frame: false,
+    title: 'Anchor Launcher',
     webPreferences: {
       // preload.js lives at the project root, one level up from this file
       preload: path.join(__dirname, '..', 'preload.js'),
     },
   });
-
-  mainWindow.setMinimumSize(1024, 700);
-
+  mainWindow.setTitle('Anchor Launcher');
+  mainWindow.setMinimumSize(1024, 700);  
   mainWindow.webContents.on(
     'did-fail-load',
     (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {

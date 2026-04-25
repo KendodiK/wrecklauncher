@@ -23,6 +23,7 @@
   "build": {
     "appId": "com.AnchorLauncher.app",
     "productName": "Anchor Launcher",
+    "artifactName": "Anchor-Launcher-Setup-Win.exe",
     "directories": {
       "output": "release"
     },
