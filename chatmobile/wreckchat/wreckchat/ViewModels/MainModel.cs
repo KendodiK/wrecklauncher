@@ -17,6 +17,7 @@ public partial class MainModel : BaseViewModel
     // private IWebSocketService _ws;
     private readonly DispatcherQueue _dispatcher;
     private string _lastMessage;
+    private List<UserModel> friends = new();
 
     public string? Title { get; }
 
@@ -88,11 +89,16 @@ public partial class MainModel : BaseViewModel
         }
     }
 
-    public async Task<List<FriendModel>> GetFriends(string userId)
+    public async Task<List<UserModel>> GetFriends(string userId)
     {
         try
         {
-            List<FriendModel> friends = await _apiService.GetFriends(userId);
+            List<FriendModel> friendsIds = await _apiService.GetFriends(userId);
+            foreach (var friendId in friendsIds)
+            {
+                var friend = await _apiService.GetUsers(friendId.User_id);
+                friends.Add(friend);
+            }
             return friends;
         }
         catch (Exception ex)
@@ -116,12 +122,20 @@ public partial class MainModel : BaseViewModel
         }
     } */
 
-    public async Task<List<string>> GetChattingFriends(string userId)
+    public async Task<List<UserModel>> GetChattingFriends(string userId)
     {
         try
         {
             List<string> chattingFriends = await _apiService.GetChattingFriends(userId);
-            return chattingFriends;
+            var chattingFriendModels = new List<UserModel>();
+
+            foreach (var friendId in chattingFriends)
+            {
+                var friend = await _apiService.GetUsers(friendId);
+                chattingFriendModels.Add(friend);
+            }
+
+            return chattingFriendModels;
         }
         catch (Exception ex)
         {
@@ -160,8 +174,16 @@ public partial class MainModel : BaseViewModel
     public async Task StartWebSocket()
     {
         var ws = _serviceProvider.GetService<WebSocketBackgroundService>();
-        var token = await _tokenService.GetToken();
 
-        await ws.StartAsync("ws://api.anchorlauncher.hu:8080", token);
+        try
+        {
+            await ws.StartAsync("ws://api.anchorlauncher.hu:8080");
+
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Error starting WebSocket: " + ex.Message);
+            return;
+        }
     }
 }

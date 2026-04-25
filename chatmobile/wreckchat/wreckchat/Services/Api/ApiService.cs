@@ -14,6 +14,10 @@ public class ApiService : IApiService
 {
     private readonly HttpClient _client;
     private readonly ITokenService _tokenService;
+    private static readonly JsonSerializerOptions _jsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
 
     public ApiService(HttpClient client, ITokenService tokenService)
     {
@@ -43,10 +47,7 @@ public class ApiService : IApiService
 
         var body = await response.Content.ReadAsStringAsync();
 
-        var user = JsonSerializer.Deserialize<UserModel>(body, new JsonSerializerOptions
-        {
-            PropertyNameCaseInsensitive = true
-        });
+        var user = JsonSerializer.Deserialize<UserModel>(body, _jsonOptions);
 
         if (user == null)
             throw new InvalidOperationException("Failed to deserialize user response.");
@@ -94,7 +95,10 @@ public class ApiService : IApiService
         var response = await _client.GetAsync($"/api/friends/{userId}");
 
         if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            Console.WriteLine("No friends found for user: " + userId);
             throw new Exception("No friends found for user");
+        }
 
         var body = await response.Content.ReadAsStringAsync();
 
@@ -104,17 +108,11 @@ public class ApiService : IApiService
 
         if (doc.RootElement.ValueKind == JsonValueKind.Array)
         {
-            users = JsonSerializer.Deserialize<List<FriendModel>>(body, new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            });
+            users = JsonSerializer.Deserialize<List<FriendModel>>(body, _jsonOptions);
         }
         else
         {
-            var single = JsonSerializer.Deserialize<FriendModel>(body, new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            });
+            var single = JsonSerializer.Deserialize<FriendModel>(body, _jsonOptions);
 
             users = new List<FriendModel> { single };
         }
@@ -128,9 +126,12 @@ public class ApiService : IApiService
     public async Task<List<string>> GetChattingFriends(string chatId)
     {
         await AddAuthHeader();
-        var response = await _client.GetAsync($"/api/chatting-friends/{chatId}");
+        var response = await _client.GetAsync($"/api/friends/chatting/{chatId}");
         if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            Console.WriteLine("No chatting friends found for chat: " + chatId);
             throw new Exception("No chatting friends found for chat");
+        }
         var body = await response.Content.ReadAsStringAsync();
         var friends = JsonSerializer.Deserialize<List<string>>(body);
         if (friends == null)

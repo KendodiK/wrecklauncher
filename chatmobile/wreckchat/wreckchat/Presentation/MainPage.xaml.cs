@@ -16,7 +16,9 @@ public sealed partial class MainPage : Page
     private TextBlock _chatRoomIncoming = null!;
     private MainModel _model = null!;
     private UserModel user = null!;
-    private List<FriendModel> friends = null!;
+    private List<FriendModel> friendsIds = new();
+    private List<UserModel> friends = new();
+    private List<UserModel> chattingFriends = new();
 
 
     public MainPage()
@@ -59,7 +61,9 @@ public sealed partial class MainPage : Page
         //todo: barátok lekérdezése
 
         LoginView.Visibility = Visibility.Collapsed;
-        //await _model.InitSocket(); <- vlami nem jó a thredinggel mert itt megakad
+        friends = await _model.GetFriends(user.Id);
+        chattingFriends = await _model.GetChattingFriends(user.Id);
+
         BuildFrame();
 
         await _model.StartWebSocket();
@@ -124,8 +128,6 @@ public sealed partial class MainPage : Page
             case "Chats":
                 _chatRoomView.Visibility = Visibility.Collapsed;
                 _chatListView.Visibility = Visibility.Visible;
-
-                friends = await _model.GetFriends(user.Id);
                 break;
         }
 
