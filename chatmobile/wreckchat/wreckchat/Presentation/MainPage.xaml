@@ -287,13 +287,37 @@
                       <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
                     <Border Grid.Column="0" Background="#0B152A" BorderBrush="#2A3F66" BorderThickness="1" CornerRadius="6" Padding="10">
-                      <StackPanel><TextBlock Text="GAME COUNT" Foreground="#94A3B8" /><TextBlock Text="0" FontSize="22" FontWeight="Bold" Foreground="#E2E8F0" /></StackPanel>
+                      <StackPanel>
+                          <TextBlock Text="GAME COUNT" Foreground="#94A3B8" />
+                          <TextBlock
+                              x:Name="GameCountText"
+                              Text="0"
+                              FontSize="22"
+                              FontWeight="Bold"
+                              Foreground="#E2E8F0" />
+                      </StackPanel>
                     </Border>
                     <Border Grid.Column="2" Background="#0B152A" BorderBrush="#2A3F66" BorderThickness="1" CornerRadius="6" Padding="10">
-                      <StackPanel><TextBlock Text="YOUR GAMES" Foreground="#94A3B8" /><TextBlock Text="0" FontSize="22" FontWeight="Bold" Foreground="#E2E8F0" /></StackPanel>
+                      <StackPanel>
+                          <TextBlock Text="YOUR GAMES" Foreground="#94A3B8" />
+                          <TextBlock
+                              x:Name="YourGamesText"
+                              Text="0"
+                              FontSize="22"
+                              FontWeight="Bold"
+                              Foreground="#E2E8F0" />
+                      </StackPanel>
                     </Border>
                     <Border Grid.Column="4" Background="#0B152A" BorderBrush="#2A3F66" BorderThickness="1" CornerRadius="6" Padding="10">
-                      <StackPanel><TextBlock Text="COMMON COUNT" Foreground="#94A3B8" /><TextBlock Text="0" FontSize="22" FontWeight="Bold" Foreground="#E2E8F0" /></StackPanel>
+                      <StackPanel>
+                        <TextBlock Text="COMMON COUNT" Foreground="#94A3B8" />
+                        <TextBlock
+                            x:Name="CommonCountText"
+                            Text="0"
+                            FontSize="22"
+                            FontWeight="Bold"
+                            Foreground="#E2E8F0" />
+                      </StackPanel>
                     </Border>
                   </Grid>
 

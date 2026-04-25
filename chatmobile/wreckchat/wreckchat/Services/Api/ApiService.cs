@@ -1,13 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Net;
-using System.Net.Http.Json;
+using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Newtonsoft.Json;
-using Windows.ApplicationModel.UserDataAccounts.SystemAccess;
-using Windows.System;
 using wreckchat.Models;
 using wreckchat.Services.Auth;
 
@@ -17,6 +14,10 @@ public class ApiService : IApiService
 {
     private readonly HttpClient _client;
     private readonly ITokenService _tokenService;
+    private static readonly JsonSerializerOptions _jsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
 
     public ApiService(HttpClient client, ITokenService tokenService)
     {
@@ -27,28 +28,30 @@ public class ApiService : IApiService
     private async Task AddAuthHeader()
     {
         var token = await _tokenService.GetToken();
-        token = token.Trim();
+        token = token.Trim('"');
 
         _client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
     }
 
-    public async Task<UserModel> GetUsers()
+
+    public async Task<UserModel> GetUsers(string userId = null)
     {
         await AddAuthHeader();
         var token = await _tokenService.GetToken();
 
-        var response = await _client.GetAsync($"/api/native-users/{token.Split('.')[0]}");
+        var response = await _client.GetAsync($"/api/native-users/{userId ?? token.Split('.')[0]}");
 
         if (response.StatusCode == HttpStatusCode.NotFound)
-        {
-            throw new Exception($"No data found for user");
-        }
+            throw new Exception("No data found for user");
 
         var body = await response.Content.ReadAsStringAsync();
-        var user = JsonConvert.DeserializeObject<UserModel>(body);
+
+        var user = JsonSerializer.Deserialize<UserModel>(body, _jsonOptions);
+
         if (user == null)
             throw new InvalidOperationException("Failed to deserialize user response.");
+
         return user;
     }
 
@@ -60,62 +63,70 @@ public class ApiService : IApiService
 
     public async Task<string> Login(string username, string password)
     {
-        var json = Newtonsoft.Json.JsonConvert.SerializeObject(new { username, password });
+        var json = JsonSerializer.Serialize(new { username, password });
+
         using var content = new StringContent(json, Encoding.UTF8, "application/json");
+
         Console.WriteLine($"Login request: {json}");
 
         var response = await _client.PutAsync("/api/login", content);
 
         if (!response.IsSuccessStatusCode)
-        {
             throw new Exception($"Login failed: {response.StatusCode}");
-        }
 
         var body = await response.Content.ReadAsStringAsync();
-        Console.WriteLine(body);
 
-        if (body == null)
+        var token = JsonSerializer.Deserialize<string>(body);
+
+        if (token == null)
             throw new InvalidOperationException("Failed to deserialize token response.");
 
-        string token = Convert.ToString(body).Trim('"');
         Console.WriteLine(token);
+
         await _tokenService.SetToken(token);
         return token;
     }
 
-    public async Task<List<UserModel>> GetFriends(string userId)
+    public async Task<List<FriendModel>> GetFriends(string userId)
     {
         await AddAuthHeader();
+
         var response = await _client.GetAsync($"/api/friends/{userId}");
+
         if (response.StatusCode == HttpStatusCode.NotFound)
-        {
-            throw new Exception($"No friends found for user");
-        }
-        List<UserModel> users;
+            throw new Exception("No friends found for user");
 
         var body = await response.Content.ReadAsStringAsync();
+
+        List<FriendModel> friends;
+
         using var doc = JsonDocument.Parse(body);
 
         if (doc.RootElement.ValueKind == JsonValueKind.Array)
         {
-            users = JsonSerializer.Deserialize<List<UserModel>>(body);
+            friends = JsonSerializer.Deserialize<List<FriendModel>>(body, _jsonOptions);
         }
         else
         {
-            var single = JsonSerializer.Deserialize<UserModel>(body);
-            users = new List<UserModel> { single };
+            var single = JsonSerializer.Deserialize<FriendModel>(body, _jsonOptions);
+
+            friends = new List<FriendModel> { single };
         }
-        var friends = JsonConvert.DeserializeObject<List<UserModel>>(body);
+
         if (friends == null)
             throw new InvalidOperationException("Failed to deserialize friends response.");
+
         return friends;
     }
-}
 
-// Source-generated context to make JsonSerializer.Deserialize trimming-safe (avoids IL2026).
-// Ensure your project enables System.Text.Json source generation (requires target framework and package support).
-[JsonSerializable(typeof(TokenResponse))]
-[JsonSourceGenerationOptions(PropertyNameCaseInsensitive = true)]
-internal partial class MyJsonContext : JsonSerializerContext
-{
+    /*public async Task<string> GetGameCount()
+    {
+        await AddAuthHeader();
+        var body =  await _client.GetStringAsync("/api/games/gamecount");
+
+        using var doc = JsonDocument.Parse(body);
+        int countedGames = doc.RootElement.GetProperty("countedGames").GetInt32();
+
+        return countedGames.ToString();
+    } */
 }

@@ -48,11 +48,11 @@ public partial record MainModel
         }
     }
 
-    public async Task<UserModel> GetUserData()
+    public async Task<UserModel> GetUserData(string userId = null)
     {
         try
         {
-            UserModel userData = await _apiService.GetUsers();
+            UserModel userData = await _apiService.GetUsers(userId);
             return userData;
         }
         catch (Exception ex)
@@ -62,11 +62,11 @@ public partial record MainModel
         }
     }
 
-    public async Task<List<UserModel>> GetFriends(string userId)
+    public async Task<List<FriendModel>> GetFriends(string userId)
     {
         try
         {
-            List<UserModel> friends = await _apiService.GetFriends(userId);
+            List<FriendModel> friends = await _apiService.GetFriends(userId);
             return friends;
         }
         catch (Exception ex)
@@ -75,6 +75,20 @@ public partial record MainModel
             throw;
         }
     }
+
+    /* public async Task<string> GetGameCount()
+    {
+        try
+        {
+            string gameCount = await _apiService.GetGameCount();
+            return gameCount;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine("Error fetching game count: " + ex.Message);
+            throw;
+        }
+    } */
 
     public async Task InitSocket()
     {

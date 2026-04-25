@@ -6,8 +6,9 @@ namespace wreckchat.Services.Api;
 
 public interface IApiService
 {
-    Task<UserModel> GetUsers();
+    Task<UserModel> GetUsers(string userId = null);
     Task<string> GetOrders();
     Task<string> Login(string username, string password);
-    Task<List<UserModel>> GetFriends(string userId);
+    Task<List<FriendModel>> GetFriends(string userId);
+    //Task<string> GetGameCount();
 }

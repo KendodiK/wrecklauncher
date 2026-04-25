@@ -15,7 +15,7 @@ public sealed partial class MainPage : Page
     private TextBlock _chatRoomIncoming = null!;
     private MainModel _model = null!;
     private UserModel user = null!;
-    private List<UserModel> friends = null!;
+    private List<FriendModel> friends = null!;
 
 
     public MainPage()
@@ -51,7 +51,7 @@ public sealed partial class MainPage : Page
         }
 
         user = await _model.GetUserData();
-        //todo: barátok lekérdezése
+        friends = await _model.GetFriends(user.Id);
 
         LoginView.Visibility = Visibility.Collapsed;
         //await _model.InitSocket(); <- vlami nem jó a thredinggel mert itt megakad
@@ -95,10 +95,10 @@ public sealed partial class MainPage : Page
         _chatRoomView.Visibility = Visibility.Visible;
     }
 
-    private void ShowTab(string tab)
+    private async void ShowTab(string tab)
     {
         //todo ide switch:
-        //todo ha -> profile, lekérdezni (a még nincs): friends->profile infóval!, gamecount, owned games(count), owned games(list), common count?
+        //todo ha -> profile, lekérdezni (a még nincs): friend-ek adatai
         //todo ha -> Notifications, lekérdezni a chat log-ot
         //todo ha -> chats, lekérdezni a jelenleg beszélgető partnereket és az üzeneteket ha rá kattinatanak egy-egyre.
 
@@ -118,7 +118,18 @@ public sealed partial class MainPage : Page
                 _chatRoomView.Visibility = Visibility.Collapsed;
                 _chatListView.Visibility = Visibility.Visible;
 
-                friends = await _model.GetFriends(user.Id);
+                GameCountText.Text = "its not woth to show alone"; //await _model.GetGameCount();
+                YourGamesText.Text = "no data";
+                CommonCountText.Text = "no data";
+                //owned gamesre nincs data az ab-ban, nem lehet megjeleníteni !!!
+
+                //show friends
+                foreach (var friend in friends)
+                {
+                    var friendUser = await _model.GetUserData(friend.Id);
+                    //vlmi logika hogy az adatok megjelenjenek a firends listában (a firendUser egy UserModel, amiben benne van a nevük, bio-juk, pfpjük stb.)
+                }
+
                 break;
         }
 
