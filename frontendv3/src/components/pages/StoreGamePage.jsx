@@ -963,11 +963,10 @@ function normalizePriceValue(raw, platformHint = '') {
 				? numeric >= 100
 				: numeric >= 1000
 		);
-
 	// Some sources return integer minor units (cents), normalize to major units.
-	if (looksLikeMinorUnits) {
-		return Number((numeric / 100).toFixed(2));
-	}
+	// if (looksLikeMinorUnits) {
+	// 	return Number((numeric / 100).toFixed(2));
+	// }
 
 	return Number(numeric.toFixed(2));
 }
@@ -2522,7 +2521,7 @@ function parsePlatformDetails(platform, details, appId) {
 			description: htmlToText(details.description || details.shortText || details.short_text || ''),
 			longDescription: sanitizeHtml(details.description || details.shortText || details.short_text || ''),
 			tags: genres,
-			screenshots: [],
+			screenshots: raw.screenshots || [],
 			minimumRequirements: sanitizeHtml(minimumRequirements),
 			price,
 			coverImage: banner || portraitCover,
@@ -2576,7 +2575,7 @@ function parsePlatformDetails(platform, details, appId) {
 			description: htmlToText(details.shortText || details.short_text || details.description || ''),
 			longDescription: sanitizeHtml(details.description || details.shortText || details.short_text || ''),
 			tags: genres,
-			screenshots: [],
+			screenshots: raw.screenshots || [],
 			minimumRequirements: sanitizeHtml(details.minimum_requirements || details.minimumRequirements || ''),
 			price,
 			coverImage: banner || portraitFallback,
@@ -2895,6 +2894,7 @@ const StoreGamePage = () => {
 				description: htmlToText(dbDetails.description || ''),
 				longDescription: sanitizeHtml(dbDetails.description || routeState.longDescription),
 				bannerImg: pickFirstFilledText(
+					dbDetails.thumbnail,
 					dbDetails.banner_img,
 					dbDetails.bannerImg,
 					dbDetails.db_banner_img,
@@ -2903,7 +2903,6 @@ const StoreGamePage = () => {
 					dbDetails.heroImage,
 					dbDetails.image,
 					dbDetails.image_url,
-					dbDetails.thumbnail,
 				),
 				tags: normalizeTagList(dbDetails.genre_names ?? dbDetails.genres),
 				minimumRequirements: sanitizeHtml(dbDetails.minimum_requirements || ''),
@@ -2969,21 +2968,28 @@ const StoreGamePage = () => {
 		const parsedPrimaryImage = scrapedPlatform === 'gog'
 			? pickFirstFilledText(parsedPlatform?.heroImage, parsedPlatform?.coverImage)
 			: pickFirstFilledText(parsedPlatform?.coverImage, parsedPlatform?.boxArtImage, parsedPlatform?.heroImage);
-		const coverImage = pickFirstFilledText(
-			// For Steam games prefer the vertical library poster first (library_600x900)
-			steam?.cover,
-			steam?.capsule,
-			parsedPrimaryImage,
-			parsedPlatform?.coverImage,
-			parsedPlatform?.heroImage,
-			routeState?.coverImage,
-			routeState?.coverUrl,
-			routeState?.image,
-			parsedDb?.coverImage,
-			parsedDb?.bannerImg,
-			parsedDb?.heroImage,
-			fallback.coverImage
-		);
+		let coverImage = '';
+		if(dbDetails?.platform_name == 'steam' || dbPlatformName === 'steam' || scrapedPlatform === 'steam'){
+			coverImage = pickFirstFilledText(
+				// For Steam games prefer the vertical library poster first (library_600x900)
+				steam?.cover,
+				steam?.capsule,
+				parsedPrimaryImage,
+				parsedPlatform?.coverImage,
+				parsedPlatform?.heroImage,
+				routeState?.coverImage,
+				routeState?.coverUrl,
+				routeState?.image,
+				parsedDb?.coverImage,
+				parsedDb?.bannerImg,
+				parsedDb?.heroImage,
+				fallback.coverImage
+			);
+		}else{
+			coverImage = pickFirstFilledText(
+				parsedPrimaryImage,
+			);
+		}
 		const heroImage = pickFirstFilledText(
 			parsedPlatform?.heroImage,
 			parsedDb?.heroImage,
@@ -3007,10 +3013,10 @@ const StoreGamePage = () => {
 		const price = pickBestAvailablePrice(
 			normalizePriceValue(parsedPlatform?.price, scrapedPlatform),
 			normalizePriceValue(parsedDb?.price, dbPlatformName),
-			...crossPlatformScrapedPrices,
 			normalizePriceValue(routeState?.price, routePlatform),
+			...crossPlatformScrapedPrices,
 		);
-		const priceLabel = pickFirstFilledText(
+		let priceLabel = pickFirstFilledText(
 			parsedPlatform?.priceLabel,
 			parsedDb?.priceLabel,
 			routeState?.priceLabel
@@ -3029,7 +3035,9 @@ const StoreGamePage = () => {
 			...(Array.isArray(routeState?.pirate_sites) ? routeState.pirate_sites : []),
 			...(Array.isArray(routeState?.pirateSites) ? routeState.pirateSites : []),
 		]);
-
+		if(routePlatform === "itchio" || routePlatform === "itch"){
+			priceLabel = priceLabel || (typeof price === 'number' && price > 0 ? `$${price.toFixed(2)}` : 'Free');
+		}
 		return {
 			...fallback,
 			id: pickFirstPositiveNumber(parsedDb?.id, routeState?.id, resolvedAppId, appId),
@@ -3061,9 +3069,7 @@ const StoreGamePage = () => {
 
 	const screenshotSources = useMemo(() => {
 		return normalizeScreenshotList([
-			...(Array.isArray(model.screenshots) ? model.screenshots : []),
-			model.heroImage,
-			model.coverImage,
+			...(Array.isArray(model.screenshots) ? model.screenshots : [])
 		]);
 	}, [model.coverImage, model.heroImage, model.screenshots]);
 
@@ -3974,12 +3980,12 @@ const StoreGamePage = () => {
 			if (target.platform === 'itchio') {
 				const itchioHref = await resolveItchGamePageHref(targetHref);
 				fallbackOpenHref = itchioHref;
-				if (/^https?:\/\//i.test(itchioHref)) {
-					await window.electronAPI.openItchGame(null, itchioHref);
-					return;
-				}
 				if (Number.isFinite(targetAppId) && targetAppId > 0) {
 					await window.electronAPI.openItchGame(Number(targetAppId));
+					return;
+				}
+				if (/^https?:\/\//i.test(itchioHref)) {
+					await window.electronAPI.openItchGame(null, itchioHref);
 					return;
 				}
 			}
@@ -4177,28 +4183,6 @@ const StoreGamePage = () => {
 												: ((activePlatform !== 'gog' && model.priceLabel) || formatCurrencyPrice(model.price, activePlatform) || 'Check Store')}
 										</p>
 									</div>
-									{availableOnTargets.length > 0 ? (
-										<div className="rounded-xl border border-slate-700/70 bg-slate-950/40 p-3">
-											<p className="text-[11px] uppercase tracking-[0.18em] text-slate-300">Available On</p>
-											<div className="mt-2 flex flex-col gap-2">
-												{availableOnTargets.map((site, index) => (
-													<a
-														key={site.id ?? `${site.label}-${index}`}
-														href={site.href ?? '#'}
-														target="_blank"
-														rel="noreferrer"
-														onClick={(event) => {
-															event.preventDefault();
-															void handleOpenAvailableSite(site);
-														}}
-														className="rounded-lg border border-slate-700/70 bg-slate-950/45 px-3 py-2 text-xs text-slate-200 transition-colors hover:bg-slate-800/80"
-													>
-														{site.label ?? 'Store'}
-													</a>
-												))}
-											</div>
-										</div>
-									) : null}
 									{platformActionTargets.map((target) => {
 										const platformRating = ratingDisplayRows.find((r) => r.platform === target.platform);
 										const openDisabled = !target?.href && !(Number.isFinite(Number(target?.appId)) && Number(target?.appId) > 0);
@@ -4265,7 +4249,7 @@ const StoreGamePage = () => {
 							</div>
 
 							<div className="rounded-2xl border border-slate-700/60 bg-slate-900/45 p-5 backdrop-blur-sm">
-								<h2 className="text-lg font-semibold text-white">Available On</h2>
+								<h2 className="text-lg font-semibold text-white">Open in browser</h2>
 								<div className="mt-3 flex flex-col gap-2">
 									{availableOnTargets.map((site, index) => (
 										<a
@@ -4280,7 +4264,13 @@ const StoreGamePage = () => {
 											className="rounded-xl border border-slate-700/70 bg-slate-950/45 px-4 py-3 text-sm text-slate-200 transition-colors hover:bg-slate-800/80"
 										>
 											{site.label ?? 'Store'}
+											<svg width="18px" height="18px" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+											<g id="Interface / External_Link">
+											<path id="Vector" d="M10.0002 5H8.2002C7.08009 5 6.51962 5 6.0918 5.21799C5.71547 5.40973 5.40973 5.71547 5.21799 6.0918C5 6.51962 5 7.08009 5 8.2002V15.8002C5 16.9203 5 17.4801 5.21799 17.9079C5.40973 18.2842 5.71547 18.5905 6.0918 18.7822C6.5192 19 7.07899 19 8.19691 19H15.8031C16.921 19 17.48 19 17.9074 18.7822C18.2837 18.5905 18.5905 18.2839 18.7822 17.9076C19 17.4802 19 16.921 19 15.8031V14M20 9V4M20 4H15M20 4L13 11" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+											</g>
+											</svg>
 										</a>
+										
 									))}
 								</div>
 							</div>
