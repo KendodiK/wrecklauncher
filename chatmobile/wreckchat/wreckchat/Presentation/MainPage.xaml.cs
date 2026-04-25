@@ -1,9 +1,7 @@
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Windows.UI;
-using wreckchat.Services.Api;
 
 namespace wreckchat.Presentation;
 
@@ -16,7 +14,7 @@ public sealed partial class MainPage : Page
 
     public MainPage()
     {
-        this.InitializeComponent();
+        InitializeComponent();
         _chatRoomView = (Grid)FindName("ChatRoomView");
         _chatListView = (Grid)FindName("ChatListView");
         _chatRoomIncoming = (TextBlock)FindName("ChatRoomIncoming");
@@ -29,12 +27,10 @@ public sealed partial class MainPage : Page
 
         if (string.IsNullOrWhiteSpace(username))
         {
-            // TODO: Show error
             return;
         }
         else if (string.IsNullOrWhiteSpace(password))
         {
-            // TODO: Show error
             return;
         }
 
@@ -42,7 +38,6 @@ public sealed partial class MainPage : Page
         var token = await model.CheckData(username, password);
         if (!token)
         {
-            // TODO: Show error
             return;
         }
 
@@ -74,7 +69,7 @@ public sealed partial class MainPage : Page
     private void OpenChatRoom(string chatName, string message)
     {
         _activeChatName = chatName;
-        HeaderTitle.Text = chatName;
+        HeaderTitle.Text = _activeChatName;
         _chatRoomIncoming.Text = message;
         _chatListView.Visibility = Visibility.Collapsed;
         _chatRoomView.Visibility = Visibility.Visible;
@@ -94,8 +89,14 @@ public sealed partial class MainPage : Page
             _chatListView.Visibility = Visibility.Visible;
         }
 
-        ChatsNav.Foreground = tab == "Chats" ? new SolidColorBrush(Color.FromArgb(255, 226, 232, 240)) : new SolidColorBrush(Color.FromArgb(255, 148, 163, 184));
-        NotificationsNav.Foreground = tab == "Notifications" ? new SolidColorBrush(Color.FromArgb(255, 226, 232, 240)) : new SolidColorBrush(Color.FromArgb(255, 148, 163, 184));
-        ProfileNav.Foreground = tab == "Profile" ? new SolidColorBrush(Color.FromArgb(255, 226, 232, 240)) : new SolidColorBrush(Color.FromArgb(255, 148, 163, 184));
+        ChatsNav.Foreground = tab == "Chats"
+            ? new SolidColorBrush(Color.FromArgb(255, 226, 232, 240))
+            : new SolidColorBrush(Color.FromArgb(255, 148, 163, 184));
+        NotificationsNav.Foreground = tab == "Notifications"
+            ? new SolidColorBrush(Color.FromArgb(255, 226, 232, 240))
+            : new SolidColorBrush(Color.FromArgb(255, 148, 163, 184));
+        ProfileNav.Foreground = tab == "Profile"
+            ? new SolidColorBrush(Color.FromArgb(255, 226, 232, 240))
+            : new SolidColorBrush(Color.FromArgb(255, 148, 163, 184));
     }
 }

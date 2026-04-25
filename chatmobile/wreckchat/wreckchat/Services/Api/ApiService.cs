@@ -1,10 +1,8 @@
-using System;
-using System.Collections.Generic;
 using System.Text;
 using System.Net.Http.Json;
-using wreckchat.Services.Auth;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using wreckchat.Services.Auth;
 
 namespace wreckchat.Services.Api;
 
@@ -61,8 +59,6 @@ public class ApiService : IApiService
     }
 }
 
-// Source-generated context to make JsonSerializer.Deserialize trimming-safe (avoids IL2026).
-// Ensure your project enables System.Text.Json source generation (requires target framework and package support).
 [JsonSerializable(typeof(TokenResponse))]
 [JsonSourceGenerationOptions(PropertyNameCaseInsensitive = true)]
 internal partial class MyJsonContext : JsonSerializerContext
