@@ -1200,7 +1200,7 @@ module.exports.DELETEPlatformUser = async function (req, res) {
         if (!result.deleted) {
             return res.status(404).json({ message: 'Platform user not found for authenticated user', ...result, });
         }
-        return res.status(200).json(result);
+        return res.status(204).json({});
     } catch (err) {
         console.error("Error in /api/platform_user endpoint:", err);
         return res.status(500).json({error: err.message});
