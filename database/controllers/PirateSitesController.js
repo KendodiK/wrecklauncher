@@ -13,27 +13,6 @@ class PirateSitesController extends Controller {
     }
 
     /**
-     * Fetch pirate site row by name.
-     * @param {string} name
-     * @returns {Promise<object|null>}
-     */
-    async getByName(name) {
-        await this.ready;
-
-        const normalizedName = String(name ?? '').trim();
-        if (!normalizedName) return null;
-
-        const query = 'SELECT * FROM `pirate_sites` WHERE LOWER(name) = LOWER(?) LIMIT 1;';
-        try {
-            const [rows] = await this.dbConnection.execute(query, [normalizedName]);
-            return rows?.[0] ?? null;
-        } catch (err) {
-            console.error(`Error while selecting by name from table ${this.tableName}: ${err}`);
-            throw err;
-        }
-    }
-
-    /**
      * 
      * @param {Array} data - ["name" = string ]
      * @returns 
@@ -80,6 +59,27 @@ class PirateSitesController extends Controller {
 
     async delete(id) {
         return super.delete(id);
+    }
+
+        /**
+     * Fetch pirate site row by name.
+     * @param {string} name
+     * @returns {Promise<object|null>}
+     */
+    async getByName(name) {
+        await this.ready;
+
+        const normalizedName = String(name ?? '').trim();
+        if (!normalizedName) return null;
+
+        const query = 'SELECT * FROM `pirate_sites` WHERE LOWER(name) = LOWER(?) LIMIT 1;';
+        try {
+            const [rows] = await this.dbConnection.execute(query, [normalizedName]);
+            return rows?.[0] ?? null;
+        } catch (err) {
+            console.error(`Error while selecting by name from table ${this.tableName}: ${err}`);
+            throw err;
+        }
     }
 
     async #checkUniqueConstraint(data) {

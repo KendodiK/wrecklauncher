@@ -2,6 +2,7 @@ const friendsController = require('../database/controllers/FriendsController.js'
 const ChatsController = require('../database/controllers/ChatsController.js');
 
 module.exports.storeInDB = async function (sender, reciver, msg) {
+    //api végponton keresztül megoldani, mivel a ws szerver nem a DB-hez kapcsolódik.
     try {
         const chatCtrl = new ChatsController();
 

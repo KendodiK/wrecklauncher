@@ -63,7 +63,7 @@ class DBMaker extends DatabaseHandler {
     }
 
     async createTables() { 
-        await this.createMakerClasses();
+        await this.#createMakerClasses();
 
         // Create tables that are referenced by others first
         await this.friendsMkr.create();
@@ -84,7 +84,7 @@ class DBMaker extends DatabaseHandler {
     }
 
     async deleteTables() {
-        await this.createMakerClasses();
+        await this.#createMakerClasses();
 
         await this.chatsMkr.delete();
         await this.friendsMkr.delete();
@@ -101,7 +101,7 @@ class DBMaker extends DatabaseHandler {
         await this.pricesMkr.delete();
     }
 
-    async createMakerClasses() {
+    async #createMakerClasses() {
         this.chatsMkr = new ChatsTableMaker();
         this.friendsMkr = new FriendsTableMaker();
         this.gamesGenresConnectionMkr = new GamesGenresConnectionTableMaker();

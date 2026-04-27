@@ -8,11 +8,6 @@ class Controller extends DatabaseHandler {
         this.tableName = _tableName;
         this.ready = this.getReady();
     }
-
-    async getReady() {
-        await this.waitForConnection();
-        await this.selectDatabase();
-    }
     
     async index() {
         await this.ready;

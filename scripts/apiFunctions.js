@@ -364,11 +364,11 @@ module.exports.GETGameByIdWithAllData = async function (req, res) {
 
     const gamesGenresCtrl = new GamesGenresConnnectionController();
     const gameGenres = await gamesGenresCtrl.getByGameId(gameId);
-    game.genres = gameGenres;
+    game.genres = gameGenres ?? [];
 
-        const gamesPirateSitesConnCtrl = new GamesPirateSitesConnectionController();
-        const pirateSites = await gamesPirateSitesConnCtrl.getConnectionsByGameId(gameId);
-        game.pirate_sites = pirateSites ?? [];
+    const gamesPirateSitesConnCtrl = new GamesPirateSitesConnectionController();
+    const pirateSites = await gamesPirateSitesConnCtrl.getConnectionsByGameId(gameId);
+    game.pirate_sites = pirateSites ?? [];
 
     return res.json(game);
   } catch (err) {
@@ -485,17 +485,8 @@ module.exports.GETFriendsOfNativeUser = async function (req, res) {
         const { nativeUserId } = req.params;
         const friendsCtrl = new FriendsController();
         const friendsRaw = await friendsCtrl.getNativeUserFriends(nativeUserId);
-        const normalizedNativeUserId = String(nativeUserId ?? '').trim();
 
-        const friends = [];
-        friendsRaw.forEach(friend => {
-            const user1 = String(friend.user1_id ?? '').trim();
-            const user2 = String(friend.user2_id ?? '').trim();
-            friends.push({
-                id: friend.id,
-                user_id: user1 !== normalizedNativeUserId ? friend.user1_id : friend.user2_id
-            });
-        });
+        const friends = Array.isArray(friendsRaw) && friendsRaw.length > 0 ? apiHelpers.normalizeFriends(friendsRaw, nativeUserId) : [];
         return res.json(friends);
     } catch (err) {
         return res.status(500).json({ error: err.message });
@@ -506,8 +497,9 @@ module.exports.GETFriendsWithChattingStatus = async function (req, res) {
     try {
         const { nativeUserId } = req.params;
         const friendsCtrl = new FriendsController();
-        const friends = await friendsCtrl.getChattingFriends(nativeUserId);
-        
+        const friendsRaw = await friendsCtrl.getChattingFriends(nativeUserId);
+
+        const friends = Array.isArray(friendsRaw) && friendsRaw.length > 0 ? apiHelpers.normalizeFriends(friendsRaw, nativeUserId) : [];
         return res.json(friends);
     } catch (err) {
         return res.status(500).json({ error: err.message });
@@ -797,14 +789,13 @@ module.exports.POSTNewPirateSiteConnectionByGameId = async function (req, res) {
         const data = {
             "game_id": gameId,
             "site_id": siteId ?? null,
-            "pirate_site_id": siteId ?? null,
             "site_name": siteName ?? null,
             "link": link,
         }
 
         const result = await gamesPirateSitesConnCtrl.createWithAll(data);
         if (result instanceof Error) {
-            return res.status(400).json({ message: result.message });
+            return res.status(400).json({ error: result.message });
         }
         return res.json(result);
     } catch (err) {
@@ -913,9 +904,9 @@ module.exports.POSTNewCountry = async function (req, res) {
         const id = await apiHelpers.getCountryIdByCode(code);
 
         if ( id instanceof Error ) {
-        return res.status(400).json({ message: res.message });
+        return res.status(400).json({ message: id.message });
         }
-        return res.status(201).json({ message: "county uploaded", id: id});
+        return res.status(201).json({ message: "country uploaded", id: id});
     } catch (err) {
         console.log('Error in /api/countries endpoint:', err);
         return res.status(500).json({ error: err.message });
@@ -1209,7 +1200,7 @@ module.exports.DELETEPlatformUser = async function (req, res) {
         if (!result.deleted) {
             return res.status(404).json({ message: 'Platform user not found for authenticated user', ...result, });
         }
-        return res.status(200).json(result);
+        return res.status(204).json({});
     } catch (err) {
         console.error("Error in /api/platform_user endpoint:", err);
         return res.status(500).json({error: err.message});

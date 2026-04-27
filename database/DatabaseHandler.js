@@ -28,6 +28,11 @@ class DatabaseHandler {
         this.#createDBConnection();
     };
 
+    async getReady() {
+        await this.waitForConnection();
+        await this.selectDatabase();
+    }
+
     /**
      * @private Private method to create a database connection.
      */
