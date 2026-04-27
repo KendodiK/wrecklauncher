@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 <<<<<<< HEAD
+<<<<<<< HEAD
 using System.Net;
 using System.Net.Http;
 using System.Text;
@@ -8,6 +9,13 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using wreckchat.Models;
 using wreckchat.Services.Auth;
+=======
+using System.Text;
+using System.Net.Http.Json;
+using wreckchat.Services.Auth;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+>>>>>>> parent of ac0305e (some frontend fix)
 =======
 using System.Text;
 using System.Net.Http.Json;
@@ -92,6 +100,7 @@ public class ApiService : IApiService
         Console.WriteLine(token);
 
 <<<<<<< HEAD
+<<<<<<< HEAD
         await _tokenService.SetToken(token);
         return token;
     }
@@ -139,6 +148,8 @@ public class ApiService : IApiService
         return countedGames.ToString();
     } */
 =======
+=======
+>>>>>>> parent of ac0305e (some frontend fix)
 // Source-generated context to make JsonSerializer.Deserialize trimming-safe (avoids IL2026).
 // Ensure your project enables System.Text.Json source generation (requires target framework and package support).
 [JsonSerializable(typeof(TokenResponse))]
