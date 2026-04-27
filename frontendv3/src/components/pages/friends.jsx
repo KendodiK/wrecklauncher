@@ -28,16 +28,16 @@ messages: [],
 }
 
 function normalizeSearchEntry(entry) {
-if (!entry || typeof entry !== 'object') return null;
+  if (!entry || typeof entry !== 'object') return null;
 
-const id = String(entry.id ?? '').trim();
-if (!id) return null;
+  const id = String(entry.id ?? '').trim();
+  if (!id) return null;
 
-const name = String(entry.username ?? entry.name ?? `User ${id}`).trim() || `User ${id}`;
-const avatarUrl = String(entry.avatarUrl ?? entry.pfp ?? '').trim() || '';
-const bio = String(entry.bio ?? '').trim();
+  const name = String(entry.username ?? entry.name ?? `User ${id}`).trim() || `User ${id}`;
+  const avatarUrl = String(entry.avatarUrl ?? entry.pfp ?? '').trim() || '';
+  const bio = String(entry.bio ?? '').trim();
 
-return { id, name, avatarUrl, pfp, bio };
+  return { id, name, avatarUrl, pfp: avatarUrl, bio };
 }
 
 const FriendsPage = ({ user }) => {
