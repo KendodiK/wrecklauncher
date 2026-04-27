@@ -284,3 +284,29 @@ a:hover {
 }
 
 /* responsive */
+
+/* QR code*/
+
+  #qrcode {
+    padding-top: 5px;
+    margin-left: 45vw;
+    background-color: inherit;
+    transition: all 0.15s ease-out;
+  }
+  #qrcode::before {
+    content: '';
+    display: block;
+    width: var(--trace-size);
+    height: var(--trace-size);
+    position: absolute;
+    background-color: #f00;
+    border-radius: 20%;
+    animation: 2s ease-in-out 1s infinite normal both qr-trace;
+    transition: inherit;
+  }
+  #qrcode img {
+    background-color: inherit;
+    mix-blend-mode: darken;
+    image-rendering: pixelated;
+    transition: inherit;
+  }
