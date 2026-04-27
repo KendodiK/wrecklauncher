@@ -550,8 +550,7 @@ module.exports.GETNativeUserByName = async function (req, res) {
 
 module.exports.GETChatlogByFriendId = async function (req, res) {
     try {
-        const { friendsId } = req.params;
-        const { from } = req.body;
+        const { friendsId, from } = req.params;
         const chatsCtrl = new ChatsController();
         const chatLog = await chatsCtrl.getByFriedsId(friendsId, from);
         return res.json(chatLog);

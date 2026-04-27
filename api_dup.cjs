@@ -118,7 +118,7 @@ app.get("/api/friends/:nativeUserId", apiFunctions.GETFriendsOfNativeUser);
 
 app.get("/api/friends/chatting/:nativeUserId", apiFunctions.GETFriendsWithChattingStatus);
 
-app.get("/api/messages/:friendsId", apiFunctions.GETChatlogByFriendId); //old path: /api/chat/:friendsId TEST NEEDED!
+app.get("/api/messages/:friendsId/list/:from", apiFunctions.GETChatlogByFriendId); //old path: /api/chat/:friendsId TEST NEEDED!
 
 app.get("/api/platforms", apiFunctions.GETPlatforms); //new path v2.3
 
