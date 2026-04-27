@@ -60,57 +60,12 @@
         </div>
     </div>
     <!-- telefonos chatapp letöltés -->
-    <div>Download the mobile chat app for talking with you frined if you already have an account!</div>
-    <div id="qrcode"></div>
+    <div id="qrcode" style="margin-bottom: 2rem;"></div>
+    <div>Download our mobile app too for chatting with you frined if you already have an account!</div>
     </div>
 </body>
 <footer>
     <p>&copy; AnchorLauncher team - 2026</p>
     <a href="tos.html">terms & conditions</a>
 </footer>
-<script>
-       document.addEventListener('DOMContentLoaded', () => {
-// Source - https://stackoverflow.com/a/67404191
-// Posted by Brandon McConnell, modified by community. See post 'Timeline' for change history
-// Retrieved 2026-04-27, License - CC BY-SA 4.0
-
-const qrElement = document.getElementById('qrcode');
-
-const qrUrl = 'https://github.com/Milan-aka-Suguru/wrecklauncher-server-only/releases/download/latest/Anchor-Launcher-Setup-Android.apk/';
-
-const qrcode = new QRCode(document.getElementById('qrcode'), {
-  text: qrUrl,
-  width: 128,
-  height: 128,
-  colorDark : '#000',
-  colorLight : '#fff',
-  correctLevel : QRCode.CorrectLevel.H
-});
-
-const qrActionButtons = Array.from(qrElement.querySelectorAll('.qr-action'));
-
-qrActionButtons.find(b => b.dataset.qrAction === 'visit').href = qrUrl;
-
-document.addEventListener('click', e => {
-  if (e.target) {
-    if (qrActionButtons.indexOf(e.target) !== -1) {
-      const button = e.target;
-      const action = button.dataset.qrAction;
-      if (action === 'download') {
-        const a = document.createElement('a');
-        a.download = 'QR-Code.png';
-        a.href = qrElement.querySelector('img').src;
-        console.log(a.href);
-        a.click();
-        a.remove();
-      } else if (action === 'copy') {
-        fetch(qrElement.querySelector('img').src).then(res => res.blob()).then(blob => navigator.clipboard.write([new ClipboardItem({[blob.type]:blob})]));
-      } else if (action === 'visit') {
-        // handled organically
-      }
-    }
-  }
-});
-    });
-</script>
 </html>
