@@ -19,6 +19,7 @@ id,
 friendshipId: entry.friendshipId ?? entry.friendship_id ?? null,
 name,
 avatarUrl,
+pfp: avatarUrl,
 status: 'offline',
 bio,
 friendship: 'friend',
@@ -27,16 +28,16 @@ messages: [],
 }
 
 function normalizeSearchEntry(entry) {
-if (!entry || typeof entry !== 'object') return null;
+  if (!entry || typeof entry !== 'object') return null;
 
-const id = String(entry.id ?? '').trim();
-if (!id) return null;
+  const id = String(entry.id ?? '').trim();
+  if (!id) return null;
 
-const name = String(entry.username ?? entry.name ?? `User ${id}`).trim() || `User ${id}`;
-const avatarUrl = String(entry.avatarUrl ?? entry.pfp ?? '').trim() || '';
-const bio = String(entry.bio ?? '').trim();
+  const name = String(entry.username ?? entry.name ?? `User ${id}`).trim() || `User ${id}`;
+  const avatarUrl = String(entry.avatarUrl ?? entry.pfp ?? '').trim() || '';
+  const bio = String(entry.bio ?? '').trim();
 
-return { id, name, avatarUrl, bio };
+  return { id, name, avatarUrl, pfp: avatarUrl, bio };
 }
 
 const FriendsPage = ({ user }) => {
@@ -223,7 +224,7 @@ setLocalMessages((prev) => ({
 ...prev,
 [activeFriendId]: [
 ...(prev[activeFriendId] ?? []),
-{ id: makeId(), from: 'me', text, ts: 'Now' },
+{ id: makeId(), from: 'me', text, to: activeFriendId },
 ],
 }));
 setDraft('');
@@ -240,8 +241,8 @@ profile: {
 id: friend.id,
 name: friend.name,
 bio: friend.bio,
-avatarUrl: friend.avatarUrl,
-pfp: friend.avatarUrl,
+avatarUrl: friend.avatarUrl || friend.pfp,
+pfp: friend.avatarUrl || friend.pfp,
 },
 viewerUsername: user?.username || 'Player',
 },
@@ -303,11 +304,11 @@ throw new Error('Remove-friend API is not available in this build');
 await window.electronAPI.removeFriend(friendshipId);
 
 setFriends((prev) => prev.filter((row) => String(row?.id ?? '').trim() !== friendId));
-setLocalMessages((prev) => {
-const next = { ...prev };
-delete next[friendId];
-return next;
-});
+// setLocalMessages((prev) => {
+// const next = { ...prev };
+// delete next[friendId];
+// return next;
+// });
 setSearchResults((prev) =>
 prev.map((item) =>
 String(item?.id ?? '').trim() === friendId
@@ -328,7 +329,7 @@ setRemovingFriendIds((prev) => prev.filter((id) => id !== friendId));
 
 const FriendRow = ({ friend, selected, showMsgButton, showProfileButton, showRemoveButton, removeBusy, onRemove }) => (
 <div
-role="button"
+role="text"
 tabIndex={0}
 className={
 'flex items-center gap-3 rounded-lg border px-3 py-2 select-none transition-colors ' +
@@ -336,10 +337,10 @@ className={
 ? 'border-slate-600/70 bg-slate-900/45'
 : 'border-slate-700/60 bg-slate-950/25 hover:bg-slate-900/35')
 }
-onClick={() => openChat(friend.id)}
-onKeyDown={(e) => {
-if (e.key === 'Enter') openChat(friend.id);
-}}
+// onClick={() => openChat(friend.id)}
+// onKeyDown={(e) => {
+// if (e.key === 'Enter') openChat(friend.id);
+// }}
 >
 <div className="relative">
 {friend.avatarUrl ? (
@@ -366,7 +367,7 @@ statusDot(friend.status)
 
 {(showMsgButton || showProfileButton || showRemoveButton) && (
 <div className="flex items-center gap-2">
-{showMsgButton && (
+{/* {showMsgButton && (
 <button
 type="button"
 className="text-xs px-2 py-1 rounded border border-slate-700/60 bg-slate-900/30 hover:bg-slate-900/50"
@@ -377,7 +378,7 @@ openChat(friend.id);
 >
 MSG
 </button>
-)}
+)} */}
 {showProfileButton && (
 <button
 type="button"

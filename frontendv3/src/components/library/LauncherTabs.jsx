@@ -5,7 +5,7 @@ function normalizeLauncherTabId(raw) {
   if (!normalized) return '';
   if (normalized === 'gog.com') return 'gog';
   if (normalized === 'itchio' || normalized === 'itch.io') return 'itch';
-  if (normalized === 'local') return 'pirate';
+  if (normalized === 'pirate') return 'pirate';
   return normalized;
 }
 

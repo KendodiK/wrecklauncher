@@ -66,4 +66,46 @@ document.addEventListener("DOMContentLoaded", async () => {
             console.error("Error fetching game count from API:", error);
         }
     );
+
+    //----------creating QR code for mobile app download----------
+
+    const qrElement = document.getElementById('qrcode');
+    // ensure the container is empty to avoid duplicate QR renderings
+    qrElement.innerHTML = '';
+
+    const qrUrl = 'https://github.com/Milan-aka-Suguru/wrecklauncher-server-only/releases/download/latest/Anchor-Launcher-Setup-Android.apk/';
+
+    const qrcode = new QRCode(qrElement, {
+    text: qrUrl,
+    width: 128,
+    height: 128,
+    colorDark : '#000',
+    colorLight : '#fff',
+    correctLevel : QRCode.CorrectLevel.H
+    });
+
+    const qrActionButtons = Array.from(qrElement.querySelectorAll('.qr-action'));
+
+    qrActionButtons.find(b => b.dataset.qrAction === 'visit').href = qrUrl;
+
+    document.addEventListener('click', e => {
+        if (e.target) {
+            if (qrActionButtons.indexOf(e.target) !== -1) {
+            const button = e.target;
+            const action = button.dataset.qrAction;
+            if (action === 'download') {
+                const a = document.createElement('a');
+                a.download = 'QR-Code.png';
+                a.href = qrElement.querySelector('img').src;
+                console.log(a.href);
+                a.click();
+                a.remove();
+            } else if (action === 'copy') {
+                fetch(qrElement.querySelector('img').src).then(res => res.blob()).then(blob => navigator.clipboard.write([new ClipboardItem({[blob.type]:blob})]));
+            } else if (action === 'visit') {
+                // handled organically
+            }
+            }
+        }
+    });
 });

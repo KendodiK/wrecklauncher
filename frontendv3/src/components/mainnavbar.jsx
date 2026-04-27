@@ -105,7 +105,7 @@ const MainNavbar = ({ user, onLogout }) => {
 			{/* Top strip: app title, user area, window controls */}
 			<div className="flex items-center justify-between h-6 text-xs px-1">
 				<div className="flex items-center gap-2 pl-1 no-drag">
-					<span className="text-[11px] uppercase tracking-[0.2em] text-slate-400">WreckLauncher</span>
+					<span className="text-[11px] uppercase tracking-[0.2em] text-slate-400">Anchor Launcher</span>
 				</div>
 
 				<div className="flex items-center gap-1 no-drag">

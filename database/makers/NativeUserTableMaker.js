@@ -7,11 +7,6 @@ class NativeUserTableMaker extends DatabaseHandler {
         this.ready = this.getReady();
     }
 
-    async getReady() {
-        await this.waitForConnection();
-        await this.selectDatabase();
-    }
-
     async create() {
         await this.ready;
         const query = `

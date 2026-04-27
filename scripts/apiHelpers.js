@@ -1073,6 +1073,7 @@ module.exports.ensureScrapedGameUploaded = async function ({ appId, platformName
     return { uploaded: false, gameId: null, reason: 'invalid-app-id' };
   }
 
+
   const normalizedPlatformName = String(platformName || '').trim().toLowerCase();
   if (!normalizedPlatformName) {
     return { uploaded: false, gameId: null, reason: 'missing-platform' };
@@ -1109,4 +1110,20 @@ module.exports.ensureScrapedGameUploaded = async function ({ appId, platformName
 
   const uploaded = await gamesCtrl.uploadWithAll(gameData, null, normalizeGenreNames(genreNames ?? []));
   return { uploaded: true, gameId: uploaded?.id ?? null, reason: 'uploaded' };
+}
+
+module.exports.normalizeFriends = function(friendsRaw, nativeUserId) {
+  const friends = [];
+  const normalizedNativeUserId = String(nativeUserId ?? '').trim();
+  
+  friendsRaw.forEach(friend => {
+      const user1 = String(friend.user1_id ?? '').trim();
+      const user2 = String(friend.user2_id ?? '').trim();
+      friends.push({
+          id: friend.id,
+          user_id: user1 !== normalizedNativeUserId ? friend.user1_id : friend.user2_id
+      });
+  });
+
+  return friends;
 }

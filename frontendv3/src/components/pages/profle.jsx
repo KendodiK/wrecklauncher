@@ -15,19 +15,19 @@ function normalizeNativeUser(raw, fallbackId = null) {
 			id: fallbackText,
 			name: fallbackText,
 			bio: '',
-			avatarUrl: '',
+			pfp: '',
 		};
 	}
 
 	const id = raw.id ?? fallbackId ?? null;
 	const fallbackText = String(id ?? '').trim();
 	const name = String((raw.name ?? raw.username ?? fallbackText) || 'Player').trim() || 'Player';
-	const avatarCandidate = raw.avatarUrl ?? raw.avatar_url ?? raw.avatarURL ?? raw.pfp ?? '';
+	const avatarCandidate = raw.pfp ?? '';
 	return {
 		id,
 		name,
 		bio: String(raw.bio ?? '').trim(),
-		avatarUrl: typeof avatarCandidate === 'string' ? avatarCandidate.trim() : '',
+		pfp: typeof avatarCandidate === 'string' ? avatarCandidate.trim() : '',
 	};
 }
 
@@ -39,11 +39,11 @@ function normalizeFriendEntry(entry) {
 	if (!id) return null;
 
 	const name = String(entry.username ?? entry.name ?? `User ${id}`).trim() || `User ${id}`;
-	const avatarCandidate = entry.avatarUrl ?? entry.avatar_url ?? entry.avatarURL ?? entry.pfp ?? '';
+	const avatarCandidate = entry.pfp ?? '';
 	return {
 		id,
 		name,
-		avatarUrl: typeof avatarCandidate === 'string' ? avatarCandidate.trim() : '',
+		pfp: typeof avatarCandidate === 'string' ? avatarCandidate.trim() : '',
 		bio: String(entry.bio ?? '').trim(),
 		status: 'offline',
 	};
@@ -84,7 +84,7 @@ const ProfilePage = ({ user }) => {
 	const isOwnProfile = !routeUserId || (viewerUserId && routeUserId === viewerUserId);
 	const targetUserId = isOwnProfile ? viewerUserId : routeUserId;
 
-	const [settingsProfile, setSettingsProfile] = useState({ bio: '', avatarUrl: '' });
+	const [settingsProfile, setSettingsProfile] = useState({ bio: '', pfp: '' });
 	const [remoteViewedProfile, setRemoteViewedProfile] = useState(null);
 
 	const [friends, setFriends] = useState([]);
@@ -118,12 +118,12 @@ const ProfilePage = ({ user }) => {
 				if (!cancelled) {
 					setSettingsProfile({
 						bio: typeof profile.bio === 'string' ? profile.bio : '',
-						avatarUrl: typeof profile.avatarUrl === 'string' ? profile.avatarUrl : '',
+						pfp: typeof profile.pfp === 'string' ? profile.pfp : '',
 					});
 				}
 			} catch {
 				if (!cancelled) {
-					setSettingsProfile({ bio: '', avatarUrl: '' });
+					setSettingsProfile({ bio: '', pfp: '' });
 				}
 			}
 		};
@@ -172,7 +172,7 @@ const ProfilePage = ({ user }) => {
 				id: viewerUserId || user?.id || null,
 				name: user?.username || 'Player',
 				bio: settingsProfile.bio || user?.bio || '',
-				avatarUrl: settingsProfile.avatarUrl || user?.avatarUrl || '',
+				pfp: settingsProfile.pfp || user?.pfp || '',
 			};
 		}
 
@@ -183,10 +183,10 @@ const ProfilePage = ({ user }) => {
 				id: targetUserId,
 				name: targetUserId || 'Player',
 				bio: '',
-				avatarUrl: '',
+				pfp: '',
 			}
 		);
-	}, [isOwnProfile, viewerUserId, user?.id, user?.username, user?.bio, user?.avatarUrl, settingsProfile.bio, settingsProfile.avatarUrl, remoteViewedProfile, locationProfile, targetUserId]);
+	}, [isOwnProfile, viewerUserId, user?.id, user?.username, user?.bio, user?.pfp, settingsProfile.bio, settingsProfile.pfp, remoteViewedProfile, locationProfile, targetUserId]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -250,6 +250,14 @@ const ProfilePage = ({ user }) => {
 			const loadByNativeUserId = async (nativeUserId, allowSelfFallback = false) => {
 				if (typeof window?.electronAPI?.getOwnedGamesFromSteamByNativeUserId === 'function') {
 					const payload = await window.electronAPI.getOwnedGamesFromSteamByNativeUserId(nativeUserId);
+					return extractGames(payload).map((row) => normalizeOwnedSteamGame(row)).filter(Boolean);
+				}
+				if(typeof window?.electronAPI?.getOwnedGamesFromGogByNativeUserId === 'function') {
+					const payload = await window.electronAPI.getOwnedGamesFromGogByNativeUserId(nativeUserId);
+					return extractGames(payload).map((row) => normalizeOwnedSteamGame(row)).filter(Boolean);
+				}
+				if(typeof window?.electronAPI?.getOwnedGamesFromItchByNativeUserId === 'function') {
+					const payload = await window.electronAPI.getOwnedGamesFromItchByNativeUserId(nativeUserId);
 					return extractGames(payload).map((row) => normalizeOwnedSteamGame(row)).filter(Boolean);
 				}
 
@@ -319,8 +327,7 @@ const ProfilePage = ({ user }) => {
 					id: friend.id,
 					name: friend.name,
 					bio: friend.bio,
-					avatarUrl: friend.avatarUrl,
-					pfp: friend.avatarUrl,
+					pfp: friend.pfp,
 				},
 			},
 		});
@@ -334,7 +341,7 @@ const ProfilePage = ({ user }) => {
 		});
 	};
 
-	const avatarUrl = String(displayedProfile?.avatarUrl || '').trim();
+	const avatarUrl = String(displayedProfile?.pfp || '').trim();
 	const username = String(displayedProfile?.name || 'Player').trim() || 'Player';
 	const bio = String(displayedProfile?.bio || '').trim();
 	const avatarLetter = username.charAt(0).toUpperCase();
@@ -381,9 +388,9 @@ const ProfilePage = ({ user }) => {
 												className="flex min-w-0 items-center gap-2 text-left flex-1"
 											>
 												<div className="relative shrink-0">
-													{friend.avatarUrl ? (
+													{friend.pfp ? (
 														<img
-															src={friend.avatarUrl}
+															src={friend.pfp}
 															alt={friend.name}
 															className="h-8 w-8 rounded-full border border-slate-600/60 object-cover"
 														/>

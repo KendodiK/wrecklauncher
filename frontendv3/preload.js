@@ -265,6 +265,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   toggleDevTools: () => ipcRenderer.send('window:toggle-devtools'),
   invoke: (channel, ...args) => invokeWithTokenSync(channel, ...args),
   openExternalUrl: (url) => ipcRenderer.invoke('shell:open-external-url', url),
+  getLocalHardwareProfile: () => ipcRenderer.invoke('system:get-local-hardware-profile'),
 
   // Controller helpers (serverless modules in Electron main)
   getToken: async () => {
@@ -313,8 +314,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }
     return token;
   },
-  register: async (username, password, email, profile) => {
-    const token = await ipcRenderer.invoke('user:register', username, password, email, profile);
+  register: async (username, password, email, bio, pfp) => {
+    const token = await ipcRenderer.invoke('user:register', username, password, email, bio, pfp);
     if (typeof token === 'string' && token.trim()) {
       setAuthToken(token);
       await refreshSettingsCache();
@@ -421,9 +422,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   cloudscraperDodiRepacksHome: () => ipcRenderer.invoke('cloudscraper:dodi-repacks-home'),
   cloudscraperSearchByxatab: (query, page) => ipcRenderer.invoke('cloudscraper:search-byxatab', query, page),
   fitGirlMagnetLink: (gameName) => ipcRenderer.invoke('fitgirl:magnet-link', gameName),
+  onlineFixMeMagnetLink: (gameName) => ipcRenderer.invoke('onlinefixme:magnet-link', gameName),
   pcGamesTorrentMagnetLink: (gameName) => ipcRenderer.invoke('pcgamestorrent:magnet-link', gameName),
+  xatabMagnetLink: (gameName) => ipcRenderer.invoke('xatab:magnet-link', gameName),
   FitGirlMagnetLink: (gameName) => ipcRenderer.invoke('fitgirl:magnet-link', gameName),
+  onlineFixMeMagnetLink: (gameName) => ipcRenderer.invoke('onlinefixme:magnet-link', gameName),
   PcGamesTorrentMagnetLink: (gameName) => ipcRenderer.invoke('pcgamestorrent:magnet-link', gameName),
+  XatabMagnetLink: (gameName) => ipcRenderer.invoke('xatab:magnet-link', gameName),
+  xatabGamePageUrl: (gameName) => ipcRenderer.invoke('xatab:game-page', gameName),
+  OnlineFixMeMagnetLink: (gameName) => ipcRenderer.invoke('onlinefixme:magnet-link', gameName),
+  XatabGamePageUrl: (gameName) => ipcRenderer.invoke('xatab:game-page', gameName),
   ComingSoonGames: (from) => ipcRenderer.invoke('shop-specials:coming-soon', from),
   DiscountedGames: (from) => ipcRenderer.invoke('shop-specials:discounted', from),
   FeaturedGames: (from) => ipcRenderer.invoke('shop-specials:featured', from),
@@ -482,6 +490,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const listener = (_event, progress) => cb(progress);
     ipcRenderer.on('torrent:progress', listener);
     return () => ipcRenderer.removeListener('torrent:progress', listener);
+  },
+  /**
+   * Subscribe to background pirate-site scrape updates for store details.
+   * Returns an unsubscribe function.
+   * @param {(payload: { appId: number, platform: string, pirate_sites: Array<{ site_name?: string, link?: string }>, source?: string }) => void} cb
+   * @returns {() => void}
+   */
+  onPirateSitesUpdated: (cb) => {
+    const listener = (_event, payload) => cb(payload);
+    ipcRenderer.on('games:pirate-sites-updated', listener);
+    return () => ipcRenderer.removeListener('games:pirate-sites-updated', listener);
   },
   // GamesController
   getGames: async (from, countryCode) => {

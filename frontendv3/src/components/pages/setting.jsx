@@ -4,27 +4,21 @@ import { useLocation, useNavigate } from 'react-router-dom';
 const DEFAULT_SETTINGS = {
 	display: {
 		theme: 'dark',
-		language: 'en',
-		uiScale: 100,
-		animations: true,
 	},
 	store: {
 		countryCode: 'DE',
 	},
 	library: {
-		autoRefreshHours: 24,
 		viewMode: 'carousel',
-		gamesPerPage: 20,
 	},
 	downloads: {
-		path: 'Downloads/WreckLauncher',
 		pirateTorrentsPath: 'Downloads/WreckLauncher/Pirate Torrents',
 		concurrent: 3,
 	},
 	account: {
 		profile: {
 			bio: '',
-			avatarUrl: '',
+			pfp: '',
 		},
 		profilesByUserId: {},
 		platforms: {
@@ -32,7 +26,6 @@ const DEFAULT_SETTINGS = {
 			gog: { connected: false, username: '' },
 			itch: { connected: false, username: '' },
 		},
-		syncFrequencyHours: 6,
 	},
 };
 
@@ -167,12 +160,12 @@ function normalizeHttpAvatarUrl(value) {
 
 function normalizeEditableProfile(raw) {
 	const source = raw && typeof raw === 'object' ? raw : {};
-	const avatarCandidate = source.avatarUrl ?? source.avatar_url ?? source.avatarURL ?? source.profilePicture ?? source.pfp ?? '';
+	const avatarCandidate = source.pfp ?? '';
 	const normalizedAvatarUrl = normalizeHttpAvatarUrl(avatarCandidate);
 
 	return {
 		bio: sanitizeProfileBio(source.bio),
-		avatarUrl: normalizedAvatarUrl || '',
+		pfp: normalizedAvatarUrl || '',
 	};
 }
 
@@ -191,8 +184,6 @@ async function healthCheckAvatarUrl(url, timeoutMs = PROFILE_IMAGE_HEALTHCHECK_T
 	}
 
 	if (typeof window !== 'undefined') {
-		const cloudscraperFetch = window?.electronAPI?.cloudscraperFetch;
-		if (typeof cloudscraperFetch === 'function') {
 			try {
 				const timeout = Math.max(1200, Number(timeoutMs) || PROFILE_IMAGE_HEALTHCHECK_TIMEOUT_MS);
 				const payload = await new Promise((resolve, reject) => {
@@ -204,7 +195,7 @@ async function healthCheckAvatarUrl(url, timeoutMs = PROFILE_IMAGE_HEALTHCHECK_T
 					}, timeout);
 
 					Promise.resolve(
-						cloudscraperFetch(normalizedUrl, {
+						fetch(normalizedUrl, {
 							method: 'GET',
 							headers: {
 								Accept: 'image/*,*/*;q=0.8',
@@ -225,7 +216,7 @@ async function healthCheckAvatarUrl(url, timeoutMs = PROFILE_IMAGE_HEALTHCHECK_T
 						});
 				});
 
-				const statusCode = Number(payload?.statusCode || 0);
+				const statusCode = Number(payload?.status || 0);
 				const ok = payload?.ok === true || (statusCode >= 200 && statusCode < 400);
 				if (ok) {
 					return { ok: true, reason: '', url: normalizedUrl };
@@ -233,7 +224,6 @@ async function healthCheckAvatarUrl(url, timeoutMs = PROFILE_IMAGE_HEALTHCHECK_T
 			} catch {
 				// Fall through to browser image probe.
 			}
-		}
 	}
 
 	if (typeof Image === 'undefined' || typeof window === 'undefined') {
@@ -340,6 +330,30 @@ function isMissingSettingsHandlerError(error, channel) {
 	return message.includes(`No handler registered for '${channel}'`);
 }
 
+function resolveThemeSelection(rawTheme) {
+	const normalized = String(rawTheme || '').trim().toLowerCase();
+	if (normalized === 'purple-black') return 'purple-black';
+	if (normalized === 'light-green') return 'light-green';
+	if (normalized === 'light') return 'light';
+	if (normalized === 'system') {
+		try {
+			if (typeof window !== 'undefined' && window.matchMedia) {
+				return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+			}
+		} catch {
+			// ignore and fall back to dark
+		}
+	}
+	return 'dark';
+}
+
+function applyDocumentTheme(rawTheme) {
+	const theme = resolveThemeSelection(rawTheme);
+	if (typeof document === 'undefined') return;
+	document.documentElement.setAttribute('data-theme', theme);
+	document.body?.setAttribute('data-theme', theme);
+}
+
 async function fetchSettingsWithRetry(api, attempts = 8, delayMs = 150) {
 	let lastError = null;
 
@@ -376,8 +390,8 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 	const [itchOAuthStatus, setItchOAuthStatus] = useState({ isLoggedIn: false, hasToken: false });
 	const [platformRuntime, setPlatformRuntime] = useState(() => createEmptyPlatformRuntimeState());
 	const [currentUserId, setCurrentUserId] = useState('');
-	const [profileForm, setProfileForm] = useState({ bio: '', avatarUrl: '' });
-	const [profileBaseline, setProfileBaseline] = useState({ bio: '', avatarUrl: '' });
+	const [profileForm, setProfileForm] = useState({ bio: '', pfp: '' });
+	const [profileBaseline, setProfileBaseline] = useState({ bio: '', pfp: '' });
 	const [downloadPathsForm, setDownloadPathsForm] = useState({ path: '', pirateTorrentsPath: '' });
 	const [message, setMessage] = useState({ type: '', text: '' });
 
@@ -385,6 +399,20 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 	useEffect(() => {
 		loadSettings();
 	}, []);
+
+	useEffect(() => {
+		applyDocumentTheme(settings?.display?.theme || 'dark');
+	}, [settings?.display?.theme]);
+	//auto msg dismiss after 3s
+	useEffect(() => {
+		if (!message.text) return;
+
+		const timer = setTimeout(() => {
+			setMessage({ text: "", type: "" });
+		}, 3000);
+
+		return () => clearTimeout(timer);
+		}, [message]);
 
 	const fetchPlatformRuntimeState = async () => {
 		const empty = createEmptyPlatformRuntimeState();
@@ -977,19 +1005,19 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 
 	const handleSaveProfile = async () => {
 		const normalizedBio = sanitizeProfileBio(profileForm.bio);
-		const normalizedAvatarUrl = normalizeHttpAvatarUrl(profileForm.avatarUrl);
+		const normalizedAvatarUrl = normalizeHttpAvatarUrl(profileForm.pfp);
 		if (normalizedAvatarUrl == null) {
 			setMessage({ type: 'error', text: 'Profile picture URL must start with http:// or https://.' });
 			return;
 		}
 
-		const baselineAvatarNormalized = normalizeHttpAvatarUrl(profileBaseline.avatarUrl);
+		const baselineAvatarNormalized = normalizeHttpAvatarUrl(profileBaseline.pfp);
 		const baselineAvatarUrl = baselineAvatarNormalized == null ? '' : baselineAvatarNormalized;
 		const avatarChanged = baselineAvatarUrl !== normalizedAvatarUrl;
 
 		const localProfile = {
 			bio: normalizedBio,
-			avatarUrl: normalizedAvatarUrl,
+			pfp: normalizedAvatarUrl,
 		};
 		const normalizedCurrentUserId = normalizeCurrentUserId(currentUserId);
 		let remoteProfile = null;
@@ -1010,14 +1038,14 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 			const safeAvatarUrl = String(avatarHealth.url ?? normalizedAvatarUrl ?? '').trim();
 			const safeProfile = {
 				bio: localProfile.bio,
-				avatarUrl: safeAvatarUrl,
+				pfp: safeAvatarUrl,
 			};
 
 			if (typeof window?.electronAPI?.updateCurrentUserProfile === 'function') {
 				try {
 					remoteProfile = await window.electronAPI.updateCurrentUserProfile({
 						bio: safeProfile.bio,
-						avatarUrl: safeProfile.avatarUrl,
+						pfp: safeProfile.pfp,
 					});
 				} catch (error) {
 					remoteError = error;
@@ -1034,7 +1062,7 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 					...existingProfilesByUserId,
 					[normalizedCurrentUserId]: {
 						bio: safeProfile.bio,
-						avatarUrl: safeProfile.avatarUrl,
+						pfp: safeProfile.pfp,
 					},
 				}
 				: existingProfilesByUserId;
@@ -1043,7 +1071,7 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 				account: {
 					profile: {
 						bio: safeProfile.bio,
-						avatarUrl: safeProfile.avatarUrl,
+						pfp: safeProfile.pfp,
 					},
 					profilesByUserId: nextProfilesByUserId,
 				},
@@ -1054,7 +1082,7 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 			// Keep renderer UI in sync with what the user just saved, even if backend returns stale fields.
 			const resolvedProfile = {
 				bio: safeProfile.bio,
-				avatarUrl: safeProfile.avatarUrl,
+				pfp: safeProfile.pfp,
 			};
 
 			setProfileForm(resolvedProfile);
@@ -1093,7 +1121,7 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 						...existingProfilesByUserId,
 						[normalizedCurrentUserId]: {
 							bio: localProfile.bio,
-							avatarUrl: localProfile.avatarUrl,
+							pfp: localProfile.pfp,
 						},
 					}
 					: existingProfilesByUserId;
@@ -1104,7 +1132,7 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 						...(settings?.account || {}),
 						profile: {
 							bio: localProfile.bio,
-							avatarUrl: localProfile.avatarUrl,
+							pfp: localProfile.pfp,
 						},
 						profilesByUserId: nextProfilesByUserId,
 					},
@@ -1168,7 +1196,7 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 	const canSaveDownloadPaths =
 		downloadPathsForm.path.trim().length > 0
 		&& downloadPathsForm.pirateTorrentsPath.trim().length > 0;
-	const normalizedAvatarInput = normalizeHttpAvatarUrl(profileForm.avatarUrl);
+	const normalizedAvatarInput = normalizeHttpAvatarUrl(profileForm.pfp);
 	const profileAvatarUrlError = normalizedAvatarInput === null
 		? 'Profile picture URL must start with http:// or https://.'
 		: '';
@@ -1188,7 +1216,7 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 		: 'Customize your WreckLauncher experience';
 
 	return (
-		<div className="flex-1 px-6 py-4 text-slate-100 overflow-y-auto">
+		<div className="settings-page flex-1 px-6 py-4 text-slate-100 overflow-y-auto">
 			<div className="max-w-4xl mx-auto">
 				<h1 className="text-3xl font-bold mb-2">{pageTitle}</h1>
 				<p className="text-slate-400 mb-6">{pageSubtitle}</p>
@@ -1205,18 +1233,79 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 					</div>
 				)}
 
-				{/* Status Message */}
 				{message.text && (
-					<div className={`mb-4 p-3 rounded-lg ${
-						message.type === 'success' ? 'bg-green-900/30 text-green-400 border border-green-700' :
-						'bg-red-900/30 text-red-400 border border-red-700'
-					}`}>
-						{message.text}
-					</div>
-				)}
+				<div className="fixed top-16 left-1/2 -translate-x-1/2 z-50">
+					<div
+					className={`mb-4 px-4 py-3 pr-10 rounded-lg shadow-lg relative backdrop-blur-sm ${
+						message.type === "success"
+						? "bg-green-800 text-green-100 border border-green-600"
+						: "bg-red-800 text-red-100 border border-red-600"
+					}`}
+					>
+					{message.text}
 
+					{/* Close button */}
+					<span
+						onClick={() => setMessage({ text: "", type: "" })}
+						className="absolute top-1 right-2 cursor-pointer text-lg font-bold hover:opacity-70"
+					>
+						×
+					</span>
+					</div>
+				</div>
+				)}
+				<section className="mb-8 bg-slate-800/50 rounded-lg p-6 border border-slate-700">
+					<h2 className="text-xl font-semibold mb-4 flex items-center">
+						<svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.121 17.804A13.937 13.937 0 0112 16c2.634 0 5.09.73 7.121 2.004M15 10a3 3 0 11-6 0 3 3 0 016 0z" />
+						</svg>
+						Profile
+					</h2>
+
+					<div className="space-y-4">
+						<div>
+							<label className="text-sm font-medium">Profile picture URL</label>
+							<input
+								type="url"
+								value={profileForm.pfp}
+								onChange={(e) => setProfileForm((prev) => ({ ...prev, pfp: e.target.value }))}
+								disabled={saving}
+								placeholder="https://example.com/avatar.png"
+								className="mt-2 w-full bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
+							/>
+							{profileAvatarUrlError ? (
+								<p className="mt-2 text-xs text-rose-300">{profileAvatarUrlError}</p>
+							) : (
+								<p className="mt-2 text-xs text-slate-400">Only http:// or https:// links are accepted, and a reachability health check runs before save.</p>
+							)}
+						</div>
+
+						<div>
+							<label className="text-sm font-medium">Bio</label>
+							<textarea
+								rows={4}
+								value={profileForm.bio}
+								onChange={(e) => setProfileForm((prev) => ({ ...prev, bio: e.target.value }))}
+								disabled={saving}
+								placeholder="Write a short bio"
+								className="mt-2 w-full bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500 resize-none"
+							/>
+							<p className="mt-2 text-xs text-slate-400">Bio is stored and rendered as plain text.</p>
+						</div>
+
+						<div className="flex justify-end">
+							<button
+								onClick={handleSaveProfile}
+								disabled={!canSaveProfile}
+								className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-60"
+							>
+								{saving ? 'Saving...' : 'Save profile'}
+							</button>
+						</div>
+					</div>
+				</section>
 				{/* Display Settings */}
-				{selectedSection === 'display' && (
+				{(selectedSection === 'display' || !showingMovedSection) && (
 				<section className="mb-8 bg-slate-800/50 rounded-lg p-6 border border-slate-700">
 					<h2 className="text-xl font-semibold mb-4 flex items-center">
 						<svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1230,7 +1319,7 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 						<div className="flex items-center justify-between">
 							<div>
 								<label className="text-sm font-medium">Theme</label>
-								<p className="text-xs text-slate-400">Choose your preferred color scheme</p>
+								<p className="text-xs text-slate-400">Choose your preferred color scheme (includes Purple Black)</p>
 							</div>
 							<select
 								value={settings.display.theme}
@@ -1238,88 +1327,11 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 								disabled={saving}
 								className="bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
 							>
-								<option value="dark">Dark</option>
+								<option value="dark">Default (Dark)</option>
+								<option value="purple-black">Purple Black</option>
+								<option value="light-green">Light Green</option>
 								<option value="light">Light</option>
-								<option value="system">System</option>
 							</select>
-						</div>
-
-						{/* Language */}
-						<div className="flex items-center justify-between">
-							<div>
-								<label className="text-sm font-medium">Language</label>
-								<p className="text-xs text-slate-400">Select your language</p>
-							</div>
-							<select
-								value={settings.display.language}
-								onChange={(e) => updateSetting('display', 'language', e.target.value)}
-								disabled={saving}
-								className="bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
-							>
-								<option value="en">English</option>
-								<option value="hu">Hungarian</option>
-							</select>
-						</div>
-
-						<div className="flex items-center justify-between">
-							<div>
-								<label className="text-sm font-medium">Store country</label>
-								<p className="text-xs text-slate-400">Used for regional prices and availability lookups</p>
-							</div>
-							<select
-								value={selectedStoreCountryCode}
-								onChange={(e) => updateSetting('store', 'countryCode', e.target.value)}
-								disabled={saving}
-								className="bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
-							>
-								{!hasSelectedStoreCountryOption ? (
-									<option value={selectedStoreCountryCode}>{`Custom - ${selectedStoreCountryCode}`}</option>
-								) : null}
-								{STORE_COUNTRY_OPTIONS.map((country) => (
-									<option key={country.code} value={country.code}>
-										{`${country.name} - ${country.code}`}
-									</option>
-								))}
-							</select>
-						</div>
-
-						{/* UI Scale */}
-						<div className="flex items-center justify-between">
-							<div>
-								<label className="text-sm font-medium">UI Scale: {settings.display.uiScale}%</label>
-								<p className="text-xs text-slate-400">Adjust interface size</p>
-							</div>
-							<select
-								value={settings.display.uiScale}
-								onChange={(e) => updateSetting('display', 'uiScale', parseInt(e.target.value))}
-								disabled={saving}
-								className="bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
-							>
-								<option value="100">100%</option>
-								<option value="125">125%</option>
-								<option value="150">150%</option>
-							</select>
-						</div>
-
-						{/* Animations */}
-						<div className="flex items-center justify-between">
-							<div>
-								<label className="text-sm font-medium">Animations</label>
-								<p className="text-xs text-slate-400">Enable or disable UI animations</p>
-							</div>
-							<button
-								onClick={() => updateSetting('display', 'animations', !settings.display.animations)}
-								disabled={saving}
-								className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-									settings.display.animations ? 'bg-blue-600' : 'bg-slate-600'
-								}`}
-							>
-								<span
-									className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-										settings.display.animations ? 'translate-x-6' : 'translate-x-1'
-									}`}
-								/>
-							</button>
 						</div>
 					</div>
 				</section>
@@ -1336,25 +1348,6 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 					</h2>
 
 					<div className="space-y-4">
-						{/* Auto-refresh */}
-						<div className="flex items-center justify-between">
-							<div>
-								<label className="text-sm font-medium">Auto-refresh interval</label>
-								<p className="text-xs text-slate-400">How often to sync your library</p>
-							</div>
-							<select
-								value={settings.library.autoRefreshHours}
-								onChange={(e) => updateSetting('library', 'autoRefreshHours', parseInt(e.target.value))}
-								disabled={saving}
-								className="bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
-							>
-								<option value="6">Every 6 hours</option>
-								<option value="12">Every 12 hours</option>
-								<option value="24">Every 24 hours</option>
-								<option value="48">Every 2 days</option>
-							</select>
-						</div>
-
 						{/* View Mode */}
 						<div className="flex items-center justify-between">
 							<div>
@@ -1369,24 +1362,6 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 							>
 								<option value="carousel">Carousel</option>
 								<option value="list">List</option>
-							</select>
-						</div>
-
-						{/* Games per page */}
-						<div className="flex items-center justify-between">
-							<div>
-								<label className="text-sm font-medium">Games per page</label>
-								<p className="text-xs text-slate-400">Number of games to load at once</p>
-							</div>
-							<select
-								value={settings.library.gamesPerPage}
-								onChange={(e) => updateSetting('library', 'gamesPerPage', parseInt(e.target.value))}
-								disabled={saving}
-								className="bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
-							>
-								<option value="20">20</option>
-								<option value="50">50</option>
-								<option value="100">100</option>
 							</select>
 						</div>
 					</div>
@@ -1440,25 +1415,13 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 
 					<div className="space-y-4">
 						<div>
-							<label className="text-sm font-medium">General download path</label>
-							<input
-								type="text"
-								value={downloadPathsForm.path}
-								onChange={(e) => setDownloadPathsForm((prev) => ({ ...prev, path: e.target.value }))}
-								disabled={saving}
-								placeholder="C:\\Downloads\\WreckLauncher"
-								className="mt-2 w-full bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
-							/>
-						</div>
-
-						<div>
-							<label className="text-sm font-medium">Pirate torrent download path</label>
+							<label className="text-sm font-medium">Game torrent download path</label>
 							<input
 								type="text"
 								value={downloadPathsForm.pirateTorrentsPath}
 								onChange={(e) => setDownloadPathsForm((prev) => ({ ...prev, pirateTorrentsPath: e.target.value }))}
 								disabled={saving}
-								placeholder="C:\\Downloads\\WreckLauncher\\Pirate Torrents"
+								placeholder="C:\\Downloads\\WreckLauncher\\Game Torrents"
 								className="mt-2 w-full bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
 							/>
 						</div>
@@ -1566,8 +1529,8 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 										type="text"
 										value={gogUsername}
 										onChange={(e) => setGogUsername(e.target.value)}
-										disabled={saving || gogBusy}
-										placeholder="yourgogname"
+										disabled={true}
+										placeholder="yourgogname(automatic from OAuth)"
 										className="mt-2 w-full bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
 									/>
 								</label>
@@ -1611,8 +1574,8 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 										type="text"
 										value={itchUsername}
 										onChange={(e) => setItchUsername(e.target.value)}
-										disabled={saving || itchBusy}
-										placeholder="youritchname"
+										disabled={true}
+										placeholder="youritchname(automatic from OAuth)"
 										className="mt-2 w-full bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
 									/>
 								</label>
@@ -1639,56 +1602,7 @@ const SettingsPage = ({ onProfileLocalUpdate }) => {
 					</div>
 				</section>
 
-				<section className="mb-8 bg-slate-800/50 rounded-lg p-6 border border-slate-700">
-					<h2 className="text-xl font-semibold mb-4 flex items-center">
-						<svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.121 17.804A13.937 13.937 0 0112 16c2.634 0 5.09.73 7.121 2.004M15 10a3 3 0 11-6 0 3 3 0 016 0z" />
-						</svg>
-						Profile
-					</h2>
 
-					<div className="space-y-4">
-						<div>
-							<label className="text-sm font-medium">Profile picture URL</label>
-							<input
-								type="url"
-								value={profileForm.avatarUrl}
-								onChange={(e) => setProfileForm((prev) => ({ ...prev, avatarUrl: e.target.value }))}
-								disabled={saving}
-								placeholder="https://example.com/avatar.png"
-								className="mt-2 w-full bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500"
-							/>
-							{profileAvatarUrlError ? (
-								<p className="mt-2 text-xs text-rose-300">{profileAvatarUrlError}</p>
-							) : (
-								<p className="mt-2 text-xs text-slate-400">Only http:// or https:// links are accepted, and a reachability health check runs before save.</p>
-							)}
-						</div>
-
-						<div>
-							<label className="text-sm font-medium">Bio</label>
-							<textarea
-								rows={4}
-								value={profileForm.bio}
-								onChange={(e) => setProfileForm((prev) => ({ ...prev, bio: e.target.value }))}
-								disabled={saving}
-								placeholder="Write a short bio"
-								className="mt-2 w-full bg-slate-700 text-slate-100 px-4 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500 resize-none"
-							/>
-							<p className="mt-2 text-xs text-slate-400">Bio is stored and rendered as plain text.</p>
-						</div>
-
-						<div className="flex justify-end">
-							<button
-								onClick={handleSaveProfile}
-								disabled={!canSaveProfile}
-								className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-60"
-							>
-								{saving ? 'Saving...' : 'Save profile'}
-							</button>
-						</div>
-					</div>
-				</section>
 				</>
 				)}
 

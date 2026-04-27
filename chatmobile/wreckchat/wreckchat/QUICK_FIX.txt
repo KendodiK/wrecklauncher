@@ -1,0 +1,38 @@
+# 🚀 QUICK START - 30 Seconds to Fix
+
+## The Problem
+❌ 30 errors because Uno Platform workloads aren't installed
+
+## The Solution  
+✅ One command fixes everything
+
+```powershell
+dotnet workload restore
+```
+
+## Then What?
+1. Wait 5-10 minutes for installation
+2. Run this:
+```powershell
+cd D:\sulis cucok\12\portfolio\wreckchat\wreckchat
+dotnet clean
+dotnet build
+```
+
+3. If build succeeds (0 errors), run:
+```powershell
+dotnet run -f net10.0-desktop
+```
+
+## That's It!
+Your chat app UI will open showing all 5 pages (Login, Chat, Notifications, Friends, Profile)
+
+---
+
+## If Still Have Errors After Installation
+
+Run the full troubleshooting in: `ERROR_RESOLUTION.md`
+
+---
+
+**TL;DR:** `dotnet workload restore` → Wait → `dotnet build` → `dotnet run -f net10.0-desktop` ✅

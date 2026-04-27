@@ -55,8 +55,7 @@ class CloudscraperController {
       timeout: this.#timeoutMs,
       gzip: true,
       resolveWithFullResponse: true,
-    };
-
+    };    
     const res = await cloudscraper(requestOptions);
 
     return {
@@ -114,3 +113,5 @@ class CloudscraperController {
 }
 
 module.exports = CloudscraperController;
+
+

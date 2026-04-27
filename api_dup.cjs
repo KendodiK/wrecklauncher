@@ -45,12 +45,12 @@ server.on('listening', async () => {
   } catch (err) {
     console.error('Error creating database tables on startup:', err);
   }
-  await apiFunctions.fetchInitialShopSpecialsData();
+  /*await apiFunctions.fetchInitialShopSpecialsData();
   setInterval(() => {
     apiFunctions.fetchInitialShopSpecialsData().catch((err) => {
       console.error('Error refreshing shop specials data:', err);
     });
-  }, 24 * 60 * 60 * 1000); // Refresh shop specials data every day
+  }, 24 * 60 * 60 * 1000); // Refresh shop specials data every day*/
 });
 //#endregion
 
@@ -116,7 +116,9 @@ app.get("/api/native-users/name/:name", apiFunctions.GETNativeUserByName); //tot
 
 app.get("/api/friends/:nativeUserId", apiFunctions.GETFriendsOfNativeUser);
 
-app.get("/api/messages/:friendsId", apiFunctions.GETChatlogByFriendId); //old path: /api/chat/:friendsId TEST NEEDED!
+app.get("/api/friends/chatting/:nativeUserId", apiFunctions.GETFriendsWithChattingStatus);
+
+app.get("/api/messages/:friendsId/list/:from", apiFunctions.GETChatlogByFriendId); //old path: /api/chat/:friendsId TEST NEEDED!
 
 app.get("/api/platforms", apiFunctions.GETPlatforms); //new path v2.3
 

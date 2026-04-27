@@ -378,30 +378,39 @@ export function DownloadManagerProvider({ children }) {
 					.filter(([key]) => Boolean(key)),
 			);
 
-			setDownloads((prev) => {
-				const prevByHash = new Map(
-					prev
-						.map((entry) => [String(entry?.infoHash || '').trim().toLowerCase(), entry])
-						.filter(([key]) => Boolean(key)),
-				);
-				const prevByMagnet = new Map(
-					prev
-						.map((entry) => [String(entry?.magnetURI || '').trim().toLowerCase(), entry])
-						.filter(([key]) => Boolean(key)),
-				);
+setDownloads((prev) => {
+	const prevMap = new Map(
+		prev.map((d) => [
+			String(d?.infoHash || '').trim().toLowerCase(),
+			d,
+		])
+	);
 
-				return active.map((entry) => {
-					const hashKey = String(entry?.infoHash || '').trim().toLowerCase();
-					const magnetKey = String(entry?.magnetURI || '').trim().toLowerCase();
-					const fallback =
-						(hashKey && prevByHash.get(hashKey)) ||
-						(magnetKey && prevByMagnet.get(magnetKey)) ||
-						(hashKey && resumableByHash.get(hashKey)) ||
-						(magnetKey && resumableByMagnet.get(magnetKey)) ||
-						null;
-					return mergeArtworkFields(entry, fallback);
-				});
-			});
+	const mergedActive = active.map((entry) => {
+		const key = String(entry?.infoHash || '').trim().toLowerCase();
+		const existing = prevMap.get(key);
+
+		return mergeArtworkFields(entry, existing);
+	});
+
+	const activeKeys = new Set(
+		mergedActive.map((d) =>
+			String(d?.infoHash || '').trim().toLowerCase()
+		)
+	);
+
+	const preservedPaused = prev
+		.filter((p) => {
+			const key = String(p?.infoHash || '').trim().toLowerCase();
+			return !activeKeys.has(key);
+		})
+		.map((p) => ({
+			...p,
+			paused: true, // enforce consistency
+		}));
+
+	return [...mergedActive, ...preservedPaused];
+});
 			if (completed.length > 0) {
 				setCompletedDownloads((prevCompleted) => mergeCompletedEntries(prevCompleted, completed));
 			}
@@ -420,7 +429,6 @@ export function DownloadManagerProvider({ children }) {
 		const resumable = sourceEntries.filter((entry) => {
 			if (!entry || typeof entry !== 'object') return false;
 			if (entry.done) return false;
-			if (entry.paused) return false;
 			return Boolean(String(entry.magnetURI || '').trim());
 		});
 

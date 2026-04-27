@@ -5,8 +5,6 @@ const path = require('path');
 const zlib = require('zlib');
 const { shell, BrowserWindow } = require('electron');
 const GamesController = require('./GamesController');
-const { joinUrl, normalizeBaseUrl } = require('../lib/url');
-const { fetchJsonSafe } = require('../lib/http');
 
 /**
  * @typedef {Object} ItchOAuthToken
@@ -30,7 +28,7 @@ class ItchioController extends GamesController {
   constructor(cfg) {
     const serverUrl = cfg?.serverUrl;
     super({ serverUrl });
-    this.#serverUrl = normalizeBaseUrl(serverUrl, { defaultProtocol: 'http:' });
+    this.#serverUrl = serverUrl || "";
     this.#loadTokenFromDisk();
   }
 
@@ -105,7 +103,7 @@ class ItchioController extends GamesController {
    * @returns {string}
    */
   static getAppsDir() {
-    const appData = process.env.APPDATA || path.join(process.env.USERPROFILE || 'C:\\Users\\Default', 'AppData', 'Roaming');
+    const appData = path.join(process.env.USERPROFILE || 'C:\\Users\\Default', 'AppData', 'Roaming');
     return path.join(appData, 'itch', 'apps');
   }
 
@@ -114,7 +112,7 @@ class ItchioController extends GamesController {
    * @returns {string}
    */
   static getCavesDir() {
-    const appData = process.env.APPDATA || path.join(process.env.USERPROFILE || 'C:\\Users\\Default', 'AppData', 'Roaming');
+    const appData = path.join(process.env.USERPROFILE || 'C:\\Users\\Default', 'AppData', 'Roaming');
     return path.join(appData, 'itch', 'db', 'caves');
   }
 
@@ -209,7 +207,7 @@ class ItchioController extends GamesController {
    *
    * @param {string} title
    * @param {number} [limit]
-   * @returns {Promise<Array<{ gameId: number, title: string, url: string, score: number }>>}
+   * @returns {Promise<Array<{ gameId: number, title: string, banner_img: string | null, hero_img: string | null, url: string, score: number }>>}
    */
   async searchGameByTitle(title, limit = 30) {
     const needle = String(title || '').trim();
@@ -229,17 +227,19 @@ class ItchioController extends GamesController {
     }
 
     const html = await response.text();
-    /** @type {Array<{ gameId: number, title: string, url: string, score: number }>} */
+    /** @type {Array<{ gameId: number, title: string, banner_img: string | null, hero_img: string | null, url: string, score: number }>} */
     const candidates = [];
     const seen = new Set();
 
-    const cardPattern = /<div[^>]*data-game_id="(?<id>\d+)"[\s\S]{0,2400}?<a[^>]*class="[^"]*title\s+game_link[^"]*"[^>]*href="(?<href>[^"]+)"[^>]*>(?<title>[^<]+)<\/a>/gi;
+    const cardPattern = /<div[^>]*data-game_id="(?<id>\d+)"[\s\S]{0,2400}?<img[^>]+(?:data-lazy_src|src)="(?<img>[^"]+)"[\s\S]{0,2400}?<a[^>]*class="[^"]*title\s+game_link[^"]*"[^>]*href="(?<href>[^"]+)"[^>]*>(?<title>[^<]+)<\/a>/gi;
+    //old regex, no img
+    //const cardPattern = /<div[^>]*data-game_id="(?<id>\d+)"[\s\S]{0,2400}?<a[^>]*class="[^"]*title\s+game_link[^"]*"[^>]*href="(?<href>[^"]+)"[^>]*>(?<title>[^<]+)<\/a>/gi;
     let match;
     while ((match = cardPattern.exec(html)) !== null) {
       const gameId = Number(match.groups?.id);
       const href = String(match.groups?.href || '').trim();
       const resultTitle = this.#decodeHtmlEntities(String(match.groups?.title || '').trim());
-
+      const image = String(match.groups?.img || '').trim();
       if (!Number.isFinite(gameId) || gameId <= 0) continue;
       if (!href) continue;
       if (!resultTitle) continue;
@@ -249,6 +249,8 @@ class ItchioController extends GamesController {
       candidates.push({
         gameId,
         title: resultTitle,
+        banner_img: image || null,
+        hero_img: image || null,
         url: href,
         score: this._titleMatchScore(needle, resultTitle),
       });
@@ -341,46 +343,17 @@ class ItchioController extends GamesController {
     const id = Number(rawAppId);
     if (!Number.isFinite(id) || id <= 0) throw new Error(`Invalid itch.io game ID: ${String(rawAppId)}`);
 
-    // // 1) Prefer DB data first.
-    // const dbUrl = joinUrl(this.#serverUrl, 'api', 'games', String(id), 'details');
-    // const dbRes = await fetchJsonSafe(dbUrl, {
-    //   method: 'GET',
-    //   headers: { 'Accept': 'application/json' },
-    // });
 
-    // if (dbRes.ok && dbRes.json && typeof dbRes.json === 'object') {
-    //   const platformName = String(dbRes.json.platform_name ?? dbRes.json.platform ?? '').trim().toLowerCase();
-    //   if (platformName === 'itch' || platformName === 'itch.io') {
-    //     const genres = Array.isArray(dbRes.json.genres)
-    //       ? dbRes.json.genres
-    //           .map((/** @type {any} */ g) => (typeof g === 'string' ? g : g?.genre ?? g?.name))
-    //           .filter((/** @type {any} */ v) => typeof v === 'string' && v.trim())
-    //       : [];
-
-    //     return {
-    //       gameId: id,
-    //       title: dbRes.json.name ?? `itch:${id}`,
-    //       coverUrl: dbRes.json.banner_img ?? null,
-    //       shortText: dbRes.json.description ?? null,
-    //       minPrice: typeof dbRes.json.cost === 'number' ? dbRes.json.cost : 0,
-    //       url: null,
-    //       raw: {
-    //         ...dbRes.json,
-    //         genres,
-    //         source: 'database',
-    //       },
-    //     };
-    //   }
-    // }
-
-
-    const url = `${joinUrl(this.#serverUrl, 'api', 'itch', 'game', String(id))}`;
-    const { ok, status, json, text } = await fetchJsonSafe(url, {
+    const url = `${this.#serverUrl}/api/itch/game/${encodeURIComponent(String(id))}`;
+    const response = await fetch(url, {
       method: 'GET',
       headers: {
         'Accept': 'application/json',
       },
     });
+    const ok = response.ok;
+    const status = response.status;
+    let json = response.ok ? await response.json().catch(() => null) : null;
 
     if (!ok) {
       if (status === 401) {
@@ -390,7 +363,7 @@ class ItchioController extends GamesController {
         e.code = 'WRECK_INVALID_TOKEN';
         throw e;
       }
-      const msg = (json && typeof json === 'object' ? (json.error ?? json.message) : null) || text || `HTTP ${status}`;
+      const msg = (json && typeof json === 'object' ? (json.error ?? json.message) : null) || await response.text().catch(() => null) || `HTTP ${status}`;
       throw new Error(`itch.io game fetch failed: ${String(msg).slice(0, 300)}`);
     }
 
@@ -398,15 +371,7 @@ class ItchioController extends GamesController {
 
     const serverDetails = /** @type {any} */ (json);
     const resolvedGameId = Number(serverDetails.gameId ?? serverDetails.app_id ?? serverDetails.id ?? id);
-    const resolvedPrice = [
-      serverDetails.price,
-      serverDetails.min_price,
-      serverDetails.minPrice,
-      serverDetails.cost,
-    ]
-      .map((value) => Number(value))
-      .find((value) => Number.isFinite(value));
-
+    const resolvedPrice = serverDetails.price;
     const resolvedGenres = Array.isArray(serverDetails.genres)
       ? serverDetails.genres
           .map((entry) => {
@@ -424,9 +389,11 @@ class ItchioController extends GamesController {
         typeof serverDetails.title === 'string'
           ? serverDetails.title
           : (typeof serverDetails.name === 'string' ? serverDetails.name : `itch:${id}`),
-      coverUrl: serverDetails.cover_url ?? serverDetails.coverUrl ?? serverDetails.banner_img ?? null,
+      banner_img: serverDetails.cover_urls.cover ?? serverDetails.cover_urls.still_cover ?? serverDetails.cover_url ?? null,
+      hero_img: serverDetails.cover_urls.thumb ?? serverDetails.cover_url ?? serverDetails.coverUrl ?? serverDetails.banner_img ?? null,
       shortText: serverDetails.description ?? serverDetails.short_text ?? serverDetails.shortText ?? null,
       minPrice: Number.isFinite(resolvedPrice) ? Number(resolvedPrice) : 0,
+      discount_percent: serverDetails.discount || 0,      
       url: typeof serverDetails.url === 'string' ? serverDetails.url : null,
       genreNames: resolvedGenres,
       raw: {
@@ -486,7 +453,8 @@ class ItchioController extends GamesController {
                 id: key.game.id ?? null,
                 title: key.game.title ?? null,
                 url: key.game.url ?? null,
-                cover_url: key.game.cover_url ?? key.game.still_cover_url ?? null,
+                banner_img: key.game.cover_url ?? key.game.still_cover_url ?? null,
+                hero_img: key.game.cover_url ?? null, // itch.io doesn't have separate hero images in this api, so we use the cover as a fallback
                 short_text: key.game.short_text ?? null,
                 classification: key.game.classification ?? null,
                 min_price: key.game.min_price ?? null,
@@ -514,7 +482,7 @@ class ItchioController extends GamesController {
   /**
    * NEEDS REVISION!!!!
    * Get the user's itch.io profile using their OAuth token.
-   * @returns {Promise<{ id: number, username: string, url: string, cover_url: string|null, display_name: string|null }|null>}
+   * @returns {Promise<{ id: number, username: string, url: string }|null>}
    */
   async getProfile() {
     const token = this.#oauthToken?.access_token;
@@ -532,53 +500,12 @@ class ItchioController extends GamesController {
         }
         throw new Error(`Failed to fetch profile: HTTP ${response.status}`);
       }
-
-      const payload = await response.json();
-      const candidates = [
-        payload?.user,
-        payload?.me,
-        payload?.profile,
-        payload?.account,
-        payload?.data?.user,
-        payload?.data?.me,
-        payload?.result?.user,
-        payload?.result?.me,
-        payload?.response?.user,
-        payload?.response?.me,
-        payload?.user?.user,
-        payload,
-      ].filter((entry) => entry && typeof entry === 'object');
-
-      /** @type {any|null} */
-      let user = null;
-      for (const candidate of candidates) {
-        const c = /** @type {any} */ (candidate);
-        const candidateId = c.id ?? c.user_id ?? c.userid ?? c.userId ?? c.account_id ?? c.accountId ?? c.profile_id ?? c.profileId ?? c.user?.id ?? null;
-        const candidateUsername = c.username ?? c.user_name ?? c.userName ?? c.name ?? c.login ?? c.slug ?? c.user?.username ?? null;
-
-        const hasId = candidateId !== null && candidateId !== undefined && String(candidateId).trim() !== '';
-        const hasUsername = typeof candidateUsername === 'string' && candidateUsername.trim() !== '';
-        if (hasId || hasUsername) {
-          user = c;
-          break;
-        }
-      }
-
-      if (!user) return null;
-
-      const resolvedId = user.id ?? user.user_id ?? user.userid ?? user.userId ?? user.account_id ?? user.accountId ?? user.profile_id ?? user.profileId ?? user.user?.id ?? null;
-      const resolvedUsername = user.username ?? user.user_name ?? user.userName ?? user.name ?? user.login ?? user.slug ?? user.user?.username ?? null;
-      const normalizedId = resolvedId === null || resolvedId === undefined ? '' : String(resolvedId).trim();
-      const normalizedUsername = typeof resolvedUsername === 'string' ? resolvedUsername.trim() : '';
-
-      if (!normalizedId && !normalizedUsername) return null;
-
+      const payload = await response.json();      
+      if (!payload) return null;
       return {
-        id: normalizedId || null,
-        username: normalizedUsername || null,
-        display_name: (user.display_name ?? user.displayName ?? user.full_name ?? user.fullName ?? normalizedUsername) || null,
-        url: user.url ?? user.profile_url ?? user.profileUrl ?? user.user?.url ?? null,
-        cover_url: user.cover_url ?? user.coverUrl ?? user.avatar_url ?? user.avatarUrl ?? user.user?.cover_url ?? null,
+        id: payload.id ?? null,
+        username: payload.username ?? null,
+        url: payload.url ?? null,
       };
     } catch (err) {
       if (err instanceof Error && err.message.includes('expired')) throw err;
@@ -588,12 +515,9 @@ class ItchioController extends GamesController {
   }
 
   /**
-   * NEDDS REVISION!!!!
    * Start itch.io OAuth login flow using a BrowserWindow.
    * The user will be prompted to authorize the app.
-   * 
-   * Note: You need an itch.io OAuth client ID. Get one at:
-   * https://itch.io/user/settings/oauth-apps
+   * The page does not redirect, so a silent resolver is looping in the background until it can find the token, i have no better choice if we want to keep this serverless.
    *
    * @param {string} clientId - Your itch.io OAuth client ID
    * @returns {Promise<{ success: boolean, user?: { id: number, username: string } }>}
@@ -856,6 +780,7 @@ class ItchioController extends GamesController {
   }
 
   /**
+   *
    * Resolve an uninstall executable from an itch install directory.
    *
    * @param {string|null|undefined} installLocation

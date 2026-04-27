@@ -38,7 +38,6 @@ const CAROUSEL_CHUNK_SIZE = BATCH_SIZE;
 
 async function fetchGamesPage(api, from) {
 	const batch = await api.getGames(from);
-	console.log(`Fetched games page from offset ${from}:`, batch);
 	return Array.isArray(batch) ? batch : [];
 }
 
@@ -105,11 +104,7 @@ function pickSpecialsArray(payload) {
 function parseDiscountPercent(game) {
 	const rawCandidates = [
 		game.discount_percent,
-		game.discountPercentage,
-		game.discount_percentage,
-		game.discount,
-		game.percentage,
-		game.sale_percentage,
+		game.discount
 	];
 
 	for (const raw of rawCandidates) {
@@ -236,14 +231,6 @@ function mapGameCard(game, fallbackTag = '') {
 
 const Shopveiw = ({ items }) => {
 	const didRunSmokeRef = useRef(false);
-// useEffect(() => {
-//         // React.StrictMode runs effects twice in dev; guard so smoke runs once.
-//         if (didRunSmokeRef.current) return;
-//         didRunSmokeRef.current = true;
-//         runSmokeControllers().catch((e) => {
-//             console.warn('[smoke] runSmokeControllers failed:', e);
-//         });
-//     }, []);
 	const [allGames, setAllGames] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [featuredGames, setFeaturedGames] = useState([]);
@@ -276,14 +263,12 @@ const Shopveiw = ({ items }) => {
 const ensureFullBrowsePages = async () => {
 	if (isLoadingMoreBrowse || !hasMoreBrowse) return;
 
-	// 🔹 Build exclusion set (same as your filter)
 	const carouselIds = new Set(
 		[...upcomingGames]
 			.map(g => Number(g?.appid ?? g?.app_id ?? g?.id))
 			.filter(v => Number.isFinite(v) && v > 0)
 	);
 
-	// 🔹 Current usable browse count
 	const currentBrowseCount = allGames.filter(game => {
 		const id = Number(game?.appid ?? game?.app_id ?? game?.id);
 		if (!Number.isFinite(id) || id <= 0) return true;
@@ -295,7 +280,6 @@ const ensureFullBrowsePages = async () => {
 
 	const needed = BATCH_SIZE - remainder;
 
-	// 🔥 Estimate yield ratio (fallback to 0.7 if unknown)
 	let estimatedRatio = 0.7;
 
 	// OPTIONAL: improve estimate using last fetch
@@ -310,14 +294,7 @@ const ensureFullBrowsePages = async () => {
 
 	const pagesNeeded = Math.ceil(needed / estimatedPerPage);
 
-	console.log('[ensureFullBrowsePages]', {
-		currentBrowseCount,
-		needed,
-		estimatedRatio,
-		pagesNeeded
-	});
 
-	// 🔁 Fetch predicted number of pages
 	for (let i = 0; i < pagesNeeded; i++) {
 		if (!hasMoreBrowse) break;
 
@@ -325,33 +302,6 @@ const ensureFullBrowsePages = async () => {
 		if (!added || added === 0) break;
 	}	
 };
-	// const ensureFullBrowsePages = async () => {
-	// 	if (isLoadingMoreBrowse || !hasMoreBrowse) return;
-
-	// 	let safety = 5;
-
-	// 	while (safety > 0) {
-	// 		const carouselIds = new Set(
-	// 			[...upcomingGames]
-	// 				.map(g => Number(g?.appid ?? g?.app_id ?? g?.id))
-	// 				.filter(v => Number.isFinite(v) && v > 0)
-	// 		);
-
-	// 		const currentBrowseCount = allGames.filter(game => {
-	// 			const id = Number(game?.appid ?? game?.app_id ?? game?.id);
-	// 			if (!Number.isFinite(id) || id <= 0) return true;
-	// 			return !carouselIds.has(id);
-	// 		}).length;
-
-	// 		if (currentBrowseCount % BATCH_SIZE === 0) break;
-
-	// 		const gotNew = await loadNextBrowsePage();
-	// 		if (gotNew === 0) break;
-
-	// 		safety--;
-	// 	}
-	// };
-	// Scroll carousel section into view when clicked
 	const scrollToCarousel = (sectionRef) => {
 		if (!sectionRef?.current) return;
 		sectionRef.current.scrollIntoView({
@@ -366,7 +316,6 @@ const ensureFullBrowsePages = async () => {
 		setIsLoadingMoreBrowse(true);
 		try {
 			const batch = await fetchGamesPage(window.electronAPI, browseOffset);
-			console.log(`[loadNextBrowsePage] Fetched next browse page from offset ${browseOffset}:`, batch);
 			setBrowseOffset((prev) => prev + batch.length);
 			const mapped = batch.map(mapGameCard);
 
@@ -502,7 +451,6 @@ const ensureFullBrowsePages = async () => {
 					...firstGames,
 					...secondGames,
 				];
-				console.log('Fetched initial games data:', gamesData);
 				const featuredChunk1 = featuredPage1.status === 'fulfilled' ? featuredPage1.value : { items: [], nextFrom: BATCH_SIZE, hasMore: false };
 				const featuredChunk2 = featuredPage2.status === 'fulfilled' ? featuredPage2.value : { items: [], nextFrom: CAROUSEL_INITIAL_ITEMS, hasMore: false };
 				const discountedChunk1 = discountedPage1.status === 'fulfilled' ? discountedPage1.value : { items: [], nextFrom: BATCH_SIZE, hasMore: false };
@@ -568,8 +516,6 @@ const ensureFullBrowsePages = async () => {
 				if (upcomingChunk1.items.length + upcomingChunk2.items.length < 1) {
 					upcomingHasMore = false;
 				}
-
-				console.log('Setting all games:', transformedGames);
 				setAllGames(transformedGames);
 				setBrowseOffset(gamesData.length);
 				setHasMoreBrowse(canLoadMore);
@@ -609,7 +555,7 @@ const ensureFullBrowsePages = async () => {
 	return (
 
 		
-		<div className="flex-1">
+		<div className="store-page flex-1">
 			{/* Main content area */}
 			<div className="h-full px-3 py-4 overflow-y-auto">
 				<h1 className="text-2xl font-semibold mb-6 text-slate-100 text-center">Store</h1>

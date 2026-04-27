@@ -1,0 +1,32 @@
+# .NET MAUI / Xamarin / React Native shared ignores
+
+# IDE
+.vs/
+.vscode/
+.idea/
+
+# User-specific
+*.user
+*.suo
+*.rsuser
+
+# Build output
+**/bin/
+**/obj/
+
+# Node packages
+**/node_modules/
+
+# Mobile build/signing artifacts
+*.apk
+*.aab
+*.apks
+*.ipa
+*.keystore
+*.jks
+*.p12
+hs_err_pid*.log
+
+# OS files
+.DS_Store
+Thumbs.db

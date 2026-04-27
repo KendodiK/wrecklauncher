@@ -95,6 +95,37 @@ class FriendsController extends Controller {
         }
     }
 
+    async getFriendId(user1_id, user2_id) {
+        await this.ready;
+        
+        const query = 'SELECT id FROM friends WHERE (user1_id = ? AND user2_id = ?) OR (user1_id = ? AND user2_id = ?)';
+        const values = [user1_id, user2_id, user2_id, user1_id];
+        try {
+            const [rows] = await this.dbConnection.execute(query, values);
+            return rows[0]?.id || null;
+        } catch (err) {
+            console.error(`Error while fetching friend ID for users ${user1_id} and ${user2_id} from table ${this.tableName}: ${err}`);
+            throw err;
+        }
+    }
+
+    async getChattingFriends(nativeUserId) { 
+        await this.ready;
+
+        const query = `SELECT DISTINCT(friends.id), friends.user1_id, friends.user2_id 
+                            FROM friends 
+	                        JOIN chats ON friends.id = chats.friends_id
+                            WHERE user1_id = ? OR user2_id = ? `;
+        const values = [nativeUserId, nativeUserId];
+        try {
+            const [rows] = await this.dbConnection.execute(query, values);        
+            return rows;
+        } catch (err) {
+            console.error(`Error while fetching chatting friends for native user ${nativeUserId} from table ${this.tableName}: ${err}`);
+            throw err;
+        }
+    }
+
     async #checkForeignKeys(data) {
         await this.ready;
 

@@ -235,14 +235,14 @@ class PirateLibraryController {
    */
   async addGameFromDialog(ownerWindow = null) {
     const result = await dialog.showOpenDialog(ownerWindow || undefined, {
-      title: 'Select pirate game executable',
+      title: 'Select local game executable',
       properties: ['openFile'],
       filters: [
         { name: 'Executable Files', extensions: ['exe'] },
         { name: 'All Files', extensions: ['*'] },
       ],
     });
-
+    console.log("pirateLibrary save entry: ",result);
     if (result.canceled || !Array.isArray(result.filePaths) || result.filePaths.length < 1) {
       return null;
     }

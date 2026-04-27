@@ -9,7 +9,7 @@ const Login = ({ onLogin }) => {
   const [password, setPassword] = useState('');
   const [email, setEmail] = useState('');
   const [bio, setBio] = useState('');
-  const [avatarUrl, setAvatarUrl] = useState('');
+  const [pfp, setPfp] = useState('');
   const [isRegisterMode, setIsRegisterMode] = useState(false);
   const [status, setStatus] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -35,10 +35,9 @@ const Login = ({ onLogin }) => {
     try {
       if (isRegisterMode) {
         // Registration logic via TokenController
-        const token = await window.electronAPI.register(username, password, email, {
-          bio: bio.trim(),
-          avatarUrl: avatarUrl.trim(),
-        });
+        const token = await window.electronAPI.register(username, password, email,
+          bio.trim(),
+          pfp.trim());
         
         // Validate token is a non-empty string
         if (token && typeof token === 'string' && token.trim().length > 0) {
@@ -47,7 +46,7 @@ const Login = ({ onLogin }) => {
           setPassword('');
           setEmail('');
           setBio('');
-          setAvatarUrl('');
+          setPfp('');
         } else {
           setStatus('Registration failed. Username may already exist.');
         }
@@ -66,16 +65,12 @@ const Login = ({ onLogin }) => {
             }
           }
 
-          const avatarCandidate =
-            profile?.avatarUrl ||
-            profile?.avatar_url ||
-            profile?.avatarURL ||
-            profile?.profilePicture ||
+          const pfpCandidate =
             profile?.pfp ||
             null;
-          const resolvedAvatarUrl =
-            typeof avatarCandidate === 'string' && avatarCandidate.trim()
-              ? avatarCandidate.trim()
+          const resolvedPfp =
+            typeof pfpCandidate === 'string' && pfpCandidate.trim()
+              ? pfpCandidate.trim()
               : null;
           const resolvedUsername =
             typeof profile?.username === 'string' && profile.username.trim()
@@ -86,7 +81,7 @@ const Login = ({ onLogin }) => {
             id: profile?.id ?? null,
             username: resolvedUsername,
             bio: profile?.bio ?? null,
-            avatarUrl: resolvedAvatarUrl,
+            pfp: resolvedPfp,
             token: token.trim(),
           };
 
@@ -158,17 +153,17 @@ const Login = ({ onLogin }) => {
               </div>
 
               <div>
-                <label className="block text-xs mb-1" htmlFor="avatarUrl">
+                <label className="block text-xs mb-1" htmlFor="pfp">
                   Profile picture URL (optional)
                 </label>
                 <input
-                  id="avatarUrl"
+                  id="pfp"
                   type="url"
                   disabled={isLoading}
                   placeholder="https://example.com/avatar.png"
                   className="w-full rounded bg-slate-800 border border-slate-700 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-sky-500 disabled:opacity-50"
-                  value={avatarUrl}
-                  onChange={(e) => setAvatarUrl(e.target.value)}
+                  value={pfp}
+                  onChange={(e) => setPfp(e.target.value)}
                 />
               </div>
 
@@ -225,7 +220,7 @@ const Login = ({ onLogin }) => {
               setPassword('');
               setEmail('');
               setBio('');
-              setAvatarUrl('');
+              setPfp('');
             }}
             className="text-xs text-slate-400 hover:text-sky-400 transition-colors disabled:opacity-50"
           >
