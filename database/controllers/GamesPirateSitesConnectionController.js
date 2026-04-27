@@ -281,7 +281,7 @@ class GamesPirateSitesConncectionController extends Controller {
      * @param {number} [maxLength]
      * @returns {string}
      */
-        #normalizeLinkForStorage(rawLink, maxLength = 16000) {
+    #normalizeLinkForStorage(rawLink, maxLength = 16000) {
         const link = String(rawLink ?? '').trim();
         if (!link) return '';
         if (link.length <= maxLength) return link;

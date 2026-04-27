@@ -549,7 +549,7 @@ class GamesController extends Controller {
             gog: ['gog', 'gog.com'],
             'gog.com': ['gog.com', 'gog'],
             itchio: ['itchio', 'itch', 'itch.io'],
-            itch: ['itch', 'itchio', 'itch.io'],
+            //itch: ['itch', 'itchio', 'itch.io'],
             'itch.io': ['itch.io', 'itchio', 'itch'],
         };
 

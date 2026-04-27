@@ -85,7 +85,8 @@ class ChatsController extends Controller {
         const query = 'SELECT * FROM `chats` WHERE friends_id = ? ORDER BY id  LIMIT 10 OFFSET ?;' //10 can be changed later to any number
 
         try {
-            return await this.dbConnection.execute(query, [friendsId, from]);
+            const [rows] = await this.dbConnection.execute(query, [friendsId, from]);
+            return rows ?? [];
         }
         catch (err) {
             console.error(`Error while getting chat log form ${this.tableName}: ${err}`)

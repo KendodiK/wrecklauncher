@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Windows.UI;
 using wreckchat.Services.Api;
+using wreckchat.ViewModels;
 
 namespace wreckchat.Presentation;
 
@@ -15,7 +16,9 @@ public sealed partial class MainPage : Page
     private TextBlock _chatRoomIncoming = null!;
     private MainModel _model = null!;
     private UserModel user = null!;
-    private List<FriendModel> friends = null!;
+    private List<FriendModel> friendsIds = new();
+    private List<UserModel> friends = new();
+    private List<UserModel> chattingFriends = new();
 
 
     public MainPage()
@@ -34,28 +37,36 @@ public sealed partial class MainPage : Page
         if (string.IsNullOrWhiteSpace(username))
         {
             // TODO: Show error
+            Console.WriteLine("No name");
             return;
         }
         else if (string.IsNullOrWhiteSpace(password))
         {
             // TODO: Show error
+            Console.WriteLine("No pw");
             return;
         }
 
         _model = ((App)Application.Current).Services.GetService<MainModel>()!;
         var token = await _model.CheckData(username, password);
+        Console.WriteLine(token);
         if (!token)
         {
             // TODO: Show error
+            Console.WriteLine("No token");
             return;
         }
 
         user = await _model.GetUserData();
-        friends = await _model.GetFriends(user.Id);
+        //todo: barátok lekérdezése
 
         LoginView.Visibility = Visibility.Collapsed;
-        //await _model.InitSocket(); <- vlami nem jó a thredinggel mert itt megakad
+        //friends = await _model.GetFriends(user.Id);
+        //chattingFriends = await _model.GetChattingFriends(user.Id);
+
         BuildFrame();
+        Console.WriteLine("Starting ws baah");
+        await _model.StartWebSocket();
     }
 
     private void ChatsNav_Click(object sender, RoutedEventArgs e) => ShowTab("Chats");
@@ -95,10 +106,10 @@ public sealed partial class MainPage : Page
         _chatRoomView.Visibility = Visibility.Visible;
     }
 
-    private async void ShowTab(string tab)
+    private async void ShowTab(string tab) //may change to task??
     {
         //todo ide switch:
-        //todo ha -> profile, lekérdezni (a még nincs): friend-ek adatai
+        //todo ha -> profile, lekérdezni (a még nincs): friends->profile infóval!, gamecount, owned games(count), owned games(list), common count?
         //todo ha -> Notifications, lekérdezni a chat log-ot
         //todo ha -> chats, lekérdezni a jelenleg beszélgető partnereket és az üzeneteket ha rá kattinatanak egy-egyre.
 
@@ -117,19 +128,6 @@ public sealed partial class MainPage : Page
             case "Chats":
                 _chatRoomView.Visibility = Visibility.Collapsed;
                 _chatListView.Visibility = Visibility.Visible;
-
-                GameCountText.Text = "its not woth to show alone"; //await _model.GetGameCount();
-                YourGamesText.Text = "no data";
-                CommonCountText.Text = "no data";
-                //owned gamesre nincs data az ab-ban, nem lehet megjeleníteni !!!
-
-                //show friends
-                foreach (var friend in friends)
-                {
-                    var friendUser = await _model.GetUserData(friend.Id);
-                    //vlmi logika hogy az adatok megjelenjenek a firends listában (a firendUser egy UserModel, amiben benne van a nevük, bio-juk, pfpjük stb.)
-                }
-
                 break;
         }
 
