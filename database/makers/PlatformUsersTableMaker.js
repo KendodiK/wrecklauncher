@@ -6,11 +6,6 @@ class PlatformUsersTableMaker extends DatabaseHandler {
         this.ready = this.getReady();
     }
 
-    async getReady() {
-        await this.waitForConnection();
-        await this.selectDatabase();
-    }
-
     async create() {
         await this.ready;
         const query = `
@@ -20,7 +15,7 @@ class PlatformUsersTableMaker extends DatabaseHandler {
                 platform_user_name VARCHAR(64) NOT NULL,
                 platform_id SMALLINT NOT NULL, INDEX(platform_id),
                 platform_profile_id VARCHAR(17) NOT NULL,
-                oauth_token VARCHAR(2048) NULL,
+                oauth_token VARCHAR(2048),
                 UNIQUE KEY uq_user_platform_profile (native_user_id, platform_id, platform_profile_id)
             );
         `;

@@ -6,11 +6,6 @@ class GamesPirateSitesConnectionTableMaker extends DatabaseHandler {
         this.ready = this.getReady();
     }
 
-    async getReady() {
-        await this.waitForConnection();
-        await this.selectDatabase();
-    }
-
     async create() {
         await this.ready;
         const query = `
@@ -21,7 +16,8 @@ class GamesPirateSitesConnectionTableMaker extends DatabaseHandler {
         );
         `;
         try {
-            await this.dbConnection.execute(query);            console.log("'Games-pirate sites connection' table created or already exists.");
+            await this.dbConnection.execute(query);            
+            console.log("'Games-pirate sites connection' table created or already exists.");
         } catch (err) {
             console.error("Error creating games-pirate sites connection table:", err);
         }

@@ -364,11 +364,11 @@ module.exports.GETGameByIdWithAllData = async function (req, res) {
 
     const gamesGenresCtrl = new GamesGenresConnnectionController();
     const gameGenres = await gamesGenresCtrl.getByGameId(gameId);
-    game.genres = gameGenres;
+    game.genres = gameGenres ?? [];
 
-        const gamesPirateSitesConnCtrl = new GamesPirateSitesConnectionController();
-        const pirateSites = await gamesPirateSitesConnCtrl.getConnectionsByGameId(gameId);
-        game.pirate_sites = pirateSites ?? [];
+    const gamesPirateSitesConnCtrl = new GamesPirateSitesConnectionController();
+    const pirateSites = await gamesPirateSitesConnCtrl.getConnectionsByGameId(gameId);
+    game.pirate_sites = pirateSites ?? [];
 
     return res.json(game);
   } catch (err) {
@@ -797,14 +797,13 @@ module.exports.POSTNewPirateSiteConnectionByGameId = async function (req, res) {
         const data = {
             "game_id": gameId,
             "site_id": siteId ?? null,
-            "pirate_site_id": siteId ?? null,
             "site_name": siteName ?? null,
             "link": link,
         }
 
         const result = await gamesPirateSitesConnCtrl.createWithAll(data);
         if (result instanceof Error) {
-            return res.status(400).json({ message: result.message });
+            return res.status(400).json({ error: result.message });
         }
         return res.json(result);
     } catch (err) {
@@ -913,9 +912,9 @@ module.exports.POSTNewCountry = async function (req, res) {
         const id = await apiHelpers.getCountryIdByCode(code);
 
         if ( id instanceof Error ) {
-        return res.status(400).json({ message: res.message });
+        return res.status(400).json({ message: id.message });
         }
-        return res.status(201).json({ message: "county uploaded", id: id});
+        return res.status(201).json({ message: "country uploaded", id: id});
     } catch (err) {
         console.log('Error in /api/countries endpoint:', err);
         return res.status(500).json({ error: err.message });
