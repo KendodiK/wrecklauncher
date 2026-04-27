@@ -19,6 +19,11 @@ const STEAM_CDN_HOSTS = [
 	'https://cdn.akamai.steamstatic.com',
 ];
 
+function normalizeLibraryViewMode(value) {
+	const normalized = String(value || '').trim().toLowerCase();
+	return normalized === 'list' ? 'list' : 'carousel';
+}
+
 const installedScanCache = new Map();
 const steamImageProbeCache = new Map();
 const steamDbBannerSyncCache = new Set();
@@ -306,21 +311,18 @@ function buildSteamAssetCandidates(appId, fileNames) {
 
 function buildSteamCoverCandidates(appId) {
 	return buildSteamAssetCandidates(appId, [
-		'library_600x900_2x.jpg',
-		'library_600x900.jpg',
-		'library_600x900_2x.png',
-		'library_600x900.png',
-		'header.jpg',
+		'library_hero.jpg',
 		'capsule_616x353.jpg',
+		'header.jpg',
 	]);
 }
 
 function buildSteamHeroCandidates(appId) {
 	return buildSteamAssetCandidates(appId, [
-		'library_hero.jpg',
-		'header.jpg',
-		'capsule_616x353.jpg',
-		'capsule_467x181.jpg',
+		'library_600x900_x2.jpg',
+		'library_600x900.jpg',
+		'logo_x2.jpg',
+		'logo.jpg',
 	]);
 }
 
@@ -561,13 +563,15 @@ function toSteamLibraryGame(game, installedAppIds) {
 					? game.game_name.trim()
 					: '';
 	const title = rawTitle || 'Unknown Steam title';
+	const coverCandidate = game?.banner_img ?? coverFallbacks[0] ?? null;
+	const bannerCandidate = game?.hero_img ?? heroFallbacks[0] ?? coverFallbacks[0] ?? null;
 	return {
 		id: String(appId),
 		appid: appId,
 		title,
 		launcherId: 'steam',
-		coverUrl: resolveLibraryCoverUrl(coverFallbacks[0] || null, title, 'Steam'),
-		heroUrl: resolveLibraryCoverUrl(heroFallbacks[0] || coverFallbacks[0] || null, title, 'Steam'),
+		coverUrl: resolveLibraryCoverUrl(coverCandidate, title, 'Steam'),
+		heroUrl: resolveLibraryCoverUrl(bannerCandidate, title, 'Steam'),
 		coverFallbacks,
 		heroFallbacks,
 		genres: ['Steam'],
@@ -697,17 +701,9 @@ function toItchLibraryGame(ownedKey, installedById, normalizedItchId) {
 				? installed.url.trim()
 				: null;
 
-	const coverUrl = resolveLibraryCoverUrl(
-		game?.cover_url
-		?? game?.coverUrl
-		?? game?.banner_img
-		?? game?.bannerImg
-		?? installed?.coverUrl
-		?? installed?.cover_url
-		?? null,
-		title,
-		'Itch'
-	);
+	const coverCandidate = game?.banner_img ?? game?.cover_url ?? game?.coverUrl ?? game?.banner_img ?? game?.bannerImg ?? installed?.coverUrl ?? installed?.cover_url ?? null;
+	const bannerCandidate = game?.hero_img ?? game?.bannerImg ?? game?.cover_url ?? game?.coverUrl ?? installed?.coverUrl ?? installed?.cover_url ?? null;
+	const coverUrl = resolveLibraryCoverUrl(coverCandidate, title, 'Itch');
 	const isInstalled = !!installed;
 	const tags = ['Owned'];
 	if (isInstalled) {
@@ -723,7 +719,7 @@ function toItchLibraryGame(ownedKey, installedById, normalizedItchId) {
 		launcherId: 'itch',
 		installLocation: typeof installed?.installLocation === 'string' && installed.installLocation.trim() ? installed.installLocation.trim() : null,
 		coverUrl,
-		heroUrl: coverUrl,
+		heroUrl: bannerCandidate ? resolveLibraryCoverUrl(bannerCandidate, title, 'Itch') : coverUrl,
 		genres: ['Itch.io'],
 		tags,
 		cracked: false,
@@ -747,7 +743,9 @@ function toItchInstalledOnlyLibraryGame(installed, normalizedItchId) {
 		typeof installed?.title === 'string' && installed.title.trim()
 			? installed.title.trim()
 			: `itch:${normalizedItchId}`;
-	const coverUrl = resolveLibraryCoverUrl(installed?.coverUrl ?? installed?.cover_url ?? null, title, 'Itch');
+	const coverCandidate = installed?.banner_img ?? installed?.coverUrl ?? installed?.cover_url ?? null;
+	const bannerCandidate = installed?.hero_img ?? installed?.coverUrl ?? installed?.cover_url ?? null;
+	const coverUrl = resolveLibraryCoverUrl(coverCandidate ?? bannerCandidate, title, 'Itch');
 
 	return {
 		id: `itch:${normalizedItchId}`,
@@ -756,7 +754,7 @@ function toItchInstalledOnlyLibraryGame(installed, normalizedItchId) {
 		launcherId: 'itch',
 		installLocation: typeof installed?.installLocation === 'string' && installed.installLocation.trim() ? installed.installLocation.trim() : null,
 		coverUrl,
-		heroUrl: coverUrl,
+		heroUrl: bannerCandidate ? resolveLibraryCoverUrl(bannerCandidate, title, 'Itch') : coverUrl,
 		genres: ['Itch.io'],
 		tags: ['Installed', 'Local'],
 		cracked: false,
@@ -801,7 +799,7 @@ async function enrichItchLibraryGamesWithDbCover(games) {
 	await Promise.all(
 		pendingAppIds.map(async (appId) => {
 			try {
-				const dbDetails = await api.getAllDetailsByAppIDAndPlatform(appId, 'itchio');
+				const dbDetails = await api.getAllDetailsByAppIDAndPlatform(appId, 'itchio');				
 				const dbCoverUrl = extractDbLibraryCoverUrl(dbDetails);
 				if (dbCoverUrl) {
 					coverByAppId.set(appId, dbCoverUrl);
@@ -906,14 +904,16 @@ function toGogLibraryGame(product, installed, normalizedGogId) {
 		tags.push('Ready to install');
 	}
 
+	const coverCandidate = product?.banner_img ?? product?.image ?? null;
+	const bannerCandidate = product?.hero_img ?? product?.image ?? null;
 	return {
 		id: `gog:${normalizedGogId}`,
 		appid: appId,
 		title,
 		launcherId: 'gog',
 		installLocation: typeof installed?.installPath === 'string' && installed.installPath.trim() ? installed.installPath.trim() : null,
-		coverUrl: resolveGogCoverUrl(product?.image ?? null, title),
-		heroUrl: resolveGogCoverUrl(product?.image ?? null, title),
+		coverUrl: resolveGogCoverUrl(coverCandidate, title),
+		heroUrl: resolveGogCoverUrl(bannerCandidate, title),
 		genres: ['GOG'],
 		tags,
 		cracked: false,
@@ -938,14 +938,16 @@ function toGogInstalledOnlyLibraryGame(installed, normalizedGogId) {
 			? installed.gameName.trim()
 			: `gog:${normalizedGogId}`;
 
+	const coverCandidate = installed?.banner_img ?? installed?.coverUrl ?? installed?.cover_url ?? null;
+	const bannerCandidate = installed?.hero_img ?? installed?.coverUrl ?? installed?.cover_url ?? null;
 	return {
 		id: `gog:${normalizedGogId}`,
 		appid: appId,
 		title,
 		launcherId: 'gog',
 		installLocation: typeof installed?.installPath === 'string' && installed.installPath.trim() ? installed.installPath.trim() : null,
-		coverUrl: resolveLibraryCoverUrl(null, title, 'GOG'),
-		heroUrl: resolveLibraryCoverUrl(null, title, 'GOG'),
+		coverUrl: resolveLibraryCoverUrl(coverCandidate, title, 'GOG'),
+		heroUrl: resolveLibraryCoverUrl(bannerCandidate, title, 'GOG'),
 		genres: ['GOG'],
 		tags: ['Installed', 'Local'],
 		cracked: false,
@@ -991,7 +993,7 @@ function toLocalLibraryGame(entry) {
 	const title =
 		typeof entry?.title === 'string' && entry.title.trim()
 			? entry.title.trim()
-			: titleFromExecutable || `local:${normalizedLocalId}`;
+			: titleFromExecutable || `pirate:${normalizedLocalId}`;
 
 	const coverUrl = resolveLibraryCoverUrl(entry?.coverUrl ?? null, title, 'Local');
 
@@ -1069,7 +1071,7 @@ function normalizeLauncherFilterId(raw) {
 	if (!normalized) return '';
 	if (normalized === 'gog.com') return 'gog';
 	if (normalized === 'itchio' || normalized === 'itch.io') return 'itch';
-	if (normalized === 'local') return 'pirate';
+	if (normalized === 'pirate') return 'pirate';
 	return normalized;
 }
 
@@ -1142,6 +1144,7 @@ const LibraryPage = () => {
 	const deferredSearch = useDeferredValue(search);
 	const [sortBy, setSortBy] = useState('alphabetical');
 	const [sortDirection, setSortDirection] = useState('asc');
+	const [libraryViewMode, setLibraryViewMode] = useState('carousel');
 	const [hideZeroPlaytime, setHideZeroPlaytime] = useState(false);
 	const [showAllGames, setShowAllGames] = useState(false);
 	const [stripWindowStart, setStripWindowStart] = useState(0);
@@ -1186,7 +1189,7 @@ const LibraryPage = () => {
 	// Prevent scrolling on library page (vertical scroll, keyboard navigation, wheel)
 	useEffect(() => {
 		const handleWheel = (event) => {
-			event.preventDefault();
+			//event.preventDefault();
 		};
 
 		const handleKeyDown = (event) => {
@@ -1219,79 +1222,6 @@ const LibraryPage = () => {
 		const loadLibrary = async () => {
 			let hasShownCachedLibrary = false;
 			let cachedLibraryGames = [];
-
-			const runSteamImageEnrichmentInBackground = (baseGamesSnapshot) => {
-				const snapshot = Array.isArray(baseGamesSnapshot) ? baseGamesSnapshot : [];
-				const hasSteamGames = snapshot.some((game) => {
-					const launcher = String(game?.launcherId || game?.platform_name || '').trim().toLowerCase();
-					return launcher === 'steam';
-				});
-
-				if (!hasSteamGames) return;
-
-				void (async () => {
-					try {
-						const enrichedSteamGames = await enrichSteamLibraryGamesWithFallbackAndDbSync(snapshot);
-						if (cancelled) return;
-
-						const baseById = new Map(
-							snapshot.map((game) => [String(game?.id || '').trim(), game]),
-						);
-						const updatesById = new Map();
-
-						for (const enrichedGame of enrichedSteamGames) {
-							const launcher = String(enrichedGame?.launcherId || enrichedGame?.platform_name || '').trim().toLowerCase();
-							if (launcher !== 'steam') continue;
-
-							const gameId = String(enrichedGame?.id || '').trim();
-							if (!gameId) continue;
-
-							const baseGame = baseById.get(gameId);
-							if (!baseGame) continue;
-
-							const nextCover = String(enrichedGame?.coverUrl || '').trim();
-							const nextHero = String(enrichedGame?.heroUrl || '').trim();
-							const prevCover = String(baseGame?.coverUrl || '').trim();
-							const prevHero = String(baseGame?.heroUrl || '').trim();
-
-							const coverChanged = nextCover && nextCover !== prevCover;
-							const heroChanged = nextHero && nextHero !== prevHero;
-							if (!coverChanged && !heroChanged) continue;
-
-							updatesById.set(gameId, {
-								coverUrl: coverChanged ? nextCover : '',
-								heroUrl: heroChanged ? nextHero : '',
-								coverFallbacks: Array.isArray(enrichedGame?.coverFallbacks) ? enrichedGame.coverFallbacks : null,
-								heroFallbacks: Array.isArray(enrichedGame?.heroFallbacks) ? enrichedGame.heroFallbacks : null,
-							});
-						}
-
-						if (updatesById.size < 1) return;
-
-						setLibraryGames((previous) =>
-							previous.map((game) => {
-								const update = updatesById.get(String(game?.id || '').trim());
-								if (!update) return game;
-
-								return {
-									...game,
-									coverUrl: update.coverUrl || game?.coverUrl,
-									heroUrl: update.heroUrl || game?.heroUrl,
-									coverFallbacks: Array.isArray(update.coverFallbacks)
-										? update.coverFallbacks
-										: game?.coverFallbacks,
-									heroFallbacks: Array.isArray(update.heroFallbacks)
-										? update.heroFallbacks
-										: game?.heroFallbacks,
-								};
-							}),
-						);
-					} catch (error) {
-						console.warn('Failed to enrich Steam library images in background:', error);
-					}
-				})();
-			};
-
 			setIsLoading(true);
 			setErrorMessage('');
 
@@ -1311,7 +1241,10 @@ const LibraryPage = () => {
 				}
 
 				if (typeof window?.electronAPI?.getSettings === 'function') {
-					await window.electronAPI.getSettings();
+					const settingsPayload = await window.electronAPI.getSettings();
+					if (!cancelled) {
+						setLibraryViewMode(normalizeLibraryViewMode(settingsPayload?.library?.viewMode));
+					}
 				}
 				const runtimePlatforms = await withTimeoutFallback(
 					fetchRuntimePlatformConnections(window.electronAPI),
@@ -1339,11 +1272,24 @@ const LibraryPage = () => {
 							const installedSteamGamesPromise = readSteamInstalledGames({ force: true });
 
 							const [ownedSteamGames, installedSteamGames] = await Promise.all([
-								window.electronAPI.getOwnedGamesFromSteam(),
+								window.electronAPI.getOwnedGamesFromSteam().then((payload) => {
+								return (Array.isArray(payload) ? payload : []).map((game) => {
+									const appId = extractSteamAppId(game);
+									if (appId) {
+									return {
+										...game,
+										hero_img: `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${appId}/library_600x900.jpg`,
+										banner_img: `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${appId}/library_hero.jpg`,
+									};
+									}
+									return game;
+								});
+								}),
 								installedSteamGamesPromise.catch((error) => {
 									console.warn('Failed to load installed Steam games:', error);
 									return [];
 								}),
+
 							]);
 
 							const installedAppIds = new Set(
@@ -1430,7 +1376,43 @@ const LibraryPage = () => {
 						}
 					})(), 'Itch library load'));
 				}
+platformTasks.push(
+	wrapLibraryPlatformTask(
+		(async () => {
+			try {
+				const localLibraryEntries = await window.electronAPI
+					.getPirateLibraryGames()
+					.catch((error) => {
+						console.warn('Failed to load local library entries:', error);
+						return [];
+					});
 
+				console.log('Loaded local library entries:', localLibraryEntries);
+
+				const localLibraryGames = Array.isArray(localLibraryEntries)
+					? localLibraryEntries
+							.map((entry) => toLocalLibraryGame(entry))
+							.filter(Boolean)
+					: [];
+
+				return {
+					games: localLibraryGames,
+					error: '',
+				};
+			} catch (error) {
+				console.error('Failed to load local library:', error);
+				return {
+					games: [],
+					error:
+						error instanceof Error
+							? error.message
+							: 'Failed to load local library',
+				};
+			}
+		})(),
+		'Local library load'
+	)
+);
 				if (gogSettings?.connected) {
 					platformTasks.push(wrapLibraryPlatformTask((async () => {
 						try {
@@ -1540,8 +1522,7 @@ const LibraryPage = () => {
 
 					const steamImageSource = uniqueGames.length > 0
 						? uniqueGames
-						: (hasShownCachedLibrary ? cachedLibraryGames : []);
-					runSteamImageEnrichmentInBackground(steamImageSource);
+						: (hasShownCachedLibrary ? cachedLibraryGames : []);					
 				}
 			} catch (error) {
 				console.error('Failed to load library:', error);
@@ -1725,6 +1706,8 @@ const LibraryPage = () => {
 		let start = Math.min(Math.max(stripWindowStart, 0), maxStart);
 		return filteredGames.slice(start, start + MAX_LIBRARY_STRIP_GAMES);
 	}, [filteredGames, stripWindowStart]);
+
+	const isListView = libraryViewMode === 'list';
 
 	const activeGameAppId = Number(activeGame?.appid);
 	const activeGogProductId = normalizeGogProductId(
@@ -2379,7 +2362,7 @@ const LibraryPage = () => {
 			{/* Dynamic hero background */}
 			<div
 				className="library-hero-bg"
-				style={{ backgroundImage: `url(${activeGame?.heroUrl ?? ''})` }}
+				style={{ backgroundImage: `url(${activeGame?.coverUrl ?? ''})` }}
 			/>
 			<div className="library-hero-overlay" />
 
@@ -2519,18 +2502,39 @@ const LibraryPage = () => {
 									className="library-scope-btn"
 									disabled={actionState.busyAction !== ''}
 								>
-									{actionState.busyAction === 'add-pirate' ? 'Adding EXE...' : 'Add Pirate EXE'}
+									{actionState.busyAction === 'add-pirate' ? 'Adding EXE...' : 'Add Local EXE'}
 								</button>
 							</div>
 						) : null}
 					</div>
 
 				</header>
-				{actionState.text ? (
+				{/* {actionState.text ? (
 					<p className={`library-action-notice ${actionState.type === 'error' ? 'library-action-notice-error' : ''}`}>
 						{actionState.text}
 					</p>
-				) : null}
+				) : null} */}
+				{actionState.text && (
+				<div className="fixed top-16 left-1/2 -translate-x-1/2 z-50">
+					<div
+					className={`mb-4 px-4 py-3 pr-10 rounded-lg shadow-lg relative backdrop-blur-sm ${
+						actionState.type === "success"
+						? "bg-green-800 text-green-100 border border-green-600"
+						: "bg-red-800 text-red-100 border border-red-600"
+					}`}
+					>
+					{actionState.text}
+
+					{/* Close button */}
+					<span
+						onClick={() => setActionState({ busyAction: "", text: "", type: "" })}
+						className="absolute top-1 right-2 cursor-pointer text-lg font-bold hover:opacity-70"
+					>
+						×
+					</span>
+					</div>
+				</div>
+				)}
 			</section>
 
 			{/* Bottom dock: game strip + status bar */}
@@ -2539,12 +2543,58 @@ const LibraryPage = () => {
 					{filteredGames.length > 0 ? (
 						<>
 							<div className="library-dock-strip-area group">
-								<LibraryGameStrip
-									games={stripGames}
-									activeGameId={activeGame?.id ?? ''}
-									onSelect={setActiveGameId}
-									onOpenStore={handleOpenStorePage}
-								/>
+								{isListView ? (
+									<div className="w-full max-w-none max-h-[58vh] overflow-y-auto pr-1 scrollbar-thin">
+										<div className="flex flex-col gap-2">
+											{filteredGames.map((game) => {
+												const isActive = game.id === (activeGame?.id ?? '');											
+												const gameThumb = game.heroUrl || game.coverUrl;
+												return (
+													<button
+														type="button"
+														key={game.id}
+														onClick={() => setActiveGameId(game.id)}
+														onDoubleClick={() => handleOpenStorePage(game)}
+														className={`w-full border px-3 py-3 text-left transition-colors ${
+															isActive
+																? 'border-sky-500/60 bg-sky-500/10 text-white'
+																: 'border-slate-700/70 bg-slate-900/45 text-slate-200 hover:bg-slate-800/70'
+														}`}
+													>
+														<div className="flex items-center gap-3">
+															<div className="h-30 w-20 flex-shrink-0 overflow-hidden border border-slate-700/70 bg-slate-900/60">
+																{gameThumb ? (
+																	<img src={gameThumb} 
+																	onError={(e) => {
+																		e.currentTarget.onerror = null; // prevent infinite loop
+																		e.currentTarget.src = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAASwAAAHCCAYAAABVM/SHAAAYF0lEQVR4Xu3d3at0cxsH8PUcIKVIiVJCRMIJJVLyksSBlwNKSU78UU4kpTjwViQlOZK6iUjeQsp7iSLJwfP0U9Mz9l6/WWvNXNfc+9r35y4H2rOv+c3nutZ31lqz9pr/nDhx4r+DfwQIECgg8B+BVaBLlkiAwD8CAssgECBQRkBglWmVhRIgILDMAAECZQQEVplWWSgBAgLLDBAgUEZAYJVplYUSICCwzAABAmUEBFaZVlkoAQICywwQIFBGQGCVaZWFEiAgsMwAAQJlBARWmVZZKAECAssMECBQRkBglWmVhRIgILDMAAECZQQEVplWWSgBAgLLDBAgUEZAYJVplYUSICCwzAABAmUEBFaZVlkoAQICywwQIFBGQGCVaZWFEiAgsMwAAQJlBARWmVZZKAECAssMECBQRkBglWmVhRIgILDMAAECZQQEVplWWSgBAgLLDBAgUEZAYJVplYUSICCwzAABAmUEBFaZVlkoAQICywwQIFBGQGCVaZWFEiAgsMwAAQJlBARWmVZZKAECAssMECBQRkBglWmVhRIgILDMAAECZQQEVplWWSgBAgLLDBAgUEZAYJVplYUSICCwzAABAmUEBFaZVlkoAQICywwQIFBGQGCVaZWFEiAgsMwAAQJlBARWmVZZKAECAssMECBQRkBglWmVhRIgILDMAAECZQQEVplWWSgBAgLLDBAgUEZAYJVplYUSICCwzAABAmUEBFaZVlkoAQICywwQIFBGQGCVaZWFEiAgsMwAAQJlBARWmVZZKAECAssMECBQRkBglWmVhRIgILDMAAECZQQEVplWWSgBAgLLDBAgUEZAYJVplYUSICCwzAABAmUEBFaZVlkoAQICywwQIFBGQGCVaZWFEiAgsMwAAQJlBARWmVZZKAECAssMECBQRkBglWmVhRIgILDMAAECZQQEVplWWSgBAgLLDBAgUEZAYJVplYUSICCwzAABAmUEBFaZVlkoAQICywwQIFBGQGCVaZWFEiAgsMwAAQJlBARWmVZZKAECAssMECBQRkBglWmVhRIgILDMAAECZQQEVplWWSgBAgLLDBAgUEZAYJVplYUSICCwzAABAmUEBFaZVlkoAQICywwQIFBGQGCVaZWFEiAgsMwAAQJlBARWmVZZKAECAssMECBQRkBglWmVhRIgILDMAAECZQQEVplWWSgBAgLLDBAgUEZAYJVplYUSICCwzAABAmUEBFaZVlkoAQICywwQIFBGQGCVaZWFEiAgsMwAAQJlBARWmVZZKAECAssMECBQRkBglWmVhRIgILDMAAECZQQEVplWWSgBAgLLDBAgUEZAYJVplYUSICCwzAABAmUEBFaZVlkoAQICywwQIFBGQGCVaZWFEiAgsMwAAQJlBARWmVZZKAECAssMECBQRkBglWmVhRIgILDMAAECZQQEVplWWSgBAgLLDBAgUEZAYJVplYUSICCwzAABAmUEBFaZVlkoAQICywwQIFBGQGCVaZWFEiAgsMwAAQJlBARWmVZZKAECAssMECBQRkBglWmVhRIgILDMAAECZQQEVplWWSgBAgLLDBAgUEZAYJVplYUSICCwzAABAmUEBFaZVlkoAQICywwQIFBGQGCVaZWFEiAgsMwAAQJlBARWmVZZKAECAssMECBQRkBglWmVhRIgILDMAAECZQQEVplWWSgBAgLLDBAgUEZAYJVplYUSICCwzAABAmUEBFaZVlkoAQICywwQIFBGQGCVaZWFEiAgsMwAAQJlBARWmVZZKAECAssMECBQRkBglWmVhRIgILDMAAECZQQEVplWWSgBAgLLDBAgUEZAYJVplYUSICCwzAABAmUEBFaZVlkoAQICywwQIFBGQGCVaZWFEiAgsMwAAQJlBARWmVZZKAECAssMECBQRkBglWmVhRIgILDMAAECZQQEVplWWSgBAgLLDBAgUEZAYJVplYUSICCwzAABAmUEBFaZVlkoAQICywwQIFBGQGCVaZWFEiAgsMwAAQJlBARWmVZZKAECAssMECBQRkBglWmVhRIgILDMAAECZQQEVplWWSgBAgLLDBAgUEZAYJVplYUSICCwzAABAmUEBFaZVlkoAQICywwQIFBGQGCVaZWFEiAgsMwAAQJlBARWmVZZKAECAssMECBQRkBglWmVhRIgILDMAAECZQQEVplWWSgBAgLLDBAgUEZAYJVplYUSICCwzAABAmUEBFaZVlkoAQICywwQIFBGQGCVaZWFEiAgsMwAAQJlBARWmVZZKAECAssMECBQRkBglWmVhRIgILDMAAECZQQEVplWWSgBArMD64UXXhh+/vnnRWJnnnnmcNZZZw3nnnvucMkllwwXXXTRxt8fe45rrrlmuPHGGxc975IHf/jhh8Pbb7/d/ZX2Gh555JElJbuP/e2334Yvvvhi+OGHH4bff/99aP+/+nfaaacN55xzznDBBRcMV1111XD22WfPes5t+rKp8F133XWoT82nOa3/O++884b7779/1hq/+eab4bXXXjv02Mcff3zW77cH/fXXX8Nnn302fP/998Mff/xxaBZbn9qcNb/LLrtstl+rHbG+3gvZpj+t96effvriWRjr02zgkQeObXs9qznPs/66Lr300uH888+f82v/ekxqYB1czYUXXjjccccdwxlnnDG60JMRWK+88srw7bffboS79957t8JdFW3B9M477wxff/317Aa1QLjtttsmN7xtNohKgdWC6r333hs++eST4e+//17kd911102+SR7FwDr4IufOwlEPrKV5MNbsvQZWW0BL2fvuu280tPYdWC1Inn322cmN4OKLLx7uvPPOyceNPaDtmZw4cWLRxraq0/a6rr/++qG900W+g1cJrB9//HF4/fXXhz///HMr+/ZLV1xxxXDLLbds/P2jtoc1ttg2C3fffffGN85qgTWVB0cisNoi2p7WPffcc2g9+w6sd999d2j/Tf1rw/LYY49NPezQz6cON+cWbIfEvdA6rntYLaxeffXVrYL+oOvUG06FwGqvaSq0KgbW3DeVVU932sPqnV9qey4//fTTP7vy6+dp1gdp7DBr34HV9q4Orq8N99ih26233jpcfvnlczNm+Pzzz4c333xz9PHtOVbn9NrhcTvsaRvNRx99NHqesA3qAw88MHp4uA+zfZ/Daj15/vnnR8OqWVx55ZXD+jmQld9XX33VPezeFFr7DqzedtNeRwvq9jq+/PLL0dffztU9+OCDo0cou/ZpznBva9VeVzvS6J1+eeihhyZPf7T1pQTW+gvv7QGM7arvY+Nbra13ONjgXn755UOHIVPv0uuvuQ3eM888c2jg2sZ28803bwy+t956a/j0008PzU7v+fdhtuuGsHTIezOz6XTCCqw91xtvvDG6sffedJaub86GvXrMtv1pM/Tiiy+OvuH3Am/XPs15Xbta9c4Zt/ON7b+pf+mB1QuGsU+Ztm3u1Isc+/lYc9sG0QKrFxqPPvpo9wOD9edo51122UvrNXXsXWgfZrtuCEuGvHcYPSesVj1o7+YvvfTSobb3PvFdsr6ls7ZL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";
+																	}}   
+																	alt={game.title || 'game'} className="h-full w-full object-cover object-center" />
+																) : (
+																	<div className="flex h-full w-full items-center justify-center text-[10px] text-slate-500">No image</div>
+																)}
+															</div>
+															<div className="min-w-0 flex-1">
+																<div className="flex items-center justify-between gap-2">
+																	<p className="truncate text-sm font-medium">{game.title}</p>
+																	<p className="text-xs text-slate-400">{formatLibraryLauncherLabel(game.launcherId)}</p>
+																</div>
+																<p className="mt-1 text-xs text-slate-400">{game.playtime || '0h'}</p>
+															</div>
+														</div>
+													</button>
+												);
+											})}
+										</div>
+									</div>
+								) : (
+									<LibraryGameStrip
+										games={stripGames}
+										activeGameId={activeGame?.id ?? ''}
+										onSelect={setActiveGameId}
+										onOpenStore={handleOpenStorePage}
+									/>
+								)}
 							</div>
 
 							{/* Status bar */}

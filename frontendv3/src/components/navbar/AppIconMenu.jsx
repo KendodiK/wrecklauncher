@@ -18,7 +18,7 @@ const AppIconMenu = ({ dropdownOpen, openDropdown, scheduleCloseDropdown, closeD
       <span className="app-icon w-6 h-6 bg-slate-700 rounded flex items-center justify-center overflow-hidden">
         <img src={logoImage} alt="WreckLauncher logo" className="w-full h-full object-cover" draggable="false" />
       </span>
-      <span className="app-title text-sm">WreckLauncher</span>
+      <span className="app-title text-sm">Anchor Launcher</span>
 
       {dropdownOpen && (
         <div className="app-icon-dropdown absolute left-0 top-full mt-1 min-w-[160px] bg-neutral-800 text-xs shadow-lg z-50 no-drag">

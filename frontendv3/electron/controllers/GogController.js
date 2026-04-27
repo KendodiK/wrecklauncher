@@ -3,11 +3,9 @@
 const fs = require('fs');
 const path = require('path');
 const { execFile, spawn } = require('child_process');
-const https = require('https');
 const { shell, BrowserWindow } = require('electron');
 const GamesController = require('./GamesController');
-const { enc, joinUrl, normalizeBaseUrl } = require('../lib/url');
-const { fetchJsonSafe } = require('../lib/http');
+const { text } = require('stream/consumers');
 
 /**
  * @typedef {Object} GogOAuthToken
@@ -34,7 +32,7 @@ class GogController extends GamesController {
   constructor(cfg) {
     const serverUrl = cfg?.serverUrl;
     super({ serverUrl });
-    this.#serverUrl = normalizeBaseUrl(serverUrl, { defaultProtocol: 'https:' });
+    this.#serverUrl = serverUrl || "";
     this.#loadTokenFromDisk();
   }
 
@@ -52,7 +50,7 @@ class GogController extends GamesController {
 
   static getTokenFilePath() {
     if (!GogController.#tokenFilePath) {
-      const appData = process.env.APPDATA || path.join(process.env.USERPROFILE || 'C:\\Users\\Default', 'AppData', 'Roaming');
+      const appData = path.join(process.env.USERPROFILE || 'C:\\Users\\Default', 'AppData', 'Roaming');
       GogController.#tokenFilePath = path.join(appData, 'wrecklauncher', 'gog-oauth-token.json');
     }
     return GogController.#tokenFilePath;
@@ -137,19 +135,6 @@ class GogController extends GamesController {
   }
 
   /**
-   * @param {number} status
-   * @param {any} json
-   * @param {string} text
-   * @returns {string}
-   */
-  #httpMessage(status, json, text) {
-    const msg = json?.error ?? json?.message;
-    if (typeof msg === 'string' && msg.trim()) return msg.trim();
-    const snippet = String(text || '').trim().slice(0, 240);
-    return snippet || `HTTP ${status}`;
-  }
-
-  /**
    * @param {string} message
    */
   #makeInvalidTokenError(message) {
@@ -169,15 +154,17 @@ class GogController extends GamesController {
       tokenUrl.searchParams.set(key, value);
     });
 
-    const { ok, status, json, text } = await fetchJsonSafe(tokenUrl.toString(), {
+    const response = await fetch(tokenUrl.toString(), {
       method: 'GET',
       headers: {
         Accept: 'application/json',
       },
     });
-
+    const ok = response.ok;
+    const json = await response.json().catch(() => null);
+    const text = await response.text().catch(() => '');
     if (!ok || !json || typeof json !== 'object') {
-      throw new Error(`GOG OAuth token request failed: ${this.#httpMessage(status, json, text)}`);
+      throw new Error(`GOG OAuth token request failed: ${response.status} - ${text}`);
     }
 
     const normalized = this.#normalizeOAuthToken(json);
@@ -250,13 +237,14 @@ class GogController extends GamesController {
    */
   async #authedGetJson(url) {
     const doRequest = async (accessToken) => {
-      return await fetchJsonSafe(url, {
+      const response = await fetch(url, {
         method: 'GET',
         headers: {
           Accept: 'application/json',
           Authorization: `Bearer ${accessToken}`,
         },
       });
+      return { ok: response.ok, status: response.status, statusText: response.statusText, json: await response.json().catch(() => null), text: await response.text().catch(() => '') }; 
     };
 
     let accessToken = await this.#ensureAccessToken();
@@ -277,7 +265,7 @@ class GogController extends GamesController {
     }
 
     if (!response.ok) {
-      throw new Error(`GOG API request failed: ${this.#httpMessage(response.status, response.json, response.text)}`);
+      throw new Error(`GOG API request failed: ${response.status} - ${response.statusText}`);
     }
 
     return response.json;
@@ -373,21 +361,22 @@ class GogController extends GamesController {
     let guard = 0;
 
     while (guard < 500 && out.size < wanted.size) {
-      const url = `${joinUrl(this.#serverUrl, 'api', 'games', 'platform', enc(String(platformId)), 'list', enc(String(from)), 'details')}?country_code=${enc(normalizedCountryCode)}`;
-      const { ok, json } = await fetchJsonSafe(url, {
+      const url = `${this.#serverUrl}/api/games/platform/${encodeURIComponent(String(platformId))}/list/${encodeURIComponent(String(from))}/details?country_code=${encodeURIComponent(normalizedCountryCode)}`;
+      const response = await fetch(url, {
         method: 'GET',
         headers: {
           Accept: 'application/json',
         },
       });
-
+      const ok = response.ok;
+      const json = await response.json().catch(() => null);
       if (!ok) break;
 
       const rows = Array.isArray(json) ? json : [];
       if (rows.length < 1) break;
 
       for (const row of rows) {
-        const appId = String(row?.app_id ?? row?.appId ?? '').trim();
+        const appId = String(row?.app_id ?? '').trim();
         if (!appId || !wanted.has(appId) || out.has(appId)) continue;
 
         const bannerRaw = String(row?.banner_img ?? row?.bannerImg ?? '').trim();
@@ -463,12 +452,27 @@ class GogController extends GamesController {
               // ignore cover fallback errors; keep normalized value or null
             }
           }
-
+          let heroImage = null;
+          try{
+            const response = await fetch(`https://api.gog.com/v2/games/${productId}?locale=en-US`,{
+              method: 'GET',
+              headers: {
+                'Accept': 'application/json',
+              }
+            });
+            if(response.ok){
+              const data = await response.json().catch(() => null);
+              heroImage = await super._healthCheckUrl(data?._links.boxArtImage?.href) || normalizedImage;
+            }
+          }catch{
+            // ignore hero image errors; keep null
+          }
           collected.push({
             id: productId,
             product_id: productId,
             title: String(product?.title || `gog:${productId}`).trim() || `gog:${productId}`,
-            image: normalizedImage,
+            banner_img: normalizedImage,
+            hero_img: heroImage || normalizedImage,
             url: this.#normalizeStoreUrl(product?.url ?? null),
             slug: typeof product?.slug === 'string' ? product.slug : null,
             raw: product,
@@ -538,7 +542,8 @@ class GogController extends GamesController {
           id,
           product_id: id,
           title: `gog:${id}`,
-          image: null,
+          banner_img: null,
+          hero_img: null,
           url: null,
           slug: null,
           raw: null,
@@ -662,12 +667,6 @@ class GogController extends GamesController {
     this.#saveTokenToDisk(null);
   }
 
-  static #agent = new https.Agent({
-    keepAlive: true,
-    maxSockets: 2,
-    timeout: 20_000,
-  });
-
   /**
    * @param {string} token
    * @param {any} details
@@ -698,7 +697,7 @@ class GogController extends GamesController {
         app_id: String(numericAppId),
         platform_name: 'gog',
         name: details.title ?? `gog:${numericAppId}`,
-        banner_img: details.banner_img ?? details.cover_url ?? '',
+        banner_img: details.banner_img ?? '',
         description: details.description ?? '',
         minimum_requirements: details.minimum_requirements ?? '',
         cost: typeof details.min_price === 'number' ? details.min_price : null,
@@ -735,38 +734,6 @@ class GogController extends GamesController {
         resolve(typeof stdout === 'string' ? stdout : '');
       });
     });
-  }
-
-  /**
-   * Parse the output of `REG QUERY` into a flat map of value name → value data.
-   * Handles multi-level output (sub-keys and their values).
-   *
-   * @param {string} regOutput
-   * @returns {Map<string, string>}  key is "HKLM\...\GameId:ValueName", value is the data string
-   */
-  static #parseRegOutput(regOutput) {
-    const map = new Map();
-    let currentKey = '';
-
-    for (const rawLine of regOutput.split('\n')) {
-      const line = rawLine.trimEnd();
-      if (!line.trim()) continue;
-
-      // A registry key line looks like "HKEY_LOCAL_MACHINE\SOFTWARE\..."
-      if (/^HKEY/i.test(line.trim())) {
-        currentKey = line.trim();
-        continue;
-      }
-
-      // A value line looks like "    ValueName    REG_SZ    SomeData"
-      const match = line.match(/^\s{4}(.+?)\s{4}(REG_SZ|REG_DWORD|REG_EXPAND_SZ)\s{4}(.*)$/);
-      if (match && currentKey) {
-        const valueName = match[1].trim();
-        const valueData = match[3].trim();
-        map.set(`${currentKey}:${valueName}`, valueData);
-      }
-    }
-    return map;
   }
 
   /**
@@ -854,10 +821,29 @@ class GogController extends GamesController {
         const buildId = caseInsensitiveValues.get('buildid') || caseInsensitiveValues.get('build') || null;
 
         if (!productId) continue;
+        let bannerImg = null;
+        let heroImg = null;
+        try{
+          const response = await fetch(`https://api.gog.com/v2/games/${productId}?locale=en-US`,{
+            method: 'GET',
+            headers: {
+              'Accept': 'application/json',
+            }
+          });
+          if(response.ok){
+            const data = await response.json().catch(() => null);
+            bannerImg = super._healthCheckUrl(data?._links?.galaxyBackgroundImage?.href) || null;
+            heroImg = super._healthCheckUrl(this.#normalizeImageUrl(data?._links?.boxArtImage?.href) || "") || null;
+          }
+        }catch{
+          // ignore cover fetch errors; keep null
+        }
 
         results.push({
           productId,
           gameName: gameName || `GOG ${productId}`,
+          banner_img: bannerImg,
+          hero_img: heroImg,
           installPath,
           launchCommand,
           version,
@@ -1345,8 +1331,6 @@ async #fetchGogCoverUrl(appId) {
       ? String(options.countryCode || '').trim().toUpperCase()
       : 'DE';
     const numericAppId = Number(appId);
-    // If caller passed a numeric GOG product id, prefer the products endpoint which
-    // returns richer data for numeric ids. Otherwise fall back to slug-based v2/games.
     if (Number.isFinite(numericAppId) && numericAppId > 0) {
       const endpoint = `https://api.gog.com/products/${numericAppId}?expand=description,screenshots`;
       try {
@@ -1514,13 +1498,31 @@ async #fetchGogCoverUrl(appId) {
           //@ts-ignore
           console.warn('Failed to fetch GOG minimum requirements:', { appId: numericAppId, err: err?.message });
         }
+        let heroImg = null;
+        try{
+          const responseHeroImg = await fetch(`https://api.gog.com/v2/games/${numericAppId}?locale=en-US`, {
+            method: 'GET',
+            headers: {
+              'Accept': 'application/json',
+              'User-Agent': 'WreckLauncher/1.0 (+gog scraper)',
+            },
+          });
+          if (responseHeroImg.ok) {
+            const dataHeroImg = await responseHeroImg.json();
+            const heroCandidate = this.#normalizeImageUrl(String(dataHeroImg?._links?.boxArtImage?.href ?? '').trim());
+            heroImg = super._healthCheckUrl(heroCandidate || "") ?? null;
+          }
+        } catch (err) {
+          //@ts-ignore
+          console.warn('Failed to fetch GOG hero image:', { appId: numericAppId, err: err?.message });
+        }
   
         const details = {
           id: numericAppId,
           app_id: numericAppId,
           title,
-          cover_url: bannerImg,
           banner_img: bannerImg,
+          hero_img: heroImg || bannerImg || null,
           description,
           minimum_requirements: minimumRequirements || "",
           min_price: cost,
@@ -1544,7 +1546,6 @@ async #fetchGogCoverUrl(appId) {
       }
     }
   
-    // Fallback: treat appId as slug and query v2/games (existing behavior)
     const endpoint = `https://api.gog.com/v2/games/${appId}?locale=en-US`;
     try {
       const response = await fetch(endpoint, {
@@ -1612,9 +1613,7 @@ async #fetchGogCoverUrl(appId) {
           ? payload.genres.map((g) => (typeof g === 'string' ? g : g?.name))
           : []
       );
-  
-      const cover_url = await this.#fetchGogCoverUrl(appId);
-      const bannerImg = cover_url ?? null;
+      const bannerImg = await this.#fetchGogCoverUrl(appId) ?? null;
       let minimumRequirements = "";
       try {
         const minReqData = payload;
@@ -1689,13 +1688,28 @@ async #fetchGogCoverUrl(appId) {
         //@ts-ignore
         console.warn('Failed to parse GOG minimum requirements (fallback):', { appId: appId, err: err?.message });
       }
-  
+      let heroImg = null;
+      try{
+        const response = await fetch(`https://api.gog.com/v2/games/${appId}?locale=en-US`, {
+          headers: {
+            'Accept': 'application/json',
+            'User-Agent': 'WreckLauncher/1.0 (+gog scraper)',
+          },
+          method: 'GET',
+        });
+        if (response.ok) {
+        const data = await response.json();
+        heroImg = super._healthCheckUrl(data?._links.boxArtImage?.href) ?? null;
+        }
+      }catch{
+
+      }
       const details = {
         id: appId,
         app_id: appId,
         title,
-        cover_url,
         banner_img: bannerImg,
+        hero_img: heroImg || bannerImg,
         description,
         minimum_requirements: minimumRequirements || "",
         min_price: cost,
@@ -1718,77 +1732,16 @@ async #fetchGogCoverUrl(appId) {
       return null;
     }
   }
-  // async getGameDetails(token, productId) {
-  //   if (!token || !String(token).trim()) throw new Error('Auth token is required');
-  //   const id = String(productId).trim();
-  //   if (!id || !/^\d+$/.test(id)) throw new Error(`Invalid GOG product ID: ${String(productId)}`);
 
-  //   // 1) Prefer DB data first.
-  //   const dbUrl = joinUrl(this.#serverUrl, 'api', 'games', id, 'all');
-  //   const dbRes = await fetchJsonSafe(dbUrl, {
-  //     method: 'GET',
-  //     headers: { 'Accept': 'application/json' },
-  //   });
+    /**
+     * HEAD fetch returns 200 even on nonexisting games because of gog server configuration, so we have to rely on URL pattern for game page.
+   * @param {string} gameSlug
+   */
+  async fetchGogGamePage(gameSlug) {    
+    if (!gameSlug || !String(gameSlug).trim()) throw new Error('Game slug is required');
+    return `https://gog-games.to/game/${encodeURIComponent(String(gameSlug).trim())}`;
+  }
 
-  //   if (dbRes.ok && dbRes.json && typeof dbRes.json === 'object') {
-  //     const platformName = String(dbRes.json.platform_name ?? dbRes.json.platform ?? '').trim().toLowerCase();
-  //     if (platformName === 'gog') {
-  //       const genreNames = Array.isArray(dbRes.json.genres)
-  //         ? dbRes.json.genres
-  //             .map((/** @type {any} */ g) => (typeof g === 'string' ? g : g?.genre ?? g?.name))
-  //             .filter((/** @type {any} */ v) => typeof v === 'string' && v.trim())
-  //         : [];
-
-  //       return {
-  //         productId: id,
-  //         title: dbRes.json.name ?? `gog:${id}`,
-  //         bannerImg: dbRes.json.banner_img ?? null,
-  //         description: dbRes.json.description ?? null,
-  //         cost: typeof dbRes.json.cost === 'number' ? dbRes.json.cost : null,
-  //         genreNames,
-  //         raw: {
-  //           ...dbRes.json,
-  //           source: 'database',
-  //         },
-  //       };
-  //     }
-  //   }
-
-  //   // 2) Fallback to scrape endpoint, which also uploads to DB when missing.
-  //   const url = `${joinUrl(this.#serverUrl, 'api', 'gog', 'game', id)}?ensureUpload=true`;
-  //   const { ok, status, json } = await fetchJsonSafe(url, {
-  //     method: 'GET',
-  //     headers: { 'Accept': 'application/json' },
-  //   });
-
-  //   if (!ok) {
-  //     if (status === 401) {
-  //       const msg = (json && typeof json === 'object' ? json.error : null) || 'Unauthorized';
-  //       const e = new Error(`Unauthorized (token invalid/expired): ${String(msg).slice(0, 300)}`);
-  //       // @ts-ignore
-  //       e.code = 'WRECK_INVALID_TOKEN';
-  //       throw e;
-  //     }
-  //     if (status === 404) return null;
-  //     const msg = (json && typeof json === 'object' ? json.error : null) || `HTTP ${status}`;
-  //     throw new Error(`GOG game fetch failed: ${String(msg).slice(0, 300)}`);
-  //   }
-
-  //   if (!json || typeof json !== 'object') return null;
-
-  //   return {
-  //     productId: id,
-  //     title: typeof json.title === 'string' ? json.title : `gog:${id}`,
-  //     bannerImg: json.bannerImg ?? json.banner_img ?? json.cover_url ?? null,
-  //     description: json.description ?? null,
-  //     cost: typeof json.cost === 'number' ? json.cost : (typeof json.min_price === 'number' ? json.min_price : null),
-  //     genreNames: Array.isArray(json.genreNames) ? json.genreNames : (Array.isArray(json.genres) ? json.genres : []),
-  //     raw: {
-  //       ...json,
-  //       source: 'scrape-endpoint',
-  //     },
-  //   };
-  // }
 
   /**
    * Open GOG Galaxy for a game action via URL scheme.

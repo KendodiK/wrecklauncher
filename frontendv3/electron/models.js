@@ -1,6 +1,15 @@
 // @ts-check
 
 /**
+ * @typedef {object} NativeUser
+ * @property {number} id
+ * @property {string} username
+ * @property {string|null} bio
+ * @property {string|null} avatarUrl
+ * @property {string|null} token
+ */
+
+/**
  * @typedef {object} UploadGameRequest
  * @property {string} app_id
  * @property {string} name
@@ -12,21 +21,35 @@
  * @property {number|null|undefined} [cost]
  * @property {string[]|null|undefined} [genre_names]
  */
-
 /**
  * @typedef {object} UploadGameResponse
  * @property {string} [message]
  * @property {number} [gameId]
- * @property {string} [error]
  */
-
 /**
  * @typedef {object} UploadGameResult
  * @property {boolean} ok
  * @property {number} statusCode
  * @property {UploadGameResponse|any|null} response
- * @property {any|null} rawJson
- * @property {string|null} rawText
+ */
+
+/**
+ * Game details returned by `/api/games/:id/details` or `/api/games/platforms/:platformId/app-id/:appId/details`.
+ * The backend currently aliases platform name as `platform`.
+ * @typedef {object} GameDetailsResponse
+ * @property {number} id
+ * @property {number|string} app_id
+ * @property {string} name
+ * @property {string} banner_img
+ * @property {string|null} hero_img
+ * @property {string|null} description
+ * @property {string|null} minimum_requirements
+ * @property {number|null} cost
+ * @property {number} platform_id
+ * @property {string|null|undefined} [platform]
+ * @property {string|null|undefined} [platform_name]
+ * @property {GameGenreRow[]|null|undefined} [genres]
+ * @property {Array<{site_name?: string|null}>|null|undefined} [pirate_sites]
  */
 
 /**
@@ -37,61 +60,61 @@
  * @property {string} genre
  */
 
+
+// /**  //dont need
+//  * Normalized game details shape used by the renderer (derived from `GameDetailsResponse`).
+//  * @typedef {object} GameDetails
+//  * @property {number|null|undefined} [id]
+//  * @property {string|null} app_id
+//  * @property {string|null} platform_name
+//  * @property {string|null} name
+//  * @property {string|null} banner_img
+//  * @property {string|null} description
+//  * @property {string|null} minimum_requirements
+//  * @property {number|null} cost
+//  * @property {number|null|undefined} [price]
+//  * @property {string|null|undefined} [currency]
+//  * @property {string|null|undefined} [formated_price]
+//  * @property {string|null|undefined} [country_code]
+//  * @property {string[]|null} genre_names
+//  * @property {Array<{site_name?: string|null, link?: string|null}>|null|undefined} [pirate_sites]
+//  */
+
 /**
- * Game details returned by `/api/games/:id/all` or `/api/games/app/:appId/all`.
- * The backend currently aliases platform name as `platform`.
- * @typedef {object} GameDetailsResponse
- * @property {number} id
- * @property {number|string} app_id
- * @property {string} name
- * @property {string} banner_img
- * @property {string|null} description
- * @property {string|null} minimum_requirements
- * @property {number|null} cost
- * @property {number} platform_id
- * @property {string|null|undefined} [platform]
- * @property {string|null|undefined} [platform_name]
+ * @typedef {object} ScrapeGameDetailsResult
+ * @property {boolean} ok
+ * @property {string | null} platform
+ * @property {string | null} app_id
+ * @property {string | null} link
+ * @property {string | null} name
+ * @property {string | null} banner_img
+ * @property {string | null} hero_img
+ * @property {string | null} description
+ * @property {string | null} minimum_requirements
+ * @property {number | null} cost
+ * @property {string | null} currency
  * @property {GameGenreRow[]|null|undefined} [genres]
- * @property {Array<{site_name?: string|null, link?: string|null}>|null|undefined} [pirate_sites]
  */
 
-/**
- * Normalized game details shape used by the renderer (derived from `GameDetailsResponse`).
- * @typedef {object} GameDetails
- * @property {number|null|undefined} [id]
- * @property {string|null} app_id
- * @property {string|null} platform_name
- * @property {string|null} name
- * @property {string|null} banner_img
- * @property {string|null} description
- * @property {string|null} minimum_requirements
- * @property {number|null} cost
- * @property {number|null|undefined} [price]
- * @property {string|null|undefined} [currency]
- * @property {string|null|undefined} [formated_price]
- * @property {string|null|undefined} [country_code]
- * @property {string[]|null} genre_names
- * @property {Array<{site_name?: string|null, link?: string|null}>|null|undefined} [pirate_sites]
- */
+// /**
+//  * @typedef {object} SteamGenre
+//  * @property {string|number} [id]
+//  * @property {string} [description]
+//  */
 
-/**
- * @typedef {object} SteamGenre
- * @property {string|number} [id]
- * @property {string} [description]
- */
-
-/**
- * @typedef {object} SteamGameDetails
- * @property {number} appid
- * @property {string|null} name
- * @property {string|null} bannerimg
- * @property {SteamGenre[]|null} genres
- * @property {number|null} price_overview - Steam `price_overview.final` (in cents) or null.
- * @property {string|null|undefined} [minimum_requirements]
- * @property {string|null} cc
- * @property {string} lang
- * @property {any} raw
- */
+// /**
+//  * @typedef {object} SteamGameDetails
+//  * @property {number} appid
+//  * @property {string|null} name
+//  * @property {string|null} banner_img
+//  * @property {string|null} hero_img
+//  * @property {SteamGenre[]|null} genres
+//  * @property {number|null} price_overview - Steam `price_overview.final` (in cents) or null.
+//  * @property {string|null|undefined} [minimum_requirements]
+//  * @property {string|null} cc
+//  * @property {string} lang
+//  * @property {any} raw
+//  */
 
 /**
  * Live snapshot of a single torrent download.
@@ -122,13 +145,13 @@
  * @typedef {object} GameListItem
  * @property {number} id            - Primary key of the game row.
  * @property {number|string} app_id - Platform-specific application id (e.g. Steam appid).
+ * @property {number} platform_id   - Foreign key referencing `platforms.id`.
+ * @property {string|null} platform - Resolved platform name (aliased from `platforms.platform_name`).
  * @property {string} name          - Display name of the game.
  * @property {string} banner_img    - URL / path to the banner image.
  * @property {string|null} description          - Long description text, or null.
  * @property {string|null} minimum_requirements - Minimum system requirements text, or null.
  * @property {number} cost          - Price in the store's currency unit (e.g. USD cents or full dollars depending on source).
- * @property {number} platform_id   - Foreign key referencing `platforms.id`.
- * @property {string|null} platform - Resolved platform name (aliased from `platforms.platform_name`).
  */
 
 /**
@@ -144,15 +167,25 @@
  */
 
 /**
- * @typedef {object} ItchGameDetails
- * @property {number} gameId
- * @property {string} title
- * @property {string|null} coverUrl
- * @property {string|null} shortText
- * @property {number} minPrice       - Minimum price in USD (0 = free or pay-what-you-want).
- * @property {string|null} url
- * @property {any} raw
+ * @typedef {object} SteamInstalledGame
+ * @property {number|string} appIdNum - Steam numeric app ID (as number or string).
+ * @property {string|null} installDir - Absolute path to the game's install directory, or null if not found.
+ * @property {string|null} version      - Game version string, or null if not found.
+ * @property {string|null} buildId      - Game build ID string, or null if not found.
+ * @property {any} raw               - Raw registry value map for the game.
  */
+
+
+// /**
+//  * @typedef {object} ItchGameDetails
+//  * @property {number} gameId
+//  * @property {string} title
+//  * @property {string|null} coverUrl
+//  * @property {string|null} shortText
+//  * @property {number} minPrice       - Minimum price in USD (0 = free or pay-what-you-want).
+//  * @property {string|null} url
+//  * @property {any} raw
+//  */
 
 /**
  * @typedef {object} GogInstalledGame
@@ -165,15 +198,15 @@
  * @property {any} raw               - Raw registry value map.
  */
 
-/**
- * @typedef {object} GogGameDetails
- * @property {string} productId
- * @property {string} title
- * @property {string|null} bannerImg
- * @property {string|null} description
- * @property {number|null} cost      - Price in USD.
- * @property {string[]} genreNames
- * @property {any} raw
- */
+// /**
+//  * @typedef {object} GogGameDetails
+//  * @property {string} productId
+//  * @property {string} title
+//  * @property {string|null} bannerImg
+//  * @property {string|null} description
+//  * @property {number|null} cost      - Price in USD.
+//  * @property {string[]} genreNames
+//  * @property {any} raw
+//  */
 
-module.exports = {};
+// module.exports = {};

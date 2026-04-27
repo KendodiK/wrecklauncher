@@ -14,6 +14,30 @@ import LibraryPage from "./components/pages/libraray.jsx";
 import AllGamesPage from "./components/pages/AllGamesPage.jsx";
 import { DownloadManagerProvider } from './context/DownloadManagerContext.jsx';
 
+function resolveThemeSelection(rawTheme) {
+  const normalized = String(rawTheme || '').trim().toLowerCase();
+  if (normalized === 'purple-black') return 'purple-black';
+  if (normalized === 'light-green') return 'light-green';
+  if (normalized === 'light') return 'light';
+  if (normalized === 'system') {
+    try {
+      if (typeof window !== 'undefined' && window.matchMedia) {
+        return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      }
+    } catch {
+      // ignore and fall back to dark
+    }
+  }
+  return 'dark';
+}
+
+function applyDocumentTheme(rawTheme) {
+  const theme = resolveThemeSelection(rawTheme);
+  if (typeof document === 'undefined') return;
+  document.documentElement.setAttribute('data-theme', theme);
+  document.body?.setAttribute('data-theme', theme);
+}
+
 // Listens for auth-expired events and redirects to the login page.
 function AuthExpiredGuard({ onLogout }) {
   const navigate = useNavigate();
@@ -31,7 +55,6 @@ function AuthExpiredGuard({ onLogout }) {
 function App() {
   // user: bejelentkezett felhasználó adatai (vagy null, ha nincs bejelentkezve)
   const [user, setUser] = useState(null);
-
   // Startup auth bootstrap: if a token is saved, hydrate user info so UI is logged-in immediately.
   useEffect(() => {
     let cancelled = false;
@@ -62,11 +85,11 @@ function App() {
             ? profile.username.trim()
             : (userId ? `User ${userId}` : 'Player');
         const avatarCandidate =
+          profile?.pfp || 
           profile?.avatarUrl ||
           profile?.avatar_url ||
           profile?.avatarURL ||
           profile?.profilePicture ||
-          profile?.pfp ||
           null;
         const resolvedAvatarUrl =
           typeof avatarCandidate === 'string' && avatarCandidate.trim()
@@ -88,6 +111,31 @@ function App() {
     };
 
     bootstrapUserFromToken();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const bootstrapTheme = async () => {
+      try {
+        const api = window?.electronAPI;
+        if (!api || typeof api.getSettings !== 'function') {
+          applyDocumentTheme('dark');
+          return;
+        }
+
+        const settings = await api.getSettings();
+        if (cancelled) return;
+        applyDocumentTheme(settings?.display?.theme || 'dark');
+      } catch {
+        if (!cancelled) applyDocumentTheme('dark');
+      }
+    };
+
+    bootstrapTheme();
     return () => {
       cancelled = true;
     };
@@ -116,7 +164,7 @@ function App() {
   const handleLocalUserProfileUpdate = useCallback((profilePatch) => {
     const patch = profilePatch && typeof profilePatch === 'object' ? profilePatch : {};
     const hasBio = Object.prototype.hasOwnProperty.call(patch, 'bio');
-    const hasAvatar = Object.prototype.hasOwnProperty.call(patch, 'avatarUrl');
+    const hasAvatar = Object.prototype.hasOwnProperty.call(patch, 'pfp') || Object.prototype.hasOwnProperty.call(patch, 'avatarUrl');
     const hasUsername = Object.prototype.hasOwnProperty.call(patch, 'username');
     const hasProfileUpdatedAt = Object.prototype.hasOwnProperty.call(patch, 'profileUpdatedAt');
 
@@ -134,7 +182,9 @@ function App() {
         ...previous,
         username: hasUsername && incomingUsername ? incomingUsername : previous.username,
         bio: hasBio ? (patch.bio ?? null) : previous.bio,
-        avatarUrl: hasAvatar ? (patch.avatarUrl ?? null) : previous.avatarUrl,
+        avatarUrl: hasAvatar
+  ? (patch.avatarUrl ?? patch.pfp ?? null)
+  : previous.avatarUrl,
         profileUpdatedAt: nextProfileUpdatedAt,
       };
     });
@@ -143,7 +193,7 @@ function App() {
   return (
     <DownloadManagerProvider>
       <HashRouter>
-        <div className="min-h-screen flex flex-col bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+        <div className="app-shell min-h-screen flex flex-col bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
           <AuthExpiredGuard onLogout={handleLogout} />
           <MainNavbar user={user} onLogout={handleLogout} />
           <main className="flex-1 pt-14">

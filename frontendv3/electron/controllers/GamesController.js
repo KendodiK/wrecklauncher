@@ -1,10 +1,4 @@
 // @ts-check
-
-const { enc, joinUrl, normalizeBaseUrl } = require('../lib/url');
-const { fetchJsonSafe } = require('../lib/http');
-const http = require('node:http');
-const https = require('node:https');
-
 class GamesController {
   /** @type {string} */
   #serverUrl;
@@ -16,33 +10,53 @@ class GamesController {
    * @param {{ serverUrl: string }} cfg
    */
   constructor(cfg) {
-    this.#serverUrl = normalizeBaseUrl(cfg.serverUrl || '', { defaultProtocol: 'http:' });
+    this.#serverUrl = cfg.serverUrl || '';
     this.#platformIdByNameCache = new Map();
   }
-
-  /**
-   * @param {number} status
-   * @param {any} json
-   * @param {string} text
-   * @returns {boolean}
-   */
-  _isLegacyListSchemaError(status, json, text) {
-    if (Number(status) !== 500) return false;
-    const msg = String((json && (json.error || json.message)) || text || '').toLowerCase();
-    return msg.includes("unknown column 'g.cost'") || msg.includes('unknown column g.cost');
+/**
+ * 
+ * @param {string} url 
+ */
+  async _healthCheckUrl(url) {
+    try{
+      const response = await fetch(url,
+        {
+          method: 'HEAD'
+        }
+      );
+      if (!response.ok) {
+        console.warn(`Health check failed for URL "${url}": ${response.status} ${response.statusText}`);
+        return null;
+      }
+      return url;
+    }catch(err){
+      console.warn(`Health check failed for URL "${url}":`, err);
+      return null;
+    }
   }
-
   /**
    * @param {number|string|null|undefined} platformId
-   * @returns {string|null}
+   * @returns {Promise<string|null>}
    */
-  _platformNameFromId(platformId) {
+  async _platformNameFromId(platformId) {
     const id = Number(platformId);
-    if (!Number.isFinite(id) || id <= 0) return null;
-    for (const [platformName, cachedId] of this.#platformIdByNameCache.entries()) {
-      if (Number(cachedId) === id) return platformName;
+    const url = `${this.#serverUrl}/api/platforms`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+      },
+    });
+    if(!response.ok) return null;
+    const json = await response.json().catch(() => null);
+    if (!json || typeof json !== 'object') return null;
+    for (const platform of json[0]){
+      if (Number(platform.id) === id) {
+        return platform.name || null;
+      }
     }
     return null;
+
   }
 
   /**
@@ -111,21 +125,22 @@ class GamesController {
       return cachedId;
     }
 
-    const url = joinUrl(this.#serverUrl, 'api', 'platforms', enc(normalizedName));
-    const { ok, status, json, text } = await fetchJsonSafe(url, {
+    const url = `${this.#serverUrl}/api/platforms/${encodeURIComponent(normalizedName)}`;
+    const response = await fetch(url, {
       method: 'GET',
       headers: {
         'Accept': 'application/json',
       },
     });
 
-    if (!ok) {
-      if (Number(status) === 404) return null;
-      const snippet = String((json && (json.error || json.message)) || text || 'Unknown error')
+    const json = await response.json().catch(() => null);
+    if (!response.ok) {
+      if (Number(response.status) === 404) return null;
+      const snippet = String((json && (json.error || json.message)) || 'Unknown error')
         .replace(/\s+/g, ' ')
         .trim()
         .slice(0, 300);
-      throw new Error(`Failed to resolve platform "${normalizedName}" (HTTP ${status}): ${snippet}`);
+      throw new Error(`Failed to resolve platform "${normalizedName}" (HTTP ${response.status}): ${snippet}`);
     }
 
     const id = Number(json?.id);
@@ -193,67 +208,6 @@ class GamesController {
     const normalizedName = this._normalizePlatformLookupName(raw);
     const cachedId = this.#platformIdByNameCache.get(normalizedName);
     return typeof cachedId === 'number' && Number.isFinite(cachedId) && cachedId > 0 ? cachedId : null;
-  }
-
-  /**
-   * Fallback for legacy backends where /api/games/list errors due DB schema mismatch.
-   * It reconstructs a page by reading sequential IDs from /api/games/:id.
-   *
-   * @param {number} from
-   * @param {number} pageSize
-   * @returns {Promise<import('../models').GameListItem[]>}
-   */
-  async _getGamesByIdFallback(from, pageSize = 20) {
-    const startId = Math.max(1, Number(from) + 1);
-    const maxAttempts = pageSize * 6;
-    const chunkSize = 8;
-    /** @type {import('../models').GameListItem[]} */
-    const results = [];
-
-    let nextId = startId;
-    let attempts = 0;
-
-    while (results.length < pageSize && attempts < maxAttempts) {
-      const batchIds = [];
-      for (let i = 0; i < chunkSize && attempts < maxAttempts; i++) {
-        batchIds.push(nextId++);
-        attempts++;
-      }
-
-      const batch = await Promise.all(
-        batchIds.map(async (id) => {
-          const detailUrl = joinUrl(this.#serverUrl, 'api', 'games', enc(String(id)));
-          const { ok, json } = await fetchJsonSafe(detailUrl, {
-            method: 'GET',
-            headers: { 'Accept': 'application/json' },
-          });
-
-          if (!ok || !json || typeof json !== 'object') return null;
-
-          const numericCost = Number(json.cost ?? json.price ?? 0);
-          const numericPlatformId = Number(json.platform_id ?? 0);
-          return {
-            id: Number(json.id ?? id),
-            app_id: json.app_id ?? json.id ?? id,
-            name: json.name ?? `Game ${id}`,
-            banner_img: json.banner_img ?? null,
-            description: json.description ?? '',
-            minimum_requirements: json.minimum_requirements ?? '',
-            cost: Number.isFinite(numericCost) ? numericCost : 0,
-            platform_id: Number.isFinite(numericPlatformId) ? numericPlatformId : 0,
-            platform: json.platform_name ?? json.platform ?? this._platformNameFromId(json.platform_id),
-          };
-        })
-      );
-
-      for (const item of batch) {
-        if (!item) continue;
-        results.push(item);
-        if (results.length >= pageSize) break;
-      }
-    }
-
-    return results;
   }
 /**
 
@@ -375,21 +329,6 @@ _collapseWhitespace(text) {
   }
 
   /**
-   * @param {number|null} left
-   * @param {number|null} right
-   * @returns {boolean}
-   */
-  _areCostsEquivalent(left, right) {
-    if (!Number.isFinite(left) || !Number.isFinite(right)) return false;
-    if (Math.abs((left ?? 0) - (right ?? 0)) <= 0.009) return true;
-
-    // Handle mixed representations where one side is cents and the other is full currency units.
-    if (Math.abs(((left ?? 0) * 100) - (right ?? 0)) <= 0.9) return true;
-    if (Math.abs(((right ?? 0) * 100) - (left ?? 0)) <= 0.9) return true;
-    return false;
-  }
-
-  /**
    * @param {any} value
    * @returns {string[]}
    */
@@ -406,23 +345,6 @@ _collapseWhitespace(text) {
     }
     normalized.sort();
     return normalized;
-  }
-
-  /**
-   * @param {number} status
-   * @returns {boolean}
-   */
-  _isUnauthorizedStatus(status) {
-    return Number(status) === 401;
-  }
-
-  /**
-   * @param {unknown} err
-   * @returns {boolean}
-   */
-  _isNotFoundError(err) {
-    const message = String(err instanceof Error ? err.message : err || '').toLowerCase();
-    return message.includes('http 404') || message.includes('not found');
   }
 
   /**
@@ -451,14 +373,6 @@ _collapseWhitespace(text) {
         changedFields.push(field);
       }
     };
-
-    const nextAppId = this._toOptionalString(scraped?.app_id);
-    const currentAppId = this._toOptionalString(existing?.app_id);
-    if (nextAppId && nextAppId !== currentAppId) {
-      payload.app_id = nextAppId;
-      changedFields.push('app_id');
-    }
-
     const nextPlatformId = this._platformIdFromAny(scraped?.platform_name ?? scraped?.platform_id);
     const currentPlatformId = this._platformIdFromAny(existing?.platform_name ?? existing?.platform_id);
     if (nextPlatformId && nextPlatformId !== currentPlatformId) {
@@ -466,20 +380,28 @@ _collapseWhitespace(text) {
       changedFields.push('platform_id');
     }
 
+    const nextAppId = this._toOptionalString(scraped?.app_id);
+    const currentAppId = this._toOptionalString(existing?.app_id);
+    if (nextAppId && nextAppId !== currentAppId && nextPlatformId !== currentPlatformId) {
+      payload.app_id = nextAppId;
+      changedFields.push('app_id');
+    }
+
+
     maybeSetText('name', scraped?.name, existing?.name);
     maybeSetText('banner_img', scraped?.banner_img, existing?.banner_img);
     maybeSetText('description', scraped?.description, existing?.description);
     maybeSetText('minimum_requirements', scraped?.minimum_requirements, existing?.minimum_requirements);
 
-    const nextCost = this._toOptionalFiniteNumber(scraped?.cost);
-    const currentCost = this._toOptionalFiniteNumber(existing?.cost);
-    if (nextCost !== null) {
-      const changed = currentCost === null ? true : !this._areCostsEquivalent(currentCost, nextCost);
-      if (changed) {
-        payload.cost = nextCost;
-        changedFields.push('cost');
-      }
-    }
+    // const nextCost = this._toOptionalFiniteNumber(scraped?.cost);
+    // const currentCost = this._toOptionalFiniteNumber(existing?.cost);
+    // if (nextCost !== null) {
+    //   const changed = currentCost === null ? true : !(Math.abs((nextCost ?? 0) - (currentCost ?? 0)) <= 0.009);
+    //   if (changed) {
+    //     payload.cost = nextCost;
+    //     changedFields.push('cost');
+    //   }
+    // }
 
     const nextGenres = this._normalizeGenresForCompare(scraped?.genre_names);
     const currentGenres = this._normalizeGenresForCompare(existing?.genre_names);
@@ -496,14 +418,14 @@ _collapseWhitespace(text) {
    * Auth: Authorization: Bearer <token>
    *
    * @param {string} token
-   * @param {import('../models').UploadGameRequest|any} request
-   * @returns {Promise<import('../models').UploadGameResult>}
+   * @param {import('./models').UploadGameRequest|any} request
+   * @returns {Promise<import('./models').UploadGameResult>}
    */
   async uploadGame(token, request) {
     if (!token || !String(token).trim()) throw new Error('Token is required');
     if (!request || typeof request !== 'object') throw new Error('Request body is required');
-    let url = joinUrl(this.#serverUrl, 'api', 'games');
-    let { ok, status, json, text } = await fetchJsonSafe(url, {
+    let url = `${this.#serverUrl}/api/games`;
+    let response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -513,11 +435,11 @@ _collapseWhitespace(text) {
         body: JSON.stringify(request),
       });
     return {
-      ok,
-      statusCode: status,
-      response: json && typeof json === 'object' ? json : null,
-      rawJson: json,
-      rawText: text ?? null,
+      ok: response.ok,
+      statusCode: response.status,
+      response: await response.json().catch(() => null),
+      rawJson: null,
+      rawText: null,
     };
   }
 
@@ -528,7 +450,7 @@ _collapseWhitespace(text) {
    * @param {string} token
    * @param {number|string} gameId
    * @param {Record<string, any>} request
-   * @returns {Promise<import('../models').UploadGameResult>}
+   * @returns {Promise<import('./models').UploadGameResult>}
    */
   async updateGame(token, gameId, request) {
     if (!token || !String(token).trim()) throw new Error('Token is required');
@@ -536,8 +458,8 @@ _collapseWhitespace(text) {
     if (!Number.isFinite(numericGameId) || numericGameId <= 0) throw new Error('Game ID is required');
     if (!request || typeof request !== 'object') throw new Error('Request body is required');
 
-    const url = joinUrl(this.#serverUrl, 'api', 'games', enc(String(numericGameId)));
-    const { ok, status, json, text } = await fetchJsonSafe(url, {
+    const url = `${this.#serverUrl}/api/games/${encodeURI(String(numericGameId))}`;
+    const response = await fetch(url, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -547,24 +469,24 @@ _collapseWhitespace(text) {
       body: JSON.stringify(request),
     });
 
-    if (!ok) {
-      const apiError = json && typeof json === 'object' ? (json.error || json.message) : null;
-      const snippet = String(apiError ?? text ?? 'Unknown error').replace(/\s+/g, ' ').trim().slice(0, 300);
-      if (this._isUnauthorizedStatus(status)) {
+    if (!response.ok) {
+      const apiError = await response.json().catch(() => null);
+      const snippet = String(apiError?.error || apiError?.message || 'Unknown error').replace(/\s+/g, ' ').trim().slice(0, 300);
+      if (response.status === 401) {
         const e = new Error(`Unauthorized (token invalid/expired): ${snippet || 'Unauthorized'}`);
         // @ts-ignore
         e.code = 'WRECK_INVALID_TOKEN';
         throw e;
       }
-      throw new Error(`Game update failed (HTTP ${status}): ${snippet}`);
+      throw new Error(`Game update failed (HTTP ${response.status}): ${snippet}`);
     }
 
     return {
-      ok,
-      statusCode: status,
-      response: json && typeof json === 'object' ? json : null,
-      rawJson: json,
-      rawText: text ?? null,
+      ok: response.ok,
+      statusCode: response.status,
+      response: await response.json().catch(() => null),
+      rawJson: null,
+      rawText: null,
     };
   }
 
@@ -612,13 +534,13 @@ _collapseWhitespace(text) {
     try {
       existing = await this.getAllDetailsByAppIDAndPlatform(normalizedRequest.app_id, platformName, countryCode);
     } catch (err) {
-      if (!this._isNotFoundError(err)) throw err;
+      if (!String(err).includes('http 404') || String(err).includes('not found')) throw err;
     }
 
     if (!existing) {
       const uploadResult = await this.uploadGame(tokenStr, normalizedRequest);
       if (!uploadResult.ok) {
-        if (this._isUnauthorizedStatus(uploadResult.statusCode)) {
+        if (uploadResult.statusCode === 401) {
           const msg = uploadResult.rawText || uploadResult.response?.error || uploadResult.response?.message || 'Unauthorized';
           const e = new Error(`Unauthorized (token invalid/expired): ${String(msg).slice(0, 300)}`);
           // @ts-ignore
@@ -653,34 +575,13 @@ _collapseWhitespace(text) {
   }
 
   /**
-   * Get all details of a game by ID.
    * 
-   * @param {number} id 
-    * @returns {Promise<import('../models').GameDetails>}
+   * @param {*} json 
+   * @returns 
    */
-  async getAllDetailsByID(id, countryCode = 'DE'){
-    // Note: allow numeric 0 check explicitly; reject null/undefined/NaN.
-    if (id === undefined || id === null || Number.isNaN(Number(id))) throw new Error('Game ID is required');
-
-    // Backend endpoint is /api/games/:appId/all where :appId is the platform-specific app id (e.g. Steam appid).
-    const normalizedCountryCode = String(countryCode || 'DE').trim() || 'DE';
-    const url = `${joinUrl(this.#serverUrl, 'api', 'games', enc(String(id)), 'details')}?country_code=${enc(normalizedCountryCode)}`;
-
-    const { ok, status, json, text } = await fetchJsonSafe(url,{
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-      },
-    });
-
-    if (!ok) {
-      const apiError = json && typeof json === 'object' ? (json.error || json.message) : null;
-      const snippet = String(apiError ?? text ?? 'Unknown error').replace(/\s+/g, ' ').trim().slice(0, 300);
-      throw new Error(`Failed to fetch game details (HTTP ${status}): ${snippet}`);
-    }
-
+  _getAllDetailsResponse(json){
+    
     const obj = json && typeof json === 'object' ? json : null;
-    console.log('getAllDetailsByID response:', obj);
 
     const rawGenres = Array.isArray(obj?.genres) ? obj.genres : null;
     const genreNamesFromBackend = Array.isArray(rawGenres)
@@ -690,13 +591,12 @@ _collapseWhitespace(text) {
       : null;
     const pirateSites = Array.isArray(obj?.pirate_sites)
       ? obj.pirate_sites
-      : (Array.isArray(obj?.pirateSites) ? obj.pirateSites : null);
+      : null;
 
     return {
       id: obj?.id ?? null,
       app_id: obj?.app_id ?? null,
       name: obj?.name ?? null,
-      // Backend currently returns `platform` (see SQL alias); keep `platform_name` for renderer compatibility.
       platform_name: obj?.platform_name ?? obj?.platform ?? null,
       banner_img: obj?.banner_img ?? null,
       description: obj?.description ?? null,
@@ -706,12 +606,42 @@ _collapseWhitespace(text) {
       currency: this._toOptionalString(obj?.currency),
       formated_price: this._toOptionalString(obj?.formated_price),
       country_code: this._toOptionalString(obj?.country_code),
-      // Backend returns `genres` as rows; derive `genre_names` for the existing UploadGameRequest shape.
       genre_names: Array.isArray(obj?.genre_names)
         ? obj.genre_names
         : (genreNamesFromBackend && genreNamesFromBackend.length ? genreNamesFromBackend : null),
       pirate_sites: pirateSites,
     };
+  }
+  /**
+   * Get all details of a game by ID.
+   * 
+   * @param {number} id 
+    * @returns {Promise<import('./models').GameDetails>}
+   */
+  async getAllDetailsByID(id, countryCode = 'DE'){
+    // Note: allow numeric 0 check explicitly; reject null/undefined/NaN.
+    if (id === undefined || id === null || Number.isNaN(Number(id))) throw new Error('Game ID is required');
+
+    // Backend endpoint is /api/games/:appId/all where :appId is the platform-specific app id (e.g. Steam appid).
+    const normalizedCountryCode = String(countryCode || 'DE').trim() || 'DE';
+    const url = `${this.#serverUrl}/api/games/${encodeURI(String(id))}/details?country_code=${encodeURI(normalizedCountryCode)}`;
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+      },
+    });
+    const { ok, status } = response;
+    const json = await response.json().catch(() => null);
+    const text = await response.text().catch(() => null);
+
+    if (!ok) {
+      const apiError = json && typeof json === 'object' ? (json.error || json.message) : null;
+      const snippet = String(apiError ?? text ?? 'Unknown error').replace(/\s+/g, ' ').trim().slice(0, 300);
+      throw new Error(`Failed to fetch game details (HTTP ${status}): ${snippet}`);
+    }
+    return this._getAllDetailsResponse(json);
   }
   /**
    * 
@@ -724,62 +654,31 @@ _collapseWhitespace(text) {
     if (!appId || !String(appId).trim()) throw new Error('App ID is required');
     if (!platform || !String(platform).trim()) throw new Error('Platform is required');
 
-    const platformIds = await this._resolvePlatformIds(platform);
+    const platformIds = await this._resolvePlatformIds(platform);    
     if (platformIds.length < 1) throw new Error(`Invalid platform: ${String(platform)}`);
-
+    console.dir({ resolvedPlatformIds: platformIds }, { depth: null });
     const normalizedCountryCode = String(countryCode || 'DE').trim() || 'DE';
-    let lastNotFoundError = null;
     for (const platformId of platformIds) {
-      const url = `${joinUrl(this.#serverUrl, 'api', 'games', 'platforms', enc(String(platformId)), 'app-id', enc(String(appId)), 'details')}?country_code=${enc(normalizedCountryCode)}`;
-      const { ok, status, json, text } = await fetchJsonSafe(url,{
+      const url = `${this.#serverUrl}/api/games/platforms/${encodeURIComponent(String(platformId))}/app-id/${encodeURIComponent(String(appId))}/details?country_code=${encodeURIComponent(normalizedCountryCode)}`;
+      const response = await fetch(url,{
         method: 'GET',
         headers: {
           'Accept': 'application/json',
         },
       });
-      if (!ok) {
-        const apiError = json && typeof json === 'object' ? (json.error || json.message) : null;
-        const snippet = String(apiError ?? text ?? 'Unknown error').replace(/\s+/g, ' ').trim().slice(0, 300);
-        const error = new Error(`Failed to fetch game details (HTTP ${status}): ${snippet}`);
-        if (Number(status) === 404) {
-          lastNotFoundError = error;
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        const apiError = data && typeof data === 'object' ? (data.error || data.message) : null;
+        const snippet = String(apiError ?? response.text ?? 'Unknown error').replace(/\s+/g, ' ').trim().slice(0, 300);
+        const error = new Error(`Failed to fetch game details (HTTP ${response.status}): ${snippet}`);
+        if (Number(response.status) === 404) {
           continue;
         }
         throw error;
       }
-
-      const obj = json && typeof json === 'object' ? json : null;
-      const rawGenres = Array.isArray(obj?.genres) ? obj.genres : null;
-      const genreNamesFromBackend = Array.isArray(rawGenres)
-        ? rawGenres          .map((g) => (g && typeof g === 'object' ? (g.genre ?? g.name ?? g.description) : null))
-            .filter((v) => typeof v === 'string' && v.trim())
-        : null;
-      let pirateSites = Array.isArray(obj?.pirate_sites)
-        ? obj.pirate_sites
-        : (Array.isArray(obj?.pirateSites) ? obj.pirateSites : null);
-      console.log('Platform + appid gameDetails: ', json);
-      return {
-        id: obj?.id ?? null,
-        app_id: obj?.app_id ?? null,
-        name: obj?.name ?? null,
-        platform_name: obj?.platform_name ?? obj?.platform ?? null,
-        banner_img: obj?.banner_img ?? null,
-        description: obj?.description ?? null,
-        minimum_requirements: obj?.minimum_requirements ?? null,
-        cost: this._toOptionalFiniteNumber(obj?.cost),
-        price: this._toOptionalFiniteNumber(obj?.price),
-        currency: this._toOptionalString(obj?.currency),
-        formated_price: this._toOptionalString(obj?.formated_price),
-        country_code: this._toOptionalString(obj?.country_code),
-        genre_names: Array.isArray(obj?.genre_names)
-          ? obj.genre_names
-          : (genreNamesFromBackend && genreNamesFromBackend.length ? genreNamesFromBackend : null),
-        pirate_sites: Array.isArray(pirateSites) ? pirateSites : null,
-      };
-    }
-
-    if (lastNotFoundError) throw lastNotFoundError;
-    throw new Error('Failed to fetch game details: no platform candidates resolved');
+    return this._getAllDetailsResponse(data);
+    }    
+    console.warn('Failed to fetch game details: no game found on database');
   }
 
   /**
@@ -789,33 +688,27 @@ _collapseWhitespace(text) {
    * (`GamesController.getWithAllForeign`); see {@link import('../models').GameListItem}.
    *
    * @param {number} from  Row offset (0-based)
-   * @returns {Promise<import('../models').GameListItem[]>}  Array of up to 20 game rows
+   * @returns {Promise<import('./models').GameListItem[]>}  Array of up to 20 game rows
    */
   async getGames(from, countryCode = "DE") {
     if (from === undefined || from === null || Number.isNaN(Number(from))) throw new Error('from is required');
 
     const normalizedCountryCode = String(countryCode || 'DE').trim() || 'DE';
-    const url = `${joinUrl(this.#serverUrl, 'api', 'games', 'list', enc(String(from)))}?country_code=${enc(normalizedCountryCode)}`;
+    const url = `${this.#serverUrl}/api/games/list/${encodeURIComponent(String(from))}?country_code=${encodeURIComponent(normalizedCountryCode)}`;
 
-    const { ok, status, json, text } = await fetchJsonSafe(url, {
+    const response = await fetch(url, {
       method: 'GET',
       headers: { 'Accept': 'application/json' }
     });
 
-    if (!ok && this._isLegacyListSchemaError(status, json, text)) {
-      const fallbackGames = await this._getGamesByIdFallback(Number(from), 20);
-      if (fallbackGames.length > 0) {
-        return fallbackGames;
-      }
+  const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      const apiError = data && typeof data === 'object' ? (data.error || data.message) : null;
+      const snippet = String(apiError ?? response.text ?? 'Unknown error').replace(/\s+/g, ' ').trim().slice(0, 300);
+      throw new Error(`Failed to fetch games (HTTP ${response.status}): ${snippet}`);
     }
 
-    if (!ok) {
-      const apiError = json && typeof json === 'object' ? (json.error || json.message) : null;
-      const snippet = String(apiError ?? text ?? 'Unknown error').replace(/\s+/g, ' ').trim().slice(0, 300);
-      throw new Error(`Failed to fetch games (HTTP ${status}): ${snippet}`);
-    }
-
-    return Array.isArray(json) ? json : (json ?? []);
+    return Array.isArray(data) ? data : (data ?? []);
   }
 
   /**
@@ -835,68 +728,32 @@ _collapseWhitespace(text) {
       return [];
     }
 
-    const url = joinUrl(this.#serverUrl, 'api', 'search');
+    const url = `${this.#serverUrl}/api/search`;
     const payload = JSON.stringify({
       needle: normalizedNeedle,
       tags: normalizedTags,
     });
-
-    const target = new URL(url);
-    const requestClient = target.protocol === 'https:' ? https : http;
-
-    const { ok, status, json, text } = await new Promise((resolve, reject) => {
-      const req = requestClient.request(
-        {
-          protocol: target.protocol,
-          hostname: target.hostname,
-          port: target.port || undefined,
-          path: `${target.pathname}${target.search}`,
-          method: 'GET',
-          headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-            'Content-Length': Buffer.byteLength(payload),
-          },
-        },
-        (res) => {
-          /** @type {Buffer[]} */
-          const chunks = [];
-          res.on('data', (chunk) => {
-            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
-          });
-          res.on('end', () => {
-            const text = Buffer.concat(chunks).toString('utf8');
-            let json = null;
-            if (text) {
-              try {
-                json = JSON.parse(text);
-              } catch {
-                json = null;
-              }
-            }
-
-            const status = Number(res.statusCode) || 0;
-            resolve({
-              ok: status >= 200 && status < 300,
-              status,
-              json,
-              text,
-            });
-          });
-        },
-      );
-
-      req.on('error', reject);
-      req.write(payload);
-      req.end();
+    const searchUrl = new URL(url); 
+    searchUrl.searchParams.append('needle', normalizedNeedle);
+    for(const tag in normalizedTags){
+      searchUrl.searchParams.append('tags', normalizedTags[tag]);
+    }
+    const response = await fetch(searchUrl, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',        
+      },      
+      
     });
-
+    const { ok, status } = response;
+    const json = await response.json().catch(() => null);
+    const text = await response.text().catch(() => null);
     if (!ok) {
       const apiError = json && typeof json === 'object' ? (json.error || json.message) : null;
       const snippet = String(apiError ?? text ?? 'Unknown error').replace(/\s+/g, ' ').trim().slice(0, 300);
       throw new Error(`Failed to search games (HTTP ${status}): ${snippet}`);
     }
-
     if (Array.isArray(json)) return json;
     if (Array.isArray(json?.items)) return json.items;
     if (Array.isArray(json?.data)) return json.data;
@@ -1031,9 +888,7 @@ _collapseWhitespace(text) {
     const summary = { uploaded: 0, skipped: 0, errors: [] };
 
     for (const site of normalizedSites) {
-      const postNewPath = joinUrl(this.#serverUrl, 'api', 'pirate-sites', enc(String(gameId)));
-      const putNewPath = joinUrl(this.#serverUrl, 'api', 'pirate-sites', enc(String(gameId)));
-      const legacyPath = joinUrl(this.#serverUrl, 'api', 'pirate_sites', enc(String(gameId)));
+      const url = `${this.#serverUrl}/api/pirate-sites/${encodeURIComponent(String(gameId))}`;
       const explicitSiteId = Number.isFinite(Number(site.siteId)) && Number(site.siteId) > 0
         ? Number(site.siteId)
         : null;
@@ -1051,86 +906,81 @@ _collapseWhitespace(text) {
             }
           : {}),
       };
-      const attemptBodies = [
-        {
-          label: 'POST /api/pirate-sites/:gameId',
-          method: 'POST',
-          url: postNewPath,
-          body: structuredBody,
-        },
-        {
-          label: 'PUT /api/pirate-sites/:gameId',
-          method: 'PUT',
-          url: putNewPath,
-          body: structuredBody,
-        },
-        {
-          label: 'PUT /api/pirate-sites/:gameId (sites array)',
-          method: 'PUT',
-          url: putNewPath,
-          body: { sites: [site.link] },
-        },
-        {
-          label: 'PUT /api/pirate_sites/:gameId',
-          method: 'PUT',
-          url: legacyPath,
-          body: structuredBody,
-        },
-        {
-          label: 'PUT /api/pirate_sites/:gameId (sites array)',
-          method: 'PUT',
-          url: legacyPath,
-          body: { sites: [site.link] },
-        },
-        {
-          label: 'POST /api/pirate_sites/:gameId',
-          method: 'POST',
-          url: legacyPath,
-          body: structuredBody,
-        },
-      ];
+      // const attemptBodies = [
+      //   {
+      //     label: 'POST /api/pirate-sites/:gameId',
+      //     method: 'POST',
+      //     url: postNewPath,
+      //     body: structuredBody,
+      //   },
+      //   {
+      //     label: 'PUT /api/pirate-sites/:gameId',
+      //     method: 'PUT',
+      //     url: putNewPath,
+      //     body: structuredBody,
+      //   },
+      //   {
+      //     label: 'PUT /api/pirate-sites/:gameId (sites array)',
+      //     method: 'PUT',
+      //     url: putNewPath,
+      //     body: { sites: [site.link] },
+      //   },
+      //   {
+      //     label: 'PUT /api/pirate_sites/:gameId',
+      //     method: 'PUT',
+      //     url: legacyPath,
+      //     body: structuredBody,
+      //   },
+      //   {
+      //     label: 'PUT /api/pirate_sites/:gameId (sites array)',
+      //     method: 'PUT',
+      //     url: legacyPath,
+      //     body: { sites: [site.link] },
+      //   },
+      //   {
+      //     label: 'POST /api/pirate_sites/:gameId',
+      //     method: 'POST',
+      //     url: legacyPath,
+      //     body: structuredBody,
+      //   },
+      // ];
 
-      if (typeof explicitSiteId === 'number' && Number.isFinite(explicitSiteId) && explicitSiteId > 0) {
-        attemptBodies.push(
-          {
-            label: 'PUT /api/pirate-sites/:siteId/game/:gameId',
-            method: 'PUT',
-            url: joinUrl(this.#serverUrl, 'api', 'pirate-sites', enc(String(explicitSiteId)), 'game', enc(String(gameId))),
-            body: { game_id: gameId, gameId, link: site.link },
-          },
-          {
-            label: 'PUT /api/pirate_sites/:siteId/game/:gameId',
-            method: 'PUT',
-            url: joinUrl(this.#serverUrl, 'api', 'pirate_sites', enc(String(explicitSiteId)), 'game', enc(String(gameId))),
-            body: { game_id: gameId, gameId, link: site.link },
-          }
-        );
-      }
-
+      // if (typeof explicitSiteId === 'number' && Number.isFinite(explicitSiteId) && explicitSiteId > 0) {
+      //   attemptBodies.push(
+      //     {
+      //       label: 'PUT /api/pirate-sites/:siteId/game/:gameId',
+      //       method: 'PUT',
+      //       url: joinUrl(this.#serverUrl, 'api', 'pirate-sites', enc(String(explicitSiteId)), 'game', enc(String(gameId))),
+      //       body: { game_id: gameId, gameId, link: site.link },
+      //     },
+      //     {
+      //       label: 'PUT /api/pirate_sites/:siteId/game/:gameId',
+      //       method: 'PUT',
+      //       url: joinUrl(this.#serverUrl, 'api', 'pirate_sites', enc(String(explicitSiteId)), 'game', enc(String(gameId))),
+      //       body: { game_id: gameId, gameId, link: site.link },
+      //     }
+      //   );
+      // }
       let uploaded = false;
-      let lastErrorMessage = 'unknown upload error';
-      const attemptErrors = [];
 
-      for (const attempt of attemptBodies) {
-        const { ok, status, json, text } = await fetchJsonSafe(attempt.url, {
-          method: attempt.method,
+        const response = await fetch(url, {
+          method: explicitSiteId ? explicitSiteId > 0 ? 'PUT' : 'POST' : 'POST',
           headers: authHeaders,
-          body: JSON.stringify(attempt.body),
+          body: JSON.stringify(structuredBody),
         });
 
-        if (ok) {
+        if (response.ok) {
           summary.uploaded += 1;
           uploaded = true;
           break;
         }
-
+        const json = await response.json().catch(() => null);
+        const text = await response.text().catch(() => null);
         const apiError = json && typeof json === 'object' ? (json.error || json.message) : null;
         const snippet = String(apiError ?? text ?? 'Unknown error').replace(/\s+/g, ' ').trim().slice(0, 300);
         const lowered = snippet.toLowerCase();
-        attemptErrors.push(`${attempt.label}: HTTP ${status} ${snippet}`);
-
-        if (status === 401) {
-          const unauthorizedError = new Error(`Failed to upload pirate sites (HTTP ${status}): ${snippet}`);
+        if (response.status === 401) {
+          const unauthorizedError = new Error(`Failed to upload pirate sites (HTTP ${response.status}): ${snippet}`);
           // @ts-ignore
           unauthorizedError.code = 'WRECK_INVALID_TOKEN';
           throw unauthorizedError;
@@ -1142,21 +992,11 @@ _collapseWhitespace(text) {
           break;
         }
 
-        if (!lastErrorMessage || lastErrorMessage === 'unknown upload error' || (status !== 404 && status !== 405)) {
-          lastErrorMessage = `HTTP ${status}: ${snippet}`;
-        }
-
         // Route mismatch and payload mismatch are expected between backend variants,
         // so keep trying fallback variants before failing this site.
-        if (status === 404 || status === 405 || status === 400 || status === 422 || status === 500) {
+        if (response.status === 404 || response.status === 405 || response.status === 400 || response.status === 422 || response.status === 500) {
           continue;
         }
-      }
-
-      if (!uploaded) {
-        const compactAttempts = attemptErrors.slice(0, 8).join(' | ');
-        summary.errors.push(`${site.originalLink.slice(0, 80)} -> ${lastErrorMessage} (${compactAttempts})`);
-      }
     }
 
     if (summary.errors.length > 0) {

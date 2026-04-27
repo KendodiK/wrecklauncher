@@ -71,12 +71,566 @@ async function resolvePreferredCountryCode(api) {
 const PIRATE_LINK_RESOLVE_TIMEOUT_MS = 10_000;
 const STORE_STEAM_IMAGE_PROBE_TIMEOUT_MS = 5_500;
 const STORE_RATING_FETCH_TIMEOUT_MS = 9_000;
+const LOCAL_HARDWARE_PROFILE_TIMEOUT_MS = 8_000;
+const LOCAL_HARDWARE_PROFILE_CACHE_TTL_MS = 90_000;
 const STORE_STEAM_IMAGE_CDN_HOSTS = [
 	'https://cdn.cloudflare.steamstatic.com',
 	'https://cdn.akamai.steamstatic.com',
 ];
 
 const storeSteamImageProbeCache = new Map();
+
+const REQUIREMENT_CHECK_SHOULD_RUN = 'Should run';
+const REQUIREMENT_CHECK_HOPES = 'will run on hopes and prayers';
+const REQUIREMENT_CHECK_PROBABLY_NOT = 'will probably not run';
+
+function htmlToRequirementLines(value) {
+	const normalized = normalizeUtf8Text(String(value ?? ''));
+	if (!normalized) return [];
+
+	const withLineHints = normalized
+		.replace(/<\s*br\s*\/?>/gi, '\n')
+		.replace(/<\/(p|div|li|tr|h[1-6]|section|article|table)>/gi, '\n')
+		.replace(/<\/?(td|th)[^>]*>/gi, ' ');
+
+	const decoded = decodeHtmlEntities(withLineHints);
+	const flattened = String(decoded || '')
+		.replace(/<[^>]+>/g, ' ')
+		.replace(/\r/g, '')
+		.replace(/[ \t]+\n/g, '\n')
+		.replace(/\n[ \t]+/g, '\n')
+		.replace(/\n{2,}/g, '\n')
+		.replace(/[ \t]{2,}/g, ' ')
+		.trim();
+
+	return flattened
+		.split(/\n|;|•|\u2022/g)
+		.map((line) => normalizeUtf8Text(String(line || '').trim()))
+		.filter(Boolean);
+}
+
+function parseSizeInGb(text) {
+	const raw = String(text || '').toLowerCase();
+	if (!raw) return null;
+
+	const matches = Array.from(raw.matchAll(/(\d+(?:[.,]\d+)?)\s*(tb|gb|gib|mb|mib)\b/g));
+	if (matches.length < 1) return null;
+
+	let best = null;
+	for (const match of matches) {
+		const numeric = Number(String(match[1] || '').replace(',', '.'));
+		if (!Number.isFinite(numeric) || numeric <= 0) continue;
+		const unit = String(match[2] || '').toLowerCase();
+
+		let gbValue = numeric;
+		if (unit === 'tb') gbValue = numeric * 1024;
+		if (unit === 'mb' || unit === 'mib') gbValue = numeric / 1024;
+
+		if (!Number.isFinite(gbValue) || gbValue <= 0) continue;
+		best = best == null ? gbValue : Math.max(best, gbValue);
+	}
+
+	return best == null ? null : Number(best.toFixed(2));
+}
+
+function collectCpuScores(value) {
+	const text = String(value || '').toLowerCase();
+	if (!text) return [];
+
+	const scores = [];
+
+	for (const match of text.matchAll(/(?:intel\s*(?:core\s*)?)?i([3579])[-\s]?(\d{3,5})?/g)) {
+		const tier = Number(match[1]);
+		const digits = String(match[2] || '').replace(/\D/g, '');
+		if (!Number.isFinite(tier) || tier <= 0) continue;
+
+		let generation = 0;
+		if (digits.length >= 5) generation = Number(digits.slice(0, 2));
+		else if (digits.length >= 4) generation = Number(digits.slice(0, 1));
+		else if (digits.length >= 3) generation = Number(digits.slice(0, 1));
+
+		const modelWeight = digits.length > 0 ? Number(digits.slice(-2)) / 100 : 0;
+		scores.push((tier * 100) + (generation * 8) + modelWeight);
+	}
+
+	for (const match of text.matchAll(/ryzen\s*([3579])\s*(\d{3,5})?/g)) {
+		const tier = Number(match[1]);
+		const digits = String(match[2] || '').replace(/\D/g, '');
+		if (!Number.isFinite(tier) || tier <= 0) continue;
+
+		let generation = 0;
+		if (digits.length >= 5) generation = Number(digits.slice(0, 2));
+		else if (digits.length >= 4) generation = Number(digits.slice(0, 1));
+		else if (digits.length >= 3) generation = Number(digits.slice(0, 1));
+
+		const modelWeight = digits.length > 0 ? Number(digits.slice(-2)) / 100 : 0;
+		scores.push((tier * 100) + (generation * 8) + modelWeight);
+	}
+
+	for (const match of text.matchAll(/\bfx[-\s]?(\d{3,4})\b/g)) {
+		const fxModel = Number(match[1]);
+		if (!Number.isFinite(fxModel) || fxModel <= 0) continue;
+		scores.push(250 + (fxModel / 100));
+	}
+
+	return scores;
+}
+
+function collectGpuScores(value) {
+	const text = String(value || '').toLowerCase();
+	if (!text) return [];
+
+	const scores = [];
+
+	for (const match of text.matchAll(/rtx\s*(\d{3,4})/g)) {
+		const model = Number(match[1]);
+		if (!Number.isFinite(model) || model <= 0) continue;
+		scores.push(5000 + model);
+	}
+
+	for (const match of text.matchAll(/gtx\s*(\d{3,4})/g)) {
+		const model = Number(match[1]);
+		if (!Number.isFinite(model) || model <= 0) continue;
+		scores.push(4000 + model);
+	}
+
+	for (const match of text.matchAll(/(?:^|[^a-z])rx\s*([4-9]\d{2,3})/g)) {
+		const model = Number(match[1]);
+		if (!Number.isFinite(model) || model <= 0) continue;
+		scores.push(3600 + model);
+	}
+
+	for (const match of text.matchAll(/radeon\s*hd\s*(\d{3,4})/g)) {
+		const model = Number(match[1]);
+		if (!Number.isFinite(model) || model <= 0) continue;
+		scores.push(2400 + model);
+	}
+
+	for (const match of text.matchAll(/arc\s*([a-z])?\s*(\d{3})/g)) {
+		const letter = String(match[1] || '').toUpperCase();
+		const model = Number(match[2]);
+		if (!Number.isFinite(model) || model <= 0) continue;
+		const letterWeight = letter ? Math.max(0, letter.charCodeAt(0) - 64) : 1;
+		scores.push(3500 + (letterWeight * 10) + model);
+	}
+
+	if (scores.length < 1 && /(uhd|iris|integrated|vega)/i.test(text)) {
+		scores.push(2200);
+	}
+
+	return scores;
+}
+
+function parseCpuFrequencyRequirementGhz(value) {
+	const text = String(value || '').toLowerCase();
+	if (!text) return null;
+
+	const matches = Array.from(text.matchAll(/(\d+(?:[.,]\d+)?)\s*(ghz|mhz)\b/g));
+	if (matches.length < 1) return null;
+
+	let best = null;
+	for (const match of matches) {
+		const numeric = Number(String(match[1] || '').replace(',', '.'));
+		if (!Number.isFinite(numeric) || numeric <= 0) continue;
+		const unit = String(match[2] || '').toLowerCase();
+
+		const ghz = unit === 'mhz' ? (numeric / 1000) : numeric;
+		if (!Number.isFinite(ghz) || ghz <= 0) continue;
+		best = best == null ? ghz : Math.max(best, ghz);
+	}
+
+	return best == null ? null : Number(best.toFixed(2));
+}
+
+function parseGpuVramRequirementMb(value) {
+	const text = String(value || '').toLowerCase();
+	if (!text) return null;
+	if (!/\b(graphics|gpu|video\s*card|videocard|nvidia|geforce|radeon|arc|intel\s*arc|amd|rtx|gtx|\brx\s*\d|vram|video\s*memory)\b/.test(text)) {
+		return null;
+	}
+
+	const parseNumericToken = (rawToken) => {
+		let numericText = String(rawToken || '').replace(/\s+/g, '');
+		if (!numericText) return null;
+
+		if (numericText.includes(',') && numericText.includes('.')) {
+			const lastComma = numericText.lastIndexOf(',');
+			const lastDot = numericText.lastIndexOf('.');
+			if (lastComma > lastDot) {
+				numericText = numericText.replace(/\./g, '').replace(',', '.');
+			} else {
+				numericText = numericText.replace(/,/g, '');
+			}
+		} else if (numericText.includes(',')) {
+			if (/^\d{1,3}(,\d{3})+$/.test(numericText)) {
+				numericText = numericText.replace(/,/g, '');
+			} else {
+				numericText = numericText.replace(',', '.');
+			}
+		} else if (numericText.includes('.')) {
+			if (/^\d{1,3}(\.\d{3})+$/.test(numericText)) {
+				numericText = numericText.replace(/\./g, '');
+			}
+		}
+
+		const numeric = Number(numericText);
+		if (!Number.isFinite(numeric) || numeric <= 0) return null;
+		return numeric;
+	};
+
+	/** @type {number[]} */
+	const candidates = [];
+	const pushCandidate = (rawNumeric, rawUnit) => {
+		const numeric = parseNumericToken(rawNumeric);
+		if (!Number.isFinite(numeric) || numeric <= 0) return;
+
+		const unit = String(rawUnit || '').toLowerCase();
+		let mb = numeric;
+		if (unit === 'g' || unit === 'gb' || unit === 'gib') mb = numeric * 1024;
+		if (unit === 'm' || unit === 'mb' || unit === 'mib') mb = numeric;
+		if (!Number.isFinite(mb) || mb <= 0) return;
+
+		candidates.push(Number(mb.toFixed(2)));
+	};
+
+	const directMatches = Array.from(
+		text.matchAll(/(\d+(?:[.,]\d+)?)\s*(g|gb|gib|m|mb|mib)\s*(?:of\s*)?(?:video\s*)?(?:memory|vram)\b/g)
+	);
+	for (const match of directMatches) {
+		pushCandidate(match[1], match[2]);
+	}
+
+	const modelScopedMatches = Array.from(
+		text.matchAll(/(?:gtx|rtx|rx|radeon|geforce|arc|intel\s*arc|nvidia|amd)[^,;\n]{0,32}?(\d+(?:[.,]\d+)?)\s*(g|gb|gib|m|mb|mib)\b/g)
+	);
+	for (const match of modelScopedMatches) {
+		const contextWindow = String(match[0] || '');
+		if (/\b(storage|space|disk|hdd|ssd)\b/.test(contextWindow)) continue;
+		pushCandidate(match[1], match[2]);
+	}
+
+	const sizeThenModelMatches = Array.from(
+		text.matchAll(/(\d+(?:[.,]\d+)?)\s*(g|gb|gib|m|mb|mib)\b[^,;\n]{0,24}?(?:gtx|rtx|rx|radeon|geforce|arc|intel\s*arc|nvidia|amd)\b/g)
+	);
+	for (const match of sizeThenModelMatches) {
+		const contextWindow = String(match[0] || '');
+		if (/\b(ram|system\s*memory|storage|space|disk|hdd|ssd)\b/.test(contextWindow)) continue;
+		pushCandidate(match[1], match[2]);
+	}
+
+	if (candidates.length > 0) {
+		// Treat "or" alternatives as alternative minimum branches; choose the smallest valid VRAM threshold.
+		return Number(Math.min(...candidates).toFixed(2));
+	}
+
+	return null;
+}
+
+function parseShaderModelRequirement(value) {
+	const text = String(value || '').toLowerCase();
+	if (!text) return null;
+
+	const match = text.match(/shader\s*model\s*(\d+(?:[.,]\d+)?)/i);
+	if (!match || !match[1]) return null;
+
+	const parsed = Number(String(match[1]).replace(',', '.'));
+	if (!Number.isFinite(parsed) || parsed <= 0) return null;
+	return Number(parsed.toFixed(2));
+}
+
+function inferLikelyShaderModelFromGpuNames(gpuNames) {
+	const names = Array.isArray(gpuNames) ? gpuNames : [];
+	if (names.length < 1) return null;
+
+	let best = null;
+	for (const name of names) {
+		const lower = String(name || '').toLowerCase();
+		if (!lower) continue;
+		if (/swiftshader|microsoft basic render driver|software rasterizer|llvmpipe|virtualbox|vmware/.test(lower)) {
+			continue;
+		}
+
+		let inferred = null;
+		if (/rtx|gtx|geforce|radeon\s*rx|\brx\s*\d|arc\s*[a-z]?\s*\d|iris\s*xe|uhd\s*graphics|vega|intel\s*arc/.test(lower)) {
+			inferred = 6;
+		} else if (/radeon|intel\s*hd|nvidia|amd/.test(lower)) {
+			inferred = 5;
+		}
+
+		if (inferred != null) {
+			best = best == null ? inferred : Math.max(best, inferred);
+		}
+	}
+
+	return best == null ? null : Number(best.toFixed(2));
+}
+
+function pickRequirementScore(scores) {
+	const valid = Array.isArray(scores) ? scores.filter((entry) => Number.isFinite(entry) && entry > 0) : [];
+	if (valid.length < 1) return null;
+	return Math.min(...valid);
+}
+
+function pickLocalScore(scores) {
+	const valid = Array.isArray(scores) ? scores.filter((entry) => Number.isFinite(entry) && entry > 0) : [];
+	if (valid.length < 1) return null;
+	return Math.max(...valid);
+}
+
+function parseMinimumRequirementsProfile(minimumRequirementsHtml) {
+	const lines = htmlToRequirementLines(minimumRequirementsHtml);
+	const fullText = lines.join(' ');
+
+	let ramGb = null;
+	let storageGb = null;
+	let cpuScores = [];
+	let gpuScores = [];
+	let cpuMinGhz = null;
+	let gpuVramMb = null;
+	let shaderModelMin = null;
+
+	for (const line of lines) {
+		const lower = String(line || '').toLowerCase();
+
+		if (/\b(memory|ram)\b/.test(lower)) {
+			const parsed = parseSizeInGb(lower);
+			if (parsed != null) ramGb = ramGb == null ? parsed : Math.max(ramGb, parsed);
+		}
+
+		if (/\b(storage|available\s*space|hard\s*drive|disk\s*space|hdd|ssd)\b/.test(lower)) {
+			const parsed = parseSizeInGb(lower);
+			if (parsed != null) storageGb = storageGb == null ? parsed : Math.max(storageGb, parsed);
+		}
+
+		if (/\b(processor|cpu)\b/.test(lower)) {
+			cpuScores = cpuScores.concat(collectCpuScores(lower));
+			const parsedCpuFrequency = parseCpuFrequencyRequirementGhz(lower);
+			if (parsedCpuFrequency != null) {
+				cpuMinGhz = cpuMinGhz == null ? parsedCpuFrequency : Math.max(cpuMinGhz, parsedCpuFrequency);
+			}
+		}
+
+		if (/\b(graphics|gpu|video\s*card|videocard|nvidia|geforce|radeon|rtx|gtx|\brx\s*\d)\b/.test(lower)) {
+			gpuScores = gpuScores.concat(collectGpuScores(lower));
+			const parsedGpuVram = parseGpuVramRequirementMb(lower);
+			if (parsedGpuVram != null) {
+				gpuVramMb = gpuVramMb == null ? parsedGpuVram : Math.min(gpuVramMb, parsedGpuVram);
+			}
+
+			const parsedShaderModel = parseShaderModelRequirement(lower);
+			if (parsedShaderModel != null) {
+				shaderModelMin = shaderModelMin == null ? parsedShaderModel : Math.max(shaderModelMin, parsedShaderModel);
+			}
+		}
+	}
+
+	if (ramGb == null) {
+		const fullRam = /\b(memory|ram)\b/.test(fullText.toLowerCase()) ? parseSizeInGb(fullText) : null;
+		if (fullRam != null) ramGb = fullRam;
+	}
+	if (storageGb == null) {
+		const fullStorage = /\b(storage|available\s*space|hard\s*drive|disk\s*space|hdd|ssd)\b/.test(fullText.toLowerCase())
+			? parseSizeInGb(fullText)
+			: null;
+		if (fullStorage != null) storageGb = fullStorage;
+	}
+
+	if (cpuScores.length < 1) cpuScores = collectCpuScores(fullText);
+	if (gpuScores.length < 1) gpuScores = collectGpuScores(fullText);
+	if (cpuMinGhz == null) cpuMinGhz = parseCpuFrequencyRequirementGhz(fullText);
+	if (gpuVramMb == null && /\b(vram|video\s*memory)\b/.test(fullText.toLowerCase())) {
+		gpuVramMb = parseGpuVramRequirementMb(fullText);
+	}
+	if (shaderModelMin == null) shaderModelMin = parseShaderModelRequirement(fullText);
+
+	return {
+		ramGb,
+		storageGb,
+		cpuScore: pickRequirementScore(cpuScores),
+		gpuScore: pickRequirementScore(gpuScores),
+		cpuMinGhz,
+		gpuVramMb,
+		shaderModelMin,
+	};
+}
+
+function compareRequirementMetric(localValue, requiredValue) {
+	if (!Number.isFinite(requiredValue) || requiredValue <= 0) return null;
+	if (!Number.isFinite(localValue) || localValue <= 0) return 'borderline';
+
+	const ratio = localValue / requiredValue;
+	if (ratio < 0.97) return 'fail';
+	if (ratio <= 1.12) return 'borderline';
+	return 'pass';
+}
+
+function compareGpuPerformanceMetric(localValue, requiredValue) {
+	if (!Number.isFinite(requiredValue) || requiredValue <= 0) return null;
+	if (!Number.isFinite(localValue) || localValue <= 0) return 'borderline';
+
+	const ratio = localValue / requiredValue;
+	// GPU model parsing is heuristic. Keep this slightly looser so close classes become "borderline".
+	if (ratio < 0.8) return 'fail';
+	if (ratio <= 1.08) return 'borderline';
+	return 'pass';
+}
+
+function formatNumberCompact(value) {
+	const numeric = Number(value);
+	if (!Number.isFinite(numeric)) return 'unknown';
+	return Number.isInteger(numeric) ? String(numeric) : numeric.toFixed(2);
+}
+
+function evaluateMinimumRequirements(minimumRequirementsHtml, hardwareProfile) {
+	const requirements = parseMinimumRequirementsProfile(minimumRequirementsHtml);
+
+	const localRamGb = Number(hardwareProfile?.totalMemoryGb || 0);
+	const localFreeDiskGb = Number(hardwareProfile?.freeDiskGbMax || 0);
+	const localCpuGhz = Number(hardwareProfile?.cpuSpeedGhz || 0);
+	const localCpuScore = pickLocalScore(collectCpuScores(hardwareProfile?.cpuModel || ''));
+	const localGpuScore = pickLocalScore(
+		(Array.isArray(hardwareProfile?.gpuModels) ? hardwareProfile.gpuModels : [])
+			.flatMap((entry) => collectGpuScores(entry))
+	);
+	const localGpuVramMb = Number(hardwareProfile?.gpuMemoryMbMax || 0);
+	const localShaderModel = inferLikelyShaderModelFromGpuNames(hardwareProfile?.gpuModels);
+	const hasNamedGpuModel = (Array.isArray(hardwareProfile?.gpuModels) ? hardwareProfile.gpuModels : [])
+		.some((entry) => {
+			const lower = String(entry || '').toLowerCase();
+			if (!lower) return false;
+			return !/swiftshader|microsoft basic render driver|software rasterizer|llvmpipe|virtualbox|vmware/.test(lower);
+		});
+
+	const checks = [];
+	const details = [];
+	let cpuComparisonLogged = false;
+
+	if (requirements.ramGb != null) {
+		const state = compareRequirementMetric(localRamGb, requirements.ramGb);
+		if (state) checks.push(state);
+		details.push(`RAM: required ${formatNumberCompact(requirements.ramGb)} GB, detected ${formatNumberCompact(localRamGb)} GB`);
+	}
+
+	if (requirements.storageGb != null) {
+		if (Number.isFinite(localFreeDiskGb) && localFreeDiskGb > 0) {
+			const state = compareRequirementMetric(localFreeDiskGb, requirements.storageGb);
+			if (state) checks.push(state);
+			details.push(`Storage: required ${formatNumberCompact(requirements.storageGb)} GB free, detected ${formatNumberCompact(localFreeDiskGb)} GB free`);
+		} else {
+			details.push(`Storage: required ${formatNumberCompact(requirements.storageGb)} GB (free space check unavailable)`);
+		}
+	}
+
+	if (requirements.cpuScore != null) {
+		const state = compareRequirementMetric(localCpuScore, requirements.cpuScore);
+		if (state) checks.push(state);
+		details.push(`CPU: requirement parsed, detected CPU ${String(hardwareProfile?.cpuModel || 'unknown')}`);
+		const comparedPercent = Number.isFinite(localCpuScore) && localCpuScore > 0 && Number.isFinite(requirements.cpuScore) && requirements.cpuScore > 0
+			? ((localCpuScore / requirements.cpuScore) * 100)
+			: null;
+		if (comparedPercent != null && Number.isFinite(comparedPercent)) {
+			details.push(
+				`CPU compared: ${formatNumberCompact(localCpuScore)} / ${formatNumberCompact(requirements.cpuScore)} (${comparedPercent.toFixed(1)}%)`
+			);
+		} else {
+			details.push('CPU compared: numerical comparison unavailable for this requirement format');
+		}
+		cpuComparisonLogged = true;
+	}
+
+	if (requirements.cpuMinGhz != null) {
+		const state = compareRequirementMetric(localCpuGhz, requirements.cpuMinGhz);
+		if (state) checks.push(state);
+		details.push(
+			`CPU Clock: required ${formatNumberCompact(requirements.cpuMinGhz)} GHz, detected ${formatNumberCompact(localCpuGhz)} GHz`
+		);
+		cpuComparisonLogged = true;
+	}
+
+	if (!cpuComparisonLogged) {
+		details.push('CPU compared: requirement could not be parsed numerically from the minimum spec text');
+	}
+
+	if (requirements.gpuScore != null) {
+		const state = compareGpuPerformanceMetric(localGpuScore, requirements.gpuScore);
+		if (state) checks.push(state);
+		details.push(`GPU: requirement parsed, detected GPU ${(Array.isArray(hardwareProfile?.gpuModels) ? hardwareProfile.gpuModels.join(', ') : '') || 'unknown'}`);
+	}
+
+	if (requirements.gpuVramMb != null) {
+		if (Number.isFinite(localGpuVramMb) && localGpuVramMb > 0) {
+			const state = compareRequirementMetric(localGpuVramMb, requirements.gpuVramMb);
+			if (state) checks.push(state);
+			const comparedPercent = Number.isFinite(requirements.gpuVramMb) && requirements.gpuVramMb > 0
+				? ((localGpuVramMb / requirements.gpuVramMb) * 100)
+				: null;
+			details.push(
+				`GPU Memory: required ${formatNumberCompact(requirements.gpuVramMb)} MB, detected ${formatNumberCompact(localGpuVramMb)} MB`
+			);
+			if (comparedPercent != null && Number.isFinite(comparedPercent)) {
+				details.push(
+					`GPU Memory compared: ${formatNumberCompact(localGpuVramMb)} / ${formatNumberCompact(requirements.gpuVramMb)} MB (${comparedPercent.toFixed(1)}%)`
+				);
+			}
+		} else if (hasNamedGpuModel && Number(requirements.gpuVramMb) <= 512) {
+			checks.push('pass');
+			details.push(
+				`GPU Memory: required ${formatNumberCompact(requirements.gpuVramMb)} MB, VRAM unavailable (legacy-sized requirement assumed met from detected adapter)`
+			);
+		} else {
+			checks.push('borderline');
+			details.push(
+				`GPU Memory: required ${formatNumberCompact(requirements.gpuVramMb)} MB (local VRAM detection unavailable)`
+			);
+		}
+	}
+
+	if (requirements.shaderModelMin != null) {
+		if (Number.isFinite(localShaderModel) && localShaderModel > 0) {
+			const state = compareRequirementMetric(localShaderModel, requirements.shaderModelMin);
+			if (state) checks.push(state);
+			details.push(
+				`Shader Model: required ${formatNumberCompact(requirements.shaderModelMin)}+, inferred ${formatNumberCompact(localShaderModel)}`
+			);
+		} else if (hasNamedGpuModel && Number(requirements.shaderModelMin) <= 3) {
+			checks.push('pass');
+			details.push(
+				`Shader Model: required ${formatNumberCompact(requirements.shaderModelMin)}+, detected adapter is assumed compatible`
+			);
+		} else {
+			checks.push('borderline');
+			details.push(
+				`Shader Model: required ${formatNumberCompact(requirements.shaderModelMin)}+ (local support could not be inferred)`
+			);
+		}
+	}
+
+	if (checks.length < 1) {
+		return {
+			verdict: REQUIREMENT_CHECK_HOPES,
+			details: ['Could not reliably parse minimum requirements.'],
+		};
+	}
+
+	if (checks.includes('fail')) {
+		return {
+			verdict: REQUIREMENT_CHECK_PROBABLY_NOT,
+			details,
+		};
+	}
+
+	if (checks.includes('borderline')) {
+		return {
+			verdict: REQUIREMENT_CHECK_HOPES,
+			details,
+		};
+	}
+
+	return {
+		verdict: REQUIREMENT_CHECK_SHOULD_RUN,
+		details,
+	};
+}
 
 function withTimeout(promise, timeoutMs, timeoutMessage) {
 	return new Promise((resolve, reject) => {
@@ -174,6 +728,25 @@ function buildSteamHeroCandidates(appId) {
 		'capsule_616x353.jpg',
 		'capsule_467x181.jpg',
 	]);
+}
+
+function buildSteamBannerCandidates(appId) {
+	// Banner candidates prioritized for DB: prefer header / capsule (wide) over vertical library hero
+	const candidates = buildSteamAssetCandidates(appId, [
+		'header.jpg',
+		'capsule_616x353.jpg',
+		'library_hero.jpg',
+		'capsule_467x181.jpg',
+	]);
+
+	// Also include the shared.akamai store_item_assets host variant which some Steam images use
+	const id = Number(appId);
+	if (Number.isFinite(id) && id > 0) {
+		candidates.push(`https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${Math.trunc(id)}/header.jpg`);
+		candidates.push(`https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${Math.trunc(id)}/capsule_616x353.jpg`);
+	}
+
+	return candidates;
 }
 
 async function probeImageUrlReachable(url, timeoutMs = STORE_STEAM_IMAGE_PROBE_TIMEOUT_MS) {
@@ -390,11 +963,10 @@ function normalizePriceValue(raw, platformHint = '') {
 				? numeric >= 100
 				: numeric >= 1000
 		);
-
 	// Some sources return integer minor units (cents), normalize to major units.
-	if (looksLikeMinorUnits) {
-		return Number((numeric / 100).toFixed(2));
-	}
+	// if (looksLikeMinorUnits) {
+	// 	return Number((numeric / 100).toFixed(2));
+	// }
 
 	return Number(numeric.toFixed(2));
 }
@@ -888,7 +1460,7 @@ function buildLookupTitleCandidates(expectedTitles, routeState) {
 }
 
 function slugFromTitle(title, separator = '_') {
-	return normalizeTitleForCompare(title).split(' ').filter(Boolean).join(separator);
+	return title.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, separator);
 }
 
 function buildGogTitleSlugs(title) {
@@ -944,10 +1516,11 @@ async function fetchDetailsByTitleHints(api, platform, titleHints, countryCode) 
 	const cc = String(countryCode || 'US').trim().toLowerCase() || 'us';
 
 	if (platform === 'steam') {
+		const getByTitle = typeof api?.getSteamGameDetailsByTitle === 'function' ? api.getSteamGameDetailsByTitle : null;
+		if (!getByTitle) return null;
 		for (const title of titleHints) {
 			if (!hasFilledText(title)) continue;
-			if (typeof api.getSteamGameDetailsByTitle !== 'function') continue;
-			const details = await api.getSteamGameDetailsByTitle(title, cc);
+			const details = await getByTitle(title, cc);
 			if (!details || typeof details !== 'object') continue;
 			const candidateTitle = details?.name || details?.title || details?.raw?.name || details?.raw?.search_match?.title || '';
 			if (isExactTitleMatch(candidateTitle, titleHints)) return details;
@@ -956,10 +1529,12 @@ async function fetchDetailsByTitleHints(api, platform, titleHints, countryCode) 
 	}
 
 	if (platform === 'gog') {
+		const getByTitle = typeof api?.getGogGameDetailsByTitle === 'function' ? api.getGogGameDetailsByTitle : null;
+		const getBySlug = typeof api?.getGogGameDetails === 'function' ? api.getGogGameDetails : null;
 		for (const title of titleHints) {
 			if (!hasFilledText(title)) continue;
-			if (typeof api.getGogGameDetailsByTitle === 'function') {
-				const details = await api.getGogGameDetailsByTitle(title);
+			if (getByTitle) {
+				const details = await getByTitle(title);
 				if (details && typeof details === 'object' && isExactTitleMatch(details?.title || details?.name || '', titleHints)) {
 					return details;
 				}
@@ -967,7 +1542,8 @@ async function fetchDetailsByTitleHints(api, platform, titleHints, countryCode) 
 
 			const slugCandidates = buildGogTitleSlugs(title);
 			for (const slug of slugCandidates) {
-				const details = await api.getGogGameDetails(slug);
+				if (!getBySlug) continue;
+				const details = await getBySlug(slug);
 				if (details && typeof details === 'object' && isExactTitleMatch(details?.title || details?.name || '', titleHints)) {
 					return details;
 				}
@@ -977,10 +1553,11 @@ async function fetchDetailsByTitleHints(api, platform, titleHints, countryCode) 
 	}
 
 	if (platform === 'itchio') {
+		const getByTitle = typeof api?.getItchGameDetailsByTitle === 'function' ? api.getItchGameDetailsByTitle : null;
+		if (!getByTitle) return null;
 		for (const title of titleHints) {
 			if (!hasFilledText(title)) continue;
-			if (typeof api.getItchGameDetailsByTitle !== 'function') continue;
-			const details = await api.getItchGameDetailsByTitle(title);
+			const details = await getByTitle(title);
 			if (!details || typeof details !== 'object') continue;
 			if (isExactTitleMatch(details?.title || details?.name || '', titleHints)) return details;
 		}
@@ -1323,7 +1900,7 @@ function parseGogRatingFromHtml(html) {
 
 	const normalizedScore = Number.isFinite(score) ? Number(score) : null;
 	if (!Number.isFinite(normalizedScore) || normalizedScore <= 0) {
-		console.log('[parseGogRatingFromHtml] No critics score parsed', {
+		console.warn('[parseGogRatingFromHtml] No critics score parsed', {
 			htmlLength: source.length,
 			hasOpencritic: /opencritic/i.test(source),
 			hasCriticsRatingsBlock: /critics-ratings/i.test(source),
@@ -1332,10 +1909,7 @@ function parseGogRatingFromHtml(html) {
 	}
 
 	const clamped = Math.max(0, Math.min(100, normalizedScore));
-	console.log('[parseGogRatingFromHtml] Parsed GOG critics score', {
-		score: clamped,
-		scoreSource,
-	});
+
 
 	return {
 		score: Number(clamped.toFixed(1)),
@@ -1347,10 +1921,9 @@ function parseGogRatingFromHtml(html) {
 
 async function fetchGogUserRating(href) {
 	const absoluteHref = toAbsoluteStoreHref('gog', href);
-	console.log('[fetchGogUserRating] Starting fetch:', { href, absoluteHref });
 	
 	if (!/^https?:\/\//i.test(absoluteHref)) {
-		console.log('[fetchGogUserRating] Invalid href format');
+		console.warn('[fetchGogUserRating] Invalid href format');
 		return null;
 	}
 
@@ -1362,27 +1935,22 @@ async function fetchGogUserRating(href) {
 		
 		for (const tryUrl of urlsToTry) {
 			try {
-				console.log('[fetchGogUserRating] Trying URL:', tryUrl);
 				html = await fetchTextWithTimeout(tryUrl);
 				if (html && html.length > 1000) {
-					console.log('[fetchGogUserRating] Successfully fetched from:', tryUrl);
 					break;
 				}
 			} catch (error) {
-				console.log('[fetchGogUserRating] Failed URL:', tryUrl, error);
+				console.warn('[fetchGogUserRating] Failed URL:', tryUrl, error);
 				continue;
 			}
 		}
 		
 		if (!html) {
-			console.log('[fetchGogUserRating] Failed all URL attempts');
+			console.warn('[fetchGogUserRating] Failed all URL attempts');
 			return null;
 		}
 		
-		console.log('[fetchGogUserRating] HTML fetched, length:', html?.length);
-		
 		const parsed = parseGogRatingFromHtml(html);
-		console.log('[fetchGogUserRating] Parsed result:', parsed);
 		
 		if (!parsed) return null;
 
@@ -1445,9 +2013,7 @@ function normalizeSiteLinksFromAny(value) {
 function normalizePirateLinksFromAny(value) {
 	if (!value) return [];
 
-	const source = Array.isArray(value)
-		? value
-		: (typeof value === 'object' ? Object.values(value) : []);
+	const source = Array.isArray(value) ? value : (typeof value === 'object' ? Object.values(value) : []);
 
 	const out = [];
 	const seen = new Set();
@@ -1456,28 +2022,40 @@ function normalizePirateLinksFromAny(value) {
 		const entry = source[index];
 		if (!entry) continue;
 
-		let href = '';
+		let rawHref = '';
+		let rawMagnet = '';
+		let rawSitelink = '';
 		let label = 'Pirate Download';
 
 		if (typeof entry === 'string') {
-			href = entry.trim();
+			rawHref = entry.trim();
 		} else if (typeof entry === 'object') {
-			href = String(entry.link || entry.url || entry.href || '').trim();
+			rawHref = String(entry.link || entry.url || entry.href || '').trim();
+			rawMagnet = String(entry.magnet || entry.magnet_uri || entry.magnetUri || entry.magnetLink || entry.torrent || '').trim();
+			rawSitelink = String(entry.sitelink || entry.site_link || entry.siteLink || entry.page || entry.pageUrl || '').trim();
 			label = String(entry.site_name || entry.siteName || entry.name || entry.label || 'Pirate Download').trim() || 'Pirate Download';
 		}
 
-		if (!href) continue;
-		if (!/^https?:\/\//i.test(href) && !/^magnet:\?/i.test(href)) continue;
+		// Prefer explicit sitelink as the page href if provided
+		const hrefCandidate = rawSitelink || rawHref || '';
+		const magnetCandidate = rawMagnet || (hrefCandidate && /^magnet:\?/i.test(hrefCandidate) ? hrefCandidate : '');
 
-		const key = href.toLowerCase();
+		if (!magnetCandidate && !hrefCandidate) continue;
+
+		const key = (magnetCandidate || hrefCandidate).toLowerCase();
 		if (seen.has(key)) continue;
 		seen.add(key);
 
-		out.push({
-			id: `pirate-${index}`,
+		const outEntry = {
+			id: String((typeof entry === 'object' && (entry.id || entry.label)) ? (entry.id || entry.label) : `pirate-${index}`),
 			label,
-			href,
-		});
+		};
+
+		if (hrefCandidate && /^https?:\/\//i.test(hrefCandidate)) outEntry.href = hrefCandidate;
+		if (magnetCandidate && /^magnet:\?/i.test(magnetCandidate)) outEntry.magnet = magnetCandidate;
+		if (rawSitelink && /^https?:\/\//i.test(rawSitelink)) outEntry.sitelink = rawSitelink;
+
+		out.push(outEntry);
 	}
 
 	return out;
@@ -1516,21 +2094,22 @@ function pirateEntryKey(entry, fallback = '') {
 }
 
 function resolvePirateSitePageHref(entry, gameTitle = '') {
-	const rawHref = decodeHtmlAmpersands(String(entry?.href || '').trim());
+	const rawHref = decodeHtmlAmpersands(String(entry?.sitelink || entry?.site_link || entry?.siteLink || entry?.href || '').trim());
 	if (/^https?:\/\//i.test(rawHref)) return rawHref;
 
 	const lowerHref = rawHref.toLowerCase();
 	const label = String(entry?.label || '').toLowerCase();
-	const slugFromLink = extractSlugFromUrl(rawHref);
-	const slugFallback = slugFromTitle(gameTitle, '-') || '';
-	const slug = slugFromLink || slugFallback;
+	const slugfromtitle = slugFromTitle(gameTitle, '-') || '';
+	const slug = slugfromtitle;
 	const encodedTitle = encodeURIComponent(String(gameTitle || '').trim());
 
 	if (/fitgirl-repacks\.site/.test(lowerHref) || label.includes('fitgirl')) {
 		if (!slug) {
 			return encodedTitle ? `https://fitgirl-repacks.site/?s=${encodedTitle}` : 'https://fitgirl-repacks.site/';
 		}
-		return `https://fitgirl-repacks.site/${slug}/`;
+		// FitGirl expects space-encoded slugs (e.g. "Night%20Shippers") rather than
+		// our slugified hyphen form — use the encoded title to preserve spaces.
+		return `https://fitgirl-repacks.site/${encodedTitle}/`;
 	}
 
 	if (
@@ -1545,6 +2124,28 @@ function resolvePirateSitePageHref(entry, gameTitle = '') {
 			return encodedTitle ? `https://igg-games.com/?s=${encodedTitle}` : 'https://igg-games.com/';
 		}
 		return `https://igg-games.com/${slug}.html`;
+	}
+
+	if (/byxatab\.com/.test(lowerHref) || label.includes('xatab') || label.includes('byxatab')) {
+		if (/^https?:\/\//i.test(rawHref)) {
+			try {
+				const parsed = new URL(rawHref);
+				const host = String(parsed.hostname || '').toLowerCase();
+				const path = String(parsed.pathname || '').toLowerCase();
+				if (/byxatab\.com$/.test(host) && (path.includes('/games/') || path.includes('/search/'))) {
+					return parsed.toString();
+				}
+			} catch {
+				// Fall through to title-based search URL.
+			}
+		} else if (/^\/(games|search)\//i.test(rawHref)) {
+			try {
+				return new URL(rawHref, 'https://byxatab.com/').toString();
+			} catch {
+				// Fall through to title-based search URL.
+			}
+		}
+		return encodedTitle ? `https://byxatab.com/search/${encodedTitle}/` : 'https://byxatab.com/';
 	}
 
 	if (!slug) return '';
@@ -1804,6 +2405,26 @@ function parseSteamDetails(details) {
 
 	const raw = details.raw && typeof details.raw === 'object' ? details.raw : {};
 	const steamImageSet = steamImages(appid);
+	const stableSteamBanner = pickFirstFilledText(
+		details.bannerimg,
+		details.banner_img,
+		raw.header_image,
+		raw.capsule_image,
+		steamImageSet?.header,
+		steamImageSet?.capsule,
+	);
+	const stableSteamHero = pickFirstFilledText(
+		raw.background_raw,
+		raw.background,
+		stableSteamBanner,
+		steamImageSet?.hero,
+		steamImageSet?.header,
+	);
+	const stableSteamCover = pickFirstFilledText(
+		stableSteamBanner,
+		steamImageSet?.capsule,
+		steamImageSet?.cover,
+	);
 	const tags = normalizeTagList(details.genre_names ?? details.genreNames ?? details.genres);
 	const screenshots = Array.isArray(raw.screenshots)
 		? raw.screenshots
@@ -1822,8 +2443,8 @@ function parseSteamDetails(details) {
 		minimumRequirements: sanitizeHtml(raw?.pc_requirements?.minimum || details.minimum_requirements || ''),
 		price: resolveSteamPriceValue(details),
 		priceLabel: resolveSteamPriceLabel(details),
-		coverImage: steamImageSet?.cover || steamImageSet?.capsule || '',
-		heroImage: steamImageSet?.hero || steamImageSet?.header || '',
+		coverImage: stableSteamCover || '',
+		heroImage: stableSteamHero || '',
 	};
 }
 
@@ -1900,7 +2521,7 @@ function parsePlatformDetails(platform, details, appId) {
 			description: htmlToText(details.description || details.shortText || details.short_text || ''),
 			longDescription: sanitizeHtml(details.description || details.shortText || details.short_text || ''),
 			tags: genres,
-			screenshots: [],
+			screenshots: raw.screenshots || [],
 			minimumRequirements: sanitizeHtml(minimumRequirements),
 			price,
 			coverImage: banner || portraitCover,
@@ -1954,7 +2575,7 @@ function parsePlatformDetails(platform, details, appId) {
 			description: htmlToText(details.shortText || details.short_text || details.description || ''),
 			longDescription: sanitizeHtml(details.description || details.shortText || details.short_text || ''),
 			tags: genres,
-			screenshots: [],
+			screenshots: raw.screenshots || [],
 			minimumRequirements: sanitizeHtml(details.minimum_requirements || details.minimumRequirements || ''),
 			price,
 			coverImage: banner || portraitFallback,
@@ -1993,7 +2614,14 @@ const StoreGamePage = () => {
 	const { startDownload } = useDownloadManager();
 	const [platformDetails, setPlatformDetails] = useState(null);
 	const [dbDetails, setDbDetails] = useState(null);
+	const [livePirateSites, setLivePirateSites] = useState([]);
 	const [scrapedTargets, setScrapedTargets] = useState([]);
+	const [minimumRequirementsCheck, setMinimumRequirementsCheck] = useState({
+		status: 'idle',
+		verdict: '',
+		details: [],
+		error: '',
+	});
 	const [errorMessage, setErrorMessage] = useState('');
 	const [currentScreenshot, setCurrentScreenshot] = useState(0);
 	const [startingPirateKeys, setStartingPirateKeys] = useState([]);
@@ -2003,6 +2631,7 @@ const StoreGamePage = () => {
 		gog: { loading: false, data: null },
 		itchio: { loading: false, data: null },
 	});
+	const localHardwareProfileRef = useRef({ value: null, fetchedAt: 0 });
 	const lastDbScrapeSyncKeyRef = useRef('');
 	const lastDbPriceSyncKeyRef = useRef('');
 	const lastDbBannerSyncKeyRef = useRef('');
@@ -2018,13 +2647,72 @@ const StoreGamePage = () => {
 	}, [id, routeState]);
 
 	useEffect(() => {
+		const api = typeof window !== 'undefined' ? window.electronAPI : null;
+		if (!api || !appId) return;
+
+		const unsubscribe = typeof api.onPirateSitesUpdated === 'function'
+			? api.onPirateSitesUpdated((payload) => {
+			const incoming = payload && typeof payload === 'object' ? payload : null;
+			if (!incoming) return;
+
+			const payloadAppId = Number(incoming.appId);
+			if (!Number.isFinite(payloadAppId) || payloadAppId <= 0 || payloadAppId !== appId) return;
+
+			const incomingSites = Array.isArray(incoming.pirate_sites)
+				? incoming.pirate_sites
+				: (Array.isArray(incoming.pirateSites) ? incoming.pirateSites : []);
+			if (incomingSites.length < 1) return;
+
+			setLivePirateSites((prev) => {
+				const merged = normalizePirateLinksFromAny([
+					...(Array.isArray(prev) ? prev : []),
+					...incomingSites,
+				]);
+
+				return merged
+					.map((entry) => {
+						const label = String(entry?.label || 'Pirate Download').trim() || 'Pirate Download';
+						const href = String(entry?.href || '').trim();
+						const magnet = String(entry?.magnet || entry?.magnet_uri || entry?.magnetUri || '').trim();
+						const sitelink = String(entry?.sitelink || entry?.site_link || entry?.siteLink || '').trim();
+						const link = magnet || href || sitelink || '';
+						return {
+							site_name: label,
+							link,
+							magnet: magnet || undefined,
+							href: href || undefined,
+							sitelink: sitelink || undefined,
+						};
+					})
+					.filter((entry) => /^https?:\/\//i.test(entry.link) || /^magnet:\?/i.test(entry.link));
+			});
+		}) : null;
+
+		return () => {
+			if (typeof unsubscribe === 'function') {
+				unsubscribe();
+			}
+		};
+	}, [appId]);
+
+	useEffect(() => {
 		setCurrentScreenshot(0);
+	}, [appId]);
+
+	useEffect(() => {
+		setMinimumRequirementsCheck({
+			status: 'idle',
+			verdict: '',
+			details: [],
+			error: '',
+		});
 	}, [appId]);
 
 	useEffect(() => {
 		let cancelled = false;
 		setPlatformDetails(null);
 		setDbDetails(null);
+		setLivePirateSites([]);
 		setScrapedTargets([]);
 		setErrorMessage('');
 		setLoading(true);
@@ -2206,6 +2894,7 @@ const StoreGamePage = () => {
 				description: htmlToText(dbDetails.description || ''),
 				longDescription: sanitizeHtml(dbDetails.description || routeState.longDescription),
 				bannerImg: pickFirstFilledText(
+					dbDetails.thumbnail,
 					dbDetails.banner_img,
 					dbDetails.bannerImg,
 					dbDetails.db_banner_img,
@@ -2214,7 +2903,6 @@ const StoreGamePage = () => {
 					dbDetails.heroImage,
 					dbDetails.image,
 					dbDetails.image_url,
-					dbDetails.thumbnail,
 				),
 				tags: normalizeTagList(dbDetails.genre_names ?? dbDetails.genres),
 				minimumRequirements: sanitizeHtml(dbDetails.minimum_requirements || ''),
@@ -2266,6 +2954,9 @@ const StoreGamePage = () => {
 			routeState?.screenshots
 		);
 		const normalizedScreenshots = normalizeScreenshotList(screenshots);
+		const resolvedTitle = normalizeUtf8Text(
+			pickFirstFilledText(parsedPlatform?.title, parsedDb?.title, routeState?.title, routeState?.name, fallback.title)
+		);
 		const siteCandidates = pickFirstNonEmptyArray(
 			parsedPlatform?.sites,
 			parsedDb?.sites,
@@ -2277,19 +2968,28 @@ const StoreGamePage = () => {
 		const parsedPrimaryImage = scrapedPlatform === 'gog'
 			? pickFirstFilledText(parsedPlatform?.heroImage, parsedPlatform?.coverImage)
 			: pickFirstFilledText(parsedPlatform?.coverImage, parsedPlatform?.boxArtImage, parsedPlatform?.heroImage);
-		const coverImage = pickFirstFilledText(
-			parsedPrimaryImage,
-			routeState?.coverImage,
-			routeState?.coverUrl,
-			parsedDb?.coverImage,
-			parsedDb?.bannerImg,
-			parsedDb?.heroImage,
-			parsedPlatform?.bannerImg,
-			routeState?.image,
-			steam?.cover,
-			steam?.capsule,
-			fallback.coverImage
-		);
+		let coverImage = '';
+		if(dbDetails?.platform_name == 'steam' || dbPlatformName === 'steam' || scrapedPlatform === 'steam'){
+			coverImage = pickFirstFilledText(
+				// For Steam games prefer the vertical library poster first (library_600x900)
+				steam?.cover,
+				steam?.capsule,
+				parsedPrimaryImage,
+				parsedPlatform?.coverImage,
+				parsedPlatform?.heroImage,
+				routeState?.coverImage,
+				routeState?.coverUrl,
+				routeState?.image,
+				parsedDb?.coverImage,
+				parsedDb?.bannerImg,
+				parsedDb?.heroImage,
+				fallback.coverImage
+			);
+		}else{
+			coverImage = pickFirstFilledText(
+				parsedPrimaryImage,
+			);
+		}
 		const heroImage = pickFirstFilledText(
 			parsedPlatform?.heroImage,
 			parsedDb?.heroImage,
@@ -2299,6 +2999,7 @@ const StoreGamePage = () => {
 			routeState?.heroImage,
 			routeState?.heroUrl,
 			routeState?.image,
+			steam?.cover,
 			steam?.hero,
 			steam?.header,
 			coverImage,
@@ -2312,10 +3013,10 @@ const StoreGamePage = () => {
 		const price = pickBestAvailablePrice(
 			normalizePriceValue(parsedPlatform?.price, scrapedPlatform),
 			normalizePriceValue(parsedDb?.price, dbPlatformName),
-			...crossPlatformScrapedPrices,
 			normalizePriceValue(routeState?.price, routePlatform),
+			...crossPlatformScrapedPrices,
 		);
-		const priceLabel = pickFirstFilledText(
+		let priceLabel = pickFirstFilledText(
 			parsedPlatform?.priceLabel,
 			parsedDb?.priceLabel,
 			routeState?.priceLabel
@@ -2330,15 +3031,18 @@ const StoreGamePage = () => {
 			...(Array.isArray(dbDetails?.pirate_sites) ? dbDetails.pirate_sites : []),
 			...(Array.isArray(dbDetails?.pirateSites) ? dbDetails.pirateSites : []),
 			...(Array.isArray(dbDetails?.pirate_links) ? dbDetails.pirate_links : []),
+			...(Array.isArray(livePirateSites) ? livePirateSites : []),
 			...(Array.isArray(routeState?.pirate_sites) ? routeState.pirate_sites : []),
 			...(Array.isArray(routeState?.pirateSites) ? routeState.pirateSites : []),
 		]);
-
+		if(routePlatform === "itchio" || routePlatform === "itch"){
+			priceLabel = priceLabel || (typeof price === 'number' && price > 0 ? `$${price.toFixed(2)}` : 'Free');
+		}
 		return {
 			...fallback,
 			id: pickFirstPositiveNumber(parsedDb?.id, routeState?.id, resolvedAppId, appId),
 			appid: resolvedAppId,
-			title: normalizeUtf8Text(pickFirstFilledText(parsedPlatform?.title, parsedDb?.title, routeState?.title, routeState?.name, fallback.title)),
+			title: resolvedTitle,
 			description: normalizedDescription,
 			longDescription: normalizedLongDescription,
 			minimumRequirements: normalizedMinimumRequirements,
@@ -2352,13 +3056,20 @@ const StoreGamePage = () => {
 			sites: links,
 			pirate_links: pirateLinks,
 		};
-	}, [appId, dbDetails, platformDetails, requestedPlatform, routeState, scrapedTargets]);
+	}, [appId, dbDetails, livePirateSites, platformDetails, requestedPlatform, routeState, scrapedTargets]);
+
+	useEffect(() => {
+		setMinimumRequirementsCheck({
+			status: 'idle',
+			verdict: '',
+			details: [],
+			error: '',
+		});
+	}, [model.minimumRequirements]);
 
 	const screenshotSources = useMemo(() => {
 		return normalizeScreenshotList([
-			...(Array.isArray(model.screenshots) ? model.screenshots : []),
-			model.heroImage,
-			model.coverImage,
+			...(Array.isArray(model.screenshots) ? model.screenshots : [])
 		]);
 	}, [model.coverImage, model.heroImage, model.screenshots]);
 
@@ -2389,7 +3100,7 @@ const StoreGamePage = () => {
 	useEffect(() => {
 		let cancelled = false;
 		const api = typeof window !== 'undefined' ? window.electronAPI : null;
-		if (!api || typeof api.syncScrapedGameDetailsByAppIdAndPlatform !== 'function') return;
+		if (!api) return;
 
 		const scrapedPlatform = normalizePlatformName(platformDetails?.__resolved_platform || requestedPlatform);
 		const parsedScraped = parsePlatformDetails(scrapedPlatform, platformDetails, appId);
@@ -2458,16 +3169,20 @@ const StoreGamePage = () => {
 		void (async () => {
 			try {
 				const countryCode = knownCountryCode || await resolvePreferredCountryCode(api);
-				const result = await api.syncScrapedGameDetailsByAppIdAndPlatform({
-					...syncPayload,
-					countryCode,
-				});
+				if (typeof api.syncScrapedGameDetailsByAppIdAndPlatform === 'function') {
+					const result = await api.syncScrapedGameDetailsByAppIdAndPlatform({
+						...syncPayload,
+						countryCode,
+					});
 
-				if (!result || result.ok !== true || result.action === 'skipped') return;
+					if (!result || result.ok !== true || result.action === 'skipped') return;
 
-				const refreshed = await api.getAllDetailsByAppIDAndPlatform(resolvedAppId, scrapedPlatform, countryCode);
-				if (!cancelled && refreshed) {
-					setDbDetails(refreshed);
+					if (typeof api.getAllDetailsByAppIDAndPlatform === 'function') {
+						const refreshed = await api.getAllDetailsByAppIDAndPlatform(resolvedAppId, scrapedPlatform, countryCode);
+						if (!cancelled && refreshed) {
+							setDbDetails(refreshed);
+						}
+					}
 				}
 			} catch (err) {
 				if (!cancelled) {
@@ -2499,7 +3214,7 @@ const StoreGamePage = () => {
 	useEffect(() => {
 		let cancelled = false;
 		const api = typeof window !== 'undefined' ? window.electronAPI : null;
-		if (!api || typeof api.syncScrapedGameDetailsByAppIdAndPlatform !== 'function') return;
+		if (!api) return;
 
 		const currentPlatform = normalizePlatformName(
 			dbDetails?.platform_name
@@ -2524,11 +3239,12 @@ const StoreGamePage = () => {
 			dbDetails?.coverUrl,
 		);
 
-		const platformSpecificCandidates = currentPlatform === 'steam'
-			? [
-				...buildSteamHeroCandidates(currentAppId),
-				...buildSteamCoverCandidates(currentAppId),
-			]
+		const platformSpecificBannerCandidates = currentPlatform === 'steam'
+			? buildSteamBannerCandidates(currentAppId)
+			: [];
+
+		const platformSpecificCoverCandidates = currentPlatform === 'steam'
+			? buildSteamCoverCandidates(currentAppId)
 			: [];
 
 		const coverCandidates = uniqueImageCandidates([
@@ -2538,33 +3254,55 @@ const StoreGamePage = () => {
 			routeState?.coverImage,
 			model?.heroImage,
 			model?.coverImage,
-			...platformSpecificCandidates,
+			...platformSpecificCoverCandidates,
 			dbBanner,
 		]);
 		if (coverCandidates.length < 1) return;
 
-		const heroCandidates = uniqueImageCandidates([
+		const bannerCandidates = uniqueImageCandidates([
 			parsedCurrentPlatform?.heroImage,
 			parsedCurrentPlatform?.coverImage,
+			...platformSpecificBannerCandidates,
+			...platformSpecificCoverCandidates,
 			routeState?.heroImage,
 			routeState?.coverImage,
 			model?.heroImage,
 			model?.coverImage,
-			...platformSpecificCandidates,
 			dbBanner,
 		]);
 
 		void (async () => {
 			try {
+				// Resolve the UI cover (vertical) separately and prefer banner (header/capsule) for DB sync
 				const resolvedCover = await resolveFirstLoadableImageUrl(coverCandidates);
-				const resolvedHero = await resolveFirstLoadableImageUrl([
-					resolvedCover,
-					...heroCandidates,
-				]);
+				const resolvedBanner = await resolveFirstLoadableImageUrl(bannerCandidates);
 
 				if (cancelled) return;
 
-				const finalBanner = pickFirstFilledText(resolvedCover, resolvedHero);
+				let finalBanner = '';
+				if (currentPlatform === 'steam' && Number.isFinite(currentAppId) && currentAppId > 0) {
+					// Prefer canonical Steam header/capsule variants from multiple known hosts
+					const hosts = Array.isArray(STORE_STEAM_IMAGE_CDN_HOSTS) && STORE_STEAM_IMAGE_CDN_HOSTS.length > 0
+						? STORE_STEAM_IMAGE_CDN_HOSTS
+						: ['https://cdn.cloudflare.steamstatic.com'];
+					const canonicalCandidates = [];
+					for (const h of hosts) {
+						canonicalCandidates.push(`${h}/steam/apps/${Math.trunc(currentAppId)}/header.jpg`);
+						canonicalCandidates.push(`${h}/steam/apps/${Math.trunc(currentAppId)}/capsule_616x353.jpg`);
+					}
+					// also include the shared.akamai store_item_assets variant
+					canonicalCandidates.push(`https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${Math.trunc(currentAppId)}/header.jpg`);
+					canonicalCandidates.push(`https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${Math.trunc(currentAppId)}/capsule_616x353.jpg`);
+
+					finalBanner = pickFirstFilledText(
+						...canonicalCandidates,
+						parsedCurrentPlatform?.bannerImg,
+						resolvedBanner,
+						resolvedCover,
+					);
+				} else {
+					finalBanner = pickFirstFilledText(resolvedBanner, resolvedCover);
+				}
 				if (!finalBanner) return;
 
 				const previousDbBanner = String(dbBanner || '').trim().toLowerCase();
@@ -2596,19 +3334,23 @@ const StoreGamePage = () => {
 				lastDbBannerSyncKeyRef.current = syncKey;
 
 				const countryCode = knownCountryCode || await resolvePreferredCountryCode(api);
-				const result = await api.syncScrapedGameDetailsByAppIdAndPlatform({
-					appId: currentAppId,
-					platform: currentPlatform,
-					name: resolvedTitle,
-					banner_img: finalBanner,
-					countryCode,
-				});
+				if (typeof api.syncScrapedGameDetailsByAppIdAndPlatform === 'function') {
+					const result = await api.syncScrapedGameDetailsByAppIdAndPlatform({
+						appId: currentAppId,
+						platform: currentPlatform,
+						name: resolvedTitle,
+						banner_img: finalBanner,
+						countryCode,
+					});
 
-				if (!result || result.ok !== true || result.action === 'skipped') return;
+					if (!result || result.ok !== true || result.action === 'skipped') return;
 
-				const refreshed = await api.getAllDetailsByAppIDAndPlatform(currentAppId, currentPlatform, countryCode);
-				if (!cancelled && refreshed) {
-					setDbDetails(refreshed);
+					if (typeof api.getAllDetailsByAppIDAndPlatform === 'function') {
+						const refreshed = await api.getAllDetailsByAppIDAndPlatform(currentAppId, currentPlatform, countryCode);
+						if (!cancelled && refreshed) {
+							setDbDetails(refreshed);
+						}
+					}
 				}
 			} catch (err) {
 				if (!cancelled) {
@@ -2642,7 +3384,7 @@ const StoreGamePage = () => {
 	useEffect(() => {
 		let cancelled = false;
 		const api = typeof window !== 'undefined' ? window.electronAPI : null;
-		if (!api || typeof api.syncGamePriceByAppIdAndPlatform !== 'function') return;
+		if (!api) return;
 
 		const currentPlatform = normalizePlatformName(dbDetails?.platform_name || requestedPlatform);
 		const currentAppId = Number(dbDetails?.app_id ?? appId);
@@ -2669,12 +3411,16 @@ const StoreGamePage = () => {
 		void (async () => {
 			try {
 				const countryCode = normalizeCountryCode(dbDetails?.country_code) || await resolvePreferredCountryCode(api);
-				const result = await api.syncGamePriceByAppIdAndPlatform(currentAppId, currentPlatform, resolvedPrice, countryCode);
-				if (!result || result.updated !== true) return;
+				if (typeof api.syncGamePriceByAppIdAndPlatform === 'function') {
+					const result = await api.syncGamePriceByAppIdAndPlatform(currentAppId, currentPlatform, resolvedPrice, countryCode);
+					if (!result || result.updated !== true) return;
 
-				const refreshed = await api.getAllDetailsByAppIDAndPlatform(currentAppId, currentPlatform, countryCode);
-				if (!cancelled && refreshed) {
-					setDbDetails(refreshed);
+					if (typeof api.getAllDetailsByAppIDAndPlatform === 'function') {
+						const refreshed = await api.getAllDetailsByAppIDAndPlatform(currentAppId, currentPlatform, countryCode);
+						if (!cancelled && refreshed) {
+							setDbDetails(refreshed);
+						}
+					}
 				}
 			} catch (err) {
 				if (!cancelled) {
@@ -2887,9 +3633,8 @@ const StoreGamePage = () => {
 						// Use the full URL if it's valid, otherwise reconstruct
 						const gogHref = /^https?:\/\//i.test(siteHref) ? siteHref : `https://www.gog.com/en/game/${extractedSlug}`;
 						upsert('gog', extractedSlug, gogHref);
-						console.log('[ratingTargets] GOG slug extracted:', { slug: extractedSlug, href: gogHref, isValid: true });
 					} else {
-						console.log('[ratingTargets] GOG numeric ID found (invalid slug), skipping:', { numericId: extractedSlug });
+						console.warn('[ratingTargets] GOG numeric ID found (invalid slug), skipping:', { numericId: extractedSlug });
 					}
 				}
 			} else {
@@ -2910,12 +3655,10 @@ const StoreGamePage = () => {
 				// Try to build a proper GOG URL from the title slug
 				const gameTitle = String(model.title || model.name || '').trim();
 				const gogSlugs = buildGogTitleSlugs(gameTitle);
-				console.log('[ratingTargets] Building GOG slug from title:', { gameTitle, availableSlugs: gogSlugs.slice(0, 3) });
 				if (gogSlugs.length > 0) {
 					// Use the first slug candidate
 					const gogUrl = `https://www.gog.com/en/game/${gogSlugs[0]}`;
 					upsert('gog', gogSlugs[0], gogUrl);
-					console.log('[ratingTargets] GOG URL generated from title:', { slug: gogSlugs[0], url: gogUrl });
 				}
 			}
 		}
@@ -2933,19 +3676,7 @@ const StoreGamePage = () => {
 		const gogHref = toAbsoluteStoreHref('gog', ratingTargets.gog.href);
 		const itchHref = toAbsoluteStoreHref('itchio', ratingTargets.itchio.href);
 
-		// Debug logging
-		if (activePlatform === 'gog' || gogHref) {
-			console.log('[StoreGamePage] GOG Rating Fetch Debug:', {
-				activePlatform,
-				appId,
-				'model.appid': model?.appid,
-				'ratingTargets.gog.appId': ratingTargets.gog?.appId,
-				'ratingTargets.gog.href': ratingTargets.gog?.href,
-				gogHref,
-				'platformDetails?.id': platformDetails?.id,
-				'platformDetails?.productId': platformDetails?.productId,
-			});
-		}
+
 
 		setRatingsByPlatform({
 			steam: { loading: !!steamAppId, data: null },
@@ -3124,12 +3855,73 @@ const StoreGamePage = () => {
 		});
 	}, [ratingTargets, ratingsByPlatform]);
 
+	const minimumRequirementsVerdictClass = useMemo(() => {
+		if (minimumRequirementsCheck.verdict === REQUIREMENT_CHECK_SHOULD_RUN) return 'text-emerald-300';
+		if (minimumRequirementsCheck.verdict === REQUIREMENT_CHECK_PROBABLY_NOT) return 'text-rose-300';
+		if (minimumRequirementsCheck.verdict === REQUIREMENT_CHECK_HOPES) return 'text-amber-200';
+		return 'text-slate-300';
+	}, [minimumRequirementsCheck.verdict]);
+
+	const handleCheckMinimumRequirements = useCallback(async () => {
+		setMinimumRequirementsCheck({
+			status: 'loading',
+			verdict: '',
+			details: [],
+			error: '',
+		});
+
+		try {
+			const api = typeof window !== 'undefined' ? window.electronAPI : null;
+			if (!api || typeof api.getLocalHardwareProfile !== 'function') {
+				throw new Error('Hardware profile API is not available.');
+			}
+
+			const now = Date.now();
+			const cached = localHardwareProfileRef.current;
+			const canReuseCache = cached
+				&& cached.value
+				&& Number.isFinite(cached.fetchedAt)
+				&& (now - cached.fetchedAt) < LOCAL_HARDWARE_PROFILE_CACHE_TTL_MS;
+
+			const profile = canReuseCache
+				? cached.value
+				: await withTimeout(
+					api.getLocalHardwareProfile(),
+					LOCAL_HARDWARE_PROFILE_TIMEOUT_MS,
+					'Hardware check timed out. Please try again.'
+				);
+
+			if (!canReuseCache) {
+				localHardwareProfileRef.current = {
+					value: profile,
+					fetchedAt: Date.now(),
+				};
+			}
+
+			const result = evaluateMinimumRequirements(model.minimumRequirements || '', profile || {});
+
+			setMinimumRequirementsCheck({
+				status: 'ready',
+				verdict: String(result?.verdict || REQUIREMENT_CHECK_HOPES),
+				details: Array.isArray(result?.details) ? result.details : [],
+				error: '',
+			});
+		} catch (error) {
+			setMinimumRequirementsCheck({
+				status: 'error',
+				verdict: '',
+				details: [],
+				error: error instanceof Error ? error.message : 'Could not evaluate minimum requirements.',
+			});
+		}
+	}, [model.minimumRequirements]);
+
 	const openExternalUrl = async (href) => {
 		const normalizedHref = String(href || '').trim();
 		if (!/^https?:\/\//i.test(normalizedHref)) return false;
 
 		const api = typeof window !== 'undefined' ? window.electronAPI : null;
-		if (api && typeof api.openExternalUrl === 'function') {
+		if (typeof api?.openExternalUrl === 'function') {
 			try {
 				await api.openExternalUrl(normalizedHref);
 				return true;
@@ -3152,7 +3944,7 @@ const StoreGamePage = () => {
 		const titleHint = String(model.title || model.name || '').trim();
 		const api = typeof window !== 'undefined' ? window.electronAPI : null;
 
-		if (titleHint && api && typeof api.getItchGameDetailsByTitle === 'function') {
+		if (titleHint && typeof api?.getItchGameDetailsByTitle === 'function') {
 			try {
 				const details = await api.getItchGameDetailsByTitle(titleHint);
 				const detailSiteLinks = normalizeSiteLinksFromAny(details?.links || details?.sites || details?.url || details?.store_url || details?.storeUrl);
@@ -3188,12 +3980,12 @@ const StoreGamePage = () => {
 			if (target.platform === 'itchio') {
 				const itchioHref = await resolveItchGamePageHref(targetHref);
 				fallbackOpenHref = itchioHref;
-				if (/^https?:\/\//i.test(itchioHref)) {
-					await window.electronAPI.openItchGame(null, itchioHref);
-					return;
-				}
 				if (Number.isFinite(targetAppId) && targetAppId > 0) {
 					await window.electronAPI.openItchGame(Number(targetAppId));
+					return;
+				}
+				if (/^https?:\/\//i.test(itchioHref)) {
+					await window.electronAPI.openItchGame(null, itchioHref);
 					return;
 				}
 			}
@@ -3212,6 +4004,32 @@ const StoreGamePage = () => {
 
 	const handleOpenPirateSite = async (entry) => {
 		setErrorMessage('');
+		const rawHref = decodeHtmlAmpersands(String(entry?.href || '').trim());
+		const lowerHref = rawHref.toLowerCase();
+		const label = String(entry?.label || '').toLowerCase();
+		const api = typeof window !== 'undefined' ? window.electronAPI : null;
+
+		// Prefer resolving exact byxatab game page via main process when possible
+		if ((/byxatab\.com/.test(lowerHref) || label.includes('xatab') || label.includes('byxatab')) && typeof api?.xatabGamePageUrl === 'function') {
+			const slugFallback = slugFromTitle(model.title || model.name, '-') || '';
+			const slugFromLink = extractSlugFromUrl(rawHref);
+			const slug = slugFromLink || slugFallback;
+			const lookup = /byxatab\.com\/games\//.test(lowerHref)
+				? rawHref
+				: (String(model.title || model.name || slug || '').trim() || slug);
+
+			try {
+				const resolved = await withTimeout(
+					api.xatabGamePageUrl(lookup),
+					5000,
+					'Timed out while resolving Xatab page URL.'
+				);
+				if (hasFilledText(resolved) && await openExternalUrl(resolved)) return;
+			} catch (err) {
+				// fallback to default resolver below
+			}
+		}
+
 		const pageHref = resolvePirateSitePageHref(entry, model.title || model.name || '');
 		if (await openExternalUrl(pageHref)) return;
 		setErrorMessage('No pirate site page URL is available for this source.');
@@ -3230,21 +4048,22 @@ const StoreGamePage = () => {
 	};
 
 	const handleOpenPirateLink = async (entry) => {
-		const rawHref = String(entry?.href || '').trim();
-		if (!rawHref) return;
+		const explicitMagnet = String(entry?.magnet || entry?.magnet_uri || entry?.magnetUri || entry?.magnetLink || '').trim();
+		const rawHref = String(entry?.href || entry?.sitelink || entry?.link || '').trim();
+		if (!explicitMagnet && !rawHref) return;
 
-		const entryKey = pirateEntryKey(entry, rawHref);
+		const entryKey = pirateEntryKey(entry, explicitMagnet || rawHref);
 		setStartingPirateKeys((prev) => (prev.includes(entryKey) ? prev : [...prev, entryKey]));
 		setErrorMessage('');
 
 		try {
-			let torrentId = decodeHtmlAmpersands(rawHref);
-			const lowerHref = torrentId.toLowerCase();
+			let torrentId = decodeHtmlAmpersands(explicitMagnet || rawHref);
+			const lowerHref = String(torrentId || rawHref).toLowerCase();
 			const label = String(entry?.label || '').toLowerCase();
 
 			if (!/^magnet:\?/i.test(torrentId)) {
 				const api = typeof window !== 'undefined' ? window.electronAPI : null;
-				const slugFallback = slugFromTitle(model.title, '-') || '';
+				const slugFallback = slugFromTitle(model.title || model.name, '-') || '';
 				const slugFromLink = extractSlugFromUrl(torrentId);
 				const slug = slugFromLink || slugFallback;
 
@@ -3265,6 +4084,29 @@ const StoreGamePage = () => {
 					);
 					if (hasFilledText(resolved)) {
 						torrentId = decodeHtmlAmpersands(resolved);
+					}
+				} else if ((/online-fix\.me/.test(lowerHref) || /uploads\.online-fix\.me/.test(lowerHref) || label.includes('online-fix')) && slug && typeof api?.onlineFixMeMagnetLink === 'function') {
+					const resolved = await withTimeout(
+						api.onlineFixMeMagnetLink(slug),
+						PIRATE_LINK_RESOLVE_TIMEOUT_MS,
+						'Timed out while resolving Online-Fix download link.'
+					);
+					if (hasFilledText(resolved)) {
+						torrentId = decodeHtmlAmpersands(resolved);
+					}
+				} else if ((/byxatab\.com/.test(lowerHref) || label.includes('xatab') || label.includes('byxatab')) && typeof api?.xatabMagnetLink === 'function') {
+					const xatabLookupValue = /byxatab\.com\/games\//.test(lowerHref)
+						? torrentId
+						: (String(model.title || model.name || slug || '').trim() || slug);
+					if (hasFilledText(xatabLookupValue)) {
+						const resolved = await withTimeout(
+							api.xatabMagnetLink(xatabLookupValue),
+							PIRATE_LINK_RESOLVE_TIMEOUT_MS,
+							'Timed out while resolving Xatab download link.'
+						);
+						if (hasFilledText(resolved)) {
+							torrentId = decodeHtmlAmpersands(resolved);
+						}
 					}
 				}
 			}
@@ -3306,7 +4148,7 @@ const StoreGamePage = () => {
 	};
 
 	return (
-		<div className="flex-1 overflow-y-auto text-slate-100">
+		<div className="store-game-page flex-1 overflow-y-auto text-slate-100">
 			<div className="relative min-h-full">
 				<div className="absolute inset-x-0 top-0 h-[340px] bg-cover bg-center opacity-30" style={{ backgroundImage: topBackdropImage ? `url(${topBackdropImage})` : undefined }} />
 				<div className="absolute inset-x-0 top-0 h-[340px] bg-gradient-to-b from-slate-950/10 via-slate-950/75 to-slate-950" />
@@ -3318,7 +4160,7 @@ const StoreGamePage = () => {
 							onClick={() => navigate(-1)}
 							className="rounded-lg border border-slate-700/70 bg-slate-900/60 px-4 py-2 text-sm text-slate-200 transition-colors hover:bg-slate-800/70"
 						>
-							Back To Store
+							Back
 						</button>
 						<div className="text-right text-xs uppercase tracking-[0.18em] text-slate-400">Store Page</div>
 					</div>
@@ -3341,7 +4183,6 @@ const StoreGamePage = () => {
 												: ((activePlatform !== 'gog' && model.priceLabel) || formatCurrencyPrice(model.price, activePlatform) || 'Check Store')}
 										</p>
 									</div>
-
 									{platformActionTargets.map((target) => {
 										const platformRating = ratingDisplayRows.find((r) => r.platform === target.platform);
 										const openDisabled = !target?.href && !(Number.isFinite(Number(target?.appId)) && Number(target?.appId) > 0);
@@ -3408,7 +4249,7 @@ const StoreGamePage = () => {
 							</div>
 
 							<div className="rounded-2xl border border-slate-700/60 bg-slate-900/45 p-5 backdrop-blur-sm">
-								<h2 className="text-lg font-semibold text-white">Available On</h2>
+								<h2 className="text-lg font-semibold text-white">Open in browser</h2>
 								<div className="mt-3 flex flex-col gap-2">
 									{availableOnTargets.map((site, index) => (
 										<a
@@ -3423,15 +4264,46 @@ const StoreGamePage = () => {
 											className="rounded-xl border border-slate-700/70 bg-slate-950/45 px-4 py-3 text-sm text-slate-200 transition-colors hover:bg-slate-800/80"
 										>
 											{site.label ?? 'Store'}
+											<svg width="18px" height="18px" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+											<g id="Interface / External_Link">
+											<path id="Vector" d="M10.0002 5H8.2002C7.08009 5 6.51962 5 6.0918 5.21799C5.71547 5.40973 5.40973 5.71547 5.21799 6.0918C5 6.51962 5 7.08009 5 8.2002V15.8002C5 16.9203 5 17.4801 5.21799 17.9079C5.40973 18.2842 5.71547 18.5905 6.0918 18.7822C6.5192 19 7.07899 19 8.19691 19H15.8031C16.921 19 17.48 19 17.9074 18.7822C18.2837 18.5905 18.5905 18.2839 18.7822 17.9076C19 17.4802 19 16.921 19 15.8031V14M20 9V4M20 4H15M20 4L13 11" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+											</g>
+											</svg>
 										</a>
+										
 									))}
 								</div>
 							</div>
 
 							{model.minimumRequirements ? (
 								<div className="rounded-2xl border border-slate-700/60 bg-slate-900/45 p-5 backdrop-blur-sm">
-									<h2 className="text-lg font-semibold text-white">Minimum Requirements</h2>
+									<div className="flex items-center justify-between gap-3">
+										<h2 className="text-lg font-semibold text-white">Minimum Requirements</h2>
+										<button
+											type="button"
+											onClick={() => { void handleCheckMinimumRequirements(); }}
+											disabled={minimumRequirementsCheck.status === 'loading'}
+											className="rounded-lg bg-indigo-500 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-white transition-colors hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-60"
+										>
+											{minimumRequirementsCheck.status === 'loading' ? 'Checking...' : 'Check My PC'}
+										</button>
+									</div>
 									<div className="mt-3 text-sm leading-6 text-slate-300 [&_ul]:ml-5 [&_ul]:list-disc [&_strong]:text-slate-100" dangerouslySetInnerHTML={{ __html: model.minimumRequirements }} />
+									{minimumRequirementsCheck.status === 'ready' ? (
+										<div className="mt-3 rounded-xl border border-slate-700/70 bg-slate-950/55 px-3 py-3">
+											<p className={`text-sm font-semibold ${minimumRequirementsVerdictClass}`}>{minimumRequirementsCheck.verdict}</p>
+											{Array.isArray(minimumRequirementsCheck.details) && minimumRequirementsCheck.details.length > 0 ? (
+												<div className="mt-2 flex flex-col gap-1">
+													{minimumRequirementsCheck.details.map((detail, index) => (
+														<p key={`${detail}-${index}`} className="text-xs text-slate-400">{detail}</p>
+													))}
+												</div>
+											) : null}
+										</div>
+									) : null}
+									{minimumRequirementsCheck.status === 'error' && minimumRequirementsCheck.error ? (
+										<p className="mt-3 text-xs text-rose-300">{minimumRequirementsCheck.error}</p>
+									) : null}
 								</div>
 							) : null}
 						</div>

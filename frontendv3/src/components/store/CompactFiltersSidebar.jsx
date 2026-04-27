@@ -19,7 +19,21 @@ const CompactFiltersSidebar = ({
 }) => {
 	const [platformsOpen, setPlatformsOpen] = useState(false);
 	const [advancedOpen, setAdvancedOpen] = useState(false);
+	const [genreSearch, setGenreSearch] = useState('');
 
+	// Normalize quick & advanced tags to strings
+	const normalize = (arr) =>
+		Array.isArray(arr)
+			? arr.map((t) => (typeof t === 'string' ? t : (t?.name ?? String(t))))
+			: [];
+
+	const normalizedQuickTags = normalize(quickTags);
+	const normalizedAdvancedTags = normalize(advancedTags);
+
+	// Filter only advanced tags with the local genre search
+	const filteredAdvancedTags = normalizedAdvancedTags.filter((t) =>
+		t.toLowerCase().includes(genreSearch.toLowerCase())
+	);
 	// All platforms
 	const platforms = [
 		{ id: 'steam', name: 'Steam' },
@@ -51,7 +65,7 @@ const CompactFiltersSidebar = ({
 		priceRange.max < 100;
 
 	return (
-		<div className="w-80 bg-slate-800/40 backdrop-blur-sm rounded-lg border border-slate-700/50 sticky top-20 overflow-hidden flex flex-col max-h-[calc(100vh-100px)]">
+		<div className="compact-filters-sidebar w-80 bg-slate-800/40 backdrop-blur-sm rounded-lg border border-slate-700/50 sticky top-20 overflow-hidden flex flex-col max-h-[calc(100vh-100px)]">
 			{/* Search bar */}
 			<div className="p-4 border-b border-slate-700/50">
 				<input
@@ -69,7 +83,8 @@ const CompactFiltersSidebar = ({
 				<div className="p-4 border-b border-slate-700/50">
 					<h3 className="text-sm font-semibold text-slate-100 mb-3">Top tags</h3>
 					<div className="grid grid-cols-2 gap-2">
-						{quickTags.map((tag) => (
+
+						{normalizedQuickTags.map((tag) => (
 							<button
 								key={tag}
 								onClick={() => handleTagToggle(tag)}
@@ -83,7 +98,7 @@ const CompactFiltersSidebar = ({
 							</button>
 						))}
 					</div>
-					{quickTags.length === 0 && (
+					{normalizedQuickTags.length === 0 && normalizedAdvancedTags.length === 0 && (
 						<p className="text-xs text-slate-400">No tags available yet.</p>
 					)}
 				</div>
@@ -151,30 +166,9 @@ const CompactFiltersSidebar = ({
 						</svg>
 					</button>
 					{advancedOpen && (
+						
 						<div className="px-4 pb-4">
-							{advancedTags.length > 0 && (
-								<div className="mb-4">
-									<label className="block text-sm font-medium text-slate-300 mb-2">
-										Other Tags
-									</label>
-									<div className="flex flex-wrap gap-2">
-										{advancedTags.map((tag) => (
-											<button
-												key={tag}
-												type="button"
-												onClick={() => handleTagToggle(tag)}
-												className={`px-2.5 py-1 rounded-md text-xs transition-all ${
-													selectedTags.includes(tag)
-														? 'bg-blue-600 text-white'
-														: 'bg-slate-700/50 text-slate-300 hover:bg-slate-700'
-												}`}
-											>
-												{tag}
-											</button>
-										))}
-									</div>
-								</div>
-							)}
+
 							{/* Price Range */}
 							<div>
 								<label className="block text-sm font-medium text-slate-300 mb-2">
@@ -191,6 +185,40 @@ const CompactFiltersSidebar = ({
 									<span>{priceRange.max}€</span>
 								</div>
 							</div>
+																			{/* Local search for genres */}
+								<div className="mb-2">
+									<input
+										type="text"
+										value={genreSearch}
+										onChange={(e) => setGenreSearch(e.target.value)}
+										placeholder="Search genres..."
+										className="w-full px-3 py-2 bg-slate-950/40 border border-slate-700/60 rounded text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-500/50 focus:border-slate-500"
+									/>
+								</div>
+							{normalizedAdvancedTags.length > 0 && (
+								<div className="mb-4">
+									<label className="block text-sm font-medium text-slate-300 mb-2">
+										Other Tags
+									</label>
+									<div className="flex flex-wrap gap-2">
+											{filteredAdvancedTags.map((tag) => (
+												<button
+													key={tag}
+													type="button"
+													onClick={() => handleTagToggle(tag)}
+													className={`px-2.5 py-1 rounded-md text-xs transition-all ${
+														selectedTags.includes(tag)
+															? 'bg-blue-600 text-white'
+															: 'bg-slate-700/50 text-slate-300 hover:bg-slate-700'
+													}`}
+												>
+													{tag}
+												</button>
+											))}
+									</div>
+								</div>
+							)}
+
 						</div>
 					)}
 				</div>

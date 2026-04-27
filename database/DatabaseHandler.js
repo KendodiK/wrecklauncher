@@ -57,11 +57,33 @@ class DatabaseHandler {
 
         const poolPromise = (async () => {
             try {
+                const fs = require('fs');
+                const hostOrig = this.DB_HOST || process.env.DB_HOST || process.env.MARIADB_HOST || 'db';
+                const port = Number(this.DB_PORT || process.env.DB_PORT || process.env.DB_PORT_HOST || 3306);
+                const user = this.DB_USERNAME || process.env.DB_USERNAME || process.env.DB_USER || process.env.MARIADB_USER || 'root';
+                const password = this.DB_PASSWORD || process.env.DB_PASSWORD || process.env.MARIADB_PASSWORD || process.env.MARIADB_ROOT_PASSWORD || '';
+
+                // detect container runtime via /.dockerenv or /.dockerinit
+                let runningInContainer = false;
+                try {
+                    runningInContainer = fs.existsSync('/.dockerenv') || fs.existsSync('/.dockerinit');
+                } catch (e) {
+                    runningInContainer = false;
+                }
+
+                let host = hostOrig;
+                if ((host === '127.0.0.1' || host === 'localhost' || host === '::1') && runningInContainer) {
+                    console.log(`Detected container runtime and localhost DB host; remapping host '${host}' -> 'db'`);
+                    host = 'db';
+                }
+
+                console.log('DB connection params:', { host, port, user, passwordPresent: !!password, envDB_HOST: process.env.DB_HOST, hostOrig });
+
                 const pool = createPool({
-                    host: this.DB_HOST,
-                    port: this.DB_PORT,
-                    user: this.DB_USERNAME,
-                    password: this.DB_PASSWORD,
+                    host,
+                    port,
+                    user,
+                    password,
                     database: this.dbName,
                     waitForConnections: true,
                     connectionLimit: Number(process.env.DB_CONNECTION_LIMIT || 10),
@@ -158,12 +180,20 @@ class DatabaseHandler {
         await this.waitForConnection();
         try {
             // Creating a database requires a connection without selecting the database.
-            const conn = await createConnection({
-                host: this.DB_HOST,
-                port: this.DB_PORT,
-                user: this.DB_USERNAME,
-                password: this.DB_PASSWORD,
-            });
+            const fs = require('fs');
+            const hostOrig = this.DB_HOST || process.env.DB_HOST || process.env.MARIADB_HOST || 'db';
+            const port = Number(this.DB_PORT || process.env.DB_PORT || process.env.DB_PORT_HOST || 3306);
+            const user = this.DB_USERNAME || process.env.DB_USERNAME || process.env.DB_USER || process.env.MARIADB_USER || 'root';
+            const password = this.DB_PASSWORD || process.env.DB_PASSWORD || process.env.MARIADB_PASSWORD || process.env.MARIADB_ROOT_PASSWORD || '';
+            let runningInContainer = false;
+            try { runningInContainer = fs.existsSync('/.dockerenv') || fs.existsSync('/.dockerinit'); } catch (e) { runningInContainer = false; }
+            let host = hostOrig;
+            if ((host === '127.0.0.1' || host === 'localhost' || host === '::1') && runningInContainer) {
+                console.log(`Detected container runtime and localhost DB host; remapping host '${host}' -> 'db'`);
+                host = 'db';
+            }
+            console.log('DB createDB params:', { host, port, user, passwordPresent: !!password, hostOrig });
+            const conn = await createConnection({ host, port, user, password });
             try {
                 const sql = `CREATE DATABASE IF NOT EXISTS \`${this.dbName}\``;
                 await conn.execute(sql);
@@ -184,12 +214,20 @@ class DatabaseHandler {
 
     async dropDB() {
         try {
-            const conn = await createConnection({
-                host: this.DB_HOST,
-                port: this.DB_PORT,
-                user: this.DB_USERNAME,
-                password: this.DB_PASSWORD,
-            });
+            const fs = require('fs');
+            const hostOrig = this.DB_HOST || process.env.DB_HOST || process.env.MARIADB_HOST || 'db';
+            const port = Number(this.DB_PORT || process.env.DB_PORT || process.env.DB_PORT_HOST || 3306);
+            const user = this.DB_USERNAME || process.env.DB_USERNAME || process.env.DB_USER || process.env.MARIADB_USER || 'root';
+            const password = this.DB_PASSWORD || process.env.DB_PASSWORD || process.env.MARIADB_PASSWORD || process.env.MARIADB_ROOT_PASSWORD || '';
+            let runningInContainer = false;
+            try { runningInContainer = fs.existsSync('/.dockerenv') || fs.existsSync('/.dockerinit'); } catch (e) { runningInContainer = false; }
+            let host = hostOrig;
+            if ((host === '127.0.0.1' || host === 'localhost' || host === '::1') && runningInContainer) {
+                console.log(`Detected container runtime and localhost DB host; remapping host '${host}' -> 'db'`);
+                host = 'db';
+            }
+            console.log('DB dropDB params:', { host, port, user, passwordPresent: !!password, hostOrig });
+            const conn = await createConnection({ host, port, user, password });
             try {
                 const sql = `DROP DATABASE IF EXISTS \`${this.dbName}\``;
                 await conn.execute(sql);

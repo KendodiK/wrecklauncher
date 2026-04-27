@@ -1,12 +1,7 @@
 // @ts-check
 'use strict';
 
-const CloudscraperController = require('./CloudscraperController');
-
 class PcGamesTorrentController {
-  /** @type {CloudscraperController} */
-  #scraper;
-
   /** @type {number} */
   #redirectTimeoutMs;
 
@@ -14,7 +9,6 @@ class PcGamesTorrentController {
    * @param {{ timeoutMs?: number, redirectTimeoutMs?: number }} [cfg]
    */
   constructor(cfg) {
-    this.#scraper = new CloudscraperController(cfg);
     const rto = Number(cfg?.redirectTimeoutMs);
     this.#redirectTimeoutMs = rto > 0 ? rto : 25_000;
   }
@@ -359,135 +353,41 @@ class PcGamesTorrentController {
 
   /**
    * INTENTIONALLY SLOW! This is not meant to be a general-purpose fetch. It loads the full page with JS execution, waits for redirects, and extracts the magnet link from the final page. Use fetch() for simple HTML fetching without JS.
-   * Fetches the magnet link for a FitGirl repack by game name (slug).
+   * Fetches the magnet link for a FitGirl repack by game name ( NOT slug).
    * @param {string} gameName
    * @returns {Promise<string | null>}
    */
   async pcGamesTorrentMagnetLink(gameName) {
     if (!gameName || !String(gameName).trim()) throw new Error('Game name is required');
-    const slug = String(gameName).trim();
-    const url = `https://igg-games.com/${encodeURIComponent(slug)}.html`;
-    const response = await this.#scraper.fetch(url);
+    const slug = String(gameName).trim().replace(/\s+/g, '-');
+    const url = `https://pcgamestorrents.com/${encodeURIComponent(slug)}.html`;
+    const response = await fetch(url);
     if (!response.ok) {
-      throw new Error(`Failed to fetch IggGames game page for "${gameName}": HTTP ${response.statusCode}`);
+      throw new Error(`Failed to fetch PcGamesTorrent game page for "${gameName}": HTTP ${response.status}`);
     }
-    const body = response.body;
-
-    const pcArticleLinks = this.#extractPcGamesArticleLinks(body);
-    const directUrlGeneratorLinks = this.#extractUrlGeneratorLinks(body, url);
-    if (pcArticleLinks.length === 0 && directUrlGeneratorLinks.length === 0) {
-      console.warn('[PcGamesTorrent] no pcgamestorrents/url-generator links found in page body');
-      return null;
+    const body = await response.text().catch(() => '');
+    const titlePattern = /<p>\s*<img[^>]*>\s*<span[^>]*>\s*Title:\s*<\/span>\s*(?<title>[\s\S]*?)<\/p>/i;
+    const fetchedTitle = (body.match(titlePattern)?.groups?.title || '').trim();
+    if(!fetchedTitle || (!gameName.toLocaleLowerCase().includes(fetchedTitle.toLocaleLowerCase()) && !fetchedTitle.toLocaleLowerCase().includes(gameName.toLocaleLowerCase()))) {
+      throw new Error(`Game title "${gameName}" does not match the fetched title "${fetchedTitle}"`);
     }
-
-    /** @type {string[]} */
-    const downloadPageCandidates = [];
-
-    /** @type {(link: string) => void} */
-    const pushUniqueCandidate = (link) => {
-      if (!downloadPageCandidates.some((existing) => existing.toLowerCase() === link.toLowerCase())) {
-        downloadPageCandidates.push(link);
-      }
-    };
-
-    const directDownloadCandidates = this.#extractDirectDownloadLinks(body, url);
-
-    for (const articleUrl of pcArticleLinks) {
-      try {
-        const articleResponse = await this.#scraper.fetch(articleUrl);
-        if (!articleResponse.ok) {
-          console.warn(
-            '[PcGamesTorrent] failed to fetch candidate article page:',
-            articleUrl,
-            'HTTP',
-            articleResponse.statusCode
-          );
-          continue;
-        }
-
-        const generatorLinks = this.#extractUrlGeneratorLinks(articleResponse.body, articleUrl);
-        for (const link of generatorLinks) {
-          pushUniqueCandidate(link);
-        }
-
-        const articleDirectLinks = this.#extractDirectDownloadLinks(articleResponse.body, articleUrl);
-        for (const link of articleDirectLinks) {
-          if (!directDownloadCandidates.some((existing) => existing.toLowerCase() === link.toLowerCase())) {
-            directDownloadCandidates.push(link);
-          }
-        }
-      } catch (e) {
-        console.warn('[PcGamesTorrent] failed to inspect candidate article page:', articleUrl, e);
-      }
+    const linkPatternForMagnet = /<p[^>]*class="[^"]*\buk-card\b[^"]*\buk-card-body\b[^"]*\buk-card-default\b[^"]*\buk-card-hover\b[^"]*"[^>]*>\s*<a[^>]*href="(?<href>[^"]+)"[^>]*>(?<text>[^<]+)<\/a>/i;
+    const match = linkPatternForMagnet.exec(body);
+    const magnetLinkGeneratorUrl = match?.groups?.href ? this.#decodeHtmlAmpersands(match.groups.href) : null;
+    if (!magnetLinkGeneratorUrl) {
+      throw new Error('Could not find magnet link generator URL on the page');
     }
-
-    // Keep IGG-page direct candidates as fallback after article-derived links.
-    for (const link of directUrlGeneratorLinks) {
-      pushUniqueCandidate(link);
+    const magnet = await this.#extractMagnetFromPage(magnetLinkGeneratorUrl);
+    if (magnet) {
+      return magnet;
     }
-
-    /** @type {string} */
-    let fallbackTorrentUrl = '';
-
-    for (const directLink of directDownloadCandidates) {
-      const cleanedDirect = this.#decodeHtmlAmpersands(directLink);
-      if (!this.#isLikelyDownloadUrl(cleanedDirect)) {
-        continue;
-      }
-
-      // Prefer magnet links when available to avoid metadata delays and unstable URL downloads.
-      if (/^magnet:\?/i.test(cleanedDirect)) {
-        return cleanedDirect;
-      }
-
-      if (!fallbackTorrentUrl) {
-        fallbackTorrentUrl = cleanedDirect;
-      }
-    }
-
-    if (downloadPageCandidates.length === 0) {
-      if (fallbackTorrentUrl) {
-        return fallbackTorrentUrl;
-      }
-      console.warn('[PcGamesTorrent] no url-generator links found in IGG/PCGames candidate pages');
-      return null;
-    }
-
-    const limitedCandidates = downloadPageCandidates.slice(0, 4);
-    for (const downloadPage of limitedCandidates) {
-      for (let attempt = 1; attempt <= 2; attempt += 1) {
-        try {
-          const magnet = await this.#extractMagnetFromPage(downloadPage);
-          if (!magnet) {
-            continue;
-          }
-
-          const cleaned = this.#decodeHtmlAmpersands(magnet);
-          if (cleaned) {
-            if (/^magnet:\?/i.test(cleaned)) {
-              return cleaned;
-            }
-            if (!fallbackTorrentUrl && this.#isLikelyDownloadUrl(cleaned)) {
-              fallbackTorrentUrl = cleaned;
-            }
-          }
-        } catch (e) {
-          console.warn('[PcGamesTorrent] failed to extract magnet from download page:', downloadPage, `(attempt ${attempt}/2)`, e);
-        }
-      }
-    }
-
-    if (fallbackTorrentUrl) {
-      return fallbackTorrentUrl;
-    }
-
     console.warn('[PcGamesTorrent] no magnet extracted from any candidate download page');
     return null;
   }
 
   /**
    * Backward-compatible alias for legacy PascalCase method name.
-   * @param {string} gameName
+   * @param {string} gameName - NOT slug
    * @returns {Promise<string | null>}
    */
   async PcGamesTorrentMagnetLink(gameName) {
