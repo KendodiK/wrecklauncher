@@ -485,17 +485,8 @@ module.exports.GETFriendsOfNativeUser = async function (req, res) {
         const { nativeUserId } = req.params;
         const friendsCtrl = new FriendsController();
         const friendsRaw = await friendsCtrl.getNativeUserFriends(nativeUserId);
-        const normalizedNativeUserId = String(nativeUserId ?? '').trim();
 
-        const friends = [];
-        friendsRaw.forEach(friend => {
-            const user1 = String(friend.user1_id ?? '').trim();
-            const user2 = String(friend.user2_id ?? '').trim();
-            friends.push({
-                id: friend.id,
-                user_id: user1 !== normalizedNativeUserId ? friend.user1_id : friend.user2_id
-            });
-        });
+        const friends = Array.isArray(friendsRaw) && friendsRaw.length > 0 ? apiHelpers.normalizeFriends(friendsRaw, nativeUserId) : [];
         return res.json(friends);
     } catch (err) {
         return res.status(500).json({ error: err.message });
@@ -506,8 +497,9 @@ module.exports.GETFriendsWithChattingStatus = async function (req, res) {
     try {
         const { nativeUserId } = req.params;
         const friendsCtrl = new FriendsController();
-        const friends = await friendsCtrl.getChattingFriends(nativeUserId);
-        
+        const friendsRaw = await friendsCtrl.getChattingFriends(nativeUserId);
+
+        const friends = Array.isArray(friendsRaw) && friendsRaw.length > 0 ? apiHelpers.normalizeFriends(friendsRaw, nativeUserId) : [];
         return res.json(friends);
     } catch (err) {
         return res.status(500).json({ error: err.message });

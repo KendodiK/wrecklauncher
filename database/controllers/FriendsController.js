@@ -112,21 +112,14 @@ class FriendsController extends Controller {
     async getChattingFriends(nativeUserId) { 
         await this.ready;
 
-        const query = `SELECT friends.user1_id, friends.user2_id 
+        const query = `SELECT DISTINCT(friends.id), friends.user1_id, friends.user2_id 
                             FROM friends 
 	                        JOIN chats ON friends.id = chats.friends_id
-                            WHERE (user1_id = ? AND user2_id = ?) OR (user1_id = ? AND user2_id = ?)`;
-        const values = [nativeUserId, nativeUserId, nativeUserId, nativeUserId];
+                            WHERE user1_id = ? OR user2_id = ? `;
+        const values = [nativeUserId, nativeUserId];
         try {
-            const [rows] = await this.dbConnection.execute(query, values);
-
-            let friendIds = [];
-            for (const row of rows) {
-                const friendId = row.user1_id === nativeUserId ? row.user2_id : row.user1_id;
-                friendIds.push(friendId);
-            }
-            
-            return friendIds;
+            const [rows] = await this.dbConnection.execute(query, values);        
+            return rows;
         } catch (err) {
             console.error(`Error while fetching chatting friends for native user ${nativeUserId} from table ${this.tableName}: ${err}`);
             throw err;
