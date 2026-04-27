@@ -216,10 +216,8 @@
                   <TextBlock Text="◎" Foreground="#E2E8F0" FontSize="32" HorizontalAlignment="Center" VerticalAlignment="Center" />
                 </Border>
                 <StackPanel Grid.Column="1" Margin="12,0,0,0" Spacing="6">
-                  <TextBlock x:Name="ProfileName" Text="teszt" FontSize="30" FontWeight="Bold" Foreground="#E2E8F0" />
-                  <TextBox
-                           x:Name="ProfileBio"
-                           Text="ads"
+                  <TextBlock Text="teszt" FontSize="30" FontWeight="Bold" Foreground="#E2E8F0" />
+                  <TextBox Text="ads"
                            Background="#0B152A"
                            Foreground="#E2E8F0"
                            BorderBrush="#2A3F66"

@@ -38,7 +38,6 @@ public class ApiService : IApiService
     {
         await AddAuthHeader();
         var token = await _tokenService.GetToken();
-        token = token.Trim('"');
 
         var response = await _client.GetAsync($"/api/native-users/{userId ?? token.Split('.')[0]}");
 
