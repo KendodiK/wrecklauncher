@@ -1,6 +1,7 @@
 using System.Net.WebSockets;
 using System.Text;
 using wreckchat.Services.Auth;
+using System.Diagnostics;
 
 namespace wreckchat.Services.WS;
 
@@ -20,19 +21,19 @@ public class WebSocketBackgroundService
 
     public async Task StartAsync(string url)
     {
-        Console.WriteLine("Attempt to start ws");
+        Debug.WriteLine("----------Attempt to start ws-----------");
         var token = await _tokenService.GetToken();
-        Console.WriteLine("Token: " + token);                
+        Debug.WriteLine("Token: " + token);                
         _ws.Options.SetRequestHeader("Authorization", $"Bearer {token}");
-        Console.WriteLine("Ws Options: "+_ws.Options.ToString());
+        Debug.WriteLine("Ws Options: "+_ws.Options.ToString());
         try
         {
             await _ws.ConnectAsync(new Uri(url), CancellationToken.None);
-            Console.WriteLine("Connected OK");
+            Debug.WriteLine("Connected OK");
         }
         catch (Exception ex)
         {
-            Console.WriteLine("WS ERROR: " + ex.ToString());
+            Debug.WriteLine("WS ERROR: " + ex.ToString());
         }
 
         _ = Task.Run(ReceiveLoop);
@@ -56,7 +57,7 @@ public class WebSocketBackgroundService
                 {
                     var bytes = Encoding.UTF8.GetBytes(HEARTBEAT_VALUE);
 
-                    Console.WriteLine("Received heartbeat, sending back...");
+                    Debug.WriteLine("Received heartbeat, sending back...");
                     await _ws.SendAsync(
                         bytes,
                         WebSocketMessageType.Binary,

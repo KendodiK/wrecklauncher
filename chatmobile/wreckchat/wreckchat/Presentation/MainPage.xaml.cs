@@ -1,3 +1,4 @@
+using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -16,10 +17,9 @@ public sealed partial class MainPage : Page
     private TextBlock _chatRoomIncoming = null!;
     private MainModel _model = null!;
     private UserModel user = null!;
-    private List<FriendModel> friendsIds = new();
     private List<UserModel> friends = new();
     private List<UserModel> chattingFriends = new();
-
+    private List<ChatModel> chats = new();
 
     public MainPage()
     {
@@ -61,8 +61,8 @@ public sealed partial class MainPage : Page
         //todo: barátok lekérdezése
 
         LoginView.Visibility = Visibility.Collapsed;
-        //friends = await _model.GetFriends(user.Id);
-        //chattingFriends = await _model.GetChattingFriends(user.Id);
+        friends = await _model.GetFriends(user.Id);
+        chattingFriends = await _model.GetChattingFriends(user.Id);
 
         BuildFrame();
         Console.WriteLine("Starting ws baah");
@@ -74,12 +74,6 @@ public sealed partial class MainPage : Page
     private void NotificationsNav_Click(object sender, RoutedEventArgs e) => ShowTab("Notifications");
 
     private void ProfileNav_Click(object sender, RoutedEventArgs e) => ShowTab("Profile");
-
-    private void OpenChat_Alex(object sender, RoutedEventArgs e) => OpenChatRoom("Alex", "Yo bro you there?");
-
-    private void OpenChat_Mia(object sender, RoutedEventArgs e) => OpenChatRoom("Mia", "Sent you the files");
-
-    private void OpenChat_Noah(object sender, RoutedEventArgs e) => OpenChatRoom("Noah", "See you tomorrow");
 
     private void BuildFrame()
     {
@@ -97,21 +91,31 @@ public sealed partial class MainPage : Page
         HeaderTitle.Text = "Chats";
     }
 
-    private void OpenChatRoom(string chatName, string message)
+    private void OpenChatRoom(ChatModel chat)
     {
+        var chatName = friends.Where(f => f.GetFriendId() == chat.id).First().Name;
         _activeChatName = chatName;
         HeaderTitle.Text = chatName;
-        _chatRoomIncoming.Text = message;
+        _chatRoomIncoming.Text = chat.lastMessage;
+
         _chatListView.Visibility = Visibility.Collapsed;
-        _chatRoomView.Visibility = Visibility.Visible;
+        _chatRoomView.Visibility = Visibility.Visible;    
+    }
+
+    private async void OpenChat(object sender, RoutedEventArgs e)
+    {
+        Button s = (Button)sender;
+        int friendId = (int)s.Tag;
+        List<ChatMessageModel> messages = await _model.GetChatMessages(friendId, 0);
+        ChatModel c = new ChatModel(friendId, messages, messages[messages.Count - 1].Sender_id, messages[messages.Count - 1].Message);
+        chats.Add(c);
+        OpenChatRoom(c);
     }
 
     private async void ShowTab(string tab) //may change to task??
     {
         //todo ide switch:
-        //todo ha -> profile, lekérdezni (a még nincs): friends->profile infóval!, gamecount, owned games(count), owned games(list), common count?
         //todo ha -> Notifications, lekérdezni a chat log-ot
-        //todo ha -> chats, lekérdezni a jelenleg beszélgető partnereket és az üzeneteket ha rá kattinatanak egy-egyre.
 
 
         ChatsTab.Visibility = tab == "Chats" ? Visibility.Visible : Visibility.Collapsed;
@@ -122,17 +126,190 @@ public sealed partial class MainPage : Page
         switch (tab)
         {
             case "Profile":
+                foreach (var friend in friends)
+                {
+                    if(friend.shownInFriendsList)
+                    {
+                        break;
+                    }
+                    var uiElement = CreateFriendUIElement(friend);
+                    FriendsList.Children.Add(uiElement);
+                    friend.ChangeShownInFriendsList();
+                }
+
                 break;
             case "Notifications":
                 break;
             case "Chats":
                 _chatRoomView.Visibility = Visibility.Collapsed;
                 _chatListView.Visibility = Visibility.Visible;
+
+                foreach (var chattingFriend in chattingFriends)
+                {
+                    if(chattingFriend.shownInChatList)
+                    {
+                        break;
+                    }
+                    var chatButton = CreateChatButton(chattingFriend);
+                    ChatsList.Children.Add(chatButton);
+                    chattingFriend.ChangeShownInChatList();
+                }
+
                 break;
         }
 
         ChatsNav.Foreground = tab == "Chats" ? new SolidColorBrush(Color.FromArgb(255, 226, 232, 240)) : new SolidColorBrush(Color.FromArgb(255, 148, 163, 184));
         NotificationsNav.Foreground = tab == "Notifications" ? new SolidColorBrush(Color.FromArgb(255, 226, 232, 240)) : new SolidColorBrush(Color.FromArgb(255, 148, 163, 184));
         ProfileNav.Foreground = tab == "Profile" ? new SolidColorBrush(Color.FromArgb(255, 226, 232, 240)) : new SolidColorBrush(Color.FromArgb(255, 148, 163, 184));
+    }
+
+    public UIElement CreateFriendUIElement(UserModel friend)
+    {
+        var border = new Border
+        {
+            Background = new SolidColorBrush(ColorHelper.FromArgb(255, 0x0B, 0x15, 0x2A)),
+            BorderBrush = new SolidColorBrush(ColorHelper.FromArgb(255, 0x2A, 0x3F, 0x66)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(10)
+        };
+
+        var grid = new Grid();
+
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var stackPanel = new StackPanel();
+
+        var nameText = new TextBlock
+        {
+            Text = friend.Name,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = new SolidColorBrush(ColorHelper.FromArgb(255, 0xE2, 0xE8, 0xF0))
+        };
+
+        var statusText = new TextBlock
+        {
+            Text = "Offline", //offline - online logika needed
+            FontSize = 12,
+            Foreground = new SolidColorBrush(ColorHelper.FromArgb(255, 0x94, 0xA3, 0xB8))
+        };
+
+        stackPanel.Children.Add(nameText);
+        stackPanel.Children.Add(statusText);
+
+        var profileButton = new Button
+        {
+            Content = "Profile", //szerintem emögött nincsen semmi
+            Margin = new Thickness(8, 0, 0, 0),
+            Background = new SolidColorBrush(ColorHelper.FromArgb(255, 0x10, 0x1A, 0x33)),
+            Foreground = new SolidColorBrush(ColorHelper.FromArgb(255, 0xE2, 0xE8, 0xF0)),
+            BorderBrush = new SolidColorBrush(ColorHelper.FromArgb(255, 0x2A, 0x3F, 0x66))
+        };
+        Grid.SetColumn(profileButton, 1);
+
+        var msgButton = new Button
+        {
+            Content = "⌲", 
+            Margin = new Thickness(8, 0, 0, 0),
+            Background = new SolidColorBrush(ColorHelper.FromArgb(255, 0x10, 0x1A, 0x33)),
+            Foreground = new SolidColorBrush(ColorHelper.FromArgb(255, 0xE2, 0xE8, 0xF0)),
+            BorderBrush = new SolidColorBrush(ColorHelper.FromArgb(255, 0x2A, 0x3F, 0x66)),
+            Tag = friend.GetFriendId(), //its needed to identify which chat to open when clicked.
+        };
+        Grid.SetColumn(msgButton, 2);
+
+        msgButton.Click += OpenChat;
+
+        grid.Children.Add(stackPanel);
+        grid.Children.Add(profileButton);
+        grid.Children.Add(msgButton);
+
+        border.Child = grid;
+
+        return border;
+    }
+
+    public UIElement CreateChatButton(UserModel chattingFriend)
+    {
+        ChatModel c = chats.Where(chat => chat.id == chattingFriend.GetFriendId()).FirstOrDefault() ?? new ChatModel(chattingFriend.GetFriendId(), new List<ChatMessageModel>(), "", "");
+        var button = new Button
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Background = new SolidColorBrush(ColorHelper.FromArgb(255, 0x1E, 0x29, 0x3B)),
+            BorderBrush = new SolidColorBrush(ColorHelper.FromArgb(255, 0x33, 0x41, 0x55)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(12),
+            Tag = chattingFriend.GetFriendId(), //its needed to identify which chat to open when clicked.
+        };
+
+        // Click esemény
+        button.Click += OpenChat;
+
+        var grid = new Grid();
+
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        // Avatar (kör)
+        var avatarBorder = new Border
+        {
+            Width = 38,
+            Height = 38,
+            CornerRadius = new CornerRadius(19),
+            Background = new SolidColorBrush(ColorHelper.FromArgb(255, 0x33, 0x41, 0x55)),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        var avatarText = new TextBlock
+        {
+            Text = chattingFriend.Name.Substring(0, 1),
+            Foreground = new SolidColorBrush(ColorHelper.FromArgb(255, 0xE2, 0xE8, 0xF0)),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            FontWeight = FontWeights.SemiBold
+        };
+
+        avatarBorder.Child = avatarText;
+
+        // Szöveges rész
+        var stackPanel = new StackPanel
+        {
+            Margin = new Thickness(12, 0, 0, 0)
+        };
+        Grid.SetColumn(stackPanel, 1);
+
+        string nameOfLastSender = friends.Where(f => f.Id == c.lastMessageSenderId).Select(f => f.Name).FirstOrDefault() ?? "";     
+        if (nameOfLastSender == "" && c.lastMessageSenderId == user.Id)
+        {
+            nameOfLastSender = user.Name;
+        }
+
+        var nameText = new TextBlock
+        {
+            Text = nameOfLastSender,
+            Foreground = new SolidColorBrush(ColorHelper.FromArgb(255, 0xE2, 0xE8, 0xF0)),
+            FontWeight = FontWeights.SemiBold
+        };
+
+        var messageText = new TextBlock
+        {
+            Text = c.lastMessage.Length > 10 ? c.lastMessage.Substring(0, 10) + "..." : c.lastMessage, //last msg preview
+            Foreground = new SolidColorBrush(ColorHelper.FromArgb(255, 0x94, 0xA3, 0xB8)),
+            FontSize = 12
+        };
+
+        stackPanel.Children.Add(nameText);
+        stackPanel.Children.Add(messageText);
+
+        grid.Children.Add(avatarBorder);
+        grid.Children.Add(stackPanel);
+
+        button.Content = grid;
+
+        return button;
     }
 }

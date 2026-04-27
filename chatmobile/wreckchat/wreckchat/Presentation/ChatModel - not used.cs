@@ -10,7 +10,7 @@ public class ChatItem
     public int UnreadCount { get; set; }
 }
 
-public class ChatModel
+public class ChatModel_NotUsed
 {
     private ObservableCollection<ChatItem> _chats = new();
 
@@ -20,7 +20,7 @@ public class ChatModel
         set => _chats = value;
     }
 
-    public ChatModel()
+    public ChatModel_NotUsed()
     {
         InitializeChats();
     }
