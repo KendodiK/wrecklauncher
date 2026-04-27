@@ -22,9 +22,9 @@ public class WebSocketBackgroundService
     {
         Console.WriteLine("Attempt to start ws");
         var token = await _tokenService.GetToken();
-
+        Console.WriteLine("Token: " + token);                
         _ws.Options.SetRequestHeader("Authorization", $"Bearer {token}");
-
+        Console.WriteLine("Ws Options: "+_ws.Options.ToString());
         try
         {
             await _ws.ConnectAsync(new Uri(url), CancellationToken.None);
@@ -35,7 +35,7 @@ public class WebSocketBackgroundService
             Console.WriteLine("WS ERROR: " + ex.ToString());
         }
 
-        //_ = Task.Run(ReceiveLoop);
+        _ = Task.Run(ReceiveLoop);
     }
 
     private async Task ReceiveLoop()
