@@ -61,11 +61,11 @@ public sealed partial class MainPage : Page
         //todo: barátok lekérdezése
 
         LoginView.Visibility = Visibility.Collapsed;
-        friends = await _model.GetFriends(user.Id);
-        chattingFriends = await _model.GetChattingFriends(user.Id);
+        //friends = await _model.GetFriends(user.Id);
+        //chattingFriends = await _model.GetChattingFriends(user.Id);
 
         BuildFrame();
-
+        Console.WriteLine("Starting ws baah");
         await _model.StartWebSocket();
     }
 
