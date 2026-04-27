@@ -61,15 +61,16 @@ const GameSliderBase = ({
 }) => {	
 	const carouselRef = useRef(null);
 	const containerRef = useRef(null);
-	const shouldReduceMotion = useReducedMotion();
+		const shouldReduceMotion = useReducedMotion();
 	const [isMoving, setIsMoving] = useState(false);
-	const skipAnimationRef = useRef(false);
+	const skipAnimationRef = useRef(true); // Skip animation on initial mount to prevent flash from translate3d(0,0,0) to correct position
 	const lastEmittedCurrentCardRef = useRef('');
 	const suppressCurrentCardEmitRef = useRef(false);
 	const emitCurrentCardOnIndexChangeRef = useRef(false);
-	const resizeRafRef = useRef(0);
+		const resizeRafRef = useRef(0);
 	const wheelLockRef = useRef(false);
 	const xRef = useRef(0);
+	const currentIndexRef = useRef(0);
 	
 	// Drag state
 	const dragStartX = useRef(0);
@@ -256,7 +257,7 @@ const GameSliderBase = ({
 			...head,
 		];
 	}, [baseCards, createProceduralEntry, effectiveLoopCloneCount, hasLoopClones, streamCards, useProceduralLoop]);
-	const recenter = useCallback(
+		const recenter = useCallback(
 		(animate = true) => {
 			if (mode !== 'translate') return;
 			const container = containerRef.current;
@@ -265,7 +266,8 @@ const GameSliderBase = ({
 			if (!cards.length) return;
 
 			const allCards = container.children;
-			const activeCard = allCards[currentIndex];
+			const idx = currentIndexRef.current;
+			const activeCard = allCards[idx];
 			if (!activeCard) return;
 
 			const viewportWidth = carousel.offsetWidth;
@@ -283,13 +285,7 @@ const GameSliderBase = ({
 					container.style.transition = shouldAnimate
 						? resolvedTransition
 						: 'none';
-					const lerp = (start, end, t) => start + (end - start) * t;
-
-let currentX = xRef.current;
-currentX = lerp(currentX, offset, 0.15);
-
-xRef.current = currentX;
-container.style.transform = `translate3d(${currentX}px, 0, 0)`;
+					container.style.transform = `translate3d(${offset}px, 0, 0)`;
 				}
 				return;
 			}
@@ -315,7 +311,7 @@ container.style.transform = `translate3d(${currentX}px, 0, 0)`;
 				container.style.transform = `translate3d(${offset}px, 0, 0)`;
 			}
 		},
-		[activeOffsetPx, cards.length, currentIndex, mode, shouldReduceMotion, transition, transitionMs]
+		[activeOffsetPx, cards.length, mode, shouldReduceMotion, transition, transitionMs]
 	);
 
 	if (!cards.length) return null;
@@ -362,36 +358,42 @@ container.style.transform = `translate3d(${currentX}px, 0, 0)`;
 			}
 		}
 
-		if (targetIndex < 0 || targetIndex === safeCurrentIndex) return;
+				if (targetIndex < 0 || targetIndex === safeCurrentIndex) return;
 		skipAnimationRef.current = true;
 		suppressCurrentCardEmitRef.current = true;
 		emitCurrentCardOnIndexChangeRef.current = false;
+		currentIndexRef.current = targetIndex;
 		setCurrentIndex(targetIndex);
 	}, [cards, currentIndex, selectedCardId]);
 
-	const move = (dir) => {
-		if (isMoving) return;
-		if (cards.length < 2) return;
-		if (useProceduralLoop) {
-			const next = Math.max(0, Math.min(cards.length - 1, currentIndex + dir));
-			if (next === currentIndex) return;
+				const move = (dir) => {
+			if (cards.length < 2) return;
+			if (useProceduralLoop) {
+				const next = Math.max(0, Math.min(cards.length - 1, currentIndex + dir));
+				if (next === currentIndex) return;
+				emitCurrentCardOnIndexChangeRef.current = true;
+				setIsMoving(false);
+				currentIndexRef.current = next;
+				setCurrentIndex(next);
+				return;
+			}
+			if (!hasLoopClones) {
+				const next = Math.max(0, Math.min(cards.length - 1, currentIndex + dir));
+				if (next === currentIndex) return;
+				emitCurrentCardOnIndexChangeRef.current = true;
+				setIsMoving(false);
+				currentIndexRef.current = next;
+				setCurrentIndex(next);
+				return;
+			}
 			emitCurrentCardOnIndexChangeRef.current = true;
-			setIsMoving(true);
-			setCurrentIndex(next);
-			return;
-		}
-		if (!hasLoopClones) {
-			const next = Math.max(0, Math.min(cards.length - 1, currentIndex + dir));
-			if (next === currentIndex) return;
-			emitCurrentCardOnIndexChangeRef.current = true;
-			setIsMoving(true);
-			setCurrentIndex(next);
-			return;
-		}
-		emitCurrentCardOnIndexChangeRef.current = true;
-		setIsMoving(true);
-		setCurrentIndex((prev) => prev + dir);
-	};
+			setIsMoving(false);
+			setCurrentIndex((prev) => {
+				const next = prev + dir;
+				currentIndexRef.current = next;
+				return next;
+			});
+		};
 
 	const focusCarousel = useCallback(() => {
 		const node = carouselRef.current;
@@ -399,22 +401,29 @@ container.style.transform = `translate3d(${currentX}px, 0, 0)`;
 		node.focus({ preventScroll: true });
 	}, []);
 
-	const handleCardClick = (index) => {
-		if (isMoving) return;
-		if (index === currentIndex) {
-			if (advanceOnActiveClick) {
-				move(1);
+				const handleCardClick = (index) => {
+			const isActive = index === currentIndex;
+			if (isActive) {
+				// Only open/activate if clicking the already focused card
+				// and the animation has completed (not currently moving)
+				if (!isMoving && typeof onActivateCard === 'function') {
+					onActivateCard(cards[index], { index });
+				}
+				if (advanceOnActiveClick) {
+					move(1);
+				}
+				return;
 			}
-			return;
-		}
-		// Call onCardClick callback if provided (e.g., for scroll-into-view)
-		if (typeof onCardClick === 'function') {
-			onCardClick(cards[index], { index });
-		}
-		emitCurrentCardOnIndexChangeRef.current = true;
-		setIsMoving(true);
-		setCurrentIndex(index);
-	};
+
+			// Navigate to the clicked card immediately — no need to wait for animation
+			if (typeof onCardClick === 'function') {
+				onCardClick(cards[index], { index });
+			}
+			emitCurrentCardOnIndexChangeRef.current = true;
+			currentIndexRef.current = index;
+			setCurrentIndex(index);
+			setIsMoving(false);
+		};
 	useEffect(() => {
 	const container = containerRef.current;
 	if (!container) return;
@@ -428,11 +437,17 @@ container.style.transform = `translate3d(${currentX}px, 0, 0)`;
 
 
 
-	// Layout update: place active card + toggle active class
+				// Keep currentIndexRef in sync (readable inside RAF callbacks without stale closures)
+	useLayoutEffect(() => {
+		currentIndexRef.current = currentIndex;
+	}, [currentIndex]);
+
+		// Layout update: place active card + toggle active class
 	useLayoutEffect(() => {
 		if (mode !== 'translate') return;
-		recenterSafe(true);
-		skipAnimationRef.current = false;
+		// Use the ref-based sync recenter directly instead of the RAF-deferred recenterSafe,
+		// to avoid a stale-closure double-fire (first to old position, then to new position).
+		recenter(true);
 		skipAnimationRef.current = false;
 	}, [currentIndex, cards.length, recenter, mode]);
 
@@ -488,12 +503,13 @@ container.style.transform = `translate3d(${currentX}px, 0, 0)`;
 					changed = true;
 				}
 
-				if (changed) {
+								if (changed) {
 					skipAnimationRef.current = true;
 					setStreamCards(nextCards);
 					if (nextIndex !== currentIndex) {
 						suppressCurrentCardEmitRef.current = true;
 						emitCurrentCardOnIndexChangeRef.current = false;
+						currentIndexRef.current = nextIndex;
 						setCurrentIndex(nextIndex);
 					}
 				}
@@ -511,10 +527,11 @@ container.style.transform = `translate3d(${currentX}px, 0, 0)`;
 				if (nextIndex >= loopEnd) nextIndex -= baseLen;
 				if (nextIndex < loopStart) nextIndex += baseLen;
 
-				if (nextIndex !== currentIndex) {
+								if (nextIndex !== currentIndex) {
 					skipAnimationRef.current = true;
 					suppressCurrentCardEmitRef.current = true;
 					emitCurrentCardOnIndexChangeRef.current = false;
+					currentIndexRef.current = nextIndex;
 					setCurrentIndex(nextIndex);
 					requestAnimationFrame(() => setIsMoving(false));
 					return;
@@ -535,12 +552,11 @@ container.style.transform = `translate3d(${currentX}px, 0, 0)`;
   return () => clearTimeout(fallback);
 }, [isMoving]);
 
-	// Recenter when the carousel area changes size (e.g., dropdown opens, window resizes).
+		// Recenter when the carousel area changes size (e.g., dropdown opens, window resizes).
 	useEffect(() => {
 		if (mode !== 'translate') return;
 		const carousel = carouselRef.current;
 		if (!carousel) return;
-		const container = containerRef.current;
 
 		const ro = new ResizeObserver(() => {
 			if (resizeRafRef.current) return;
@@ -552,19 +568,15 @@ container.style.transform = `translate3d(${currentX}px, 0, 0)`;
 		ro.observe(carousel);
 		return () => {
 			ro.disconnect();
-			if (container) {
-				container.style.transition = '';
-				container.style.transform = '';
-			}
 			if (resizeRafRef.current) {
 				cancelAnimationFrame(resizeRafRef.current);
 				resizeRafRef.current = 0;
 			}
 		};
-	}, [cards.length, currentIndex, recenter, mode]);
+	}, [recenter, mode]);
 
 	// Keep the current selection stable as cards are appended; only clamp if out of bounds.
-	useEffect(() => {
+		useEffect(() => {
 		if (!cards.length) return;
 		setCurrentIndex((prev) => {
 			const maxIndex = cards.length - 1;
@@ -573,12 +585,14 @@ container.style.transform = `translate3d(${currentX}px, 0, 0)`;
 				skipAnimationRef.current = true;
 				suppressCurrentCardEmitRef.current = true;
 				emitCurrentCardOnIndexChangeRef.current = false;
+				currentIndexRef.current = 0;
 				return 0;
 			}
 			if (prev > maxIndex) {
 				skipAnimationRef.current = true;
 				suppressCurrentCardEmitRef.current = true;
 				emitCurrentCardOnIndexChangeRef.current = false;
+				currentIndexRef.current = maxIndex;
 				return maxIndex;
 			}
 
@@ -590,6 +604,7 @@ container.style.transform = `translate3d(${currentX}px, 0, 0)`;
 					skipAnimationRef.current = true;
 					suppressCurrentCardEmitRef.current = true;
 					emitCurrentCardOnIndexChangeRef.current = false;
+					currentIndexRef.current = anchoredIndex;
 					return anchoredIndex;
 				}
 			}
@@ -668,13 +683,13 @@ container.style.transform = `translate3d(${currentX}px, 0, 0)`;
 		e.preventDefault();
 		e.stopPropagation?.();
 	};
-		const recenterRaf = useRef(0);
+				const recenterRaf = useRef(0);
 
-const recenterSafe = useCallback(() => {
+const recenterSafe = useCallback((animate = true) => {
   if (recenterRaf.current) cancelAnimationFrame(recenterRaf.current);
 
   recenterRaf.current = requestAnimationFrame(() => {
-    recenter(true);
+    recenter(animate);
   });
 }, [recenter]);
 
@@ -706,9 +721,9 @@ const recenterSafe = useCallback(() => {
 			}, 120);
 		};
 
-		el.addEventListener('wheel', handler, { passive: false });
+				el.addEventListener('wheel', handler, { passive: false });
 		return () => el.removeEventListener('wheel', handler, { passive: false });
-	}, [focusCarousel, isMoving]);
+	}, [focusCarousel]);
 
 	// Drag handlers for mouse drag navigation
 	useEffect(() => {
@@ -761,7 +776,7 @@ const recenterSafe = useCallback(() => {
 			window.removeEventListener('mouseup', handleMouseUp);
 			el.removeEventListener('mouseleave', handleMouseLeave);
 		};
-	}, [focusCarousel, isMoving]);
+		}, [focusCarousel]);
 
 	// Touch swipe navigation for mobile/tablet.
 	useEffect(() => {
@@ -805,7 +820,7 @@ const recenterSafe = useCallback(() => {
 			el.removeEventListener('touchend', handleTouchEnd);
 			el.removeEventListener('touchcancel', handleTouchEnd);
 		};
-	}, [focusCarousel, isMoving]);
+		}, [focusCarousel]);
 
 	const effectiveRenderCard = renderCard
 		? renderCard

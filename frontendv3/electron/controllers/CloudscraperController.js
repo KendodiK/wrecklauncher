@@ -92,7 +92,26 @@ class CloudscraperController {
     const links = json.links;
     return links.game.gofile.links[0].link;
   }
+  /**
+   * @param {string} query
+   * @param {number} [page]
+   */
+  async searchByxatab(query, page = 1) {
+    const q = String(query || '').trim();
+    if (!q) throw new Error('query is required');
 
+    const pageNum = Number(page);
+    const qs = {
+      do: 'search',
+      subaction: 'search',
+      story: q,
+      ...(Number.isFinite(pageNum) && pageNum > 1 ? { page: String(Math.floor(pageNum)) } : {}),
+    };
+
+    return await this.fetch('https://byxatab.com/index.php', { qs });
+  }
 }
 
 module.exports = CloudscraperController;
+
+

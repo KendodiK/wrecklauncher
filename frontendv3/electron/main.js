@@ -269,7 +269,7 @@ app.whenReady().then(() => {
     return appTray;
   };
 
-  
+  let cloudscraperCtrl = null;
   /** @type {import('./controllers/UserController')|null} */
   let userCtrl = null;
   /** @type {import('./controllers/SteamGamesController')|null} */
@@ -302,6 +302,14 @@ app.whenReady().then(() => {
   let libraryCacheCtrl = null;
   /** @type {import('./controllers/TorrentStateCacheController')|null} */
   let torrentStateCacheCtrl = null;
+
+  function getCloudscraperCtrl() {
+    if (!cloudscraperCtrl) {
+      const CloudscraperController = require('./controllers/CloudscraperController');
+      cloudscraperCtrl = new CloudscraperController({ timeoutMs: 20_000 });
+    }
+    return cloudscraperCtrl;
+  }
 
   function getUserCtrl() {
     if (!userCtrl) {
