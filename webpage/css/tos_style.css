@@ -35,7 +35,7 @@ a:hover {
 
 
 .content {
-    height: 100vh;
+    height: fit-content;
     background-color: rgba(46, 46, 46, 0.568);
     width: 80%;
     padding: 1rem 1rem;
