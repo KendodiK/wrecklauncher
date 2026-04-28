@@ -97,6 +97,7 @@ public partial class MainModel : BaseViewModel
             foreach (var friendId in friendsIds)
             {
                 var friend = await _apiService.GetUsers(friendId.User_id);
+                friend.SetFriendId(friendId.Id);
                 friends.Add(friend);
             }
             return friends;
@@ -108,30 +109,17 @@ public partial class MainModel : BaseViewModel
         }
     }
 
-    /* public async Task<string> GetGameCount()
-    {
-        try
-        {
-            string gameCount = await _apiService.GetGameCount();
-            return gameCount;
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine("Error fetching game count: " + ex.Message);
-            throw;
-        }
-    } */
-
     public async Task<List<UserModel>> GetChattingFriends(string userId)
     {
         try
         {
-            List<string> chattingFriends = await _apiService.GetChattingFriends(userId);
+            List<FriendModel> chattingFriends = await _apiService.GetChattingFriends(userId);
             var chattingFriendModels = new List<UserModel>();
 
             foreach (var friendId in chattingFriends)
             {
-                var friend = await _apiService.GetUsers(friendId);
+                var friend = await _apiService.GetUsers(friendId.User_id);
+                friend.SetFriendId(friendId.Id);
                 chattingFriendModels.Add(friend);
             }
 
@@ -154,23 +142,6 @@ public partial class MainModel : BaseViewModel
         }
     }
 
-    /* public async Task InitSocket()
-    {
-        await _ws.ConnectAsync(null);
-
-        _ = _ws.StartAsync(async (msg) =>
-        {
-            Debug.WriteLine("WS MSG: " + msg);
-
-            _dispatcher.TryEnqueue(() =>
-            {
-                LastMessage = msg;
-            });
-
-            await Task.CompletedTask;
-        });
-    } */
-
     public async Task StartWebSocket()
     {
         var ws = _serviceProvider.GetService<WebSocketBackgroundService>();
@@ -184,6 +155,20 @@ public partial class MainModel : BaseViewModel
         {
             Console.WriteLine("Error starting WebSocket: " + ex.Message);
             return;
+        }
+    }
+
+    public async Task<List<ChatMessageModel>> GetChatMessages(int friendId, int offset)
+    {
+        try
+        {
+            List<ChatMessageModel> messages = await _apiService.GetChatMessages(friendId, offset);
+            return messages;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine("Error fetching chat messages: " + ex.Message);
+            throw;
         }
     }
 }
