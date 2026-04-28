@@ -2107,9 +2107,8 @@ function resolvePirateSitePageHref(entry, gameTitle = '') {
 		if (!slug) {
 			return encodedTitle ? `https://fitgirl-repacks.site/?s=${encodedTitle}` : 'https://fitgirl-repacks.site/';
 		}
-		// FitGirl expects space-encoded slugs (e.g. "Night%20Shippers") rather than
-		// our slugified hyphen form — use the encoded title to preserve spaces.
-		return `https://fitgirl-repacks.site/${encodedTitle}/`;
+		// Use the slug form when opening FitGirl pages.
+		return `https://fitgirl-repacks.site/${slug}/`;
 	}
 
 	if (

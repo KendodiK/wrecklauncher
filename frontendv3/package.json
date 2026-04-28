@@ -33,12 +33,20 @@
       "preload.js",
       "package.json"
     ],
+    "extraResources": [
+      "logo_fixed.ico"
+    ],
     "win": {
       "target": "nsis",
+      "icon": "logo_fixed.ico",
       "signAndEditExecutable": false
     },
     "nsis": {
       "oneClick": false,
+      "installerIcon": "logo_fixed.ico",
+      "uninstallerIcon": "logo_fixed.ico",
+      "installerHeaderIcon": "logo_fixed.ico",
+      "createDesktopShortcut": "always",
       "allowToChangeInstallationDirectory": true
     }
   },
