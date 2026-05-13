@@ -14,7 +14,7 @@ public partial class MainModel : BaseViewModel
     private ITokenService _tokenService;
     private IServiceProvider _serviceProvider;
     private readonly IWebSocketEventHub _hub;
-    // private IWebSocketService _ws;
+    private readonly WebSocketBackgroundService _ws;
     private readonly DispatcherQueue _dispatcher;
     private string _lastMessage;
     private List<UserModel> friends = new();
@@ -27,14 +27,14 @@ public partial class MainModel : BaseViewModel
         INavigator navigator,
         IApiService apiService,
         ITokenService tokenService,
-        // IWebSocketService webSocketService,
         IServiceProvider serviceProvider,
-        IWebSocketEventHub hub)
+        IWebSocketEventHub hub,
+        WebSocketBackgroundService ws)
     {
         _navigator = navigator;
         _apiService = apiService;
         _tokenService = tokenService;
-        //_ws = webSocketService;
+        _ws = ws;
         _serviceProvider = serviceProvider;
         _hub = hub;
         _dispatcher = DispatcherQueue.GetForCurrentThread();
@@ -48,11 +48,31 @@ public partial class MainModel : BaseViewModel
 
     public IState<string> Name => State<string>.Value(this, () => string.Empty);
 
-    private void HandleMessage(string msg)
+    private void HandleMessage(WsResponse msg)
     {
         _dispatcher.TryEnqueue(() =>
         {
-            LastMessage = msg;
+            //error
+            if (!string.IsNullOrEmpty(msg.Error))
+            {
+                LastMessage = "ERROR: " + msg.Error;
+                return;
+            }
+
+            //warning
+            if (!string.IsNullOrEmpty(msg.Warning))
+            {
+                LastMessage = "WARNING: " + msg.Warning;
+                return;
+            }
+
+            if (string.IsNullOrEmpty(msg.From) || string.IsNullOrEmpty(msg.Text))
+            {
+                LastMessage = "Received invalid message.";
+                return;
+            }
+
+            LastMessage = $"{msg.From}: {msg.Text}";
         });
     }
 
@@ -169,6 +189,28 @@ public partial class MainModel : BaseViewModel
         {
             Debug.WriteLine("Error fetching chat messages: " + ex.Message);
             throw;
+        }
+    }
+
+    public async Task SendMessage(string friendId, string message)
+    {
+        try
+        {
+            var payload = new
+            {
+                to = friendId,
+                text = message
+            };
+
+            var json = System.Text.Json.JsonSerializer.Serialize(payload);
+
+            await _ws.Send(json);
+
+            Debug.WriteLine("Message sent: " + json);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine("Error sending message: " + ex.Message);
         }
     }
 }

@@ -106,8 +106,22 @@ public class WebSocketBackgroundService
             //normál message
             if (result.MessageType == WebSocketMessageType.Text)
             {
-                var msg = Encoding.UTF8.GetString(buffer, 0, result.Count);
-                _hub.Publish(msg);
+                try
+                {
+                    var json = Encoding.UTF8.GetString(buffer, 0, result.Count);
+
+                    var response = System.Text.Json.JsonSerializer
+                        .Deserialize<WsResponse>(json);
+
+                    if (response != null)
+                    {
+                        _hub.Publish(response);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("WS PARSE ERROR: " + ex.Message);
+                }
             }
         }
     }

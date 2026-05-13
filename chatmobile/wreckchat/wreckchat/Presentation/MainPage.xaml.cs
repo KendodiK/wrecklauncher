@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Media;
 using Windows.UI;
 using wreckchat.Services.Api;
 using wreckchat.ViewModels;
+using static KotlinX.Serialization.Descriptors.PrimitiveKind;
 
 namespace wreckchat.Presentation;
 
@@ -15,7 +16,7 @@ public sealed partial class MainPage : Page
     private string _activeChatName = "";
     private Grid _chatRoomView = null!;
     private Grid _chatListView = null!;
-    private TextBlock _chatRoomIncoming = null!;
+    //private TextBlock _chatRoomIncoming = null!;
     private MainModel _model = null!;
     private UserModel user = null!;
     private List<UserModel> friends = new();
@@ -27,7 +28,7 @@ public sealed partial class MainPage : Page
         this.InitializeComponent();
         _chatRoomView = (Grid)FindName("ChatRoomView");
         _chatListView = (Grid)FindName("ChatListView");
-        _chatRoomIncoming = (TextBlock)FindName("ChatRoomIncoming");
+        //_chatRoomIncoming = (TextBlock)FindName("ChatRoomIncoming");
     }
 
     private async void Login_Click(object sender, RoutedEventArgs e)
@@ -85,6 +86,28 @@ public sealed partial class MainPage : Page
         ProfileName.Text = user.Name;
         ProfileBio.Text = user.Bio;
     }
+
+    private async void SendMessageButton_Click(object sender, RoutedEventArgs e)
+    {
+        Button s = (Button)sender;
+        int friendId = int.Parse(s.Tag.ToString().Split('_')[0]);
+        string friendUserId = s.Tag.ToString().Split('_')[1];
+        string message = MessageInput.Text;
+        if (!string.IsNullOrWhiteSpace(message))
+        {
+            Debug.WriteLine($"Sending message to -> friendId: {friendId}, friendUserId: {friendUserId}, message: {message}");
+            _model.SendMessage(friendUserId, message);
+            MessageInput.Text = "";
+            var chat = chats.Where(c => c.id == friendId).FirstOrDefault();
+            if (chat != null)
+            {
+                chat.AddMessages(new List<ChatMessageModel> { new ChatMessageModel { Sender_id = user.Id, Message = message } });
+                var outgoingMsg = showOutgoingMsg(message);
+                MessagesDisp.Children.Add(outgoingMsg);
+            }
+        }
+    }
+
     private void BackToChats_Click(object sender, RoutedEventArgs e)
     {
         _chatRoomView.Visibility = Visibility.Collapsed;
@@ -94,14 +117,20 @@ public sealed partial class MainPage : Page
 
     private void OpenChatRoom(ChatModel chat)
     {
-        var chatName = friends.Where(f => f.GetFriendId() == chat.id).First().Name;
+        Debug.WriteLine($"OpenChatRoom called with chat id: {chat.id}");
+        string chatName = friends.Where(f => f.GetFriendId() == chat.id).First().Name;
+        string friendUserId = friends.Where(f => f.GetFriendId() == chat.id).First().Id;
+
         _activeChatName = chatName;
         HeaderTitle.Text = chatName;
 
-        _chatRoomIncoming.Text = chat.lastMessage ?? "";
-
         _chatListView.Visibility = Visibility.Collapsed;
         ProfileTab.Visibility = Visibility.Collapsed;
+        if (chat.messages.Count > 0)
+        { 
+            BuildMessagesDisp(chat.messages);
+        }
+        SendMessageButton.Tag = chat.id + "_" + friendUserId;
         _chatRoomView.Visibility = Visibility.Visible;
     }
 
@@ -115,7 +144,7 @@ public sealed partial class MainPage : Page
             ChatModel c;
             if (messages.Count == 0)
             {
-                c = new ChatModel(friendId, messages, "", "");
+                c = new ChatModel(friendId, messages);
             }
             else
             {
@@ -330,5 +359,66 @@ public sealed partial class MainPage : Page
         button.Content = grid;
 
         return button;
+    }
+
+    public void BuildMessagesDisp(List<ChatMessageModel> messages)
+    {
+        MessagesDisp.Children.Clear();
+        foreach (var message in messages)
+        {
+            if (message.Sender_id == user.Id)
+            {
+                MessagesDisp.Children.Add(showOutgoingMsg(message.Message));
+            }
+            else
+            {
+                MessagesDisp.Children.Add(showIncomingMsg(message.Message));
+            }
+        }
+    }
+
+    public Border showIncomingMsg(string message)
+    {
+        var incomingBorder = new Border
+        {
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Background = new SolidColorBrush(ColorHelper.FromArgb(255, 0x1E, 0x29, 0x3B)),
+            BorderBrush = new SolidColorBrush(ColorHelper.FromArgb(255, 0x33, 0x41, 0x55)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(10)
+        };
+
+        var incomingText = new TextBlock
+        {
+            Text = message,
+            Foreground = new SolidColorBrush(ColorHelper.FromArgb(255, 0xE2, 0xE8, 0xF0))
+        };
+        
+        incomingBorder.Child = incomingText;
+
+        return incomingBorder;
+    }
+
+    public Border showOutgoingMsg(string message)
+    {
+        var outgoingBorder = new Border
+        {
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Background = new SolidColorBrush(ColorHelper.FromArgb(255, 0x0B, 0x5E, 0x46)),
+            BorderBrush = new SolidColorBrush(ColorHelper.FromArgb(255, 0x10, 0xB9, 0x81)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(10)
+        };
+
+        var outgoingText = new TextBlock
+        {
+            Text = message,
+            Foreground = new SolidColorBrush(ColorHelper.FromArgb(255, 0xE2, 0xE8, 0xF0))
+        };
+
+        outgoingBorder.Child = outgoingText;
+        return outgoingBorder;
     }
 }

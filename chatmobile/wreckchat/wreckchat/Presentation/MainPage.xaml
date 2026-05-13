@@ -71,17 +71,18 @@
 
       <Grid Grid.Row="1" Background="#0F172A">
         <Grid x:Name="ChatsTab" Padding="16">
-          <Grid x:Name="ChatListView">
-            <StackPanel x:Name="ChatsList" Spacing="10" HorizontalAlignment="Center" MaxWidth="520">
-              //chat list from .xaml.cs goes here
-            </StackPanel>
-          </Grid>
+            <Grid x:Name="ChatListView" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                <StackPanel x:Name="ChatsList" Spacing="10" HorizontalAlignment="Center" MaxWidth="520">
+                    //chat list from .xaml.cs goes here
+                </StackPanel>
+            </Grid>
+        </Grid>
 
-          <Grid x:Name="ChatRoomView" Visibility="Collapsed">
+        <Grid x:Name="ChatRoomView" Visibility="Collapsed" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
             <Grid.RowDefinitions>
-              <RowDefinition Height="Auto" />
-              <RowDefinition Height="*" />
-              <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
             <Button Content="←"
@@ -93,39 +94,37 @@
                     FontSize="20"
                     Padding="0" />
 
-            <StackPanel Grid.Row="1" Margin="0,12,0,12" Spacing="8">
-              <Border HorizontalAlignment="Left" Background="#1E293B" BorderBrush="#334155" BorderThickness="1" CornerRadius="8" Padding="10">
-                <TextBlock x:Name="ChatRoomIncoming" Text="Hey!" Foreground="#E2E8F0" />
-              </Border>
-              <Border HorizontalAlignment="Right" Background="#0B5E46" BorderBrush="#10B981" BorderThickness="1" CornerRadius="8" Padding="10">
-                <TextBlock Text="Nice to hear from you." Foreground="#E2E8F0" />
-              </Border>
+            <StackPanel x:Name="MessagesDisp" Grid.Row="1" Margin="0,12,0,12" Spacing="8">
+                //chat messages from .xaml.cs goes here
             </StackPanel>
 
             <Grid Grid.Row="2">
-              <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-              </Grid.ColumnDefinitions>
-              <TextBox PlaceholderText="Type message..."
-                       Background="#1E293B"
-                       BorderBrush="#334155"
-                       Foreground="#E2E8F0"
-                       CornerRadius="8"
-                       Padding="10" />
-              <Button Grid.Column="1"
-                      Content="Send"
-                      Margin="8,0,0,0"
-                      Width="56"
-                      Height="44"
-                      FontSize="14"
-                      Background="#1E293B"
-                      BorderBrush="#334155"
-                      BorderThickness="1"
-                      Foreground="#E2E8F0"
-                      CornerRadius="8" />
-            </Grid>
-          </Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                    <TextBox x:Name="MessageInput"
+                        PlaceholderText="Type message..."
+                        Background="#1E293B"
+                        BorderBrush="#334155"
+                        Foreground="#E2E8F0"
+                        CornerRadius="8"
+                        Padding="10" />
+                    <Button x:Name="SendMessageButton"
+                        Click="SendMessageButton_Click"
+                        Grid.Column="1"
+                        Content="⌲"
+                        Tag=""
+                        Margin="8,0,0,0"
+                        Width="56"
+                        Height="44"
+                        FontSize="14"
+                        Background="#1E293B"
+                        BorderBrush="#334155"
+                        BorderThickness="1"
+                        Foreground="#E2E8F0"
+                        CornerRadius="8"/>
+                </Grid>
         </Grid>
 
         <StackPanel x:Name="NotificationsTab" Visibility="Collapsed" Spacing="8" Padding="16">

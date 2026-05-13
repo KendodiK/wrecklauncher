@@ -2,9 +2,9 @@ namespace wreckchat.Services.WS;
 
 public class WebSocketEventHub : IWebSocketEventHub
 {
-    public event Action<string>? OnMessage;
+    public event Action<WsResponse>? OnMessage;
 
-    public void Publish(string message)
+    public void Publish(WsResponse message)
     {
         OnMessage?.Invoke(message);
     }

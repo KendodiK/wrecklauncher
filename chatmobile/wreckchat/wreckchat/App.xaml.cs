@@ -90,7 +90,6 @@ public partial class App : Application
                     })
                     .AddHttpMessageHandler<AuthHandler>();
 
-                    //services.AddSingleton<IWebSocketService, WebSocketService>();
                     services.AddSingleton<IWebSocketEventHub, WebSocketEventHub>();
                     services.AddSingleton<WebSocketBackgroundService>();
 
