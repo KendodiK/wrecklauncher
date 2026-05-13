@@ -64,6 +64,7 @@ function createWindow() {
     minHeight: 700,
     frame: false,
     title: 'Anchor Launcher',
+      icon: isDev ? path.join(__dirname, '..', 'logo_fixed.ico') : path.join(process.resourcesPath, 'logo_fixed.ico'),
     webPreferences: {
       // preload.js lives at the project root, one level up from this file
       preload: path.join(__dirname, '..', 'preload.js'),
@@ -205,9 +206,32 @@ app.whenReady().then(() => {
    * @returns {Promise<Electron.NativeImage>}
    */
   async function buildTrayIcon() {
+    // 1) Try to load a packaged extra resource (installed app)
     try {
-      const icon = await app.getFileIcon(process.execPath, { size: 'small' });
-      if (icon && !icon.isEmpty()) return icon;
+      const packagedIconPath = path.join(process.resourcesPath || __dirname, 'logo_fixed.ico');
+      if (fs.existsSync(packagedIconPath)) {
+        const img = nativeImage.createFromPath(packagedIconPath);
+        if (img && !img.isEmpty()) return img;
+      }
+    } catch {
+      // ignore
+    }
+
+    // 2) Try to load a dev copy next to the project root
+    try {
+      const devIconPath = path.join(__dirname, '..', 'logo_fixed.ico');
+      if (fs.existsSync(devIconPath)) {
+        const img = nativeImage.createFromPath(devIconPath);
+        if (img && !img.isEmpty()) return img;
+      }
+    } catch {
+      // ignore
+    }
+
+    // 3) Fall back to the exe's embedded icon (existing behavior)
+    try {
+      const exeIcon = await app.getFileIcon(process.execPath, { size: 'small' });
+      if (exeIcon && !exeIcon.isEmpty()) return exeIcon;
     } catch {
       // ignore and fallback
     }
