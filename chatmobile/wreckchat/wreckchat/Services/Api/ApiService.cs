@@ -76,7 +76,6 @@ public class ApiService : IApiService
 
         var body = await response.Content.ReadAsStringAsync();
 
-        // ha "string" jön vissza JSON-ként → korrekt deserialize
         var token = JsonSerializer.Deserialize<string>(body);
 
         if (token == null)

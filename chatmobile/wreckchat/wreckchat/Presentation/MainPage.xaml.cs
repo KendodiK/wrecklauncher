@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml;
@@ -96,20 +97,38 @@ public sealed partial class MainPage : Page
         var chatName = friends.Where(f => f.GetFriendId() == chat.id).First().Name;
         _activeChatName = chatName;
         HeaderTitle.Text = chatName;
-        _chatRoomIncoming.Text = chat.lastMessage;
+
+        _chatRoomIncoming.Text = chat.lastMessage ?? "";
 
         _chatListView.Visibility = Visibility.Collapsed;
-        _chatRoomView.Visibility = Visibility.Visible;    
+        ProfileTab.Visibility = Visibility.Collapsed;
+        _chatRoomView.Visibility = Visibility.Visible;
     }
 
     private async void OpenChat(object sender, RoutedEventArgs e)
     {
-        Button s = (Button)sender;
-        int friendId = (int)s.Tag;
-        List<ChatMessageModel> messages = await _model.GetChatMessages(friendId, 0);
-        ChatModel c = new ChatModel(friendId, messages, messages[messages.Count - 1].Sender_id, messages[messages.Count - 1].Message);
-        chats.Add(c);
-        OpenChatRoom(c);
+        try
+        {
+            Button s = (Button)sender;
+            int friendId = (int)s.Tag;
+            List<ChatMessageModel> messages = await _model.GetChatMessages(friendId, 0);
+            ChatModel c;
+            if (messages.Count == 0)
+            {
+                c = new ChatModel(friendId, messages, "", "");
+            }
+            else
+            {
+                c = new ChatModel(friendId, messages, messages[messages.Count - 1].Sender_id, messages[messages.Count - 1].Message);
+            }
+            chats.Add(c);
+            OpenChatRoom(c);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"OpenChat error: {ex.Message}");
+            Debug.WriteLine($"Stack trace: {ex.StackTrace}");
+        }
     }
 
     private async void ShowTab(string tab) //may change to task??
