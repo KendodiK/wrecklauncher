@@ -43,37 +43,16 @@ public partial class MainModel : BaseViewModel
         Title += $" - {localizer["ApplicationName"]}";
         Title += $" - {appInfo?.Value?.Environment}";
 
-        _hub.OnMessage += HandleMessage;
+        _hub.OnMessageHub += HandleMessage;
     }
 
     public IState<string> Name => State<string>.Value(this, () => string.Empty);
 
+    public event Action<WsResponse>? OnWsMessage;
+
     private void HandleMessage(WsResponse msg)
     {
-        _dispatcher.TryEnqueue(() =>
-        {
-            //error
-            if (!string.IsNullOrEmpty(msg.Error))
-            {
-                LastMessage = "ERROR: " + msg.Error;
-                return;
-            }
-
-            //warning
-            if (!string.IsNullOrEmpty(msg.Warning))
-            {
-                LastMessage = "WARNING: " + msg.Warning;
-                return;
-            }
-
-            if (string.IsNullOrEmpty(msg.From) || string.IsNullOrEmpty(msg.Text))
-            {
-                LastMessage = "Received invalid message.";
-                return;
-            }
-
-            LastMessage = $"{msg.From}: {msg.Text}";
-        });
+        OnWsMessage?.Invoke(msg);
     }
 
     public async Task GoToSecond()

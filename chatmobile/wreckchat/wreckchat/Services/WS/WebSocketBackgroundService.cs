@@ -1,5 +1,6 @@
 using System.Net.WebSockets;
 using System.Text;
+using System.Text.Json;
 using wreckchat.Services.Auth;
 using System.Diagnostics;
 
@@ -51,19 +52,26 @@ public class WebSocketBackgroundService
     {
         _ws?.Dispose();
         _ws = new ClientWebSocket();
-
         var token = await _tokenService.GetToken();
-        _ws.Options.SetRequestHeader("Authorization", $"Bearer {token}");
 
-        await _ws.ConnectAsync(new Uri(url), _cts.Token);
+        try
+        {
+            _ws.Options.SetRequestHeader("Authorization", $"Bearer {token}");
 
-        Debug.WriteLine("WS CONNECTED");
+            await _ws.ConnectAsync(new Uri(url), _cts.Token);
+
+            Debug.WriteLine("WS CONNECTED");
+        }
+        catch (Exception err)
+        {
+            Debug.WriteLine("Error while connecting to WS");
+        }
     }
 
     private async Task ReceiveLoop()
     {
         var buffer = new byte[4096];
-
+        Debug.WriteLine("ReciveLoop started");
         while (_ws!.State == WebSocketState.Open &&
                !_cts.IsCancellationRequested)
         {
@@ -76,7 +84,7 @@ public class WebSocketBackgroundService
             }
 
             //heartbeat timeout check
-            if ((DateTime.UtcNow - _lastHeartbeat).TotalSeconds > 30)
+            if ((DateTime.UtcNow - _lastHeartbeat).TotalSeconds > 50)
             {
                 Debug.WriteLine("Heartbeat timeout → reconnect");
                 break;
@@ -107,14 +115,19 @@ public class WebSocketBackgroundService
             if (result.MessageType == WebSocketMessageType.Text)
             {
                 try
-                {
+                { 
                     var json = Encoding.UTF8.GetString(buffer, 0, result.Count);
 
-                    var response = System.Text.Json.JsonSerializer
-                        .Deserialize<WsResponse>(json);
+                    var response = JsonSerializer.Deserialize<WsResponse>(
+                            json,
+                            new JsonSerializerOptions
+                            {
+                                PropertyNameCaseInsensitive = true
+                            });
 
                     if (response != null)
                     {
+                        Debug.WriteLine("Msg recived from ws");
                         _hub.Publish(response);
                     }
                 }

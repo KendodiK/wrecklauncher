@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Dispatching;
 using Windows.UI;
 using wreckchat.Services.Api;
 using wreckchat.ViewModels;
@@ -60,15 +61,14 @@ public sealed partial class MainPage : Page
         }
 
         user = await _model.GetUserData();
-        //todo: barátok lekérdezése
 
         LoginView.Visibility = Visibility.Collapsed;
         friends = await _model.GetFriends(user.Id);
         chattingFriends = await _model.GetChattingFriends(user.Id);
 
-        BuildFrame();
-        Console.WriteLine("Starting ws baah");
         await _model.StartWebSocket();
+        _model.OnWsMessage += Model_OnWsMessage;
+        BuildFrame();
     }
 
     private void ChatsNav_Click(object sender, RoutedEventArgs e) => ShowTab("Chats");
@@ -117,7 +117,6 @@ public sealed partial class MainPage : Page
 
     private void OpenChatRoom(ChatModel chat)
     {
-        Debug.WriteLine($"OpenChatRoom called with chat id: {chat.id}");
         string chatName = friends.Where(f => f.GetFriendId() == chat.id).First().Name;
         string friendUserId = friends.Where(f => f.GetFriendId() == chat.id).First().Id;
 
@@ -209,6 +208,93 @@ public sealed partial class MainPage : Page
         ChatsNav.Foreground = tab == "Chats" ? new SolidColorBrush(Color.FromArgb(255, 226, 232, 240)) : new SolidColorBrush(Color.FromArgb(255, 148, 163, 184));
         NotificationsNav.Foreground = tab == "Notifications" ? new SolidColorBrush(Color.FromArgb(255, 226, 232, 240)) : new SolidColorBrush(Color.FromArgb(255, 148, 163, 184));
         ProfileNav.Foreground = tab == "Profile" ? new SolidColorBrush(Color.FromArgb(255, 226, 232, 240)) : new SolidColorBrush(Color.FromArgb(255, 148, 163, 184));
+    }
+
+    private void Model_OnWsMessage(WsResponse msg)
+    {
+        Debug.WriteLine($"Received WebSocket message: {msg.Text}");
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            // ERROR
+            if (!string.IsNullOrEmpty(msg.Error))
+            {
+                //incomingMsg = "ERROR: " + msg.Error;
+                return;
+            }
+
+            // WARNING
+            if (!string.IsNullOrEmpty(msg.Warning))
+            {
+                //incomingMsg = "WARNING: " + msg.Warning;
+                return;
+            }
+
+            if (string.IsNullOrEmpty(msg.From) || string.IsNullOrEmpty(msg.Text))
+            {
+                //incomingMsg = "Received invalid message.";
+                return;
+            }
+
+            // NORMAL MESSAGE
+            HandleIncomingMessage(msg.From!, msg.Text!);
+        });
+    }
+
+    /*private void HandleIncomingMessage(string senderUserId, string message)
+    {
+        var friend = friends.Where(f => f.Id == senderUserId).FirstOrDefault();
+        if (friend != null)
+        {
+            var chat = chats.Where(c => c.id == friend.GetFriendId()).FirstOrDefault();
+            if (chat != null)
+            {
+                chat.AddMessages(new List<ChatMessageModel> { new ChatMessageModel { Sender_id = friend.Id, Message = message } });
+                if (_activeChatName == friend.Name && MessagesDisp.Visibility == Visibility.Visible)
+                {
+                    var incomingMsg = showIncomingMsg(message);
+                    MessagesDisp.Children.Add(incomingMsg);
+                }
+                else
+                {
+                    //todo notification badge
+                }
+            }
+            else
+            {
+                //todo create new chat in chatlist
+            }
+        }
+    }*/
+
+    private void HandleIncomingMessage(string senderUserId, string message)
+    {
+        var friend = friends?.FirstOrDefault(f => f.Id == senderUserId);
+
+        if (friend != null)
+        {
+            var chat = chats?.FirstOrDefault(c => c.id == friend.GetFriendId());
+
+            Debug.WriteLine("friend id of msg:" + (string)friend.GetFriendId());
+            Debug.WriteLine("chat null? " + (chat == null));
+
+            if (chat != null)
+            {
+                chat.AddMessages(new List<ChatMessageModel>
+                    {
+                        new ChatMessageModel
+                        {
+                            Sender_id = friend.Id,
+                            Message = message
+                        }
+                    });
+
+                if (_activeChatName == friend.Name)
+                {
+                    var incomingMsg = showIncomingMsg(message);
+                    MessagesDisp.Children.Add(incomingMsg);
+                }
+            }
+        }
     }
 
     public UIElement CreateFriendUIElement(UserModel friend)
