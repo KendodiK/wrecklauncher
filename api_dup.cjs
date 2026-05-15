@@ -154,7 +154,7 @@ app.post("/api/shop-specials/:gameId", tokenValidate(), apiFunctions.POSTNewShop
 
 app.put("/api/native-users", tokenValidate(), apiFunctions.PUTNativeUserProfileInfo); // totally new path
 
-app.put("/api/login", tokenValidate(), apiFunctions.PUTNativeUserLogin);
+app.put("/api/login", apiFunctions.PUTNativeUserLogin);
 
 app.put("/api/games/:gameId", tokenValidate(), apiFunctions.PUTGames); //old path: /api/games/:id no tokenValidate()
 

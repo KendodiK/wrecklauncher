@@ -147,7 +147,7 @@ public partial class MainModel : BaseViewModel
 
         try
         {
-            await ws.StartAsync("ws://api.anchorlauncher.hu:8080");
+            await ws.StartAsync("ws://api.anchorlauncher.hu:8080"); //production: ws://api.anchorlauncher.hu:8080, local: ws://localhost:8080
 
         }
         catch (Exception ex)

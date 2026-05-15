@@ -21,13 +21,12 @@ class ChatsController extends Controller {
      */
     async create(data) {
         await super.create();
-
-        let foreignKeyCheck = await this.#checkForeignKeys(data);
+        console.log('Creating chat with data:', data);
+        const [friends_id, message, sender_id] = data;
+        let foreignKeyCheck = await this.#checkForeignKeys({ friends_id, sender_id });
         if (foreignKeyCheck instanceof Error) {
             throw foreignKeyCheck;
         }
-
-        const [friends_id, message, sender_id] = data;
         const query = 'INSERT INTO `chats` (friends_id, message, sender_id) VALUES (?,?,?)'
         try {
             const [result] = await this.dbConnection.execute(query, [friends_id, message, sender_id]);

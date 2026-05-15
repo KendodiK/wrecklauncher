@@ -240,32 +240,6 @@ public sealed partial class MainPage : Page
         });
     }
 
-    /*private void HandleIncomingMessage(string senderUserId, string message)
-    {
-        var friend = friends.Where(f => f.Id == senderUserId).FirstOrDefault();
-        if (friend != null)
-        {
-            var chat = chats.Where(c => c.id == friend.GetFriendId()).FirstOrDefault();
-            if (chat != null)
-            {
-                chat.AddMessages(new List<ChatMessageModel> { new ChatMessageModel { Sender_id = friend.Id, Message = message } });
-                if (_activeChatName == friend.Name && MessagesDisp.Visibility == Visibility.Visible)
-                {
-                    var incomingMsg = showIncomingMsg(message);
-                    MessagesDisp.Children.Add(incomingMsg);
-                }
-                else
-                {
-                    //todo notification badge
-                }
-            }
-            else
-            {
-                //todo create new chat in chatlist
-            }
-        }
-    }*/
-
     private void HandleIncomingMessage(string senderUserId, string message)
     {
         var friend = friends?.FirstOrDefault(f => f.Id == senderUserId);
@@ -274,7 +248,7 @@ public sealed partial class MainPage : Page
         {
             var chat = chats?.FirstOrDefault(c => c.id == friend.GetFriendId());
 
-            Debug.WriteLine("friend id of msg:" + (string)friend.GetFriendId());
+            Debug.WriteLine("friend id of msg:" + Convert.ToString(friend.GetFriendId()));
             Debug.WriteLine("chat null? " + (chat == null));
 
             if (chat != null)
