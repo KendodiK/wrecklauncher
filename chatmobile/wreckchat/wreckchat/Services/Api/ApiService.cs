@@ -7,7 +7,6 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using wreckchat.Models;
 using wreckchat.Services.Auth;
-using System.Diagnostics;
 
 namespace wreckchat.Services.Api;
 
@@ -67,7 +66,7 @@ public class ApiService : IApiService
 
         using var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-        //Debug.WriteLine($"Login request: {json}");
+        Console.WriteLine($"Login request: {json}");
 
         var response = await _client.PutAsync("/api/login", content);
 
@@ -102,28 +101,28 @@ public class ApiService : IApiService
 
         var body = await response.Content.ReadAsStringAsync();
 
-        List<FriendModel> friends;
+        List<FriendModel> users;
 
         using var doc = JsonDocument.Parse(body);
 
         if (doc.RootElement.ValueKind == JsonValueKind.Array)
         {
-            friends = JsonSerializer.Deserialize<List<FriendModel>>(body, _jsonOptions);
+            users = JsonSerializer.Deserialize<List<FriendModel>>(body, _jsonOptions);
         }
         else
         {
             var single = JsonSerializer.Deserialize<FriendModel>(body, _jsonOptions);
 
-            friends = new List<FriendModel> { single };
+            users = new List<FriendModel> { single };
         }
 
-        if (friends == null)
+        if (users == null)
             throw new InvalidOperationException("Failed to deserialize friends response.");
 
-        return friends;
+        return users;
     }
 
-    public async Task<List<FriendModel>> GetChattingFriends(string chatId)
+    public async Task<List<string>> GetChattingFriends(string chatId)
     {
         await AddAuthHeader();
         var response = await _client.GetAsync($"/api/friends/chatting/{chatId}");
@@ -132,58 +131,10 @@ public class ApiService : IApiService
             Console.WriteLine("No chatting friends found for chat: " + chatId);
             throw new Exception("No chatting friends found for chat");
         }
-
         var body = await response.Content.ReadAsStringAsync();
-
-        List<FriendModel> friends;
-
-        using var doc = JsonDocument.Parse(body);
-
-        if (doc.RootElement.ValueKind == JsonValueKind.Array)
-        {
-            friends = JsonSerializer.Deserialize<List<FriendModel>>(body, _jsonOptions);
-        }
-        else
-        {
-            var single = JsonSerializer.Deserialize<FriendModel>(body, _jsonOptions);
-
-            friends = new List<FriendModel> { single };
-        }
-
+        var friends = JsonSerializer.Deserialize<List<string>>(body);
         if (friends == null)
             throw new InvalidOperationException("Failed to deserialize chatting friends response.");
         return friends;
-    }
-
-    public async Task<List<ChatMessageModel>> GetChatMessages(int friendId, int offset)
-    {
-        await AddAuthHeader();
-        var response = await _client.GetAsync($"/api/messages/{friendId}/list/{offset}");
-        if (response.StatusCode == HttpStatusCode.NotFound)
-        {
-            Console.WriteLine("No chat messages found for friend: " + friendId);
-            throw new Exception("No chat messages found for friend");
-        }
-
-        var body = await response.Content.ReadAsStringAsync();
-
-        List<ChatMessageModel> messages;
-
-        using var doc = JsonDocument.Parse(body);
-
-        if (doc.RootElement.ValueKind == JsonValueKind.Array)
-        {
-            messages = JsonSerializer.Deserialize<List<ChatMessageModel>>(body, _jsonOptions);
-        }
-        else
-        {
-            var single = JsonSerializer.Deserialize<ChatMessageModel>(body, _jsonOptions);
-
-            messages = new List<ChatMessageModel> { single };
-        }
-
-        if (messages == null)
-            throw new InvalidOperationException("Failed to deserialize chat messages response.");
-        return messages;
     }
 }

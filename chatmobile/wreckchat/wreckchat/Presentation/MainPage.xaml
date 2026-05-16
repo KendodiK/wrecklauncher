@@ -72,8 +72,75 @@
       <Grid Grid.Row="1" Background="#0F172A">
         <Grid x:Name="ChatsTab" Padding="16">
           <Grid x:Name="ChatListView">
-            <StackPanel x:Name="ChatsList" Spacing="10" HorizontalAlignment="Center" MaxWidth="520">
-              //chat list from .xaml.cs goes here
+            <StackPanel Spacing="10" HorizontalAlignment="Center" MaxWidth="520">
+              <Button Click="OpenChat_Alex"
+                      HorizontalAlignment="Stretch"
+                      HorizontalContentAlignment="Stretch"
+                      Background="#1E293B"
+                      BorderBrush="#334155"
+                      BorderThickness="1"
+                      CornerRadius="10"
+                      Padding="12">
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <Border Width="38" Height="38" CornerRadius="19" Background="#334155" VerticalAlignment="Center">
+                    <TextBlock Text="A" Foreground="#E2E8F0" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold" />
+                  </Border>
+                  <StackPanel Grid.Column="1" Margin="12,0,0,0">
+                    <TextBlock Text="Alex" Foreground="#E2E8F0" FontWeight="SemiBold" />
+                    <TextBlock Text="Yo bro you there?" Foreground="#94A3B8" FontSize="12" />
+                  </StackPanel>
+                </Grid>
+              </Button>
+
+              <Button Click="OpenChat_Mia"
+                      HorizontalAlignment="Stretch"
+                      HorizontalContentAlignment="Stretch"
+                      Background="#1E293B"
+                      BorderBrush="#334155"
+                      BorderThickness="1"
+                      CornerRadius="10"
+                      Padding="12">
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <Border Width="38" Height="38" CornerRadius="19" Background="#334155" VerticalAlignment="Center">
+                    <TextBlock Text="M" Foreground="#E2E8F0" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold" />
+                  </Border>
+                  <StackPanel Grid.Column="1" Margin="12,0,0,0">
+                    <TextBlock Text="Mia" Foreground="#E2E8F0" FontWeight="SemiBold" />
+                    <TextBlock Text="Sent you the files" Foreground="#94A3B8" FontSize="12" />
+                  </StackPanel>
+                </Grid>
+              </Button>
+
+              <Button Click="OpenChat_Noah"
+                      HorizontalAlignment="Stretch"
+                      HorizontalContentAlignment="Stretch"
+                      Background="#1E293B"
+                      BorderBrush="#334155"
+                      BorderThickness="1"
+                      CornerRadius="10"
+                      Padding="12">
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <Border Width="38" Height="38" CornerRadius="19" Background="#334155" VerticalAlignment="Center">
+                    <TextBlock Text="N" Foreground="#E2E8F0" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold" />
+                  </Border>
+                  <StackPanel Grid.Column="1" Margin="12,0,0,0">
+                    <TextBlock Text="Noah" Foreground="#E2E8F0" FontWeight="SemiBold" />
+                    <TextBlock Text="See you tomorrow" Foreground="#94A3B8" FontSize="12" />
+                  </StackPanel>
+                </Grid>
+              </Button>
             </StackPanel>
           </Grid>
 
@@ -93,27 +160,32 @@
                     FontSize="20"
                     Padding="0" />
 
-            <StackPanel Grid.Row="1" Margin="0,12,0,12" Spacing="8">
-              <Border HorizontalAlignment="Left" Background="#1E293B" BorderBrush="#334155" BorderThickness="1" CornerRadius="8" Padding="10">
-                <TextBlock x:Name="ChatRoomIncoming" Text="Hey!" Foreground="#E2E8F0" />
-              </Border>
-              <Border HorizontalAlignment="Right" Background="#0B5E46" BorderBrush="#10B981" BorderThickness="1" CornerRadius="8" Padding="10">
-                <TextBlock Text="Nice to hear from you." Foreground="#E2E8F0" />
-              </Border>
-            </StackPanel>
+            <ScrollViewer Grid.Row="1" Margin="0,12,0,12" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+              <StackPanel x:Name="ChatMessagesPanel" Spacing="8">
+                <Border HorizontalAlignment="Left" Background="#1E293B" BorderBrush="#334155" BorderThickness="1" CornerRadius="8" Padding="10">
+                  <TextBlock x:Name="ChatRoomIncoming" Text="Hey!" Foreground="#E2E8F0" />
+                </Border>
+                <Border HorizontalAlignment="Right" Background="#0B5E46" BorderBrush="#10B981" BorderThickness="1" CornerRadius="8" Padding="10">
+                  <TextBlock Text="Nice to hear from you." Foreground="#E2E8F0" />
+                </Border>
+              </StackPanel>
+            </ScrollViewer>
 
             <Grid Grid.Row="2">
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
               </Grid.ColumnDefinitions>
-              <TextBox PlaceholderText="Type message..."
+                    <TextBox x:Name="MessageInput"
+                       PlaceholderText="Type message..."
                        Background="#1E293B"
                        BorderBrush="#334155"
                        Foreground="#E2E8F0"
                        CornerRadius="8"
                        Padding="10" />
-              <Button Grid.Column="1"
+                    <Button x:Name="SendMessageButton"
+                      Grid.Column="1"
+                      Click="SendMessage_Click"
                       Content="Send"
                       Margin="8,0,0,0"
                       Width="56"
@@ -163,6 +235,7 @@
               </Grid>
             </Border>
 
+<<<<<<< Updated upstream
             <Grid>
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="360" />
@@ -171,9 +244,40 @@
               </Grid.ColumnDefinitions>
 
               <Border Grid.Column="0" Background="#101A33" BorderBrush="#2A3F66" BorderThickness="1" CornerRadius="8" Padding="12" MinHeight="440">
-                <StackPanel x:Name="FriendsList" Spacing="8">
+                <StackPanel Spacing="8">
                   <TextBlock Text="Friends" FontSize="28" FontWeight="SemiBold" Foreground="#E2E8F0" />
-                    //friends form .xaml.cs goes here
+
+                  <Border Background="#0B152A" BorderBrush="#2A3F66" BorderThickness="1" CornerRadius="8" Padding="10">
+                    <Grid>
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                      </Grid.ColumnDefinitions>
+                      <StackPanel>
+                        <TextBlock Text="Anya" FontWeight="SemiBold" Foreground="#E2E8F0" />
+                        <TextBlock Text="Offline" FontSize="12" Foreground="#94A3B8" />
+                      </StackPanel>
+                      <Button Grid.Column="1" Content="Profile" Margin="8,0,0,0" Background="#101A33" Foreground="#E2E8F0" BorderBrush="#2A3F66" />
+                      <Button Grid.Column="2" Content="MSG" Margin="8,0,0,0" Background="#101A33" Foreground="#E2E8F0" BorderBrush="#2A3F66" />
+                    </Grid>
+                  </Border>
+
+                  <Border Background="#0B152A" BorderBrush="#2A3F66" BorderThickness="1" CornerRadius="8" Padding="10">
+                    <Grid>
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                      </Grid.ColumnDefinitions>
+                      <StackPanel>
+                        <TextBlock Text="Kopii19s" FontWeight="SemiBold" Foreground="#E2E8F0" />
+                        <TextBlock Text="Offline" FontSize="12" Foreground="#94A3B8" />
+                      </StackPanel>
+                      <Button Grid.Column="1" Content="Profile" Margin="8,0,0,0" Background="#101A33" Foreground="#E2E8F0" BorderBrush="#2A3F66" />
+                      <Button Grid.Column="2" Content="MSG" Margin="8,0,0,0" Background="#101A33" Foreground="#E2E8F0" BorderBrush="#2A3F66" />
+                    </Grid>
+                  </Border>
                 </StackPanel>
               </Border>
 
@@ -209,6 +313,14 @@
                 </StackPanel>
               </Border>
             </Grid>
+=======
+            <Border Background="#101A33" BorderBrush="#2A3F66" BorderThickness="1" CornerRadius="8" Padding="12">
+              <StackPanel x:Name="FriendsList" Spacing="8">
+                <TextBlock Text="Friends" FontSize="28" FontWeight="SemiBold" Foreground="#E2E8F0" />
+                  //friends form .xaml.cs goes here
+              </StackPanel>
+            </Border>
+>>>>>>> Stashed changes
           </StackPanel>
         </ScrollViewer>
       </Grid>
