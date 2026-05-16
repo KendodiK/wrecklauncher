@@ -27,7 +27,6 @@ public class WebSocketBackgroundService
 
     public async Task StartAsync(string url)
     {
-<<<<<<< Updated upstream
         Console.WriteLine("Attempt to start ws");
         var token = await _tokenService.GetToken();
         Console.WriteLine("Token: " + token);                
@@ -41,16 +40,6 @@ public class WebSocketBackgroundService
         catch (Exception ex)
         {
             Console.WriteLine("WS ERROR: " + ex.ToString());
-=======
-        Debug.WriteLine("----------Attempt to start ws-----------");
-
-        await Stop();
-
-        var token = (await _tokenService.GetToken())?.Trim('"');
-        if (string.IsNullOrWhiteSpace(token))
-        {
-            throw new InvalidOperationException("No token available for WebSocket connection.");
->>>>>>> Stashed changes
         }
 
         _cts = new CancellationTokenSource();
@@ -83,14 +72,6 @@ public class WebSocketBackgroundService
                 {
                     result = await ws.ReceiveAsync(buffer, cancellationToken);
 
-<<<<<<< Updated upstream
-                    Console.WriteLine("Received heartbeat, sending back...");
-                    await _ws.SendAsync(
-                        bytes,
-                        WebSocketMessageType.Binary,
-                        true,
-                        _cts.Token);
-=======
                     if (result.MessageType == WebSocketMessageType.Close)
                     {
                         Debug.WriteLine("WebSocket close frame received.");
@@ -116,7 +97,6 @@ public class WebSocketBackgroundService
                             true,
                             cancellationToken);
                     }
->>>>>>> Stashed changes
 
                     continue;
                 }

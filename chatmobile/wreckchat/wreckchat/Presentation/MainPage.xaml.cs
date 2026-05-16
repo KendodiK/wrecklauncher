@@ -111,13 +111,6 @@ public sealed partial class MainPage : Page
 
     private void OpenChatRoom(string chatName, string message)
     {
-<<<<<<< Updated upstream
-        _activeChatName = chatName;
-        HeaderTitle.Text = chatName;
-        _chatRoomIncoming.Text = message;
-        _chatListView.Visibility = Visibility.Collapsed;
-        _chatRoomView.Visibility = Visibility.Visible;
-=======
         ChatsTab.Visibility = Visibility.Visible;
 
         var chatName = friends.Where(f => f.GetFriendId() == chat.id).Select(f => f.Name).FirstOrDefault() ?? "Chat";
@@ -147,7 +140,6 @@ public sealed partial class MainPage : Page
         OpenChatRoom(c);
         RenderChatMessages(messages);
         _messageInput.Text = string.Empty;
->>>>>>> Stashed changes
     }
 
     private async void SendMessage_Click(object sender, RoutedEventArgs e)
@@ -239,8 +231,6 @@ public sealed partial class MainPage : Page
         switch (tab)
         {
             case "Profile":
-<<<<<<< Updated upstream
-=======
                 foreach (var friend in friends)
                 {
                     if(friend.shownInFriendsList)
@@ -252,15 +242,12 @@ public sealed partial class MainPage : Page
                     friend.ChangeShownInFriendsList();
                 }
 
->>>>>>> Stashed changes
                 break;
             case "Notifications":
                 break;
             case "Chats":
                 _chatRoomView.Visibility = Visibility.Collapsed;
                 _chatListView.Visibility = Visibility.Visible;
-<<<<<<< Updated upstream
-=======
 
                 foreach (var chattingFriend in chattingFriends)
                 {
@@ -273,7 +260,6 @@ public sealed partial class MainPage : Page
                     chattingFriend.ChangeShownInChatList();
                 }
 
->>>>>>> Stashed changes
                 break;
         }
 
@@ -281,8 +267,6 @@ public sealed partial class MainPage : Page
         NotificationsNav.Foreground = tab == "Notifications" ? new SolidColorBrush(Color.FromArgb(255, 226, 232, 240)) : new SolidColorBrush(Color.FromArgb(255, 148, 163, 184));
         ProfileNav.Foreground = tab == "Profile" ? new SolidColorBrush(Color.FromArgb(255, 226, 232, 240)) : new SolidColorBrush(Color.FromArgb(255, 148, 163, 184));
     }
-<<<<<<< Updated upstream
-=======
 
     public UIElement CreateFriendUIElement(UserModel friend)
     {
@@ -421,5 +405,4 @@ public sealed partial class MainPage : Page
 
         return button;
     }
->>>>>>> Stashed changes
 }
