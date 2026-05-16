@@ -9,11 +9,13 @@ namespace wreckchat.Services.WS;
 public class WebSocketBackgroundService
 {
     private readonly IWebSocketEventHub _hub;
+    private ClientWebSocket? _ws;
     private readonly ITokenService _tokenService;
     private ClientWebSocket? _ws;
     private CancellationTokenSource? _cts;
     private Task? _receiveTask;
     private const string HEARTBEAT_VALUE = "pipi";
+    private DateTime _lastHeartbeat = DateTime.UtcNow;
 
     public WebSocketBackgroundService(IWebSocketEventHub hub, ITokenService tokenService)
     {
@@ -155,7 +157,7 @@ public class WebSocketBackgroundService
             bytes,
             WebSocketMessageType.Text,
             true,
-            CancellationToken.None);
+            _cts.Token);
     }
 
     public Task DisconnectAsync() => Stop();
