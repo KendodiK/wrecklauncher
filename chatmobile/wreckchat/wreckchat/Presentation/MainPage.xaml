@@ -176,37 +176,6 @@
                 </StackPanel>
               </Border>
 
-              <Border Grid.Column="2" Background="#101A33" BorderBrush="#2A3F66" BorderThickness="1" CornerRadius="8" Padding="12" MinHeight="380">
-                <StackPanel Spacing="10">
-                  <TextBlock Text="Your games" FontSize="28" FontWeight="SemiBold" Foreground="#E2E8F0" />
-                  <Grid>
-                    <Grid.ColumnDefinitions>
-                      <ColumnDefinition Width="*" />
-                      <ColumnDefinition Width="8" />
-                      <ColumnDefinition Width="*" />
-                      <ColumnDefinition Width="8" />
-                      <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-                    <Border Grid.Column="0" Background="#0B152A" BorderBrush="#2A3F66" BorderThickness="1" CornerRadius="6" Padding="10">
-                      <StackPanel><TextBlock Text="GAME COUNT" Foreground="#94A3B8" /><TextBlock Text="0" FontSize="22" FontWeight="Bold" Foreground="#E2E8F0" /></StackPanel>
-                    </Border>
-                    <Border Grid.Column="2" Background="#0B152A" BorderBrush="#2A3F66" BorderThickness="1" CornerRadius="6" Padding="10">
-                      <StackPanel><TextBlock Text="YOUR GAMES" Foreground="#94A3B8" /><TextBlock Text="0" FontSize="22" FontWeight="Bold" Foreground="#E2E8F0" /></StackPanel>
-                    </Border>
-                    <Border Grid.Column="4" Background="#0B152A" BorderBrush="#2A3F66" BorderThickness="1" CornerRadius="6" Padding="10">
-                      <StackPanel><TextBlock Text="COMMON COUNT" Foreground="#94A3B8" /><TextBlock Text="0" FontSize="22" FontWeight="Bold" Foreground="#E2E8F0" /></StackPanel>
-                    </Border>
-                  </Grid>
-
-                  <TextBlock Text="No owned games found yet." Foreground="#E2E8F0" />
-
-                  <Border Background="#2D1A14" BorderBrush="#C07A1A" BorderThickness="1" CornerRadius="6" Padding="8">
-                    <TextBlock Text="Error invoking remote method 'user:get-owned-games-from-steam-by-native-userid': Error: Invalid token"
-                               Foreground="#F59E0B"
-                               TextWrapping="Wrap" />
-                  </Border>
-                </StackPanel>
-              </Border>
             </Grid>
           </StackPanel>
         </ScrollViewer>
