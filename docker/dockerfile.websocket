@@ -1,4 +1,4 @@
-FROM node:20-bullseye-slim
+﻿FROM node:20-bullseye-slim
 
 WORKDIR /app
 
@@ -8,18 +8,19 @@ ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1
 
 RUN chown -R node:node /app
 
-COPY --chown=node:node package*.json ./
+COPY --chown=node:node websocket/package*.json ./
 
 USER node
 
 # Use lockfile when present; otherwise fall back to npm install.
 RUN if [ -f package-lock.json ]; then \
-      npm ci --omit=dev --no-audit --no-fund; \
+      npm ci --no-audit --no-fund; \
     else \
-      npm install --omit=dev --no-audit --no-fund; \
+      npm install --no-audit --no-fund; \
     fi
 
-COPY --chown=node:node . .
+COPY --chown=node:node websocket ./websocket/
+COPY --chown=node:node database ./database/
 
 EXPOSE 8080
 

@@ -1,4 +1,4 @@
-services:
+﻿services:
   db:
     image: mariadb:11.4
     env_file:
@@ -45,7 +45,7 @@ services:
       - 8.8.8.8
       - 1.1.1.1
     build:
-      context: ./websocket
+      context: .
       dockerfile: docker/dockerfile.websocket
     env_file:
       - .env
@@ -63,3 +63,4 @@ services:
     restart: unless-stopped
 volumes:
   mariadb_data:
+
