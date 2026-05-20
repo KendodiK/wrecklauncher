@@ -1,14 +1,15 @@
 using System.Diagnostics;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Dispatching;
+using Windows.System;
 using Windows.UI;
 using wreckchat.Services.Api;
 using wreckchat.ViewModels;
-using static KotlinX.Serialization.Descriptors.PrimitiveKind;
+//using static KotlinX.Serialization.Descriptors.PrimitiveKind;
 
 namespace wreckchat.Presentation;
 
@@ -39,13 +40,13 @@ public sealed partial class MainPage : Page
 
         if (string.IsNullOrWhiteSpace(username))
         {
-            // TODO: Show error
+            ShowError("No username given");
             Console.WriteLine("No name");
             return;
         }
         else if (string.IsNullOrWhiteSpace(password))
         {
-            // TODO: Show error
+            ShowError("No password given");
             Console.WriteLine("No pw");
             return;
         }
@@ -55,7 +56,7 @@ public sealed partial class MainPage : Page
         Console.WriteLine(token);
         if (!token)
         {
-            // TODO: Show error
+            ShowError("Unexpected error while logging in");
             Console.WriteLine("No token");
             return;
         }
@@ -65,6 +66,11 @@ public sealed partial class MainPage : Page
         LoginView.Visibility = Visibility.Collapsed;
         friends = await _model.GetFriends(user.Id);
         chattingFriends = await _model.GetChattingFriends(user.Id);
+        foreach (var chattingFriend in chattingFriends)
+        {
+            ChatModel c = await FillChats(chattingFriend.GetFriendId());
+            chats.Add(c);
+        }
 
         await _model.StartWebSocket();
         _model.OnWsMessage += Model_OnWsMessage;
@@ -85,6 +91,11 @@ public sealed partial class MainPage : Page
 
         ProfileName.Text = user.Name;
         ProfileBio.Text = user.Bio;
+    }
+
+    private void MsgButton_Click(object sender, RoutedEventArgs e)
+    {
+        CostAlertGrid.Visibility = Visibility.Collapsed;
     }
 
     private async void SendMessageButton_Click(object sender, RoutedEventArgs e)
@@ -133,6 +144,24 @@ public sealed partial class MainPage : Page
         _chatRoomView.Visibility = Visibility.Visible;
     }
 
+    private async Task<ChatModel> FillChats(int friendId)
+    {
+        List<ChatMessageModel> messages = await _model.GetChatMessages(friendId, 0);
+        ChatModel c;
+        Debug.WriteLine("OpenChat");
+        if (messages.Count < 1)
+        {
+            Debug.WriteLine("NoMessages");
+            c = new ChatModel(friendId, messages);
+        }
+        else
+        {
+            Debug.WriteLine("Got messages");
+            c = new ChatModel(friendId, messages, messages[messages.Count - 1].Sender_id, messages[messages.Count - 1].Message);
+        }
+        return c;
+    }
+
     private async void OpenChat(object sender, RoutedEventArgs e)
     {
         try
@@ -141,12 +170,15 @@ public sealed partial class MainPage : Page
             int friendId = (int)s.Tag;
             List<ChatMessageModel> messages = await _model.GetChatMessages(friendId, 0);
             ChatModel c;
-            if (messages.Count == 0)
+            Debug.WriteLine("OpenChat");
+            if (messages.Count < 1)
             {
+                Debug.WriteLine("NoMessages");
                 c = new ChatModel(friendId, messages);
             }
             else
             {
+                Debug.WriteLine("Got messages");
                 c = new ChatModel(friendId, messages, messages[messages.Count - 1].Sender_id, messages[messages.Count - 1].Message);
             }
             chats.Add(c);
@@ -219,6 +251,10 @@ public sealed partial class MainPage : Page
             if (!string.IsNullOrEmpty(msg.Error))
             {
                 //incomingMsg = "ERROR: " + msg.Error;
+                if (msg.Text != "User offline")
+                {
+                    ShowError("Hiba az üzenet küldésekor");
+                }
                 return;
             }
 
@@ -232,6 +268,7 @@ public sealed partial class MainPage : Page
             if (string.IsNullOrEmpty(msg.From) || string.IsNullOrEmpty(msg.Text))
             {
                 //incomingMsg = "Received invalid message.";
+                ShowError("Érvénytelen üzenet érkezett");
                 return;
             }
 
@@ -247,9 +284,6 @@ public sealed partial class MainPage : Page
         if (friend != null)
         {
             var chat = chats?.FirstOrDefault(c => c.id == friend.GetFriendId());
-
-            Debug.WriteLine("friend id of msg:" + Convert.ToString(friend.GetFriendId()));
-            Debug.WriteLine("chat null? " + (chat == null));
 
             if (chat != null)
             {
@@ -267,8 +301,27 @@ public sealed partial class MainPage : Page
                     var incomingMsg = showIncomingMsg(message);
                     MessagesDisp.Children.Add(incomingMsg);
                 }
+                else
+                {
+                    string alertMsg = message.Length > 30 ? message.Substring(0, 27) + "..." : message;
+                    ShowMessageAllert($"{friend.Name}: {alertMsg}");
+                }
             }
         }
+    }
+
+    private void ShowError(string error)
+    {
+        CostAlertGrid.Visibility = Visibility.Visible;
+        CostAlertGrid.BorderBrush = new SolidColorBrush(ColorHelper.FromArgb(255, 193, 0, 0));
+        AlertText.Text = error;
+    }
+
+    private void ShowMessageAllert(string error)
+    {
+        CostAlertGrid.Visibility = Visibility.Visible;
+        CostAlertGrid.BorderBrush = new SolidColorBrush(ColorHelper.FromArgb(255, 5, 205, 90));
+        AlertText.Text = error;
     }
 
     public UIElement CreateFriendUIElement(UserModel friend)
@@ -357,7 +410,10 @@ public sealed partial class MainPage : Page
         // Click esemény
         button.Click += OpenChat;
 
-        var grid = new Grid();
+        var grid = new Grid
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
 
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -391,7 +447,7 @@ public sealed partial class MainPage : Page
         Grid.SetColumn(stackPanel, 1);
 
         string nameOfLastSender = friends.Where(f => f.Id == c.lastMessageSenderId).Select(f => f.Name).FirstOrDefault() ?? "";     
-        if (nameOfLastSender == "" && c.lastMessageSenderId == user.Id)
+        if (c.lastMessageSenderId == user.Id)
         {
             nameOfLastSender = user.Name;
         }

@@ -11,11 +11,9 @@ public partial class MainModel : BaseViewModel
 {
     private INavigator _navigator;
     private IApiService _apiService;
-    private ITokenService _tokenService;
     private IServiceProvider _serviceProvider;
     private readonly IWebSocketEventHub _hub;
     private readonly WebSocketBackgroundService _ws;
-    private readonly DispatcherQueue _dispatcher;
     private string _lastMessage;
     private List<UserModel> friends = new();
 
@@ -33,11 +31,9 @@ public partial class MainModel : BaseViewModel
     {
         _navigator = navigator;
         _apiService = apiService;
-        _tokenService = tokenService;
         _ws = ws;
         _serviceProvider = serviceProvider;
         _hub = hub;
-        _dispatcher = DispatcherQueue.GetForCurrentThread();
 
         Title = "Main";
         Title += $" - {localizer["ApplicationName"]}";
